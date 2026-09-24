@@ -88,7 +88,7 @@ struct RunnerVectorTests {
             let requests = await host.requests
             if let count = expect.requests { #expect(requests.count == count, label) }
             if let elements = expect.lastElements {
-                let last = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.last).body)
+                let last = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.last).body)
                 #expect(last.updates.count == elements, label)
             }
             if expect.repeatsPrefix == true, requests.count >= 2 {
@@ -109,10 +109,10 @@ struct RunnerVectorTests {
         await workingTree.close()
     }
 
-    static func snapshot(markdown: String) throws -> WireSnapshot {
-        let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
-        return WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+    static func snapshot(markdown: String) throws -> ProtocolSnapshot {
+        let file = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
     }
 }
 
@@ -121,37 +121,37 @@ struct RunnerVectorTests {
 private actor VectorHost: UpdateTransport {
     let tree: String
     private var script: [String]
-    private(set) var requests: [PreparedWireUpdate] = []
-    private var current: WireSnapshot
+    private(set) var requests: [PreparedProtocolUpdate] = []
+    private var current: ProtocolSnapshot
     private var currentUpdate = "up_initial"
-    private var snapshots: [String: WireSnapshot]
-    private var receipts: [String: WireUpdateElementResult] = [:]
+    private var snapshots: [String: ProtocolSnapshot]
+    private var receipts: [String: ProtocolUpdateElementResult] = [:]
     private var accepted = 0
 
-    init(tree: String, initial: WireSnapshot, script: [String]) {
+    init(tree: String, initial: ProtocolSnapshot, script: [String]) {
         self.tree = tree
         self.current = initial
         self.snapshots = [initial.root: initial]
         self.script = script
     }
 
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         requests.append(prepared)
         let action = script.isEmpty ? "accept" : script.removeFirst()
-        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
         switch action {
         case "fail":
             throw URLError(.networkConnectionLost)
         case "reject":
-            let head = WireAcceptedUpdate(id: currentUpdate, tree: tree, root: current.root, previous: nil, acceptedAt: 1_800_000_000_000)
-            throw WireUpdateConflictError(conflict: WireUpdateConflict(message: "refused", current: head, base: current.root,
-                candidate: request.updates.last?.candidate ?? "", draft: WireConflictDraft(root: current.root), conflicts: []))
+            let head = ProtocolAcceptedUpdate(id: currentUpdate, tree: tree, root: current.root, previous: nil, acceptedAt: 1_800_000_000_000)
+            throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(message: "refused", current: head, base: current.root,
+                candidate: request.updates.last?.candidate ?? "", draft: ProtocolConflictDraft(root: current.root), conflicts: []))
         case "unsupported":
-            throw WireHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
+            throw ProtocolHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
         default:
             break
         }
-        var results: [WireUpdateElementResult] = []
+        var results: [ProtocolUpdateElementResult] = []
         var known = snapshots[current.root] ?? current
         for (index, element) in request.updates.enumerated() {
             let digest = prepared.requestDigests[index]
@@ -160,44 +160,44 @@ private actor VectorHost: UpdateTransport {
             known = candidate
             if let receipt = receipts[digest] { results.append(receipt); continue }
             accepted += 1
-            let update = WireAcceptedUpdate(id: "up_\(accepted)", tree: tree, root: candidate.root,
+            let update = ProtocolAcceptedUpdate(id: "up_\(accepted)", tree: tree, root: candidate.root,
                 previous: .init(id: currentUpdate, root: current.root), acceptedAt: 1_800_000_000_000)
-            let result = WireUpdateElementResult(result: .accepted(update), requestDigest: digest)
+            let result = ProtocolUpdateElementResult(result: .accepted(update), requestDigest: digest)
             receipts[digest] = result
             results.append(result)
             current = candidate
             currentUpdate = update.id
         }
         if action == "acceptThenFail" { throw URLError(.networkConnectionLost) }
-        return WireUpdateResponse(results: results, observedThrough: currentUpdate)
+        return ProtocolUpdateResponse(results: results, observedThrough: currentUpdate)
     }
 
-    func descriptor(tree: String) async throws -> WireCurrentTree {
-        WireCurrentTree(tree: WireTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree {
+        ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
             canonical: nil, update: currentUpdate), observedThrough: currentUpdate)
     }
 
-    func snapshot(tree _: String, root: String) async throws -> WireSnapshot {
+    func snapshot(tree _: String, root: String) async throws -> ProtocolSnapshot {
         guard let snapshot = snapshots[root] else { throw UpdateError.returnedSnapshotMissing }
         return snapshot
     }
 
-    private func complete(_ element: WireCandidateUpdate, retained: WireSnapshot) throws -> WireSnapshot {
+    private func complete(_ element: ProtocolCandidateUpdate, retained: ProtocolSnapshot) throws -> ProtocolSnapshot {
         var envelopes = Dictionary(uniqueKeysWithValues: retained.objects.map { ($0.hash, $0) })
         for object in element.objects { envelopes[object.hash] = object }
         for delta in element.deltas {
             guard let base = envelopes[delta.base] else { throw UpdateError.returnedSnapshotMissing }
-            envelopes[delta.result] = WireObjectEnvelope(hash: delta.result, bytes: try delta.apply(to: base.bytes))
+            envelopes[delta.result] = ProtocolObjectEnvelope(hash: delta.result, bytes: try delta.apply(to: base.bytes))
         }
-        var pending = [(element.candidate, WireEntryKind.directory)], seen = Set<String>(), objects: [WireObjectEnvelope] = []
+        var pending = [(element.candidate, ProtocolEntryKind.directory)], seen = Set<String>(), objects: [ProtocolObjectEnvelope] = []
         while let (hash, kind) = pending.popLast() {
             guard seen.insert(hash).inserted else { continue }
             guard let envelope = envelopes[hash] else { throw UpdateError.returnedSnapshotMissing }
             objects.append(envelope)
-            if case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes, kind: kind) {
+            if case let .directory(entries, _) = try ProtocolObjectCodec.decode(envelope.bytes, kind: kind) {
                 for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
             }
         }
-        return WireSnapshot(root: element.candidate, objects: objects.sorted { $0.hash < $1.hash })
+        return ProtocolSnapshot(root: element.candidate, objects: objects.sorted { $0.hash < $1.hash })
     }
 }

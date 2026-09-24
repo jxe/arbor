@@ -14,7 +14,7 @@ const CONFIG_KEYS = [
 ] as const;
 
 type ConfigKey = typeof CONFIG_KEYS[number];
-export type CanopyDeploymentConfig = Record<ConfigKey, string>;
+export type HostDeploymentConfig = Record<ConfigKey, string>;
 
 interface RailwayStatus {
   id: string;
@@ -64,8 +64,8 @@ function value(source: string, key: string): string | undefined {
   return raw;
 }
 
-export function parseCanopyDeploymentConfig(source: string): CanopyDeploymentConfig {
-  const result = Object.fromEntries(CONFIG_KEYS.map((key) => [key, value(source, key)])) as Partial<CanopyDeploymentConfig>;
+export function parseHostDeploymentConfig(source: string): HostDeploymentConfig {
+  const result = Object.fromEntries(CONFIG_KEYS.map((key) => [key, value(source, key)])) as Partial<HostDeploymentConfig>;
   const missing = CONFIG_KEYS.filter((key) => !result[key]);
   if (missing.length) throw new Error(`Canopy deployment config is missing: ${missing.join(", ")}`);
   for (const line of source.split(/\r?\n/)) {
@@ -86,7 +86,7 @@ export function parseCanopyDeploymentConfig(source: string): CanopyDeploymentCon
     throw new Error("ARBOR_FIRST_WRITER_PROFILE must be a self-certifying person Profile TreeID");
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(result.ARBOR_RAILWAY_REPO!)) throw new Error("ARBOR_RAILWAY_REPO must be owner/repo");
-  return result as CanopyDeploymentConfig;
+  return result as HostDeploymentConfig;
 }
 
 async function command(program: string, args: string[], options: { json?: boolean } = {}): Promise<any> {
@@ -154,11 +154,11 @@ function managed(environment: RailwayEnvironment): RailwayServiceInstance[] {
     .sort((left, right) => left.serviceName.localeCompare(right.serviceName));
 }
 
-async function config(path: string): Promise<CanopyDeploymentConfig> {
-  return parseCanopyDeploymentConfig(await readFile(resolve(path), "utf8"));
+async function config(path: string): Promise<HostDeploymentConfig> {
+  return parseHostDeploymentConfig(await readFile(resolve(path), "utf8"));
 }
 
-async function requirePublished(config: CanopyDeploymentConfig): Promise<void> {
+async function requirePublished(config: HostDeploymentConfig): Promise<void> {
   const [head, remote] = await Promise.all([
     command("git", ["rev-parse", "HEAD"]),
     command("git", ["rev-parse", `origin/${config.ARBOR_RAILWAY_BRANCH}`]),

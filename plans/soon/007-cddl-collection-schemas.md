@@ -15,8 +15,8 @@ Nothing here authorizes live-data, installed-app or public-host changes. Read
 
 The Swift changes were made without a Swift toolchain and have not compiled:
 
-- `swift/Packages/Overstory/Sources/Overstory/WireObjects.swift`:
-  `WireCollectionFileDescriptor.schemaSources`, default `version: 2`, and
+- `swift/Packages/Overstory/Sources/Overstory/ProtocolObjects.swift`:
+  `ProtocolCollectionFileDescriptor.schemaSources`, default `version: 2`, and
   directory validation that pairs version 1 with `schema.ts` and version 2 with
   `schema.cddl`.
 - `swift/Packages/Overstory/Tests/OverstoryTests/OverstoryTests.swift`: nine

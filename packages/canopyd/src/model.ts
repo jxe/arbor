@@ -1,7 +1,7 @@
 import type { AccessLevel, ReadWriteAccess, TreeKind } from "@overstory/protocol";
 import type { ObjectHash } from "@overstory/protocol";
 
-export interface CanopyTree {
+export interface HostTree {
   id: string;
   canonicalPath: string | null;
   parentTree: string | null;
@@ -15,11 +15,11 @@ export interface CanopyTree {
 }
 
 /** Whether a tree holds an account's configuration rather than ordinary content. */
-export function isAccountConfigPolicy(policy: CanopyTree["policy"]): boolean {
+export function isAccountConfigPolicy(policy: HostTree["policy"]): boolean {
   return policy === "account-config-v2";
 }
 
-export interface CanopyAccount {
+export interface HostAccount {
   id: string;
   handle: string;
   profileTree: string | null;
@@ -27,13 +27,13 @@ export interface CanopyAccount {
   enabled: boolean;
 }
 
-export interface CanopyAuthentication {
-  account: CanopyAccount;
+export interface HostAuthentication {
+  account: HostAccount;
   subject: string;
   device: string | null;
 }
 
-export interface CanopyAccessEntry {
+export interface HostAccessEntry {
   id: string;
   tree: string;
   subjectKind: "everyone" | "profile" | "link";

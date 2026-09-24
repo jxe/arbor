@@ -123,14 +123,14 @@ async function waitForCanopy(): Promise<void> {
 }
 
 async function client() {
-  const { WireClient } = await import("@overstory/protocol");
+  const { ProtocolClient } = await import("@overstory/protocol");
   const { listLocalAccounts } = await import("@overstory/arborsync/state");
-  const { CanopyAccountStore } = await import("@overstory/protocol");
+  const { HostAccountStore } = await import("@overstory/protocol");
   const account = (await listLocalAccounts()).find((candidate) => candidate.canopy?.startsWith(origin));
   if (!account) throw new Error("No lab account is claimed");
-  const credential = await new CanopyAccountStore(account.configurationTree).get();
+  const credential = await new HostAccountStore(account.configurationTree).get();
   if (!credential) throw new Error("The lab account credential is unavailable");
-  return new WireClient(origin, credential.accountToken);
+  return new ProtocolClient(origin, credential.accountToken);
 }
 
 /** The tree's current accepted state with every object of its root. */
@@ -141,8 +141,8 @@ async function current(wire: Awaited<ReturnType<typeof client>>, tree: string) {
 }
 
 async function fileHash(objects: Map<string, Uint8Array>, root: string, name: string) {
-  const { decodeWireDirectory } = await import("@overstory/protocol");
-  const entry = decodeWireDirectory(objects.get(root)!).entries.find((candidate) => candidate.name === name);
+  const { decodeProtocolDirectory } = await import("@overstory/protocol");
+  const entry = decodeProtocolDirectory(objects.get(root)!).entries.find((candidate) => candidate.name === name);
   if (!entry?.file) throw new Error(`No page ${name}`);
   return entry.file;
 }
@@ -175,10 +175,10 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
     .map((operation) => operation.source.material.path.slice(1)));
   if (removed.size) {
     // Root-level removals only; the lab's pages all live at the root.
-    const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@overstory/protocol");
-    const directory = decodeWireDirectory(generated.get(root) ?? base.objects.get(root)!);
+    const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
+    const directory = decodeProtocolDirectory(generated.get(root) ?? base.objects.get(root)!);
     directory.entries = directory.entries.filter((entry) => !removed.has(entry.name));
-    const bytes = encodeWireDirectory(directory);
+    const bytes = encodeProtocolDirectory(directory);
     root = hashObject(bytes);
     generated.set(root, bytes);
   }
@@ -191,14 +191,14 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
 
 /** One snapshot candidate replacing whole root entries (no source trace). */
 async function entriesCandidate(base: { root: string; objects: Map<string, Uint8Array> }, entries: Record<string, EntryValue>) {
-  const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@overstory/protocol");
+  const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
   const objects = new Map<string, Uint8Array>();
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
   const folder = (value: { type: "directory"; entries: any[] }) => {
     value.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-    return put(encodeWireDirectory(value as never));
+    return put(encodeProtocolDirectory(value as never));
   };
-  const root = decodeWireDirectory(base.objects.get(base.root)!);
+  const root = decodeProtocolDirectory(base.objects.get(base.root)!);
   for (const [name, value] of Object.entries(entries)) {
     root.entries = root.entries.filter((entry) => entry.name !== name);
     if (value && "text" in value) root.entries.push({ name, file: put(new TextEncoder().encode(value.text)) } as never);
@@ -278,7 +278,7 @@ async function up() {
 }
 
 async function serve(fresh: boolean) {
-  const { serveCanopy } = await import("@overstory/canopyd");
+  const { serveHost } = await import("@overstory/canopyd");
   let community;
   if (fresh) {
     const { ProfileIdentityStore } = await import("@overstory/arborsync/state");
@@ -287,7 +287,7 @@ async function serve(fresh: boolean) {
     const identity = await new ProfileIdentityStore().create(profile);
     community = { handle: "lab", name: "Conflict lab", firstWriter: { handle: "joe", profileTree: identity.profileTree } };
   }
-  await serveCanopy({ dataRoot: join(lab, "canopy"), publicOrigin: origin, hostname: "127.0.0.1", port, ...(community ? { community } : {}) });
+  await serveHost({ dataRoot: join(lab, "canopy"), publicOrigin: origin, hostname: "127.0.0.1", port, ...(community ? { community } : {}) });
   log(`conflict lab canopyd on ${origin}`);
   await new Promise(() => {});
 }

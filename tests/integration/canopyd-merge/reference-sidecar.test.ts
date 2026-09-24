@@ -1,20 +1,20 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
-import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate } from "@overstory/protocol";
 
 /** canopyd's rule-agnostic acceptance behavior against the reference sidecar
  * in test support, which reads only the object store and the question. */
 const sidecar = new URL("../../support/reference-sidecar.ts", import.meta.url).pathname;
-let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient, tree: string, questions = 0;
+let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, tree: string, questions = 0;
 const objects = new Map<string, Uint8Array>();
 
 async function start() {
-  running = await serveCanopy({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+  running = await serveHost({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
     accounts: [{ handle: "owner", token: "owner-token", communityWriter: true }],
     mergeTool: { command: [process.execPath, sidecar], onTiming: (phase) => { if (phase === "worker-process") questions++; } } });
-  client = new WireClient(running.url, "owner-token");
+  client = new ProtocolClient(running.url, "owner-token");
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 beforeEach(async () => {
@@ -28,13 +28,13 @@ afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: tr
 
 /** A snapshot of `root` with `files` written. */
 function snapshot(root: string, files: Record<string, string>): CandidateUpdate {
-  const directory = decodeWireDirectory(objects.get(root)!);
+  const directory = decodeProtocolDirectory(objects.get(root)!);
   for (const [name, text] of Object.entries(files)) {
     const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
     objects.set(file, bytes);
     directory.entries = [...directory.entries.filter((e) => e.name !== name), { name, file }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   }
-  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes);
+  const bytes = encodeProtocolDirectory(directory), candidate = hashObject(bytes);
   objects.set(candidate, bytes);
   return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }

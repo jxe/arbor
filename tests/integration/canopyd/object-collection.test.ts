@@ -3,22 +3,22 @@ import { Database } from "bun:sqlite";
 import { access, mkdtemp, readdir, rename, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectObjects, serveCanopy } from "@overstory/canopyd";
+import { collectObjects, serveHost } from "@overstory/canopyd";
 import { ObjectStore } from "@overstory/object-store";
-import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject,
-  type CandidateUpdate, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+  type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
-let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient, store: ObjectStore;
+let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, store: ObjectStore;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
 const token = "collection-owner";
 
 async function start() {
-  running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
+  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new WireClient(running.url, token);
+  client = new ProtocolClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 /** A fresh process: nothing read from an in-memory object cache. */
@@ -27,15 +27,15 @@ async function restart() { await stop(); await start(); }
 const encoder = new TextEncoder();
 function bytesOf(text: string) { const bytes = encoder.encode(text); return { hash: hashObject(bytes), bytes }; }
 function file(text: string) { const { hash, bytes } = bytesOf(text); objects.set(hash, bytes); return hash; }
-function directory(value: WireDirectory) {
+function directory(value: ProtocolDirectory) {
   value.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(value), hash = hashObject(bytes); objects.set(hash, bytes); return hash;
+  const bytes = encodeProtocolDirectory(value), hash = hashObject(bytes); objects.set(hash, bytes); return hash;
 }
-function change(basis: string, entries: Record<string, Omit<WireDirectoryEntry, "name"> | null>): string {
-  const value = decodeWireDirectory(objects.get(basis)!);
+function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): string {
+  const value = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
     value.entries = value.entries.filter((e) => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as WireDirectoryEntry);
+    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
   }
   return directory(value);
 }
@@ -78,7 +78,7 @@ afterEach(async () => {
 test("collection deletes only old unreferenced objects and leaves an intact, replayable history", async () => {
   // Dead objects: a body and a directory no accepted update names.
   const junk = bytesOf("never accepted");
-  const junkBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash }] });
+  const junkBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash }] });
   const junkDirectory = { hash: hashObject(junkBytes), bytes: junkBytes };
   // A document version whose body no retained root holds any more, as after migration 016.
   const oldBody = bytesOf("---\nid: note\n---\nSquashed\n");

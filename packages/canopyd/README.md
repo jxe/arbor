@@ -10,7 +10,7 @@ depends on it except tests and the deployment tooling.
   response mapping, with no update policy; `cli.ts`: `canopyd`.
 - `schema.ts`: the SQLite table definitions, the schema version stamp, the
   startup schema assertion (`SchemaMismatchError`), the row invariants the
-  integrity audit checks, and `openCanopyDatabase`. The stamps are listed in
+  integrity audit checks, and `openHostDatabase`. The stamps are listed in
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
 - `updates/`: `reconcile.ts` (the identity-only current, accept, and merge
   table; invokes the merge sidecar only when both sides changed),

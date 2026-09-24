@@ -64,8 +64,8 @@ struct NodeRef: Codable, Sendable, Equatable {
     }
 }
 
-/// A canonical tree location is the same value on the Wire and through Arbor Sync.
-typealias CanonicalTreeDescriptor = WireCanonicalDescriptor
+/// A canonical tree location is the same value on the protocol and through Arbor Sync.
+typealias CanonicalTreeDescriptor = ProtocolCanonicalDescriptor
 
 struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     var snapshot: Value
@@ -86,7 +86,7 @@ struct TreeDescriptor: Codable, Sendable, Equatable {
     var canonical: CanonicalTreeDescriptor?
 }
 
-/// A tree as Arbor Sync holds it: the Wire descriptor fields plus placement,
+/// A tree as Arbor Sync holds it: the protocol descriptor fields plus placement,
 /// display name, and synchronization state. `root` and `update` are the
 /// accepted Canopy base this placement derives from, absent until one exists.
 struct LocalTreeDescriptor: Codable, Sendable, Equatable {
@@ -135,7 +135,7 @@ struct WorkspaceChange: Codable, Sendable, Equatable {
     var directoryRevision: String?
     var origin: String
     var mutationID: String?
-    /// Authenticated Wire requests incorporated by this materialized sync transition.
+    /// Authenticated protocol requests incorporated by this materialized sync transition.
     var acceptedRequestDigests: [String]?
 }
 
@@ -179,7 +179,7 @@ struct ArborSyncErrorValue: Codable, Sendable, Equatable {
 
 // MARK: - Bootstrap and credential (`GET /v1/bootstrap`, `GET /v1/credential`)
 
-/// The daemon's recorded accepted base for a placement; `cursor` equals `update` and seeds a Wire watch.
+/// The daemon's recorded accepted base for a placement; `cursor` equals `update` and seeds a protocol watch.
 struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
     var root: String
     var update: String
@@ -212,13 +212,13 @@ struct TreeBootstrap: Sendable, Equatable {
     var tree: TreeBootstrapDescriptor
     var accepted: TreeBootstrapAccepted
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
-    var spine: WireSnapshot
+    var spine: ProtocolSnapshot
     var observedThrough: String
 
     init(
         tree: TreeBootstrapDescriptor,
         accepted: TreeBootstrapAccepted,
-        spine: WireSnapshot,
+        spine: ProtocolSnapshot,
         observedThrough: String
     ) {
         self.tree = tree

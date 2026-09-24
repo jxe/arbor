@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { generateArborID, sha256 } from "@overstory/protocol";
 import type { PairingOffer, ServerDevice } from "@overstory/protocol";
-import type { CanopyAccount, CanopyAuthentication } from "./model.ts";
+import type { HostAccount, HostAuthentication } from "./model.ts";
 
 /** A device's last-use time is advisory; refresh it at most this often. */
 const LAST_USED_RESOLUTION_MS = 60_000;
@@ -23,7 +23,7 @@ export interface PairingRecord {
 export class AccountDirectory {
   constructor(private readonly db: Database) {}
 
-  account(id: string): CanopyAccount | null {
+  account(id: string): HostAccount | null {
     const row = this.db.query("SELECT * FROM accounts WHERE id = ?").get(id) as
       | { id: string; handle: string; profile_tree: string | null; config_tree: string | null; enabled: number }
       | null;
@@ -33,7 +33,7 @@ export class AccountDirectory {
   }
 
   /** The account row when it exists and the community has not disabled it. */
-  enabledAccount(id: string): CanopyAccount | null {
+  enabledAccount(id: string): HostAccount | null {
     const account = this.account(id);
     return account?.enabled ? account : null;
   }
@@ -44,12 +44,12 @@ export class AccountDirectory {
     return row?.handle;
   }
 
-  accountByHandle(handle: string): CanopyAccount | null {
+  accountByHandle(handle: string): HostAccount | null {
     const row = this.db.query("SELECT id FROM accounts WHERE handle = ?").get(handle) as { id: string } | null;
     return row ? this.account(row.id) : null;
   }
 
-  authenticateToken(token: string | undefined): CanopyAuthentication | null {
+  authenticateToken(token: string | undefined): HostAuthentication | null {
     if (!token) return null;
     const digest = sha256(token);
     const device = this.db.query(`
@@ -90,7 +90,7 @@ export class AccountDirectory {
     return this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(id));
   }
 
-  devices(account: CanopyAccount): ServerDevice[] {
+  devices(account: HostAccount): ServerDevice[] {
     return this.db.query("SELECT * FROM devices WHERE account_id = ? ORDER BY created_at, id")
       .all(account.id).map((row) => this.deviceRow(row)!);
   }
@@ -114,7 +114,7 @@ export class AccountDirectory {
     );
   }
 
-  createPairing(account: CanopyAccount): PairingOffer {
+  createPairing(account: HostAccount): PairingOffer {
     const id = generateArborID("pa");
     const secret = `arp_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
@@ -169,7 +169,7 @@ export class AccountDirectory {
     return claimed.changes === 1;
   }
 
-  resetAccountToken(handle: string, token: string): CanopyAccount {
+  resetAccountToken(handle: string, token: string): HostAccount {
     if (!/^arb_[a-f0-9]{64}$/.test(token)) {
       throw new Error("A replacement account token must be arb_ followed by 64 lowercase hexadecimal characters");
     }

@@ -42,18 +42,18 @@ export interface CurrentTree {
   observedThrough: EventCursor;
 }
 
-export class WireUpdateConflict extends Error {
+export class ProtocolUpdateConflict extends Error {
   constructor(readonly result: UpdateConflictResult) {
     super("Server could not safely accept the candidate update");
-    this.name = "WireUpdateConflict";
+    this.name = "ProtocolUpdateConflict";
   }
 }
 
-export class WireUnsupportedOperation extends Error {
+export class ProtocolUnsupportedOperation extends Error {
   readonly retryable = false;
   constructor(readonly result: ArborError) {
     super(result.message);
-    this.name = "WireUnsupportedOperation";
+    this.name = "ProtocolUnsupportedOperation";
   }
 }
 
@@ -144,24 +144,24 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
 }
 
 /** HTTP failure with machine-readable status; the message retains existing diagnostics. */
-export class WireHTTPError extends Error {
+export class ProtocolHTTPError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
-    this.name = "WireHTTPError";
+    this.name = "ProtocolHTTPError";
   }
 }
 
-export class WireTransportError extends TypeError {
+export class ProtocolTransportError extends TypeError {
   override readonly cause: unknown;
 
   constructor(message: string, cause: unknown) {
     super(message);
-    this.name = "WireTransportError";
+    this.name = "ProtocolTransportError";
     this.cause = cause;
   }
 }
 
-export class WireClient {
+export class ProtocolClient {
   private readonly timeoutMs: number;
 
   constructor(
@@ -184,7 +184,7 @@ export class WireClient {
     const body = await response.text();
     let envelope: ArborError | undefined;
     try { envelope = JSON.parse(body) as ArborError; } catch {}
-    throw new WireHTTPError(response.status, `${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
+    throw new ProtocolHTTPError(response.status, `${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -194,7 +194,7 @@ export class WireClient {
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new WireTransportError(`Could not reach Arbor server at ${this.origin}`, error);
+      throw new ProtocolTransportError(`Could not reach Arbor server at ${this.origin}`, error);
     }
   }
 
@@ -321,7 +321,7 @@ export class WireClient {
       return decodeSnapshotBundle(root, bytes);
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new WireTransportError(`Snapshot transfer from ${this.origin} stopped making progress`, error);
+        throw new ProtocolTransportError(`Snapshot transfer from ${this.origin} stopped making progress`, error);
       }
       throw error;
     } finally {
@@ -371,7 +371,7 @@ export class WireClient {
     });
     if (response.status === 422) {
       const body = await response.clone().json() as ArborError;
-      if (body.error === "unsupported-operation" && body.retryable === false) throw new WireUnsupportedOperation(body);
+      if (body.error === "unsupported-operation" && body.retryable === false) throw new ProtocolUnsupportedOperation(body);
     }
     if (response.status === 409) {
       const body = await response.json() as { error?: unknown; message?: unknown };
@@ -381,7 +381,7 @@ export class WireClient {
           || conflict.details.completed.some((item, index) => item.requestDigest !== expected[index])) {
           throw new Error("Server conflict update-string identity mismatch");
         }
-        throw new WireUpdateConflict(conflict);
+        throw new ProtocolUpdateConflict(conflict);
       }
       throw new Error(`${response.url}: ${typeof body.error === "string" ? body.error : "update rejected"}${typeof body.message === "string" ? `: ${body.message}` : ""}`);
     }

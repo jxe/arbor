@@ -83,7 +83,7 @@ struct LoopbackServicesTests {
 
         // The spine is sparse: the root directory and the Markdown object are present,
         // the binary is referenced by hash only.
-        let objects = try WireObjectGraph.validate(bootstrap.spine, mode: .sparseFiles)
+        let objects = try ProtocolObjectGraph.validate(bootstrap.spine, mode: .sparseFiles)
         #expect(objects.count == 2)
         guard case let .directory(entries, _)? = objects[bootstrap.spine.root] else {
             Issue.record("root is not a directory"); return
@@ -92,8 +92,8 @@ struct LoopbackServicesTests {
         #expect(names == ["_index.md", "photo.bin"])
         let photo = try #require(entries.first { $0.name == "photo.bin" }?.hash)
         #expect(objects[photo] == nil)
-        #expect(throws: ArborWireValidationError.self) {
-            try WireObjectGraph.validate(bootstrap.spine, mode: .complete)
+        #expect(throws: ProtocolValidationError.self) {
+            try ProtocolObjectGraph.validate(bootstrap.spine, mode: .complete)
         }
         let requests = await LoopbackStub.state.requests()
         #expect(requests.map(\.path) == ["/v1/bootstrap"])
@@ -176,8 +176,8 @@ struct LoopbackServicesTests {
         #expect(requests.count == 2)
         #expect(requests.allSatisfy { $0.query == "configurationTree=tr_cfg" })
 
-        // As a WireCredentialProvider it feeds the Wire client's bearer header.
-        let wire: any WireCredentialProvider = provider
+        // As a ProtocolCredentialProvider it feeds the protocol client's bearer header.
+        let wire: any ProtocolCredentialProvider = provider
         #expect(try await wire.credential() == "token-2")
     }
 
@@ -200,8 +200,8 @@ struct LoopbackServicesTests {
 
     @Test("The object route returns verified bytes and asks for CBOR")
     func objectRouteVerifies() async throws {
-        let bytes = try WireObjectCodec.encode(.file(Data("# Notes\n".utf8)))
-        let hash = WireObjectCodec.hash(bytes)
+        let bytes = try ProtocolObjectCodec.encode(.file(Data("# Notes\n".utf8)))
+        let hash = ProtocolObjectCodec.hash(bytes)
         await LoopbackStub.state.install { _, _ in (200, bytes, "application/cbor") }
         let client = stubbedClient()
         let served = try await client.object(tree: "tr_notes", hash: hash, origin: URL(string: "https://notes.example")!)
@@ -211,15 +211,15 @@ struct LoopbackServicesTests {
         #expect(request.query == "tree=tr_notes&origin=https://notes.example")
         #expect(request.accept == "application/cbor")
 
-        await #expect(throws: ArborWireValidationError.self) {
+        await #expect(throws: ProtocolValidationError.self) {
             _ = try await client.object(tree: "tr_notes", hash: "sha256:not-a-hash")
         }
     }
 
     @Test("DaemonObjectStore rejects a hash mismatch and maps 404 to missing")
     func daemonObjectStoreVerifies() async throws {
-        let bytes = try WireObjectCodec.encode(.file(Data("# Notes\n".utf8)))
-        let hash = WireObjectCodec.hash(bytes)
+        let bytes = try ProtocolObjectCodec.encode(.file(Data("# Notes\n".utf8)))
+        let hash = ProtocolObjectCodec.hash(bytes)
         let other = "sha256:" + String(repeating: "ab", count: 32)
         await LoopbackStub.state.install { request, _ in
             if request.url?.path.hasSuffix(other) == true { return (200, bytes, "application/cbor") }

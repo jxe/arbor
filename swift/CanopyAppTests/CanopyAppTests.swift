@@ -17,7 +17,7 @@ struct CanopyAppTests {
     @Test("Profile frontmatter edits preserve the Markdown body")
     func profileFrontmatterEdits() throws {
         let personSource = "---\r\nid: pg_me\r\ntype: person\r\navatar: images/me.png\r\n---\r\n\r\n# Hello\r\n"
-        let updated = try ArborProfileDocument.updatingPerson(
+        let updated = try CanopyProfileDocument.updatingPerson(
             personSource,
             displayName: "Joe Arbor",
             description: "Building gardens."
@@ -25,9 +25,9 @@ struct CanopyAppTests {
         #expect(updated.contains("displayName: \"Joe Arbor\"\r\n"))
         #expect(updated.contains("description: \"Building gardens.\"\r\n"))
         #expect(updated.hasSuffix("---\r\n\r\n# Hello\r\n"))
-        #expect(ArborProfileDocument.parse(updated)?.displayName == "Joe Arbor")
+        #expect(CanopyProfileDocument.parse(updated)?.displayName == "Joe Arbor")
 
-        let withoutDescription = try ArborProfileDocument.updatingPerson(
+        let withoutDescription = try CanopyProfileDocument.updatingPerson(
             updated,
             displayName: "Joe Arbor",
             description: "",
@@ -35,10 +35,10 @@ struct CanopyAppTests {
         )
         #expect(!withoutDescription.contains("description:"))
         #expect(withoutDescription.contains("avatar: \"a1b2-profile-photo.jpg\"\r\n"))
-        #expect(ArborProfileDocument.parse(withoutDescription)?.avatarPath == "a1b2-profile-photo.jpg")
+        #expect(CanopyProfileDocument.parse(withoutDescription)?.avatarPath == "a1b2-profile-photo.jpg")
 
         let groupSource = "---\ntype: group\nmembers:\n  - profile: \"arbor://tr_existing/\"\n---\n\n# Garden\n"
-        let withMember = try ArborProfileDocument.addingMember(
+        let withMember = try CanopyProfileDocument.addingMember(
             profileTree: "tr_new",
             handle: nil,
             to: groupSource
@@ -47,41 +47,41 @@ struct CanopyAppTests {
         #expect(!withMember.contains("handle:"))
         #expect(withMember.hasSuffix("---\n\n# Garden\n"))
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.addingMember(profileTree: "tr_new", handle: nil, to: withMember)
+            try CanopyProfileDocument.addingMember(profileTree: "tr_new", handle: nil, to: withMember)
         }
         let personTree = "tr_" + String(repeating: "a", count: 52)
-        let direct = try ArborProfileDocument.addingMember(
+        let direct = try CanopyProfileDocument.addingMember(
             profileTree: " \(personTree) ",
             handle: "~direct-person",
-            reservesCanopyHandle: true,
+            reservesHostHandle: true,
             to: groupSource
         )
         #expect(direct.contains("  - profile: \"arbor://\(personTree)/\"\n    handle: \"direct-person\"\n"))
-        #expect(ArborProfileDocument.parse(direct)?.memberHandlesByProfile["arbor://\(personTree)/"] == "direct-person")
+        #expect(CanopyProfileDocument.parse(direct)?.memberHandlesByProfile["arbor://\(personTree)/"] == "direct-person")
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.addingMember(
+            try CanopyProfileDocument.addingMember(
                 profileTree: "tr_" + String(repeating: "b", count: 52),
                 handle: "direct-person",
-                reservesCanopyHandle: true,
+                reservesHostHandle: true,
                 to: direct
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.addingMember(profileTree: "not-a-tree", handle: nil, to: groupSource)
+            try CanopyProfileDocument.addingMember(profileTree: "not-a-tree", handle: nil, to: groupSource)
         }
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.addingMember(
+            try CanopyProfileDocument.addingMember(
                 profileTree: personTree,
                 handle: "Not Valid",
-                reservesCanopyHandle: true,
+                reservesHostHandle: true,
                 to: groupSource
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.addingMember(
+            try CanopyProfileDocument.addingMember(
                 profileTree: "tr_valid2",
                 handle: "valid",
-                reservesCanopyHandle: true,
+                reservesHostHandle: true,
                 to: groupSource
             )
         }
@@ -105,50 +105,50 @@ struct CanopyAppTests {
         # Garden
 
         """
-        let members = try #require(ArborProfileDocument.parse(source)).members
+        let members = try #require(CanopyProfileDocument.parse(source)).members
         #expect(members.map(\.profile) == ["arbor://tr_alice/", "arbor://tr_bob/", "arbor://garden.example/~carol"])
         #expect(members.map(\.handle) == ["alice", nil, nil])
         #expect(members.map(\.treeID) == ["tr_alice", "tr_bob", nil])
 
-        let withoutAlice = try ArborProfileDocument.removingMember(profile: "arbor://tr_alice/", from: source)
+        let withoutAlice = try CanopyProfileDocument.removingMember(profile: "arbor://tr_alice/", from: source)
         #expect(!withoutAlice.contains("alice"))
         #expect(withoutAlice.contains("# founders first\nmembers:\n  -\n    profile: \"arbor://tr_bob/\"\n"))
         #expect(withoutAlice.hasSuffix("displayName: Garden\n---\n\n# Garden\n"))
 
-        let withoutBob = try ArborProfileDocument.removingMember(profile: "arbor://tr_bob/", from: withoutAlice)
-        let empty = try ArborProfileDocument.removingMember(profile: "arbor://garden.example/~carol", from: withoutBob)
+        let withoutBob = try CanopyProfileDocument.removingMember(profile: "arbor://tr_bob/", from: withoutAlice)
+        let empty = try CanopyProfileDocument.removingMember(profile: "arbor://garden.example/~carol", from: withoutBob)
         #expect(empty.contains("members: []\ndisplayName: Garden\n"))
-        #expect(ArborProfileDocument.parse(empty)?.members.isEmpty == true)
-        let readded = try ArborProfileDocument.addingMember(profileTree: "tr_dave", handle: nil, to: empty)
-        #expect(ArborProfileDocument.parse(readded)?.members.map(\.treeID) == ["tr_dave"])
+        #expect(CanopyProfileDocument.parse(empty)?.members.isEmpty == true)
+        let readded = try CanopyProfileDocument.addingMember(profileTree: "tr_dave", handle: nil, to: empty)
+        #expect(CanopyProfileDocument.parse(readded)?.members.map(\.treeID) == ["tr_dave"])
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.removingMember(profile: "arbor://tr_alice/", from: withoutAlice)
+            try CanopyProfileDocument.removingMember(profile: "arbor://tr_alice/", from: withoutAlice)
         }
     }
 
     @Test("A new group's root declares its name, description, and members")
     func newGroupSource() throws {
-        let source = try ArborProfileDocument.newGroupSource(
+        let source = try CanopyProfileDocument.newGroupSource(
             displayName: " Garden Club ",
             description: "Neighbors who grow things.",
             memberTrees: ["tr_alice", "tr_bob", "tr_alice"]
         )
-        let profile = try #require(ArborProfileDocument.parse(source))
+        let profile = try #require(CanopyProfileDocument.parse(source))
         #expect(profile.kind == .group)
         #expect(profile.displayName == "Garden Club")
         #expect(profile.description == "Neighbors who grow things.")
         #expect(profile.members.map(\.treeID) == ["tr_alice", "tr_bob"])
         #expect(source.hasSuffix("---\n\n# Garden Club\n"))
-        let empty = try ArborProfileDocument.newGroupSource(displayName: "Solo", description: "", memberTrees: [])
+        let empty = try CanopyProfileDocument.newGroupSource(displayName: "Solo", description: "", memberTrees: [])
         #expect(empty.contains("members: []\n"))
         #expect(!empty.contains("description:"))
         #expect(throws: (any Error).self) {
-            try ArborProfileDocument.newGroupSource(displayName: "  ", description: "", memberTrees: [])
+            try CanopyProfileDocument.newGroupSource(displayName: "  ", description: "", memberTrees: [])
         }
-        #expect(ArborGroupSlug.make(from: "Café Club — 2026!") == "cafe-club-2026")
-        #expect(ArborGroupSlug.make(from: "!!!").isEmpty)
-        #expect(ArborGroupSlug.isValid("cafe-club-2026"))
-        #expect(!ArborGroupSlug.isValid("-cafe"))
+        #expect(CanopyGroupSlug.make(from: "Café Club — 2026!") == "cafe-club-2026")
+        #expect(CanopyGroupSlug.make(from: "!!!").isEmpty)
+        #expect(CanopyGroupSlug.isValid("cafe-club-2026"))
+        #expect(!CanopyGroupSlug.isValid("-cafe"))
     }
 
     @Test("Profile photos are normalized to a directory-compatible asset")
@@ -156,7 +156,7 @@ struct CanopyAppTests {
         let png = try #require(Data(base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
         ))
-        let asset = try ArborProfilePhotoImport.normalized(png)
+        let asset = try CanopyProfilePhotoImport.normalized(png)
         #expect(asset.name == "profile-photo.jpg")
         #expect(asset.mediaType == "image/jpeg")
         #expect(!asset.bytes.isEmpty)
@@ -165,15 +165,15 @@ struct CanopyAppTests {
 
     @Test("Source comparison highlights exact changed lines in either direction")
     func sourceComparisonLines() {
-        let proposed = ArborSourceLineComparison(displayed: "same\nnew\n", baseline: "same\nold\n")
+        let proposed = CanopySourceLineComparison(displayed: "same\nnew\n", baseline: "same\nold\n")
         #expect(proposed.changedLines == [1])
         #expect(proposed.lines.joined(separator: "\n") == "same\nnew\n")
-        #expect(ArborSourceLineComparison(displayed: "same\nold\n", baseline: "same\nnew\n").changedLines == [1])
-        #expect(ArborSourceLineComparison(displayed: "é", baseline: "e\u{301}").changedLines == [0])
-        #expect(ArborSourceLineComparison(displayed: "a\r\n", baseline: "a\n").changedLines == [0])
-        #expect(ArborSourceLineComparison(displayed: "same", baseline: "same\nremoved").status == "Changes appear in the other version")
-        #expect(ArborSourceLineComparison(displayed: "", baseline: "").status == "Identical source")
-        let large = ArborSourceLineComparison(displayed: String(repeating: "a\n", count: 4000), baseline: "b")
+        #expect(CanopySourceLineComparison(displayed: "same\nold\n", baseline: "same\nnew\n").changedLines == [1])
+        #expect(CanopySourceLineComparison(displayed: "é", baseline: "e\u{301}").changedLines == [0])
+        #expect(CanopySourceLineComparison(displayed: "a\r\n", baseline: "a\n").changedLines == [0])
+        #expect(CanopySourceLineComparison(displayed: "same", baseline: "same\nremoved").status == "Changes appear in the other version")
+        #expect(CanopySourceLineComparison(displayed: "", baseline: "").status == "Identical source")
+        let large = CanopySourceLineComparison(displayed: String(repeating: "a\n", count: 4000), baseline: "b")
         #expect(large.changedLines.isEmpty)
         #expect(large.status == "Highlighting unavailable for this large comparison")
     }
@@ -222,7 +222,7 @@ struct CanopyAppTests {
             retrySave: {}, syncNow: {},
             reconnectArborSync: {}, showArborSyncLogs: {}
         )
-        #expect(status.overallStatusTitle == "This Arbor client is up to date")
+        #expect(status.overallStatusTitle == "Canopy is up to date")
     }
 
     @Test("Profile toolbar never reports fully synced over pending or failed local retention")
@@ -250,8 +250,8 @@ struct CanopyAppTests {
     @Test("A current tree cannot hide a document edit that could not be retained")
     func syncStatusRetainsDocumentFailure() async throws {
         let session = StatusConflictSession()
-        let binding = try await ArborDocumentBinding.open(reference: session.reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: session.reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: LinkPreviewService(cacheDirectory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
@@ -276,21 +276,21 @@ struct CanopyAppTests {
     }
     @Test("History explains that edits wait in the change log")
     func historyCopy() {
-        #expect(ArborHistoryView.title == "History")
-        #expect(ArborHistoryView.unavailableTitle == "No history yet")
-        #expect(ArborHistoryView.unavailableExplanation.contains("change log"))
+        #expect(CanopyHistoryView.title == "History")
+        #expect(CanopyHistoryView.unavailableTitle == "No history yet")
+        #expect(CanopyHistoryView.unavailableExplanation.contains("change log"))
     }
 
     @Test("Share invites accept comma-separated handles and profile URLs")
     func shareInviteLocators() {
-        #expect(ArborShareInvite.locators(
+        #expect(CanopyShareInvite.locators(
             in: " ~alice, arbor://community.example/~research,  ,~bob "
         ) == ["~alice", "arbor://community.example/~research", "~bob"])
     }
 
     @Test("Bootstrap diagnostics distinguish an external daemon that is no longer reachable")
     func externalDaemonSaveDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             URLError(.cannotConnectToHost),
             processKind: .external,
             context: .bootstrap
@@ -306,7 +306,7 @@ struct CanopyAppTests {
 
     @Test("Bootstrap diagnostics distinguish a supervised daemon from an external one")
     func supervisedDaemonSaveDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             URLError(.networkConnectionLost),
             processKind: .supervised,
             context: .bootstrap
@@ -319,7 +319,7 @@ struct CanopyAppTests {
 
     @Test("Bootstrap diagnostics distinguish timeouts from refused connections")
     func timedOutSaveDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             URLError(.timedOut),
             processKind: .external,
             context: .bootstrap
@@ -344,14 +344,14 @@ struct CanopyAppTests {
                 details: nil
             )
         )
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             error,
             processKind: .external,
             context: .bootstrap
         ))
 
         #expect(diagnostic.bannerMessage.contains("unavailable cloud placeholders"))
-        #expect(ArborWorkspaceState.bootstrapFailureMessage(error, processKind: .external)
+        #expect(CanopyWorkspaceState.bootstrapFailureMessage(error, processKind: .external)
             .contains("unavailable cloud placeholders"))
     }
 #endif
@@ -359,7 +359,7 @@ struct CanopyAppTests {
     @Test("Local document retention never classifies a connection failure as a daemon outage")
     func saveDiagnosticsNeverBlameTheDaemon() throws {
         for error: Error in [URLError(.cannotConnectToHost), URLError(.timedOut), CocoaError(.fileWriteNoPermission)] {
-            let diagnostic = try #require(ArborSaveDiagnostic.describe(error, processKind: .supervised))
+            let diagnostic = try #require(CanopySaveDiagnostic.describe(error, processKind: .supervised))
             #expect(diagnostic.kind == .providerFailure)
             #expect(diagnostic.synchronizationOverride == nil)
             #expect(!diagnostic.bannerMessage.contains("daemon"))
@@ -368,7 +368,7 @@ struct CanopyAppTests {
 
     @Test("Durability diagnostics do not mislabel arbitrary provider failures as daemon outages")
     func genericSaveDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             CocoaError(.fileWriteNoPermission),
             processKind: .supervised
         ))
@@ -380,7 +380,7 @@ struct CanopyAppTests {
 
     @Test("An append failure says the edit is only in the editor and names the change log")
     func appendFailureDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+        let diagnostic = try #require(CanopySaveDiagnostic.describe(
             WorkspaceProviderError.invalidAction("Captured editor intent changed"),
             processKind: .supervised
         ))
@@ -388,7 +388,7 @@ struct CanopyAppTests {
         #expect(diagnostic.conditionLabel == "Change log append failed")
         #expect(diagnostic.editSafetyDetail.contains("only in this editor session"))
         #expect(diagnostic.technicalDetail == "Captured editor intent changed")
-        #expect(diagnostic.explanation.contains("placed Arbor file"))
+        #expect(diagnostic.explanation.contains("placed tree file"))
     }
 
     @Test("Automatic synchronization recognizes transient network failures")
@@ -400,21 +400,21 @@ struct CanopyAppTests {
             URLError(.networkConnectionLost),
             URLError(.notConnectedToInternet),
         ] as [Error] {
-            #expect(ArborWorkspaceState.syncErrorMessage(
+            #expect(CanopyWorkspaceState.syncErrorMessage(
                 for: error,
                 reportTransientNetworkErrors: false
             ) == nil)
-            #expect(ArborWorkspaceState.syncErrorMessage(
+            #expect(CanopyWorkspaceState.syncErrorMessage(
                 for: error,
                 reportTransientNetworkErrors: true
             ) != nil)
         }
 
-        #expect(ArborWorkspaceState.syncErrorMessage(
+        #expect(CanopyWorkspaceState.syncErrorMessage(
             for: URLError(.badServerResponse),
             reportTransientNetworkErrors: false
         ) != nil)
-        #expect(ArborWorkspaceState.syncErrorMessage(
+        #expect(CanopyWorkspaceState.syncErrorMessage(
             for: CocoaError(.fileReadCorruptFile),
             reportTransientNetworkErrors: false
         ) != nil)
@@ -423,22 +423,22 @@ struct CanopyAppTests {
     @Test("Local overview refreshes for synchronized ordinary trees")
     func localOverviewSyncEvents() {
         let configurationTree = "tr_account"
-        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+        #expect(CanopyWorkspaceState.localOverviewEventRequiresRefresh(
             tree: "system",
             origin: "external",
             configurationTree: configurationTree
         ))
-        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+        #expect(CanopyWorkspaceState.localOverviewEventRequiresRefresh(
             tree: configurationTree,
             origin: "api",
             configurationTree: configurationTree
         ))
-        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+        #expect(CanopyWorkspaceState.localOverviewEventRequiresRefresh(
             tree: "tr_document",
             origin: "sync",
             configurationTree: configurationTree
         ))
-        #expect(!ArborWorkspaceState.localOverviewEventRequiresRefresh(
+        #expect(!CanopyWorkspaceState.localOverviewEventRequiresRefresh(
             tree: "tr_document",
             origin: "api",
             configurationTree: configurationTree
@@ -447,12 +447,12 @@ struct CanopyAppTests {
 
     @Test("Extras state uses Arbor-owned support directories")
     func extrasSupportDirectories() {
-        #expect(ArborSupportDirectories.root.lastPathComponent == "Arbor")
-        #expect(ArborSupportDirectories.linkPreviews.path.hasSuffix("/Arbor/LinkPreviews"))
-        #expect(ArborSupportDirectories.pendingVoiceRecordings.path.hasSuffix(
+        #expect(CanopySupportDirectories.root.lastPathComponent == "Arbor")
+        #expect(CanopySupportDirectories.linkPreviews.path.hasSuffix("/Arbor/LinkPreviews"))
+        #expect(CanopySupportDirectories.pendingVoiceRecordings.path.hasSuffix(
             "/Arbor/Pending Voice Recordings"
         ))
-        #expect(!ArborSupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
+        #expect(!CanopySupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
     @Test("Directory cache round-trips and avatar hashes cannot escape the cache")
@@ -460,7 +460,7 @@ struct CanopyAppTests {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = DirectoryStore(url: root.appending(path: "Directory.json"))
-        let entry = WireProfileDirectoryEntry(
+        let entry = ProtocolProfileDirectoryEntry(
             profile: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
             kind: "person",
             displayName: "Alice Arbor",
@@ -474,8 +474,8 @@ struct CanopyAppTests {
 
     @Test("Production startup does not expose the in-memory sample tree")
     func productionStartupIsEmpty() async {
-        let workspace = ArborWorkspaceState()
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState()
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
 
         #expect(model.node?.title == "No tree open")
@@ -489,12 +489,12 @@ struct CanopyAppTests {
             .appending(path: "ArborNativePlacement-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativePlacementStore(url: root.appending(path: "placement.json"))
-        let tree = WireTreeDescriptor(
+        let tree = ProtocolTreeDescriptor(
             id: "tr_native",
             kind: "ordinary",
             root: "sha256:\(String(repeating: "a", count: 64))",
             access: "write",
-            canonical: WireCanonicalDescriptor(
+            canonical: ProtocolCanonicalDescriptor(
                 path: "/~joe/todos",
                 endpoint: "https://arbor.example"
             ),
@@ -514,20 +514,20 @@ struct CanopyAppTests {
         try await store.save(placed)
         #expect(try NativePlacementStore.selected(at: root.appending(path: "placement.json"))?.osPath == "/Users/example/todos")
         #expect(placed.displayName == "todos")
-        var sameTreeFromAnotherCanopy = placed
-        sameTreeFromAnotherCanopy.origin = try #require(URL(string: "https://another.example"))
-        try await store.save(sameTreeFromAnotherCanopy)
+        var sameTreeFromAnotherHost = placed
+        sameTreeFromAnotherHost.origin = try #require(URL(string: "https://another.example"))
+        try await store.save(sameTreeFromAnotherHost)
         #expect(try await store.loadAll().count == 1)
-        #expect(try await store.loadAll().first?.origin == sameTreeFromAnotherCanopy.origin)
+        #expect(try await store.loadAll().first?.origin == sameTreeFromAnotherHost.origin)
         let second = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
             configurationTree: "tr_accountconfiguration",
-            tree: WireTreeDescriptor(
+            tree: ProtocolTreeDescriptor(
                 id: "tr_second",
                 kind: "ordinary",
                 root: "sha256:\(String(repeating: "b", count: 64))",
                 access: "read",
-                canonical: WireCanonicalDescriptor(
+                canonical: ProtocolCanonicalDescriptor(
                     path: "/~joe/reading",
                     endpoint: "https://arbor.example"
                 ),
@@ -552,13 +552,13 @@ struct CanopyAppTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = VisitedTreeStore(url: root.appending(path: "Visits.json"))
         let origin = try #require(URL(string: "https://arbor.example"))
-        func descriptor(_ id: String, path: String) -> WireTreeDescriptor {
-            WireTreeDescriptor(
+        func descriptor(_ id: String, path: String) -> ProtocolTreeDescriptor {
+            ProtocolTreeDescriptor(
                 id: id,
                 kind: "ordinary",
                 root: "sha256:\(String(repeating: "d", count: 64))",
                 access: "read",
-                canonical: WireCanonicalDescriptor(path: path, endpoint: "https://arbor.example"),
+                canonical: ProtocolCanonicalDescriptor(path: path, endpoint: "https://arbor.example"),
                 update: "up_\(id)"
             )
         }
@@ -595,20 +595,20 @@ struct CanopyAppTests {
 
     @Test("A visit sparsifies a complete snapshot to directories and Markdown")
     func visitSnapshotSparsification() throws {
-        let markdown = try WireObjectCodec.object(.file(Data("# Note\n".utf8)))
-        let image = try WireObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
-        let nestedDirectory = try WireObjectCodec.object(.directory([
-            WireDirectoryEntry(name: "photo.png", file: image.hash),
+        let markdown = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
+        let image = try ProtocolObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
+        let nestedDirectory = try ProtocolObjectCodec.object(.directory([
+            ProtocolDirectoryEntry(name: "photo.png", file: image.hash),
         ]))
-        let root = try WireObjectCodec.object(.directory([
-            WireDirectoryEntry(name: "assets", directory: nestedDirectory.hash),
-            WireDirectoryEntry(name: "cover.png", file: image.hash),
-            WireDirectoryEntry(name: "note.md", file: markdown.hash),
+        let root = try ProtocolObjectCodec.object(.directory([
+            ProtocolDirectoryEntry(name: "assets", directory: nestedDirectory.hash),
+            ProtocolDirectoryEntry(name: "cover.png", file: image.hash),
+            ProtocolDirectoryEntry(name: "note.md", file: markdown.hash),
         ]))
-        let complete = WireSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
-        let sparse = try ArborVisitSnapshot.sparsified(complete)
+        let complete = ProtocolSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
+        let sparse = try CanopyVisitSnapshot.sparsified(complete)
         #expect(Set(sparse.spine.objects.map(\.hash)) == [root.hash, nestedDirectory.hash, markdown.hash])
-        let objects = try WireObjectGraph.validate(sparse.spine, mode: .sparseFiles)
+        let objects = try ProtocolObjectGraph.validate(sparse.spine, mode: .sparseFiles)
         #expect(objects[image.hash] == nil)
         guard case let .directory(rootEntries, _)? = objects[root.hash],
               case let .directory(nestedEntries, _)? = objects[nestedDirectory.hash] else {
@@ -617,7 +617,7 @@ struct CanopyAppTests {
         }
         #expect(rootEntries.first { $0.name == "cover.png" }?.file == image.hash)
         #expect(nestedEntries.first { $0.name == "photo.png" }?.file == image.hash)
-        let replacement = try ArborVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
+        let replacement = try CanopyVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
         #expect(replacement.root == root.hash)
         #expect(replacement.nodes.map(\.path).sorted() == ["/", "/assets", "/assets/photo.png", "/cover.png", "/note"])
     }
@@ -633,12 +633,12 @@ struct CanopyAppTests {
         let legacy = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
             configurationTree: "tr_accountconfiguration",
-            tree: WireTreeDescriptor(
+            tree: ProtocolTreeDescriptor(
                 id: "tr_legacy",
                 kind: "ordinary",
                 root: "sha256:\(String(repeating: "c", count: 64))",
                 access: "write",
-                canonical: WireCanonicalDescriptor(path: "/~joe/legacy", endpoint: "https://arbor.example"),
+                canonical: ProtocolCanonicalDescriptor(path: "/~joe/legacy", endpoint: "https://arbor.example"),
                 update: "up_legacy"
             )
         )
@@ -653,7 +653,7 @@ struct CanopyAppTests {
 
     @Test("The app opens the deterministic Home surface")
     func loadsHome() async {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         #expect(model.node?.title == "Home")
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
@@ -662,7 +662,7 @@ struct CanopyAppTests {
 
     @Test("A document keeps its containing directory visible in the sidebar")
     func documentKeepsContainingDirectorySidebar() async {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
 
@@ -693,37 +693,37 @@ struct CanopyAppTests {
             result("Older", "/older", "2026-08-01T11:00:00Z", 4),
         ]
 
-        #expect(ArborSidebarPages.sorted(results, by: .alphabetical).map(\.title)
+        #expect(CanopySidebarPages.sorted(results, by: .alphabetical).map(\.title)
             == ["🌲 Alpha", "Beta", "Monthly", "Older"])
-        #expect(ArborSidebarPages.sorted(results, by: .recent).map(\.title)
+        #expect(CanopySidebarPages.sorted(results, by: .recent).map(\.title)
             == ["Beta", "🌲 Alpha", "Monthly", "Older"])
-        #expect(ArborSidebarPages.sorted(results, by: .linkCount).map(\.title)
+        #expect(CanopySidebarPages.sorted(results, by: .linkCount).map(\.title)
             == ["Older", "Monthly", "🌲 Alpha", "Beta"])
-        let groups = ArborSidebarPages.recentGroups(results, now: now, calendar: calendar)
+        let groups = CanopySidebarPages.recentGroups(results, now: now, calendar: calendar)
         #expect(groups.map(\.title) == ["Today", "This Week", "This Month", "Earlier"])
         #expect(groups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Monthly"], ["Older"]])
         let unknown = WorkspaceSearchResult(reference: WorkspaceReference(tree: tree, path: "/unknown"), title: "Unknown")
-        let datedGroups = ArborSidebarPages.recentGroups(results + [unknown], now: now, calendar: calendar)
+        let datedGroups = CanopySidebarPages.recentGroups(results + [unknown], now: now, calendar: calendar)
         #expect(datedGroups.last?.title == "Unknown date")
         #expect(datedGroups.last?.results == [unknown])
         #expect(datedGroups.first { $0.title == "Earlier" }?.results.map(\.title) == ["Older"])
-        let linkGroups = ArborSidebarPages.linkCountGroups(results)
+        let linkGroups = CanopySidebarPages.linkCountGroups(results)
         #expect(linkGroups.map(\.title) == ["0 Links", "1 Link", "Multiple Links"])
         #expect(linkGroups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Older", "Monthly"]])
         #expect(linkGroups.map(\.showsBacklinkCounts) == [false, false, true])
         // Arrow keys walk pages in the order the sidebar draws them.
-        #expect(ArborSidebarPages.displayOrder(results, by: .linkCount).map(\.title)
+        #expect(CanopySidebarPages.displayOrder(results, by: .linkCount).map(\.title)
             == ["Beta", "🌲 Alpha", "Older", "Monthly"])
-        #expect(ArborSidebarPages.displayOrder(results, by: .alphabetical) == ArborSidebarPages.sorted(results, by: .alphabetical))
-        #expect(arborSidebarContextPath("/arbor-demo") == nil)
-        #expect(arborSidebarContextPath("/March-Out-My-Work/arbor-demo")
+        #expect(CanopySidebarPages.displayOrder(results, by: .alphabetical) == CanopySidebarPages.sorted(results, by: .alphabetical))
+        #expect(canopySidebarContextPath("/arbor-demo") == nil)
+        #expect(canopySidebarContextPath("/March-Out-My-Work/arbor-demo")
             == "/March-Out-My-Work")
     }
     @Test("Opening a page pushes a native page-frame path")
     func openingPushesPageFrame() async {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         let home = model.currentReference
         let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
@@ -752,12 +752,12 @@ struct CanopyAppTests {
             WorkspaceNode(reference: home, title: "Console", surface: .directoryDocument(source: "# Console\n\n[Picture of Life](Picture-of-Life)\n", contentRevision: "1", stored: true), provenance: .init(authority: .local, sourceDescription: "Test")),
             WorkspaceNode(reference: picture, title: "Picture of Life", surface: .directoryDocument(source: "# Picture of Life\n", contentRevision: "1", stored: true), provenance: .init(authority: .local, sourceDescription: "Test"))
         ])
-        let workspace = ArborWorkspaceState(provider: provider)
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: provider)
+        let model = CanopyAppModel(workspace: workspace)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: ArborRootView(workspace: workspace, model: model))
+        window.contentViewController = NSHostingController(rootView: CanopyRootView(workspace: workspace, model: model))
         window.orderFront(nil)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(400))
@@ -786,7 +786,7 @@ struct CanopyAppTests {
 
     @Test("Editor links push history and Back restores the previous editor")
     func editorLinkPushesHistory() async throws {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         await model.navigate(to: WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
         let previous = model.currentLocation
@@ -811,10 +811,10 @@ struct CanopyAppTests {
             WorkspaceNode(reference: otherHome, title: "Other", surface: .directory(summary: ""), provenance: .init(authority: .diagnostic, sourceDescription: "Test")),
             WorkspaceNode(reference: otherPage, title: "Linked", surface: .markdown(source: "# Linked\n", contentRevision: "1"), provenance: .init(authority: .diagnostic, sourceDescription: "Test"))
         ])
-        let workspace = ArborWorkspaceState(provider: first)
+        let workspace = CanopyWorkspaceState(provider: first)
         var treeUnavailable = false
-        let model = ArborAppModel(workspace: workspace, openNavigationTree: { tree in
-            if treeUnavailable { throw ArborWireValidationError.invalidValue("Unavailable tree") }
+        let model = CanopyAppModel(workspace: workspace, openNavigationTree: { tree in
+            if treeUnavailable { throw ProtocolValidationError.invalidValue("Unavailable tree") }
             await workspace.switchProvider(
                 tree == otherHome.tree ? second : first,
                 home: tree == otherHome.tree ? otherHome : WorkspaceReference(tree: "tr_sample", path: "/"),
@@ -825,7 +825,7 @@ struct CanopyAppTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: ArborRootView(workspace: workspace, model: model))
+        window.contentViewController = NSHostingController(rootView: CanopyRootView(workspace: workspace, model: model))
         window.orderFront(nil)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(400))
@@ -866,9 +866,9 @@ struct CanopyAppTests {
 
     @Test("A failed tree open leaves the current editor and history intact")
     func failedTreeNavigation() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace, openNavigationTree: { _ in
-            throw ArborWireValidationError.invalidValue("Unavailable tree")
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace, openNavigationTree: { _ in
+            throw ProtocolValidationError.invalidValue("Unavailable tree")
         })
         await model.load()
         await model.navigate(to: WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
@@ -893,7 +893,7 @@ struct CanopyAppTests {
                           surface: .directoryDocument(source: "# Page\n", contentRevision: "1", stored: true),
                           provenance: .init(authority: .local, sourceDescription: "Test"))
         })
-        let model = ArborAppModel(workspace: ArborWorkspaceState(provider: provider))
+        let model = CanopyAppModel(workspace: CanopyWorkspaceState(provider: provider))
         await model.load()
         let home = model.currentLocation
         let homeHost = model.editorHost
@@ -919,7 +919,7 @@ struct CanopyAppTests {
 
     @Test("A directory becomes the sidebar browsing context")
     func directoryBecomesSidebarContext() async {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/files"))
 
@@ -929,7 +929,7 @@ struct CanopyAppTests {
 
     @Test("Navigation exposes non-document surfaces without creating a document session")
     func navigatesToCollection() async {
-        let model = ArborAppModel()
+        let model = CanopyAppModel()
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/people"))
         #expect(model.node?.title == "People")
@@ -939,9 +939,9 @@ struct CanopyAppTests {
 
     @Test("Two windows share one PageID binding without sharing tabs")
     func windowsSharePersistenceNotPresentation() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let first = ArborAppModel(workspace: workspace)
-        let second = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let first = CanopyAppModel(workspace: workspace)
+        let second = CanopyAppModel(workspace: workspace)
         await first.load()
         await second.load()
         let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
@@ -956,8 +956,8 @@ struct CanopyAppTests {
 
     @Test("Structural receipts refresh workspace chrome without replacing the editor lease")
     func structuralReceiptReconciliation() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
         await model.navigate(to: .init(
             tree: "tr_sample",
@@ -995,8 +995,8 @@ struct CanopyAppTests {
 
     @Test("Moving the open page reconciles browser history before reopening it")
     func movingOpenPageDoesNotLeaveAStaleBackEntry() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
         let original = try #require(try await workspace.perform(.createMarkdown(
             parent: WorkspaceReference(tree: "tr_sample", path: "/"),
@@ -1030,8 +1030,8 @@ struct CanopyAppTests {
 
     @Test("Linked-page trash confirmation rechecks backlinks and preserves the editor lease")
     func linkedPageTrashConfirmation() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
         await model.navigate(to: .init(
             tree: "tr_sample",
@@ -1074,8 +1074,8 @@ struct CanopyAppTests {
 
     @Test("Empty search starts as a page browser")
     func emptySearchListsPages() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
 
         await model.search("")
 
@@ -1084,24 +1084,24 @@ struct CanopyAppTests {
 
     @Test("Full-text search does not replace the sidebar page results")
     func fullTextSearchIsIndependentFromSidebar() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.search("")
         let sidebarIdentities = model.searchResults.map(\.id)
 
-        let matches = await model.fullTextSearch("Native Arbor is ready")
+        let matches = await model.fullTextSearch("Native Canopy is ready")
 
         #expect(matches.contains { $0.reference.path == "/welcome" })
         #expect(model.searchResults.map(\.id) == sidebarIdentities)
 
-        await model.search("Native Arbor is ready")
+        await model.search("Native Canopy is ready")
         #expect(!model.searchResults.contains { $0.reference.path == "/welcome" })
     }
 
     @Test("A final editor commit is durable before navigation completes")
     func navigationDrainsEditorTail() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
         let binding = try #require(model.binding)
@@ -1132,8 +1132,8 @@ struct CanopyAppTests {
 
     @Test("Voice delivery appends through the active stable-key binding and reaches the provider")
     func activeVoiceDelivery() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
-        let model = ArborAppModel(workspace: workspace)
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
         await model.load()
         let welcome = WorkspaceReference(
             tree: "tr_sample",
@@ -1165,7 +1165,7 @@ struct CanopyAppTests {
 
     @Test("Recovered voice delivery resolves an inactive destination by stable key")
     func recoveredVoiceDelivery() async throws {
-        let workspace = ArborWorkspaceState(provider: .sample())
+        let workspace = CanopyWorkspaceState(provider: .sample())
         let welcome = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
@@ -1197,7 +1197,7 @@ struct CanopyAppTests {
         let environment = ProcessInfo.processInfo.environment
         guard environment["ARBOR_TEST_BUNDLED_HELPER"] == "1",
               let tree = environment["ARBOR_TEST_TREE"], !tree.isEmpty else { return }
-        let workspace = ArborWorkspaceState()
+        let workspace = CanopyWorkspaceState()
         try await workspace.openPlacedTree(tree)
         #expect(workspace.openPlacedTreeID == tree)
         // A Canopy working tree keeps history on Canopy, not device-locally.

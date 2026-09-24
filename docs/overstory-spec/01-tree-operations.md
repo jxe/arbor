@@ -248,14 +248,14 @@ decode file bytes to infer kind. A file may contain bytes that are also a
 valid directory encoding without being interpreted as a directory.
 
 ```ts
-type WireDirectoryEntry =
+type ProtocolDirectoryEntry =
   | { name: Name; file: Hash }
   | { name: Name; directory: Hash }
   | { name: Name; tree: TreeID };
 
-type WireDirectory = {
+type ProtocolDirectory = {
   type: "directory";
-  entries: WireDirectoryEntry[];
+  entries: ProtocolDirectoryEntry[];
   childrenSource?: CollectionFileDescriptor;
 };
 

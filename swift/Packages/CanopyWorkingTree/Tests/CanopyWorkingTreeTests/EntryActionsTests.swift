@@ -5,8 +5,8 @@ import Testing
 
 @Test("Compound entry fixtures retain exact basis references through recovery")
 func compoundEntryFixtures() async throws {
-    struct Case: Decodable { let name: String; let actions: EntryActions; let candidate: WireSnapshot; let operations: [WireSourceOperation] }
-    struct Fixture: Decodable { let change: String; let graph: WireSnapshot; let cases: [Case] }
+    struct Case: Decodable { let name: String; let actions: EntryActions; let candidate: ProtocolSnapshot; let operations: [ProtocolSourceOperation] }
+    struct Fixture: Decodable { let change: String; let graph: ProtocolSnapshot; let cases: [Case] }
     let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../docs/overstory-spec/conformance/entry-actions.json")
     let fixture = try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path))
     for value in fixture.cases {

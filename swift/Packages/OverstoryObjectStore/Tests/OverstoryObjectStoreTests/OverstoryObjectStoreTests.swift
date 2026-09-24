@@ -26,8 +26,8 @@ private final class RecordingStore: ObjectStore, @unchecked Sendable {
 struct ObjectStoreTests {
     @Test("Layered lookup serves the overlay first and falls through to the platform")
     func layeredOrder() async throws {
-        let local = try WireObjectCodec.object(.file(Data("local".utf8)))
-        let remote = try WireObjectCodec.object(.file(Data("remote".utf8)))
+        let local = try ProtocolObjectCodec.object(.file(Data("local".utf8)))
+        let remote = try ProtocolObjectCodec.object(.file(Data("remote".utf8)))
         let overlay = InMemoryObjectOverlay()
         try overlay.store([local.hash: local.bytes])
         let platform = RecordingStore([remote.hash: remote.bytes, local.hash: Data("would be wrong".utf8)])
@@ -44,10 +44,10 @@ struct ObjectStoreTests {
 
     @Test("Every store verifies the bytes it hands out")
     func hashVerification() async throws {
-        let honest = try WireObjectCodec.object(.file(Data("honest".utf8)))
+        let honest = try ProtocolObjectCodec.object(.file(Data("honest".utf8)))
         let lying = RecordingStore([honest.hash: Data("tampered".utf8)])
         let layered = LayeredObjectStore(overlay: InMemoryObjectOverlay(), platform: lying)
-        await #expect(throws: ObjectStoreError.hashMismatch(expected: honest.hash, actual: WireObjectCodec.hash(Data("tampered".utf8)))) {
+        await #expect(throws: ObjectStoreError.hashMismatch(expected: honest.hash, actual: ProtocolObjectCodec.hash(Data("tampered".utf8)))) {
             _ = try await layered.bytes(honest.hash)
         }
 
@@ -69,16 +69,16 @@ struct ObjectStoreTests {
 
     @Test("Retention walks directory objects and drops everything the roots do not reach")
     func retention() async throws {
-        let kept = try WireObjectCodec.object(.file(Data("kept".utf8)))
-        let orphan = try WireObjectCodec.object(.file(Data("orphan".utf8)))
+        let kept = try ProtocolObjectCodec.object(.file(Data("kept".utf8)))
+        let orphan = try ProtocolObjectCodec.object(.file(Data("orphan".utf8)))
         let lazy = "sha256:" + String(repeating: "b", count: 64)
-        let inner = try WireObjectCodec.object(.directory([
+        let inner = try ProtocolObjectCodec.object(.directory([
             .init(name: "kept.bin", file: kept.hash),
             .init(name: "lazy.bin", file: lazy),
         ]))
-        let root = try WireObjectCodec.object(.directory([.init(name: "dir", directory: inner.hash)]))
-        let oldRoot = try WireObjectCodec.object(.directory([.init(name: "orphan.bin", file: orphan.hash)]))
-        let leaf = try WireObjectCodec.object(.file(Data("leaf root".utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "dir", directory: inner.hash)]))
+        let oldRoot = try ProtocolObjectCodec.object(.directory([.init(name: "orphan.bin", file: orphan.hash)]))
+        let leaf = try ProtocolObjectCodec.object(.file(Data("leaf root".utf8)))
         let all = [kept, orphan, inner, root, oldRoot, leaf].reduce(into: [String: Data]()) { $0[$1.hash] = $1.bytes }
 
         for overlay in [InMemoryObjectOverlay(), try DirectoryObjectStore(directory: temporaryDirectory())] as [any ObjectOverlay] {

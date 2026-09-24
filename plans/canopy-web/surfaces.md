@@ -6,23 +6,23 @@ Reference: `swift/CanopyApp/*.swift` and `swift/Packages/CanopyEditor`. Sidebar,
 
 | # | Surface | Native source | Web | Host | Project |
 |---|---|---|---|---|---|
-| 1 | Launch, empty and confirmation states | `ArborDailyDriverViews.swift:1576–1684`, `ArborAppModel.swift:2284` | keep | both | B1 |
-| 2 | Sidebar: pages/Trees modes, rows, People footer, context menu | `ArborRootView.swift` (`sidebarList`, `sidebarTreesList`, `sidebarFooter`), `ArborDailyDriverViews.swift` (`ArborSidebarSearchRow`) | keep | both | B1 |
-| 3 | Navigation: breadcrumb heading, back/forward/parent/home, Open Location, tabs | `ArborRootView.swift:1428, 1869, 2172`; `ArborDailyDriverViews.swift:1176` | keep; tabs adapt | both | B1 |
-| 4 | Editor pane and document footer | `ArborEditorSurface.swift`, `ArborEditorHost.swift`, `ArborDailyDriverViews.swift:936`; Quagmire | adapt on BlockNote | both | B1 / B3 |
-| 5 | Search Contents palette | `ArborDailyDriverViews.swift:277` | keep | both | B1 |
-| 6 | Share and app permissions | `ArborRootView.swift:2381, 3990` | keep | both | B2 |
-| 7 | Profile, sync, devices, account addition | `ArborRootView.swift` (`MacArborSyncAccountPanel`, `IOSAccountPanel`, `ArborDevicesHeader`), `CanopyOnboarding.swift` | keep; pairing adapt | both | B2 |
-| 8 | Sync Status within account management | `ArborDailyDriverViews.swift` (`ArborSyncStatusView.sections`) | keep; no daemon actions | both | B2 |
-| 9 | Keyboard map | `ArborApp.swift:34–305` | adapt | both | B1 (shell), B3 (editor) |
-| 10 | Attention banner | `ArborDailyDriverViews.swift:895`, `ArborRootView.swift:2217` | keep | both | B1 |
-| 11 | Web Home; native sidebar Trees mode | `ArborRootView.swift` (`sidebarTreesList`, `IOSPlaceTreePanel`); `ArborDailyDriverViews.swift` | adapt per-host | both | B1 (local), B2 (canopy) |
-| 12 | Network log | `ArborNetworkLogView.swift` | keep | both | B2 |
-| 13 | Conflict and choice review | `ArborConflictReview.swift`, `ArborDailyDriverViews.swift:1325–1540` | keep | both | B3 |
-| 14 | Source and Properties, History/Recover | `ArborDailyDriverViews.swift:1219, 1250` | keep | both | B1 |
-| 15 | Move to (blocks), Move Page (structural) | `ArborDailyDriverViews.swift:445, 689` | keep | both | B3 / B1 |
-| 16 | Trash, restore, orphan prompt, title rename | `ArborRootView.swift:971–977`, `ArborAppModel.swift:2054` | keep | both | B1 |
-| 17 | People directory and shared profile rows | `ArborDirectoryView.swift` (`ArborDirectoryView`, `ArborProfileRow`) | keep | both | B2 |
+| 1 | Launch, empty and confirmation states | `CanopyDailyDriverViews.swift:1576–1684`, `CanopyAppModel.swift:2284` | keep | both | B1 |
+| 2 | Sidebar: pages/Trees modes, rows, People footer, context menu | `CanopyRootView.swift` (`sidebarList`, `sidebarTreesList`, `sidebarFooter`), `CanopyDailyDriverViews.swift` (`CanopySidebarSearchRow`) | keep | both | B1 |
+| 3 | Navigation: breadcrumb heading, back/forward/parent/home, Open Location, tabs | `CanopyRootView.swift:1428, 1869, 2172`; `CanopyDailyDriverViews.swift:1176` | keep; tabs adapt | both | B1 |
+| 4 | Editor pane and document footer | `CanopyEditorSurface.swift`, `CanopyEditorHost.swift`, `CanopyDailyDriverViews.swift:936`; Quagmire | adapt on BlockNote | both | B1 / B3 |
+| 5 | Search Contents palette | `CanopyDailyDriverViews.swift:277` | keep | both | B1 |
+| 6 | Share and app permissions | `CanopyRootView.swift:2381, 3990` | keep | both | B2 |
+| 7 | Profile, sync, devices, account addition | `CanopyRootView.swift` (`MacArborSyncAccountPanel`, `IOSAccountPanel`, `CanopyDevicesHeader`), `CanopyOnboarding.swift` | keep; pairing adapt | both | B2 |
+| 8 | Sync Status within account management | `CanopyDailyDriverViews.swift` (`ArborSyncStatusView.sections`) | keep; no daemon actions | both | B2 |
+| 9 | Keyboard map | `CanopyApp.swift:34–305` | adapt | both | B1 (shell), B3 (editor) |
+| 10 | Attention banner | `CanopyDailyDriverViews.swift:895`, `CanopyRootView.swift:2217` | keep | both | B1 |
+| 11 | Web Home; native sidebar Trees mode | `CanopyRootView.swift` (`sidebarTreesList`, `IOSPlaceTreePanel`); `CanopyDailyDriverViews.swift` | adapt per-host | both | B1 (local), B2 (canopy) |
+| 12 | Network log | `CanopyNetworkLogView.swift` | keep | both | B2 |
+| 13 | Conflict and choice review | `CanopyConflictReview.swift`, `CanopyDailyDriverViews.swift:1325–1540` | keep | both | B3 |
+| 14 | Source and Properties, History/Recover | `CanopyDailyDriverViews.swift:1219, 1250` | keep | both | B1 |
+| 15 | Move to (blocks), Move Page (structural) | `CanopyDailyDriverViews.swift:445, 689` | keep | both | B3 / B1 |
+| 16 | Trash, restore, orphan prompt, title rename | `CanopyRootView.swift:971–977`, `CanopyAppModel.swift:2054` | keep | both | B1 |
+| 17 | People directory and shared profile rows | `CanopyDirectoryView.swift` (`CanopyDirectoryView`, `CanopyProfileRow`) | keep | both | B2 |
 
 ## 1. Launch, empty and confirmation states
 
@@ -33,7 +33,7 @@ Reference: `swift/CanopyApp/*.swift` and `swift/Packages/CanopyEditor`. Sidebar,
 
 ## 2. Sidebar
 
-One `PagePicker` component serves the sidebar, Search Contents, Move to and Move Page, as `ArborPageSearchControls` + `ArborOrderedPageSections` + `ArborPagePickerSelection` do natively.
+One `PagePicker` component serves the sidebar, Search Contents, Move to and Move Page, as `CanopyPageSearchControls` + `CanopyOrderedPageSections` + `CanopyPagePickerSelection` do natively.
 
 - **Heading**: the current location; the parent portion is a quiet link (`Go to Parent`), then a spaced slash and the final segment. No brand row, no separate Parent row.
 - **Search field**: prompt `Search pages`, clear button `Clear Search`. ↑/↓/↩ move and open; Escape returns focus to the editor. Empty query lists every page so the sidebar is useful before typing.
@@ -63,7 +63,7 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 
 **B1 (minimum editable document)**
 
-- Theme from `ArborStyle.editorTheme`: body 16 px with 3.5 px line spacing, page title 40, H1 30 / H2 24 / H3 20 / H4 18 / H5 17 / H6 16, inline code 13.6, content width 708, proportional padding, indent 24, marker column 24.
+- Theme from `CanopyStyle.editorTheme`: body 16 px with 3.5 px line spacing, page title 40, H1 30 / H2 24 / H3 20 / H4 18 / H5 17 / H6 16, inline code 13.6, content width 708, proportional padding, indent 24, marker column 24.
 - Block kinds: paragraph, heading (h1–h3 authorable; h4–h6 displayed), bullet, numbered, to-do, quote, code with language, divider, toggle, template button, document link, image, and the read-only **unsupported** carrier row labelled by kind (`Table`, `HTML`) so source round-trips. Title is the first top-level H1; the leading emoji grapheme is the document icon.
 - Autotransforms on trailing space: `# `, `## `, `### `, `- `/`* `, `1. `, `[] `/`[ ] `, `> `, `" ` (toggle); on Enter: `---` divider, ```` ``` ```` code fence.
 - Inline marks ⌘B, ⌘I, ⌘E, ⇧⌘S; ⌘K toggles a link on a selection. Internal links open in the app; external links open normally; URL autolinking.
@@ -95,7 +95,7 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 - **Tracked tree**: heading `Share` and the canonical address on one line (selectable, middle-truncated). Invite row `Add people or groups` with prompt `~handle or Overstory profile URL` and a `Share` button; several locators accepted; invites get read. Non-administrator footer `This browser needs administrator access to share. Open Accounts and make this device an administrator.`
 - `Who has access`: avatar, name (`Everyone`, display name or `Person or group`, `Private link`), detail (`Owner`, `Anyone who can find this tree`, `Existing access-link grant`, locator), `(You)`, and either `Full access` (help `Your access cannot be removed`), a menu `Can view` / `Can edit` / `Remove access`, or a static label. Synthetic `Everyone` row when absent. Read-only footer `Only an administrator for this canopyd account can change access.`
 - `Scoped and app permissions`: existing rules plus `Manage app permissions…`.
-- **Promotable folder** (local host only): `Upgrade this folder`, explanation `The folder stays in place and gains its own Arbor identity, history, synchronization, and access controls.`, `Destination` account picker (`~handle · host`), `Canonical URL` with suggested slug, `Initial access` (`Private` / `Everyone can view` / `Everyone can edit`), `Make This an Arbor Tree`. Empty state `No connected canopyd account`.
+- **Promotable folder** (local host only): `Upgrade this folder`, explanation `The folder stays in place and becomes an Overstory tree with its own identity, history, synchronization, and access controls.`, `Destination` account picker (`~handle · host`), `Canonical URL` with suggested slug, `Initial access` (`Private` / `Everyone can view` / `Everyone can edit`), `Make This an Arbor Tree`. Empty state `No connected canopyd account`.
 - **App permissions**: title `App permissions`; rules list; form `Caller: me, everyone, or profile TreeID`, `Executable TreeID (optional)`, `Within`, one toggle per operation, `Remove matching rule`, `Review change`; review shows `Account configuration:`, `Resource:`, `Before:`, `After:` and the caveat `This grants only authority this account currently holds. Other matching rules may also grant access.`; `Back`, `Grant permission` / `Remove permission`.
 - Dialog is content-sized with a bounded scroll region, closes on Escape unless a destructive confirmation or in-flight operation owns dismissal, restores focus to the Share control.
 
@@ -103,7 +103,7 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 
 One scrolling dialog, ordered **profile rows → current-client sync status → devices**. No Accounts/People/Sync tabs and no tree chooser. The account control and sync chip open this same pane. Profile and sync rows have grouped backgrounds; the working-tree/provider detail is a background-free footer belonging to the sync section.
 
-- Accounts, devices, share and app permissions are all edits to the account configuration tree through its own working-tree session, on both hosts, exactly as `ArborAppModel` edits `devices.yaml` and `trees.yaml`; only pairing offers and claims call canopyd directly.
+- Accounts, devices, share and app permissions are all edits to the account configuration tree through its own working-tree session, on both hosts, exactly as `CanopyAppModel` edits `devices.yaml` and `trees.yaml`; only pairing offers and claims call canopyd directly.
 - Per account: the shared directory-style profile row (§17), with avatar, display name, account/host detail, and a far-right chevron opening the profile. No `Open profile` text button or duplicate `Edit name & photo…` action. `Devices` rows with label and tags `This browser` / `This Mac` / `Active` / `Administrator`; ellipsis menu `Make Administrator`, `Remove Administrator`, `Deauthorize Device` (destructive; disabled for the last administrator or a non-administrator caller); confirmation `Deauthorize <label>?`; results `<label> can now manage sharing.` / `<label> was deauthorized.`
 - **Add account** is a small `person.badge.plus` affordance at the right of the first Devices header (accessible name `Add account`, help `Add account…`), also present when no accounts exist. It is not a separate large form row. Mac opens a focused connect-community/pair-device flow; iOS opens pairing without restoring the existing placement. Web adapts this to its host's claim/pair capabilities.
 - The Mac profile ellipsis offers `Back up identity…` when the local identity key is available; `Recover identity…` appears when the key is missing. These are native identity operations, not browser credential exports. The Welcome flow is not reopened for ordinary account management.
@@ -111,12 +111,12 @@ One scrolling dialog, ordered **profile rows → current-client sync status → 
 - `Pair another device…` shows the QR (generated client-side) and the `Confirm on both devices` code, for a phone or another browser.
 - **Pair this browser** (canopyd host, and the local host when the daemon has no credential): paste the code (`Paste Pairing Code`, `The clipboard has no pairing code.`), show `Pairing with your Mac…`, then the account appears. No camera.
 - Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the canopyd administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays swift/CLI.
-- `Disconnect` is quiet and destructive: `Disconnect this browser from Arbor?` with `Your server tree is not deleted.`; on the canopyd host it forgets the browser credential.
+- `Disconnect` is quiet and destructive: `Disconnect this browser from Overstory?` with `Your server tree is not deleted.`; on the canopyd host it forgets the browser credential.
 - States: `No canopyd account` (`Claim or pair an account to manage its devices.`), `Loading account…`, `Could not refresh: …` with `Try Again`.
 
 ## 8. Sync Status
 
-- Hero: symbol, title (`A document needs attention`, the state label, `Retaining edit locally`, or `This Arbor client is up to date`), detail (`This client has no unpublished document or working-tree changes.` or the per-state text: offline, local changes waiting, request queued, uploading, downloading, merged automatically, conflict needs a choice, reconnect the account, device no longer has access).
+- Hero: symbol, title (`A document needs attention`, the state label, `Retaining edit locally`, or `Canopy is up to date`), detail (`This client has no unpublished document or working-tree changes.` or the per-state text: offline, local changes waiting, request queued, uploading, downloading, merged automatically, conflict needs a choice, reconnect the account, device no longer has access).
 - States and labels: `Offline`, `Local changes`, `Sync pending`, `Uploading`, `Downloading`, `Current`, `Merged`, `Merged approximately`, `Conflict`, `Sign in required`, `Device revoked`.
 - Primary button by state: `Retry Save` | `Discard Refused Changes…` (a held request) | `Sync Now` (disabled offline). Always `Network Log…` (help `Timings for updates, watch frames, and reads`). `Reconnect to arborsync` and `View arborsync Logs…` are not ported (no new daemon routes).
 - `Current document` section while saving, conflicted or failing: `Save status` values `Retaining edit locally`, `Conflict needs a choice`, `Private recovery failed`, `Retained in recovery; working tree pending`, `Latest edit not retained locally`, `Retained locally`; diagnostic cause, explanation, recovery and monospaced technical detail.
@@ -152,7 +152,7 @@ Native no longer has a separate Trees & Accounts switcher sheet: Trees lives in 
 
 ## 12. Network log
 
-- **Network Log**: filters per kind (`update`, `connect`, `frame`, `disconnect`, `read`, `note`), `Filter` text, visible count; rows newest first with time, kind capsule, name, shortened tree, HTTP status, round trip or duration, `server N`; expand for tree, updates, root, cursor, digests, attempt, bytes out/in or `frames`, `after response`, `server phases`. Toolbar `Copy` → `Copied`, `Refresh`, `Clear`, `Done`. Empty `No network events`. Source: the browser's own `WireNetworkLog` in IndexedDB, bounded. `Reveal File` is not ported.
+- **Network Log**: filters per kind (`update`, `connect`, `frame`, `disconnect`, `read`, `note`), `Filter` text, visible count; rows newest first with time, kind capsule, name, shortened tree, HTTP status, round trip or duration, `server N`; expand for tree, updates, root, cursor, digests, attempt, bytes out/in or `frames`, `after response`, `server phases`. Toolbar `Copy` → `Copied`, `Refresh`, `Clear`, `Done`. Empty `No network events`. Source: the browser's own `ProtocolNetworkLog` in IndexedDB, bounded. `Reveal File` is not ported.
 
 ## 13. Conflict and choice review
 
@@ -195,16 +195,16 @@ provenance in the underlying directory data.
 
 | Native affordance | Where | Web replacement |
 |---|---|---|
-| Menu bar, `@FocusedValue` command routing | `ArborApp.swift` | keyboard map and in-page menus |
-| Sheets and popovers as a concept, the Mac dismiss-handoff dance | `ArborRootView.swift:1687–1740` | ordinary modal stack |
-| Search in the sidebar's toolbar section, `NSPopUpButton` order picker, hover washes | `ArborRootView.swift:1545, 404, 279` | a field above the list, a native `<select>`-style menu |
-| iOS edge-drawer gestures, top-overscroll `Pull for Trees` (opens sidebar Trees mode) | `ArborRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
+| Menu bar, `@FocusedValue` command routing | `CanopyApp.swift` | keyboard map and in-page menus |
+| Sheets and popovers as a concept, the Mac dismiss-handoff dance | `CanopyRootView.swift:1687–1740` | ordinary modal stack |
+| Search in the sidebar's toolbar section, `NSPopUpButton` order picker, hover washes | `CanopyRootView.swift:1545, 404, 279` | a field above the list, a native `<select>`-style menu |
+| iOS edge-drawer gestures, top-overscroll `Pull for Trees` (opens sidebar Trees mode) | `CanopyRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
 | Pinch-to-insert, three-finger cycling, swipe-to-extend selection | Quagmire | keyboard structural editing |
-| Voice recording, transcription, pending-recording recovery, Siri and App Intents | `ArborRootView.swift:52`, `VoiceRecordingIntents.swift` | none; the `🎙` heading convention still renders |
-| Sounds and haptics | `ArborStyle.swift`, Quagmire | none |
-| QR camera scanning | `ArborRootView.swift:3882` | paste the pairing code; QR is still shown for phones |
-| Keychain stores, `terminateLater` flush | `ArborRootView.swift`, `ArborApp.swift:311` | IndexedDB; `beforeunload` waits on the admission flush |
-| Finder reveal, full-size image window | `ArborNetworkLogView.swift`, `ImageBlockView.swift:223` | `Copy`; lightbox |
-| In-app tab strip | `ArborDailyDriverViews.swift:1176` | browser tabs |
-| Reconnect / view arborsync logs | `ArborDailyDriverViews.swift:992` | not ported; `arbor daemon status` and the native app keep them |
-| Placing a tree from the app | `ArborRootView.swift:3670` | `arbor place`; the canopyd host has no placement |
+| Voice recording, transcription, pending-recording recovery, Siri and App Intents | `CanopyRootView.swift:52`, `VoiceRecordingIntents.swift` | none; the `🎙` heading convention still renders |
+| Sounds and haptics | `CanopyStyle.swift`, Quagmire | none |
+| QR camera scanning | `CanopyRootView.swift:3882` | paste the pairing code; QR is still shown for phones |
+| Keychain stores, `terminateLater` flush | `CanopyRootView.swift`, `CanopyApp.swift:311` | IndexedDB; `beforeunload` waits on the admission flush |
+| Finder reveal, full-size image window | `CanopyNetworkLogView.swift`, `ImageBlockView.swift:223` | `Copy`; lightbox |
+| In-app tab strip | `CanopyDailyDriverViews.swift:1176` | browser tabs |
+| Reconnect / view arborsync logs | `CanopyDailyDriverViews.swift:992` | not ported; `arbor daemon status` and the native app keep them |
+| Placing a tree from the app | `CanopyRootView.swift:3670` | `arbor place`; the canopyd host has no placement |

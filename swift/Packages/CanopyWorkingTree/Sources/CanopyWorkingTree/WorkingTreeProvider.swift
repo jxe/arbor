@@ -199,7 +199,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                 mediaType: record.mediaType ?? record.ref?.mediaType
             )
         case .boundary:
-            surface = .directory(summary: "Nested Arbor tree")
+            surface = .directory(summary: "Nested Overstory tree")
         }
         // A file held by hash is available until a read finds no store that can
         // serve it; only that miss presents the node as a placeholder.

@@ -7,8 +7,8 @@ import { ArborSyncDaemon, serveArborSync } from "@overstory/arborsync";
 import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
-import { serveCanopy } from "@overstory/canopyd";
-import { CanopyAccountStore, generateArborID, sha256, type CandidateUpdate, compareWireNames, decodeUpdateRequestJSON, decodeWireDirectory, encodeCandidateUpdateJSON, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeCandidateUpdateJSON, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
 import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
 import { retireEarlierSyncState } from "@overstory/client";
 import { snapshotJSON } from "@overstory/working-tree";
@@ -19,7 +19,7 @@ import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 const token = "self-sync-owner";
 let sandbox: string;
 let hostState: string;
-let host: Awaited<ReturnType<typeof serveCanopy>>;
+let host: Awaited<ReturnType<typeof serveHost>>;
 let hostPort: number;
 let stateA: string;
 let stateB: string;
@@ -31,7 +31,7 @@ let deviceA: string;
 let deviceB: string;
 const tokenB = "self-sync-peer-credential";
 
-async function readAccepted(client: WireClient, treeID: string) {
+async function readAccepted(client: ProtocolClient, treeID: string) {
   const descriptor = await client.descriptor(treeID);
   const snapshot = await client.snapshot(treeID, descriptor.tree.root);
   return { descriptor, snapshot };
@@ -43,7 +43,7 @@ async function launch(
   options: { faultInjector?: (stage: string) => void | Promise<void> } = {},
 ) {
   process.env.ARBOR_DATA_HOME = state;
-  // A long fallback interval proves that live Wire watches, not polling,
+  // A long fallback interval proves that live protocol watches, not polling,
   // drive every cross-daemon expectation below.
   const running = await serveArborSync(path, {
     port: 0,
@@ -78,7 +78,7 @@ beforeAll(async () => {
   await Promise.all([hostState, stateA, stateB, treeA, bootstrapB].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(treeA, "_index.md"), "# Tree A\n");
   await writeFile(join(treeA, "note.md"), `# Common\n${"shared text\n".repeat(1_024)}`);
-  host = await serveCanopy({
+  host = await serveHost({
     dataRoot: hostState,
     accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
@@ -87,7 +87,7 @@ beforeAll(async () => {
   });
   hostPort = host.server.port!;
 
-  const owner = new WireClient(host.url, token);
+  const owner = new ProtocolClient(host.url, token);
   const initialAccount = await owner.account();
   let configuration = await readAccepted(owner, initialAccount.account.configuration.id);
   let graph = readAccountConfigGraph({
@@ -120,7 +120,7 @@ beforeAll(async () => {
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   await installAccountHome(stateA, owner, deviceA, token, { [treeA]: tree });
-  await installAccountHome(stateB, new WireClient(host.url, tokenB), deviceB, tokenB, { [treeB]: tree });
+  await installAccountHome(stateB, new ProtocolClient(host.url, tokenB), deviceB, tokenB, { [treeB]: tree });
 });
 
 afterAll(async () => {
@@ -128,12 +128,12 @@ afterAll(async () => {
   await host.canopy[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateA;
   const cleanup = await serveArborSync(treeA, { port: 0 });
-  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
+  for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateB;
   const peerCleanup = await serveArborSync(bootstrapB, { port: 0 });
-  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
+  for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   peerCleanup.server.stop(true);
   await peerCleanup.service[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
@@ -218,7 +218,7 @@ describe("private self-sync", () => {
     await writeFile(join(treeA, "note.md"), "# Offline A\n");
     await writeFile(join(treeB, "note.md"), "# Offline B\n");
 
-    host = await serveCanopy({
+    host = await serveHost({
       dataRoot: hostState,
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
@@ -264,7 +264,7 @@ describe("private self-sync", () => {
     await host.canopy[Symbol.asyncDispose]();
     await writeFile(join(treeA, "sample.bin"), "binary-from-a");
     await writeFile(join(treeB, "sample.bin"), "binary-from-b");
-    host = await serveCanopy({
+    host = await serveHost({
       dataRoot: hostState,
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
@@ -294,19 +294,19 @@ describe("private self-sync", () => {
       await writeFile(join(treeB, "during-review.txt"), "Editing continues\n");
       await restarted.running.service.synchronizeNow();
       await waitFor(async () => {
-        const current = await new WireClient(host.url, token).descriptor(tree);
-        const snapshot = await new WireClient(host.url, token).snapshot(tree, current.tree.root);
-        return decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.some(e => e.name === "during-review.txt");
+        const current = await new ProtocolClient(host.url, token).descriptor(tree);
+        const snapshot = await new ProtocolClient(host.url, token).snapshot(tree, current.tree.root);
+        return decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.some(e => e.name === "during-review.txt");
       });
-      const owner = new WireClient(host.url, token), current = await readAccepted(owner, tree);
+      const owner = new ProtocolClient(host.url, token), current = await readAccepted(owner, tree);
       const page = await owner.conflicts(tree, current.descriptor.tree.update, current.snapshot.root);
       expect(page.decisions).toHaveLength(1);
       const decision = page.decisions[0]!;
       expect(decision.alternatives.map(a => a.value)).toContainEqual({ file: hashObject(new TextEncoder().encode("binary-from-b")) });
       const bytes = new TextEncoder().encode("binary-from-b"), file = hashObject(bytes);
-      const directory = decodeWireDirectory(current.snapshot.objects.get(current.snapshot.root)!);
+      const directory = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
       directory.entries = directory.entries.map(e => e.name === "sample.bin" ? { name: e.name, file } : e);
-      const encoded = encodeWireDirectory(directory), root = hashObject(encoded);
+      const encoded = encodeProtocolDirectory(directory), root = hashObject(encoded);
       current.snapshot.objects.set(file, bytes); current.snapshot.objects.set(root, encoded);
       await owner.submitUpdates(tree, { base: current.descriptor.tree.update, updates: [{
         change: crypto.randomUUID(), candidate: root, trace: null, deltas: [],
@@ -329,7 +329,7 @@ describe("private self-sync", () => {
     const reader = await launch(stateB, treeB);
     const idle = async () => (await reader.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle";
-    // Establish the initial accepted base and its live Wire watch. After this
+    // Establish the initial accepted base and its live protocol watch. After this
     // setup pass, the remote update below must arrive without another poll.
     await reader.running.service.synchronizeNow();
     await waitFor(idle);
@@ -344,15 +344,15 @@ describe("private self-sync", () => {
 
     // Another writer advances the tree directly on Canopy; the reader's only
     // way to learn about it within the timeout is its live watch.
-    const owner = new WireClient(host.url, token);
+    const owner = new ProtocolClient(host.url, token);
     const current = await readAccepted(owner, tree);
-    const rootObject = decodeWireDirectory(current.snapshot.objects.get(current.snapshot.root)!);
+    const rootObject = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory root");
     const file = new TextEncoder().encode("delivered by watch\n");
-    const nextRoot = encodeWireDirectory({
+    const nextRoot = encodeProtocolDirectory({
       type: "directory",
       entries: [...rootObject.entries, { name: "watched.txt", file: hashObject(file) }]
-        .sort((left, right) => compareWireNames(left.name, right.name)),
+        .sort((left, right) => compareProtocolNames(left.name, right.name)),
     });
     const objects = current.snapshot.objects;
     objects.set(hashObject(file), file);
@@ -425,18 +425,18 @@ describe("private self-sync", () => {
       // The peer's successor adds one file on top of the chain's final root.
       const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
       expect(chainEnd.root).toBe(chain.updates.at(-1)!.candidate);
-      const chainRoot = decodeWireDirectory(chainEnd.objects.get(chainEnd.root)!);
+      const chainRoot = decodeProtocolDirectory(chainEnd.objects.get(chainEnd.root)!);
       const extraFile = new TextEncoder().encode("peer successor\n");
-      const successorRoot = encodeWireDirectory({
+      const successorRoot = encodeProtocolDirectory({
         type: "directory",
         entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile) }]
-          .sort((left, right) => compareWireNames(left.name, right.name)),
+          .sort((left, right) => compareProtocolNames(left.name, right.name)),
       });
       const successor: CandidateUpdate = { change: crypto.randomUUID(), trace: null,
         candidate: hashObject(successorRoot), resolves: [], deltas: [],
         objects: [{ hash: hashObject(extraFile), bytes: extraFile }, { hash: hashObject(successorRoot), bytes: successorRoot }],
       };
-      const peer = new WireClient(host.url, token);
+      const peer = new ProtocolClient(host.url, token);
       const peerResponse = await peer.submitUpdates(tree, { base: chain.base, updates: [...chain.updates, successor] });
       expect(peerResponse.results).toHaveLength(chain.updates.length + 1);
       const successorAccepted = peerResponse.results.at(-1)!;
@@ -472,13 +472,13 @@ describe("private self-sync", () => {
     const store = new AcceptedUpdateStore(db);
     try {
       await daemon.synchronizeNow();
-      const owner = new WireClient(host.url, token), initial = await readAccepted(owner, tree);
+      const owner = new ProtocolClient(host.url, token), initial = await readAccepted(owner, tree);
       const candidate = (text: string) => {
-        const directory = decodeWireDirectory(initial.snapshot.objects.get(initial.snapshot.root)!);
+        const directory = decodeProtocolDirectory(initial.snapshot.objects.get(initial.snapshot.root)!);
         const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
         directory.entries = directory.entries.filter(e => e.name !== "metadata.bin");
-        directory.entries.push({ name: "metadata.bin", file }); directory.entries.sort((a,b) => compareWireNames(a.name,b.name));
-        const encoded = encodeWireDirectory(directory), root = hashObject(encoded);
+        directory.entries.push({ name: "metadata.bin", file }); directory.entries.sort((a,b) => compareProtocolNames(a.name,b.name));
+        const encoded = encodeProtocolDirectory(directory), root = hashObject(encoded);
         return { root, objects: new Map([...initial.snapshot.objects, [file, bytes], [root, encoded]]) };
       };
       await owner.submitUpdate(tree, initial.descriptor.tree.update, candidate("left"));
@@ -506,18 +506,18 @@ describe("private self-sync", () => {
 
   test("a refused change is held across restart until discarded, and the folder returns to the accepted state", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
-    const owner = new WireClient(host.url, token);
+    const owner = new ProtocolClient(host.url, token);
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
     const accepted = await owner.snapshot(configurationTree, remote.tree.root);
     // A change the host refuses: an account configuration path it does not allow.
-    const extra = encodeWireDirectory({ type: "directory", entries: [] }), extraHash = hashObject(extra);
-    const rootDirectory = decodeWireDirectory(accepted.objects.get(accepted.root)!);
-    const staleRoot = encodeWireDirectory({ type: "directory", entries: [...rootDirectory.entries, { name: "LinkPreviews", directory: extraHash }]
-      .sort((left, right) => compareWireNames(left.name, right.name)) });
+    const extra = encodeProtocolDirectory({ type: "directory", entries: [] }), extraHash = hashObject(extra);
+    const rootDirectory = decodeProtocolDirectory(accepted.objects.get(accepted.root)!);
+    const staleRoot = encodeProtocolDirectory({ type: "directory", entries: [...rootDirectory.entries, { name: "LinkPreviews", directory: extraHash }]
+      .sort((left, right) => compareProtocolNames(left.name, right.name)) });
     const staleRootHash = hashObject(staleRoot);
-    const spine = new Map([...accepted.objects].filter(([, bytes]) => { try { decodeWireDirectory(bytes); return true; } catch { return false; } }));
+    const spine = new Map([...accepted.objects].filter(([, bytes]) => { try { decodeProtocolDirectory(bytes); return true; } catch { return false; } }));
     const change = `folder-refused-${crypto.randomUUID()}`;
     const log = new ChangeLog(configurationTree, folderStateRoot(configurationTree));
     await log.retain({ change, tree: configurationTree, basis: { kind: "accepted", root: remote.tree.root, update: remote.tree.update },

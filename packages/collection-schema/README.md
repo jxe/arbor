@@ -10,8 +10,8 @@ and the collection-file codec built on it.
   diagnostics; it never changes the value.
 - `csvRowValue`, `csvHeaderDiagnostics`, `encodeCsvRows`: schema-directed CSV
   cells and the round-trip-checked encoder.
-- `decodeCollectionFileSource`, `decodeWireCollectionFile`,
-  `encodeWireCollectionFile`, `collectionChildSetHash`: collection files for
+- `decodeCollectionFileSource`, `decodeProtocolCollectionFile`,
+  `encodeProtocolCollectionFile`, `collectionChildSetHash`: collection files for
   Arbor Sync providers, canopyd acceptance and projection, and merge rules.
 - `collectionTypeDeclarations`: static TypeScript for generated tree types.
 - `CollectionSchemaCache`: a bounded cache keyed by the exact source hash.

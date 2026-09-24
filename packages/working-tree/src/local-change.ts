@@ -1,7 +1,7 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit } from "@overstory/protocol";
-import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeWireDirectory,
-  encodeWireDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
+import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory,
+  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
 
 export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
@@ -135,14 +135,14 @@ export function prepareSourceChange(input: {
   function replace(hash: string, depth: number, previous: string, source: string): string {
     const bytes = objects.get(hash);
     if (!bytes) throw new Error("Missing directory basis");
-    const directory = decodeWireDirectory(bytes), entry = directory.entries.find(e => e.name === parts[depth]);
+    const directory = decodeProtocolDirectory(bytes), entry = directory.entries.find(e => e.name === parts[depth]);
     if (!entry && depth === parts.length - 1 && parts[depth] === "_index.md" && previous === "") {
       const produced = encoder.encode(source), file = hashObject(produced);
       objects.set(file, produced);
       addedBody = {parentPath: depth === 0 ? "/" : "/" + parts.slice(0, depth).join("/"), parent: hash, file};
       directory.entries.push({ name: "_index.md", file });
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-      const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
+      const next = encodeProtocolDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
     }
     if (!entry) throw new Error("Source path is not in basis");
     if (depth === parts.length - 1) {
@@ -154,7 +154,7 @@ export function prepareSourceChange(input: {
       if (!entry.directory) throw new Error("Source path crosses a file or tree boundary");
       entry.directory = replace(entry.directory, depth + 1, previous, source);
     }
-    const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
+    const next = encodeProtocolDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
   }
   const change = input.change ?? crypto.randomUUID();
   function copyMaterial(copy: NonNullable<SourceEdit["copies"]>[number], file: string): {kind: "basis"; path: string; object: string} {
@@ -165,7 +165,7 @@ export function prepareSourceChange(input: {
     // the same in every frame's `before` tree.
     let hash = graph.root;
     for (const [index, part] of parts.entries()) {
-      const entry = decodeWireDirectory(graph.objects.get(hash)!).entries.find(e => e.name === part);
+      const entry = decodeProtocolDirectory(graph.objects.get(hash)!).entries.find(e => e.name === part);
       if (index === parts.length - 1) {
         if (!entry?.file || !graph.objects.has(entry.file) || decoder.decode(graph.objects.get(entry.file)!) !== source) throw Error("Copy source changed or crosses a tree boundary");
         return {kind: "basis", path, object: entry.file};
@@ -213,7 +213,7 @@ export function prepareSourceChange(input: {
   function visit(hash: string, kind: "file" | "directory") {
     if (reachable.has(hash)) return;
     reachable.add(hash);
-    if (kind === "directory") for (const entry of decodeWireDirectory(objects.get(hash)!).entries) {
+    if (kind === "directory") for (const entry of decodeProtocolDirectory(objects.get(hash)!).entries) {
       if (entry.file) visit(entry.file, "file"); else if (entry.directory) visit(entry.directory, "directory");
     }
   }
@@ -330,7 +330,7 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
   const walk = (snapshot: TreeSnapshot, parts: string[]) => {
     let hash = snapshot.root;
     for (const part of parts) {
-      const next = decodeWireDirectory(snapshot.objects.get(hash)!).entries.find(e => e.name === part)?.directory;
+      const next = decodeProtocolDirectory(snapshot.objects.get(hash)!).entries.find(e => e.name === part)?.directory;
       if (!next) throw Error("Page creation parent is not a basis directory");
       hash = next;
     }
@@ -340,7 +340,7 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
     const parts = path.slice(1).split("/"), name = parts.pop();
     if (!path.startsWith("/") || !name) throw Error("Invalid page creation path");
     const parent = walk(graph, parts);
-    const added = decodeWireDirectory(candidate.objects.get(walk(candidate, parts))!).entries.find(e => e.name === name);
+    const added = decodeProtocolDirectory(candidate.objects.get(walk(candidate, parts))!).entries.find(e => e.name === name);
     const value = added?.file ? {file: added.file} : added?.directory ? {directory: added.directory} : undefined;
     if (!value) throw Error("Page creation entry is not a file or directory");
     return {key: `add-${index}`, kind: "addEntry", destination: {parent: {material: {kind: "basis", path: parts.length ? "/" + parts.join("/") : "/", object: parent}}, name}, value};

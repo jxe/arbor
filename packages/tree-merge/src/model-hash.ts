@@ -1,4 +1,4 @@
-import { decodeWireDirectory, type ObjectHash, type WireDirectoryEntry, canonicalCBORHash, type Hash } from "@overstory/protocol";
+import { decodeProtocolDirectory, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@overstory/protocol";
 import { frontmatter } from "./merge-rules.ts";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -17,7 +17,7 @@ export class ModelHashes {
   constructor(private readonly load: Load) {}
 
   /** The model hash of one directory entry, or null for an absent entry. */
-  entry(entry: WireDirectoryEntry | undefined): Promise<Hash | null> {
+  entry(entry: ProtocolDirectoryEntry | undefined): Promise<Hash | null> {
     if (!entry) return Promise.resolve(null);
     if (entry.tree) return Promise.resolve(canonicalCBORHash({ tree: entry.tree }));
     return this.object((entry.file ?? entry.directory)!, entry.name.endsWith(".md"), !!entry.directory);
@@ -48,7 +48,7 @@ export class ModelHashes {
       }
       return canonicalCBORHash({ content: bytes });
     }
-    const object = decodeWireDirectory(bytes);
+    const object = decodeProtocolDirectory(bytes);
     const bodyEntry = object.entries.find((entry) => entry.name === "_index.md");
     const body = bodyEntry ? await this.entry(bodyEntry) : null;
     if (object.childrenSource) {

@@ -1,11 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Diagnostic, TreeID, SharedTreePlacement, TreePlacement } from "@overstory/protocol";
-import { revisionOf, CanopyAccountStore, arborPrivateRoot } from "@overstory/protocol";
+import { revisionOf, HostAccountStore, arborPrivateRoot } from "@overstory/protocol";
 import {
-  loadCanopyAccountConfigurations,
-  watchCanopyAccountConfigurations,
-  type CanopyAccountConfigurationSnapshot,
+  loadAccountConfigurations,
+  watchAccountConfigurations,
+  type AccountConfigurationSnapshot,
 } from "@overstory/protocol";
 import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "./placements.ts";
 import { loadRehomeTransactions } from "./rehome-state.ts";
@@ -17,7 +17,7 @@ export interface TreeRegistrySnapshot {
   diagnostics: Diagnostic[];
   revision: string;
   source: string;
-  accounts: CanopyAccountConfigurationSnapshot[];
+  accounts: AccountConfigurationSnapshot[];
   /** V2 accounts whose authored graph could not safely replace its last accepted local projection. */
   invalidAccounts: TreeID[];
   /** False means keep the last accepted local placement projection unchanged. */
@@ -63,7 +63,7 @@ function canonicalLocator(origin: string, path: string): string {
 }
 
 export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
-  const pluralConfigurations = await loadCanopyAccountConfigurations();
+  const pluralConfigurations = await loadAccountConfigurations();
   const local = await loadLocalPlacements();
   const rehomes = await loadRehomeTransactions();
   const placements: SharedTreePlacement[] = [];
@@ -107,7 +107,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   }
   for (const configuration of pluralConfigurations) {
     if (!configuration.account || !configuration.trees || !configuration.devices || !configuration.currentDevice) continue;
-    const connected = await new CanopyAccountStore(configuration.configurationTree).safe();
+    const connected = await new HostAccountStore(configuration.configurationTree).safe();
     if (!connected) {
       invalidAccounts.add(configuration.configurationTree);
       diagnostics.push({
@@ -183,7 +183,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
 }
 
 export async function watchTreeRegistry(onChange: () => void): Promise<() => void> {
-  const stopAccounts = await watchCanopyAccountConfigurations(onChange);
+  const stopAccounts = await watchAccountConfigurations(onChange);
   const stopPlacements = watchLocalPlacements(onChange);
   return () => { stopAccounts(); stopPlacements(); };
 }

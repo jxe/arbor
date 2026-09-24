@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { CanopyDaemon, SchemaMismatchError, serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
+import { HostDaemon, SchemaMismatchError, serveHost, type HostBootstrapAccount } from "./index.ts";
 
 const USAGE = `Usage:
   canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]
@@ -108,7 +108,7 @@ export async function initCommunity(args: string[]): Promise<void> {
     throw new Error(`${dataRoot} already holds a community; run \`canopyd serve ${dataRoot}\` instead`);
   }
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  const canopy = await CanopyDaemon.open(dataRoot, {
+  const canopy = await HostDaemon.open(dataRoot, {
     handle,
     name: handle,
     firstWriter: { handle: founderHandle, profileTree: founderProfile },
@@ -144,12 +144,12 @@ export async function serveCommunity(args: string[]): Promise<void> {
     ?? `http://127.0.0.1:${requestedPort}`;
   const dataRoot = resolve(positional[0] ?? process.env.ARBOR_CANOPY_DATA ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".arbor-canopy");
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  const existingCanopy = await hasCommunity(dataRoot);
+  const existingHost = await hasCommunity(dataRoot);
 
   // Unattended bootstrap of an empty data directory comes only from the
   // environment; the interactive path is `canopyd init`.
   const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
-    ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as CanopyBootstrapAccount[]
+    ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as HostBootstrapAccount[]
     : null;
   const accountToken = process.env.ARBOR_ACCOUNT_TOKEN;
   const accounts = configuredAccounts ?? (accountToken ? [{
@@ -162,7 +162,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
   const envFounderHandle = process.env.ARBOR_FIRST_WRITER_HANDLE;
   const envFounderProfile = process.env.ARBOR_FIRST_WRITER_PROFILE;
   let firstWriter: { handle: string; profileTree: string } | undefined;
-  if (!existingCanopy) {
+  if (!existingHost) {
     if (!envCommunity) {
       throw new Error(
         `No community at ${dataRoot}. Create one with \`canopyd init <community> --founder <handle>=<TreeID> --data ${dataRoot}\`, `
@@ -178,9 +178,9 @@ export async function serveCommunity(args: string[]): Promise<void> {
   }
   const communityHandle = envCommunity ?? "community";
 
-  let running: Awaited<ReturnType<typeof serveCanopy>>;
+  let running: Awaited<ReturnType<typeof serveHost>>;
   try {
-    running = await serveCanopy({
+    running = await serveHost({
       dataRoot,
       publicOrigin,
       community: { handle: communityHandle, name: communityHandle, ...(firstWriter ? { firstWriter } : {}) },
@@ -204,7 +204,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
     running.canopy.resetAccountToken(resetAccount, accountToken);
     console.log(`Reset the device credential for ~${resetAccount}; remove ARBOR_RESET_ACCOUNT after recovery.`);
   }
-  console.log(`${existingCanopy ? "Serving" : "Created and serving"} ${running.canopy.communityHandle()} at ${running.url}`);
+  console.log(`${existingHost ? "Serving" : "Created and serving"} ${running.canopy.communityHandle()} at ${running.url}`);
   console.log(`Data: ${dataRoot}`);
   const unclaimed = running.canopy.unclaimedFounderHandle();
   if (unclaimed) {
@@ -222,7 +222,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<void> {
+export async function runHostDaemon(args = process.argv.slice(2)): Promise<void> {
   const [first, ...rest] = args;
   if (first === "init") return initCommunity(rest);
   if (first === "serve") return serveCommunity(rest);
@@ -231,7 +231,7 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
 }
 
 if (import.meta.main) {
-  runCanopyDaemon().catch((error) => {
+  runHostDaemon().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });

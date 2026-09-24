@@ -1,10 +1,10 @@
 import { ServerFaultError } from "../errors.ts";
 import {
-  compareWireNames,
-  decodeWireDirectory,
-  encodeWireDirectory,
+  compareProtocolNames,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
-  type WireDirectoryEntry,
+  type ProtocolDirectoryEntry,
   stableJSONString,
   type AcceptedUpdate,
   type CandidateUpdate,
@@ -126,8 +126,8 @@ export class MergeHistory {
     return carried;
   }
 
-  private async withEntry(root: ObjectHash, names: readonly string[], entry: WireDirectoryEntry | null, objects: Map<ObjectHash, Uint8Array>): Promise<ObjectHash | null> {
-    const directory = decodeWireDirectory(await this.objects.load(root, objects));
+  private async withEntry(root: ObjectHash, names: readonly string[], entry: ProtocolDirectoryEntry | null, objects: Map<ObjectHash, Uint8Array>): Promise<ObjectHash | null> {
+    const directory = decodeProtocolDirectory(await this.objects.load(root, objects));
     const [name, ...rest] = names as [string, ...string[]];
     const prior = directory.entries.find((e) => e.name === name);
     let next = entry;
@@ -138,8 +138,8 @@ export class MergeHistory {
       next = { ...prior, directory: child };
     }
     directory.entries = [...directory.entries.filter((e) => e.name !== name), ...(next ? [next] : [])]
-      .sort((a, b) => compareWireNames(a.name, b.name));
-    const bytes = encodeWireDirectory(directory), hash = hashObject(bytes);
+      .sort((a, b) => compareProtocolNames(a.name, b.name));
+    const bytes = encodeProtocolDirectory(directory), hash = hashObject(bytes);
     objects.set(hash, bytes);
     return hash;
   }
@@ -147,7 +147,7 @@ export class MergeHistory {
   private async at(root: ObjectHash, names: readonly string[], objects: ReadonlyMap<ObjectHash, Uint8Array> = new Map()) {
     let object = root;
     for (const [index, name] of names.entries()) {
-      const entry = decodeWireDirectory(await this.objects.load(object, objects)).entries.find((e) => e.name === name);
+      const entry = decodeProtocolDirectory(await this.objects.load(object, objects)).entries.find((e) => e.name === name);
       if (!entry || index === names.length - 1) return entry ?? null;
       if (!entry.directory) return null;
       object = entry.directory;

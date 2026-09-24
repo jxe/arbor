@@ -514,7 +514,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
 
   static async open(location: ResolvedDatabaseLocation, profiles: ProfileResolver): Promise<SQLiteQueryEngine> {
     if (!location.tree || !location.path) {
-      throw new Error("A SQLite query engine requires the authoritative Arbor tree and store path");
+      throw new Error("A SQLite query engine requires the authoritative Overstory tree and store path");
     }
     const schema = await introspectStoreSchema(location);
     return new SQLiteQueryEngine(schema, location.databasePath, profiles, { tree: location.tree, path: location.path });

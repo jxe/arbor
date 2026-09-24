@@ -18,8 +18,8 @@ struct CanopyEditorTests {
     @Test("No-op is byte-identical across envelopes, CRLF, marks, and raw Markdown")
     func noOp() throws {
         let source = "---\r\nid: pg_exact\r\ntitle:  A  \r\n---\r\n\r\n# Heading *as authored*\r\n\r\nParagraph with **bold**, [link](other.md), $x^2$, and  two spaces.\r\n\r\n<table><tr><td>raw</td></tr></table>\r\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_exact")
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_exact")
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
         #expect(admission.patch.edits.isEmpty)
     }
@@ -27,11 +27,11 @@ struct CanopyEditorTests {
     @Test("Editing one structured block produces one guarded narrow replacement")
     func narrowEdit() throws {
         let source = "---\nid: pg_edit\n---\n\n# Title\n\nFirst paragraph.\n\nUntouched **raw style**.\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_edit")
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_edit")
         var blocks = opened.blocks
         let paragraph = try #require(blocks.first?.children.first)
         blocks[0].children[0] = paragraph.withText(AttributedString("Changed paragraph."))
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
         #expect(admission.source.contains("Changed paragraph."))
         #expect(admission.source.contains("Untouched **raw style**."))
         #expect(admission.patch.edits.count == 1)
@@ -42,19 +42,19 @@ struct CanopyEditorTests {
     func graphemeSafePatch() throws {
         // Adding a combining accent or a skin-tone modifier changes the last
         // shared cluster, so the edit starts at that cluster, not mid-way.
-        let accent = ArborMarkdownCodec.patch(from: "cafe\n", to: "cafe\u{301}\n", revision: "r1")
+        let accent = CanopyMarkdownCodec.patch(from: "cafe\n", to: "cafe\u{301}\n", revision: "r1")
         #expect(accent.edits.map(\.utf8Range) == [3..<4])
         #expect(accent.edits.map(\.expected) == ["e"])
         #expect(accent.edits.map(\.replacement) == ["e\u{301}"])
-        let emoji = ArborMarkdownCodec.patch(from: "👍 ok 👍\n", to: "👍 ok 👍🏽\n", revision: "r1")
+        let emoji = CanopyMarkdownCodec.patch(from: "👍 ok 👍\n", to: "👍 ok 👍🏽\n", revision: "r1")
         #expect(emoji.edits.map(\.utf8Range) == [8..<12])
         #expect(try emoji.applying(to: "👍 ok 👍\n") == "👍 ok 👍🏽\n")
         // Canonically equivalent spellings are still different bytes.
         let precomposed = "caf\u{E9}\n", decomposed = "cafe\u{301}\n"
-        let respelled = ArborMarkdownCodec.patch(from: precomposed, to: decomposed, revision: "r1")
+        let respelled = CanopyMarkdownCodec.patch(from: precomposed, to: decomposed, revision: "r1")
         #expect(respelled.edits.count == 1)
         #expect(try respelled.applying(to: precomposed).utf8.elementsEqual(decomposed.utf8))
-        #expect(ArborMarkdownCodec.patch(from: decomposed, to: decomposed, revision: "r1").edits.isEmpty)
+        #expect(CanopyMarkdownCodec.patch(from: decomposed, to: decomposed, revision: "r1").edits.isEmpty)
     }
 
     @Test("The leading H1 scan reads the first parsed block's title")
@@ -65,11 +65,11 @@ struct CanopyEditorTests {
             "\t \n# After blanks\n", "```\n# not a heading\n```\n", "#Hashtag\n", "- # item\n",
         ]
         for source in sources {
-            let parsed: String? = ArborMarkdownCodec.parseBlocks(source).first.flatMap { block in
+            let parsed: String? = CanopyMarkdownCodec.parseBlocks(source).first.flatMap { block in
                 guard case let .heading(level, text) = block.kind, level == .h1 else { return nil }
                 return String(text.characters)
             }
-            #expect(ArborMarkdownCodec.leadingH1Text(source) == parsed, "\(source.debugDescription)")
+            #expect(CanopyMarkdownCodec.leadingH1Text(source) == parsed, "\(source.debugDescription)")
         }
     }
 
@@ -86,7 +86,7 @@ struct CanopyEditorTests {
         1. Want to come to this event?
         1. What time works?
         """ + "\n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "slxoya"
@@ -94,7 +94,7 @@ struct CanopyEditorTests {
         var editedBlocks = opened.blocks
         editedBlocks[0].children.append(.numbered(text: AttributedString("")))
 
-        let (admission, _) = ArborMarkdownCodec.admission(
+        let (admission, _) = CanopyMarkdownCodec.admission(
             blocks: editedBlocks,
             ledger: opened.ledger
         )
@@ -103,12 +103,12 @@ struct CanopyEditorTests {
         #expect(admission.source.hasSuffix("1. \n\n"))
         #expect(try admission.patch.applying(to: source) == admission.source)
 
-        let confirmed = ArborMarkdownCodec.open(
+        let confirmed = CanopyMarkdownCodec.open(
             source: admission.source,
             revision: "r2",
             identitySeed: "slxoya"
         )
-        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: editedBlocks)
+        let rebased = CanopyMarkdownCodec.rebased(confirmed, preserving: editedBlocks)
         var ids: [BlockID] = []
         func collect(_ blocks: [Block]) {
             for block in blocks {
@@ -119,7 +119,7 @@ struct CanopyEditorTests {
         collect(rebased.blocks)
         #expect(ids.count == Set(ids).count)
 
-        let (noOp, _) = ArborMarkdownCodec.admission(
+        let (noOp, _) = CanopyMarkdownCodec.admission(
             blocks: rebased.blocks,
             ledger: rebased.ledger
         )
@@ -130,7 +130,7 @@ struct CanopyEditorTests {
     @Test("Empty list items retain their kinds and exact Markdown")
     func emptyListItems() throws {
         let source = "- \n\n1. \n\n- [ ] \n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "empty-items"
@@ -139,7 +139,7 @@ struct CanopyEditorTests {
         if case .bullet = opened.blocks[0].kind {} else { Issue.record("Expected empty bullet") }
         if case .numbered = opened.blocks[1].kind {} else { Issue.record("Expected empty numbered item") }
         if case .todo = opened.blocks[2].kind {} else { Issue.record("Expected empty task") }
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
         #expect(admission.patch.edits.isEmpty)
     }
@@ -147,7 +147,7 @@ struct CanopyEditorTests {
     @Test("Blank paragraph blocks round-trip as extra Markdown blank lines")
     func blankParagraphs() throws {
         let source = "before\n\n\nafter\n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "blank-paragraph"
@@ -158,11 +158,11 @@ struct CanopyEditorTests {
         } else {
             Issue.record("Expected an empty paragraph between the authored paragraphs")
         }
-        let (noOp, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let (noOp, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(noOp.source == source)
         #expect(noOp.patch.edits.isEmpty)
 
-        let ordinary = ArborMarkdownCodec.open(
+        let ordinary = CanopyMarkdownCodec.open(
             source: "before\n\nafter\n",
             revision: "r1",
             identitySeed: "insert-blank"
@@ -170,17 +170,17 @@ struct CanopyEditorTests {
         var edited = ordinary.blocks
         let empty = Block.paragraph(text: AttributedString())
         edited.insert(empty, at: 1)
-        let (inserted, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: ordinary.ledger)
+        let (inserted, _) = CanopyMarkdownCodec.admission(blocks: edited, ledger: ordinary.ledger)
         #expect(inserted.source == "before\n\n\nafter\n")
 
-        let confirmed = ArborMarkdownCodec.open(
+        let confirmed = CanopyMarkdownCodec.open(
             source: inserted.source,
             revision: "r2",
             identitySeed: "insert-blank"
         )
-        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: edited)
+        let rebased = CanopyMarkdownCodec.rebased(confirmed, preserving: edited)
         #expect(rebased.blocks[1].id == empty.id)
-        let (confirmedNoOp, _) = ArborMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
+        let (confirmedNoOp, _) = CanopyMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
         #expect(confirmedNoOp.source == inserted.source)
         #expect(confirmedNoOp.patch.edits.isEmpty)
     }
@@ -192,9 +192,9 @@ struct CanopyEditorTests {
             .paragraph(text: AttributedString("middle")),
             .paragraph(text: AttributedString()),
         ]
-        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        let source = CanopyMarkdownCodec.serializeBlocks(blocks)
         #expect(source == "\u{00A0}\n\nmiddle\n\n\u{00A0}\n\n")
-        let reopened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "edge-blanks")
+        let reopened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "edge-blanks")
         #expect(reopened.blocks.count == 3)
         #expect(reopened.blocks.allSatisfy { block in
             if case .paragraph = block.kind { return true }
@@ -210,8 +210,8 @@ struct CanopyEditorTests {
         let blocks = (1...6).map { level in
             Block.heading(level: level, text: AttributedString())
         }
-        let source = ArborMarkdownCodec.serializeBlocks(blocks)
-        let reopened = ArborMarkdownCodec.open(
+        let source = CanopyMarkdownCodec.serializeBlocks(blocks)
+        let reopened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "empty-headings"
@@ -240,7 +240,7 @@ struct CanopyEditorTests {
     @Test("Rebase reserves later preserved IDs when an earlier parsed kind changes")
     func rebaseReservesPreservedIDs() throws {
         let source = "# Tasks\n\n- First\n\n- Second\n\n- Third\n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "insert-before"
@@ -248,13 +248,13 @@ struct CanopyEditorTests {
         var edited = opened.blocks
         let secondID = try #require(edited[0].children.first { String($0.text.characters) == "Second" }?.id)
         edited[0].children.insert(.toggle(title: "Inserted"), at: 1)
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
-        let confirmed = ArborMarkdownCodec.open(
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
+        let confirmed = CanopyMarkdownCodec.open(
             source: admission.source,
             revision: "r2",
             identitySeed: "insert-before"
         )
-        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: edited)
+        let rebased = CanopyMarkdownCodec.rebased(confirmed, preserving: edited)
         var ids: [BlockID] = []
         func collect(_ blocks: [Block]) {
             for block in blocks {
@@ -270,7 +270,7 @@ struct CanopyEditorTests {
     @Test("Edited blocks preserve Quagmire inline marks and links semantically")
     func editedInlineMarks() throws {
         let source = "Text **bold** *italic* `code` ~~gone~~ and [link](https://example.com).\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "marks")
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "marks")
         var blocks = opened.blocks
         var text = try #require(blocks.first?.text)
         #expect(String(text.characters) == "Text bold italic code gone and link.")
@@ -282,7 +282,7 @@ struct CanopyEditorTests {
 
         text.append(AttributedString(" Edited."))
         blocks[0] = blocks[0].withText(text)
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
         #expect(admission.source.contains("**bold**"))
         #expect(admission.source.contains("*italic*"))
         #expect(admission.source.contains("`code`"))
@@ -294,15 +294,15 @@ struct CanopyEditorTests {
     @Test("H1 through H6, code, lists, quote, divider, reference, image, and raw blocks survive")
     func blockKinds() {
         let source = "# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6\n\n- bullet\n\n1. number\n\n- [x] done\n\n> quote\n\n---\n\n```swift\nlet x = 1\n```\n\n[Page](page.md)\n\n![Alt](Assets/a.png)\n\n<div>raw</div>\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r", identitySeed: "kinds")
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r", identitySeed: "kinds")
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
     }
 
     @Test("Toggles and indented bodies round-trip without touching source bytes")
     func toggleNoOpRoundTrip() throws {
         let source = "---\r\nid: pg_toggles\r\n---\r\n\r\n▸ **Outer**\r\n  Intro.\r\n  ▸ Inner\r\n    - child\r\n  ## Inside\r\n  body\r\n- list\r\n  ▸ Nested\r\n    ```text\r\n    ▸ literal, not a toggle\r\n    ```\r\n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "pg_toggles"
@@ -330,7 +330,7 @@ struct CanopyEditorTests {
         }
         #expect(code.contains("▸ literal, not a toggle"))
 
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
         #expect(admission.patch.edits.isEmpty)
     }
@@ -347,12 +347,12 @@ struct CanopyEditorTests {
                 ]),
             ]),
         ]
-        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        let source = CanopyMarkdownCodec.serializeBlocks(blocks)
         #expect(source.hasPrefix("▸ **Details**\n  Body"))
         #expect(source.contains("  ▸ Nested\n    - Child"))
         #expect(!source.hasPrefix("- Details"))
 
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "created-toggle")
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "created-toggle")
         guard case .toggle = opened.blocks.first?.kind else {
             Issue.record("Created toggle reopened as a different block kind")
             return
@@ -361,13 +361,13 @@ struct CanopyEditorTests {
 
         var edited = opened.blocks
         edited[0] = edited[0].withText(AttributedString("Changed"))
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
         #expect(admission.patch.edits.count == 1)
         #expect(admission.source.contains("▸ Changed"))
         #expect(admission.source.contains("  Body"))
         #expect(try admission.patch.applying(to: source) == admission.source)
 
-        let confirmed = ArborMarkdownCodec.open(
+        let confirmed = CanopyMarkdownCodec.open(
             source: admission.source,
             revision: "r2",
             identitySeed: "created-toggle"
@@ -381,7 +381,7 @@ struct CanopyEditorTests {
     @Test("Blank paragraphs inside a toggle remain inside its indented body")
     func toggleBlankParagraph() throws {
         let source = "▸ Notes\n  before\n  \n  \n  after\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "toggle-blank")
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r1", identitySeed: "toggle-blank")
         let toggle = try #require(opened.blocks.first)
         guard case .toggle = toggle.kind else {
             Issue.record("Expected toggle")
@@ -389,14 +389,14 @@ struct CanopyEditorTests {
         }
         #expect(toggle.children.count == 3)
         #expect(toggle.children[1].text.characters.isEmpty)
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
     }
 
     @Test("A linked list item is a bullet rather than a task checkbox")
     func linkedBullet() throws {
         let source = "- [https://example.com](https://example.com) -> destination\n"
-        let opened = ArborMarkdownCodec.open(source: source, revision: "r", identitySeed: "linked-bullet")
+        let opened = CanopyMarkdownCodec.open(source: source, revision: "r", identitySeed: "linked-bullet")
         let block = try #require(opened.blocks.first)
         guard case .bullet = block.kind else {
             Issue.record("Expected a bullet, got \(block.kind)")
@@ -404,14 +404,14 @@ struct CanopyEditorTests {
         }
         #expect(String(block.text.characters) == "https://example.com -> destination")
         #expect(block.text.runs.contains { $0.link?.absoluteString == "https://example.com" })
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        let (admission, _) = CanopyMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
         #expect(admission.source == source)
     }
 
     @Test("Full-row link labels preserve inline Markdown semantics")
     func documentLinkInlineLabel() throws {
         let source = "[🗓️ **Calendar**](Calendar.md#h31mlm)\n"
-        let block = try #require(ArborMarkdownCodec.parseBlocks(source).first)
+        let block = try #require(CanopyMarkdownCodec.parseBlocks(source).first)
         guard case let .documentLink(label, reference) = block.kind else {
             Issue.record("Expected a document link, got \(block.kind)")
             return
@@ -419,7 +419,7 @@ struct CanopyEditorTests {
         #expect(String(label.characters) == "🗓️ Calendar")
         #expect(label.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
         #expect(reference.rawValue == "Calendar.md#h31mlm")
-        #expect(ArborMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
+        #expect(CanopyMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
     }
 
     @MainActor
@@ -428,8 +428,8 @@ struct CanopyEditorTests {
         let source = "---\nid: pg_errands\n---\n\n# Errands\n\nPick up the bike.\n\n- Once here\n  - Run\n\nCall the landlord.\n"
         let reference = WorkspaceReference(tree: "tr_sample", path: "/errands", stableKey: markdownStableKey("pg_errands"))
         let session = RecordingAdmissionSession(snapshot: .init(reference: reference, source: source, contentRevision: "opaque-r1"))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let object = WireObjectCodec.hash(Data(source.utf8))
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let object = ProtocolObjectCodec.hash(Data(source.utf8))
         func text(_ ids: [BlockID]?) -> [String]? {
             ids?.map { id in binding.document.find(id).map { String($0.text.characters) } ?? "?" }
         }
@@ -442,7 +442,7 @@ struct CanopyEditorTests {
         #expect(text(binding.blocks(overlapping: list..<after, inSource: object)) == ["Once here", "Run"])
         // A retained deletion sits after the block that ends at its anchor.
         #expect(text(binding.blocks(overlapping: after..<after, inSource: object)) == ["Run"])
-        #expect(binding.blocks(overlapping: list..<after, inSource: WireObjectCodec.hash(Data("other".utf8))) == nil)
+        #expect(binding.blocks(overlapping: list..<after, inSource: ProtocolObjectCodec.hash(Data("other".utf8))) == nil)
         // Frontmatter has no block to stand beside.
         #expect(binding.blocks(overlapping: 4..<18, inSource: object) == nil)
     }
@@ -454,11 +454,11 @@ struct CanopyEditorTests {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = RecordingAdmissionSession(snapshot: .init(
             reference: reference,
-            source: "# Welcome\n\nNative Arbor is ready.\n",
+            source: "# Welcome\n\nNative Canopy is ready.\n",
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -502,7 +502,7 @@ struct CanopyEditorTests {
             source: original,
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
 
         try await binding.replaceSource(replacement)
 
@@ -517,10 +517,10 @@ struct CanopyEditorTests {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = RecordingAdmissionSession(snapshot: .init(
             reference: reference,
-            source: "# Welcome\n\nNative Arbor is ready.\n",
+            source: "# Welcome\n\nNative Canopy is ready.\n",
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let paragraph = try #require(binding.document.children.last)
 
         binding.document.transaction(name: "edit") {
@@ -544,8 +544,8 @@ struct CanopyEditorTests {
             source: "# Welcome\n\n\u{00A0}\n\n",
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: linkPreviewService()
@@ -586,8 +586,8 @@ struct CanopyEditorTests {
             source: "# Welcome\n\n\u{00A0}\n\n",
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: linkPreviewService()
@@ -604,7 +604,7 @@ struct CanopyEditorTests {
 
         #expect(await session.admissionCount() == 1)
         let saved = await session.snapshot()
-        let reopened = ArborMarkdownCodec.open(
+        let reopened = CanopyMarkdownCodec.open(
             source: saved.source,
             revision: saved.contentRevision,
             identitySeed: "autoexpand-inactivity"
@@ -623,15 +623,15 @@ struct CanopyEditorTests {
             stableKey: markdownStableKey("pg_welcome")
         )
         let currentSession = try await provider.openDocument(currentReference)
-        let binding = try await ArborDocumentBinding.open(reference: currentReference, session: currentSession)
+        let binding = try await CanopyDocumentBinding.open(reference: currentReference, session: currentSession)
         let root = WorkspaceReference(tree: "tr_sample", path: "/")
         let target = try #require(try await provider.perform(.createMarkdown(
             parent: root,
             name: "Target",
             source: "# Target\n\nBody **as authored**.\n"
         )))
-        let targetReference = ArborDocumentReferenceCodec.encode(target.reference)
-        let host = ArborEditorHost(
+        let targetReference = CanopyDocumentReferenceCodec.encode(target.reference)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -661,8 +661,8 @@ struct CanopyEditorTests {
         let provider = InMemoryWorkspaceProvider.sample()
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -689,9 +689,9 @@ struct CanopyEditorTests {
         let provider = InMemoryWorkspaceProvider.sample()
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         var errors: [String] = []
-        let host = ArborEditorHost(
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
@@ -703,7 +703,7 @@ struct CanopyEditorTests {
             requestedReference: nil,
             initialContent: nil
         ))
-        let firstReference = try #require(ArborDocumentReferenceCodec.decode(first))
+        let firstReference = try #require(CanopyDocumentReferenceCodec.decode(first))
         let createdSession = try await provider.openDocument(firstReference)
         let createdSnapshot = try await createdSession.snapshot()
         _ = try await createdSession.admit(
@@ -750,9 +750,9 @@ struct CanopyEditorTests {
         #expect(authoredLink.relativeString.hasPrefix("welcome/Arbor-demo#arbor-key="))
         #expect(authoredLink.scheme == nil)
         #expect(retry == first, "a retry should recover the page materialized by the first attempt")
-        #expect(ArborDocumentReferenceCodec.decode(existing)?.path == "/welcome")
-        #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
-        #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
+        #expect(CanopyDocumentReferenceCodec.decode(existing)?.path == "/welcome")
+        #expect(CanopyDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
+        #expect(CanopyDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
         #expect(errors.isEmpty)
         await session.close()
     }
@@ -767,8 +767,8 @@ struct CanopyEditorTests {
             stableKey: markdownStableKey("pg_welcome")
         )
         let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -790,7 +790,7 @@ struct CanopyEditorTests {
         let suggestions = await host.suggestDocuments("Values", in: binding.document)
 
         #expect(suggestions.first?.title == "Values")
-        #expect(suggestions.first?.id == ArborDocumentReferenceCodec.encode(target.reference))
+        #expect(suggestions.first?.id == CanopyDocumentReferenceCodec.encode(target.reference))
         #expect(suggestions.allSatisfy {
             $0.title.localizedCaseInsensitiveContains("Values")
                 || ($0.subtitle?.localizedCaseInsensitiveContains("Values") == true)
@@ -808,8 +808,8 @@ struct CanopyEditorTests {
             stableKey: markdownStableKey("pg_welcome")
         )
         let session = try await provider.openDocument(source)
-        let binding = try await ArborDocumentBinding.open(reference: source, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: source, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -841,7 +841,7 @@ struct CanopyEditorTests {
             source: "# RowTarget\n"
         )))
         #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) != nil)
-        let row = ArborDocumentReferenceCodec.encode(rowTarget.reference)
+        let row = CanopyDocumentReferenceCodec.encode(rowTarget.reference)
         _ = try #require(await provider.perform(.createMarkdown(
             parent: root,
             name: "RowLinker",
@@ -860,8 +860,8 @@ struct CanopyEditorTests {
             source: "before\n\nafter\n",
             contentRevision: "r1"
         ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: linkPreviewService()
@@ -886,7 +886,7 @@ struct CanopyEditorTests {
     @Test("Duplicate tabs share one binding and save chain by PageID")
     func duplicateTabs() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let workspace = ArborEditorWorkspace(provider: provider)
+        let workspace = CanopyEditorWorkspace(provider: provider)
         let first = try await workspace.lease(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
         let second = try await workspace.lease(.init(tree: "tr_sample", path: "/stale", stableKey: markdownStableKey("pg_welcome")))
         #expect(first.binding === second.binding)
@@ -898,7 +898,7 @@ struct CanopyEditorTests {
     @Test("Provider-backed transcript delivery updates an active PageID binding")
     func activeTranscriptDelivery() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let workspace = ArborEditorWorkspace(provider: provider)
+        let workspace = CanopyEditorWorkspace(provider: provider)
         let reference = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
@@ -947,7 +947,7 @@ struct CanopyEditorTests {
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let provider = InMemoryWorkspaceProvider(nodes: [node])
-        let workspace = ArborEditorWorkspace(provider: provider)
+        let workspace = CanopyEditorWorkspace(provider: provider)
         let lease = try await workspace.lease(reference)
 
         try await workspace.appendTranscript(
@@ -994,7 +994,7 @@ struct CanopyEditorTests {
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let provider = InMemoryWorkspaceProvider(nodes: [node])
-        let workspace = ArborEditorWorkspace(provider: provider)
+        let workspace = CanopyEditorWorkspace(provider: provider)
 
         try await workspace.appendTranscript(
             "Recovered into recordings.",
@@ -1017,25 +1017,25 @@ struct CanopyEditorTests {
     func safeActions() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
         let session = try await provider.openDocument(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
-        let binding = try await ArborDocumentBinding.open(
+        let binding = try await CanopyDocumentBinding.open(
             reference: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")),
             session: session
         )
         var openedReference: WorkspaceReference?
-        let host = ArborEditorHost(
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
             open: { openedReference = $0 }
         )
         let before = try await session.snapshot()
-        let scoped = ArborDocumentReferenceCodec.encode(before.reference)
-        #expect(ArborDocumentReferenceCodec.decode(scoped) == before.reference)
+        let scoped = CanopyDocumentReferenceCodec.encode(before.reference)
+        #expect(CanopyDocumentReferenceCodec.decode(scoped) == before.reference)
         let hunchLink = try #require(host.resolveReference(
             from: URL(string: "Reference.md#stdu7s")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(hunchLink)?.path == "/Reference")
+        #expect(CanopyDocumentReferenceCodec.decode(hunchLink)?.path == "/Reference")
         let standaloneHunchLink = DocumentReference("welcome.md#pg_welcome")
         host.openDocument(standaloneHunchLink)
         #expect(openedReference?.path == "/welcome")
@@ -1073,8 +1073,8 @@ struct CanopyEditorTests {
             children: [home.id: [destination.id]]
         )
         let session = try await provider.openDocument(home.reference)
-        let binding = try await ArborDocumentBinding.open(reference: home.reference, session: session)
-        let host = ArborEditorHost(
+        let binding = try await CanopyDocumentBinding.open(reference: home.reference, session: session)
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService()
@@ -1113,12 +1113,12 @@ struct CanopyEditorTests {
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let source = "# Parent\n\nBefore\n\n<!-- arbor:children -->\n"
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "projected-children"
         )
-        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+        let projected = CanopyMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
             directory: directory
@@ -1132,19 +1132,19 @@ struct CanopyEditorTests {
             ? parent.children[markerIndex + 1]
             : nil)
 
-        #expect(ArborMarkdownCodec.isProjectedChild(generated))
-        #expect(ArborMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
+        #expect(CanopyMarkdownCodec.isProjectedChild(generated))
+        #expect(CanopyMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
 
         let document = Document(id: DocumentID("projected-children"), children: projected)
         let generatedID = generated.id
         let parentID = parent.id
-        let prepared = ArborMarkdownCodec.materializingProjectedChildren([generated])
+        let prepared = CanopyMarkdownCodec.materializingProjectedChildren([generated])
         document.transaction(name: "Move Child Link") {
             _ = document.replaceSubtree(generatedID, with: prepared)
             _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
         }
-        let admitted = ArborMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
-        #expect(document.find(generatedID).map(ArborMarkdownCodec.isProjectedChild) == false)
+        let admitted = CanopyMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
+        #expect(document.find(generatedID).map(CanopyMarkdownCodec.isProjectedChild) == false)
         #expect(admitted.contains("[Child]("))
         let linkRange = try #require(admitted.range(of: "[Child]("))
         let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
@@ -1160,28 +1160,28 @@ struct CanopyEditorTests {
         let child = WorkspaceNode(
             reference: childReference,
             title: "~joe",
-            surface: .directory(summary: "Nested Arbor tree"),
+            surface: .directory(summary: "Nested Overstory tree"),
             provenance: .init(authority: .local, sourceDescription: "Test"),
             isWritable: false
         )
-        let opened = ArborMarkdownCodec.open(
+        let opened = CanopyMarkdownCodec.open(
             source: "# Community\n\n<!-- arbor:children -->\n",
             revision: "r1",
             identitySeed: "nested-profile"
         )
-        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+        let projected = CanopyMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
             directory: directory
         )
         let heading = try #require(projected.first)
-        let generated = try #require(heading.children.first(where: ArborMarkdownCodec.isProjectedChild))
+        let generated = try #require(heading.children.first(where: CanopyMarkdownCodec.isProjectedChild))
         guard case let .documentLink(label, reference) = generated.kind else {
             Issue.record("Expected a projected document link")
             return
         }
         #expect(String(label.characters) == "~joe")
-        #expect(ArborDocumentReferenceCodec.decode(reference) == childReference)
+        #expect(CanopyDocumentReferenceCodec.decode(reference) == childReference)
         #expect(reference.rawValue == "arbor://tr_profile/")
 
         let provider = InMemoryWorkspaceProvider.sample()
@@ -1191,9 +1191,9 @@ struct CanopyEditorTests {
             stableKey: markdownStableKey("pg_welcome")
         )
         let session = try await provider.openDocument(currentReference)
-        let binding = try await ArborDocumentBinding.open(reference: currentReference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: currentReference, session: session)
         var openedReference: WorkspaceReference?
-        let host = ArborEditorHost(
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
@@ -1249,9 +1249,9 @@ struct CanopyEditorTests {
             ]
         )
         let session = try await provider.openDocument(parent.reference)
-        let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: parent.reference, session: session)
         var opened: [WorkspaceReference] = []
-        let host = ArborEditorHost(
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
@@ -1262,12 +1262,12 @@ struct CanopyEditorTests {
             from: URL(string: "child")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
+        #expect(CanopyDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
         let legacyChildLink = try #require(host.resolveReference(
             from: URL(string: "stale-child.md#pg_child")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(legacyChildLink) == WorkspaceReference(
+        #expect(CanopyDocumentReferenceCodec.decode(legacyChildLink) == WorkspaceReference(
             tree: tree,
             path: "/parent/stale-child",
             stableKey: markdownStableKey("pg_child")
@@ -1279,8 +1279,8 @@ struct CanopyEditorTests {
             from: URL(string: "../destination")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(relativeSiblingLink)?.path == "/destination")
-        let reference = ArborDocumentReferenceCodec.encode(.init(
+        #expect(CanopyDocumentReferenceCodec.decode(relativeSiblingLink)?.path == "/destination")
+        let reference = CanopyDocumentReferenceCodec.encode(.init(
             tree: tree,
             path: "/stale-child-hint",
             stableKey: markdownStableKey("pg_child")
@@ -1297,7 +1297,7 @@ struct CanopyEditorTests {
         let resolved = try await provider.resolve(.init(tree: tree, path: "/stale", stableKey: markdownStableKey("pg_child")))
         #expect(resolved.reference.path == "/destination/child")
         #expect(!(await host.relocateDocument(
-            ArborDocumentReferenceCodec.encode(destination.reference),
+            CanopyDocumentReferenceCodec.encode(destination.reference),
             from: binding.document
         )))
 
@@ -1319,7 +1319,7 @@ struct CanopyEditorTests {
             stableKey: markdownStableKey("pg_welcome")
         )
         let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let url = try #require(URL(string: "https://example.com/article"))
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appending(path: "ArborQuagmireExtras-\(UUID().uuidString)")
@@ -1327,7 +1327,7 @@ struct CanopyEditorTests {
         let service = LinkPreviewService(cacheDirectory: cacheDirectory) { requested in
             LinkPreview(url: requested, title: "Example article", iconPNG: nil)
         }
-        let host = ArborEditorHost(
+        let host = CanopyEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: service
@@ -1347,7 +1347,7 @@ struct CanopyEditorTests {
         let provider = InMemoryWorkspaceProvider.sample()
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let originalIDs = binding.document.children.map(\.id)
         let base = try await session.snapshot()
         let confirmed = try await session.admit(source: base.source + "\nAdded externally.\n", baseContentRevision: base.contentRevision)
@@ -1355,13 +1355,13 @@ struct CanopyEditorTests {
         #expect(binding.document.children.first?.id == originalIDs.first)
         #expect(binding.lastError == nil)
 
-        let reopened = ArborMarkdownCodec.open(
+        let reopened = CanopyMarkdownCodec.open(
             source: confirmed.source,
             revision: confirmed.contentRevision,
             identitySeed: "replacement-check"
         )
-        let rebased = ArborMarkdownCodec.rebased(reopened, preserving: binding.document.children)
-        let (noOp, _) = ArborMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
+        let rebased = CanopyMarkdownCodec.rebased(reopened, preserving: binding.document.children)
+        let (noOp, _) = CanopyMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
         #expect(noOp.source == confirmed.source)
         #expect(noOp.patch.edits.isEmpty)
     }
@@ -1376,7 +1376,7 @@ struct CanopyEditorTests {
             contentRevision: "r1"
         )
         let session = LiveUpdateSession(snapshot: initial)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let originalHeadingID = binding.document.children.first?.id
         func blockCount() -> Int {
             var count = 0
@@ -1407,7 +1407,7 @@ struct CanopyEditorTests {
             contentRevision: "r1"
         )
         let session = LiveUpdateSession(snapshot: initial)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         var bulletID: BlockID?
         binding.document.walk { block, _, _ in
             if case .bullet = block.kind { bulletID = block.id }
@@ -1436,7 +1436,7 @@ struct CanopyEditorTests {
             contentRevision: "r1"
         )
         let session = InterleavingLiveUpdateSession(snapshot: initial)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         var bulletID: BlockID?
         binding.document.walk { block, _, _ in
             if case .bullet = block.kind { bulletID = block.id }
@@ -1478,7 +1478,7 @@ struct CanopyEditorTests {
             contentRevision: "r1"
         )
         let session = LiveUpdateSession(snapshot: initial)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         await Task.yield()
         await session.publish(source: "▸ Updated details\n  Original body.\n", revision: "r2")
 
@@ -1686,18 +1686,18 @@ private actor InterleavingLiveUpdateSession: WorkspaceDocumentSession {
 @Test("Stable block reorder preserves exact source lineage")
 func reorderedSourceLineage() throws {
     let source = "Alpha 🪴\r\n\r\nBeta\r\n\r\nGamma\r\n"
-    let opened = ArborMarkdownCodec.open(source:source,revision:"r",identitySeed:"lineage")
+    let opened = CanopyMarkdownCodec.open(source:source,revision:"r",identitySeed:"lineage")
     let blocks = [opened.blocks[1], opened.blocks[0], opened.blocks[2]]
-    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
+    let admission = CanopyMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
     #expect(try admission.patch.applying(to:source) == admission.source)
     #expect(admission.patch.edits.flatMap { $0.lineage ?? [] }.count >= 1)
 }
 
 @Test("Reordering equal-byte blocks still retains distinct source intent")
 func equalByteReorderLineage() throws {
-    let opened = ArborMarkdownCodec.open(source:"same\n\nsame\n\n",revision:"r",identitySeed:"equal")
+    let opened = CanopyMarkdownCodec.open(source:"same\n\nsame\n\n",revision:"r",identitySeed:"equal")
     #expect(opened.blocks.count == 2)
-    let admission = ArborMarkdownCodec.admission(blocks:opened.blocks.reversed(),ledger:opened.ledger).0
+    let admission = CanopyMarkdownCodec.admission(blocks:opened.blocks.reversed(),ledger:opened.ledger).0
     #expect(admission.source == opened.ledger.source)
     #expect(admission.patch.edits.count == 1)
     #expect(admission.patch.edits[0].lineage?.count == 2)
@@ -1709,7 +1709,7 @@ func equalByteReorderLineage() throws {
 func boundEqualByteReorder() async throws {
     let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:"same\n\nsame\n\n",contentRevision:"r1"))
-    let binding = try await ArborDocumentBinding.open(reference:reference,session:session)
+    let binding = try await CanopyDocumentBinding.open(reference:reference,session:session)
     binding.document.transaction(name:"reorder") {
         _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
     }
@@ -1728,7 +1728,7 @@ func boundSourceCopy(position: Int) async throws {
     let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
     let source = "Café\r\n\r\nsame\r\n\r\n"
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:source,contentRevision:"r1"))
-    let binding = try await ArborDocumentBinding.open(reference:reference,session:session)
+    let binding = try await CanopyDocumentBinding.open(reference:reference,session:session)
     binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
     let original = binding.document.children[0]
     _ = binding.document.insertCopies(of:[original],at:.init(parent:nil,position:position))
@@ -1752,11 +1752,11 @@ func boundSourceCopy(position: Int) async throws {
 
 @Test("Copying unterminated Markdown keeps distinct blocks and exact copied bytes",arguments:[0,1])
 func unterminatedSourceCopy(position:Int) throws {
-    let opened = ArborMarkdownCodec.open(source:"Café",revision:"r",identitySeed:"copy")
+    let opened = CanopyMarkdownCodec.open(source:"Café",revision:"r",identitySeed:"copy")
     let original = try #require(opened.blocks.first), copy = original.withFreshIDs()
     var blocks = opened.blocks; blocks.insert(copy,at:position)
-    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger,copies:[copy.id:original.id]).0
-    #expect(ArborMarkdownCodec.open(source:admission.source,revision:"r",identitySeed:"result").blocks.count == 2)
+    let admission = CanopyMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger,copies:[copy.id:original.id]).0
+    #expect(CanopyMarkdownCodec.open(source:admission.source,revision:"r",identitySeed:"result").blocks.count == 2)
     #expect(admission.patch.edits.first?.copies?.first?.source == 0..<"Café".utf8.count)
     #expect(try admission.patch.applying(to:"Café") == admission.source)
 }
@@ -1765,12 +1765,12 @@ extension CanopyEditorTests {
     @Test("Foreign copies preserve original Markdown spelling and CRLF")
     func foreignCopySourceFidelity() throws {
         let source = "# Origin\r\n\r\n*  Exact café\r\n"
-        let origin = ArborMarkdownCodec.open(source: source, revision: "origin", identitySeed: "origin")
+        let origin = CanopyMarkdownCodec.open(source: source, revision: "origin", identitySeed: "origin")
         let block = try #require(origin.blocks.first?.children.first)
         let copied = block.withFreshIDs()
-        let destination = ArborMarkdownCodec.open(source: "# Destination\r\n\r\n", revision: "destination", identitySeed: "destination")
+        let destination = CanopyMarkdownCodec.open(source: "# Destination\r\n\r\n", revision: "destination", identitySeed: "destination")
         let record = try #require(origin.ledger.records[block.id])
-        let (result, _) = ArborMarkdownCodec.admission(blocks: destination.blocks + [copied], ledger: destination.ledger,
+        let (result, _) = CanopyMarkdownCodec.admission(blocks: destination.blocks + [copied], ledger: destination.ledger,
             foreignCopies: [copied.id: (record, WorkspaceCopyDocument(path: "/origin.md", source: source))])
         #expect(result.source.contains("*  Exact café\r\n"))
         #expect(try result.patch.applying(to: destination.ledger.source) == result.source)
@@ -1818,7 +1818,7 @@ extension CanopyEditorTests {
             nodes: [root, target, source, child, childBacklink],
             children: [root.id: [target.id, source.id, childBacklink.id], target.id: [child.id]]
         )
-        let workspace = ArborEditorWorkspace(provider: provider)
+        let workspace = CanopyEditorWorkspace(provider: provider)
         let action = WorkspaceStructuralAction.rename(reference: target.reference, name: "private-name")
         let healingSources = await workspace.linkHealingSources(for: action)
         let renamed = try #require(try await provider.perform(action))

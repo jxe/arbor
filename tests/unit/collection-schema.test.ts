@@ -12,10 +12,10 @@ import {
   csvSchemaDiagnostic,
   CsvEncodeError,
   decodeCollectionFileSource,
-  decodeWireCollectionFile,
+  decodeProtocolCollectionFile,
   encodeCsvRows,
   validateRow,
-  WireCollectionFileError,
+  ProtocolCollectionFileError,
   collectionChildSetHash,
   type CollectionSchema,
 } from "@overstory/collection-schema";
@@ -208,12 +208,12 @@ describe("collection schema implementation", () => {
       version: 2, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
       schemaFingerprint: schema.revision, childSetHash,
     };
-    const decoded = decodeWireCollectionFile(descriptor, store, schemaBytes);
+    const decoded = decodeProtocolCollectionFile(descriptor, store, schemaBytes);
     expect(decoded.rows.map((row) => row.path)).toEqual(["b", "a"]);
-    expect(() => decodeWireCollectionFile({ ...descriptor, childSetHash: `sha256:${"0".repeat(64)}` as Hash }, store, schemaBytes))
+    expect(() => decodeProtocolCollectionFile({ ...descriptor, childSetHash: `sha256:${"0".repeat(64)}` as Hash }, store, schemaBytes))
       .toThrow("child-set hash");
-    expect(() => decodeWireCollectionFile({ ...descriptor, version: 1, schemaSource: "schema.ts" }, store, schemaBytes))
-      .toThrow(WireCollectionFileError);
+    expect(() => decodeProtocolCollectionFile({ ...descriptor, version: 1, schemaSource: "schema.ts" }, store, schemaBytes))
+      .toThrow(ProtocolCollectionFileError);
   });
 
   test("the child-set hash orders keys by UTF-8 bytes", () => {

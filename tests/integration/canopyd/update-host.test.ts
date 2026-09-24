@@ -4,8 +4,8 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256, WireClient, applyTransitionPayload, WireUpdateConflict, WireUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
-import { serveCanopy } from "@overstory/canopyd";
+import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256, ProtocolClient, applyTransitionPayload, ProtocolUpdateConflict, ProtocolUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
 import { ServerFaultError } from "../../../packages/canopyd/src/errors.ts";
@@ -21,19 +21,19 @@ const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 const token = "owner-test-credential";
 let dataRoot: string;
-let running: Awaited<ReturnType<typeof serveCanopy>>;
-let client: WireClient;
+let running: Awaited<ReturnType<typeof serveHost>>;
+let client: ProtocolClient;
 
 beforeAll(async () => {
   dataRoot = await mkdtemp(join(tmpdir(), "arbor-canopy-"));
-  running = await serveCanopy({
+  running = await serveHost({
     dataRoot,
     accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
   });
-  client = new WireClient(running.url, token);
+  client = new ProtocolClient(running.url, token);
 });
 
 afterAll(async () => {
@@ -198,7 +198,7 @@ describe("governed account-configuration Canopy server", () => {
     const rejected = await client.submitUpdates(baseline.current.tree.id,{
       ...request,updates:[{...request.updates[0]!,change:crypto.randomUUID()}],
     }).catch(error=>error);
-    expect(rejected).toBeInstanceOf(WireUpdateConflict);
+    expect(rejected).toBeInstanceOf(ProtocolUpdateConflict);
     expect(rejected.result.message).toContain("ifCurrent");
     const replay = await client.submitUpdates(baseline.current.tree.id,request);
     expect(replay.results[0]!.update.id).toBe(first.results[0]!.update.id);
@@ -245,7 +245,7 @@ describe("governed account-configuration Canopy server", () => {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ base: baseline.current.tree.update, updates: [first, second] }),
     });
-    await expect(client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [decodeCandidateUpdateJSON(first), decodeCandidateUpdateJSON(second)] })).rejects.toBeInstanceOf(WireUnsupportedOperation);
+    await expect(client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [decodeCandidateUpdateJSON(first), decodeCandidateUpdateJSON(second)] })).rejects.toBeInstanceOf(ProtocolUnsupportedOperation);
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({ error: "unsupported-operation", retryable: false });
     expect(await client.descriptor(baseline.current.tree.id)).toEqual(baseline.current);
@@ -656,9 +656,9 @@ describe("governed account-configuration Canopy server", () => {
     await writeFile(renamedPath, `${mergeBaseSource}\nExact line\n`);
     const exact = await snapshotWithCollectionFiles(treePath);
     const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifCurrent: mergeBase.tree.update }).catch((error) => error);
-    expect(rejected).toBeInstanceOf(WireUpdateConflict);
-    expect((rejected as WireUpdateConflict).result.details.draft.root).toBe(exact.root);
-    expect((rejected as WireUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
+    expect(rejected).toBeInstanceOf(ProtocolUpdateConflict);
+    expect((rejected as ProtocolUpdateConflict).result.details.draft.root).toBe(exact.root);
+    expect((rejected as ProtocolUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
     // Resubmitted against the current update it is a plain acceptance.
     const latest = await client.descriptor(treeID);
     expect((await client.submitUpdate(treeID, latest.tree.update, exact, { ifCurrent: latest.tree.update })).outcome).toBe("accepted");
@@ -725,7 +725,7 @@ describe("governed account-configuration Canopy server", () => {
     });
     expect(claimed.device).toMatchObject({ id: peerID, label: "Peer laptop", revokedAt: null });
     expect(JSON.stringify(claimed)).not.toContain(peerCredential);
-    const peer = new WireClient(running.url, peerCredential);
+    const peer = new ProtocolClient(running.url, peerCredential);
     const peerAccount = await peer.account();
     expect(peerAccount.account.handle).toBe("owner");
     const peerConfiguration = await peer.descriptor(peerAccount.account.configuration.id);
@@ -753,7 +753,7 @@ describe("governed account-configuration Canopy server", () => {
       Bun.sleep(2_000).then(() => { throw new Error("Revoked watch did not close"); }),
     ]);
     expect(new TextDecoder().decode(revokedFrame.value)).toContain("Authorization was revoked");
-    await expect(new WireClient(running.url, peerCredential).account()).rejects.toThrow("unauthenticated");
+    await expect(new ProtocolClient(running.url, peerCredential).account()).rejects.toThrow("unauthenticated");
     expect((await fetch(
       `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/snapshots/${peerConfiguration.tree.root}`,
       { headers: { authorization: `Bearer ${peerCredential}` } },

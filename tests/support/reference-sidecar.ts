@@ -14,7 +14,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { compareWireNames, decodeWireDirectory, encodeWireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 
 const args = process.argv.slice(2), option = (name: string) => args[args.indexOf(name) + 1]!;
 const shared = option("--objects"), staging = option("--staging");
@@ -43,10 +43,10 @@ async function put(bytes: Uint8Array): Promise<string> {
 type Entry = { previous: string | null; root: string; decisions: Decision[] };
 type Decision = { key: string; path?: string[]; range?: [number, number]; dependencies: string[]; selected: number; alternatives: Array<{ object: string; contributions: unknown[] }> };
 const entry = async (hash: string): Promise<Entry> => JSON.parse(new TextDecoder().decode(await get(hash)));
-const entries = async (dir: string) => new Map(decodeWireDirectory(await get(dir)).entries.map((e) => [e.name, e]));
-const same = (a?: WireDirectoryEntry, b?: WireDirectoryEntry) => JSON.stringify(a) === JSON.stringify(b);
+const entries = async (dir: string) => new Map(decodeProtocolDirectory(await get(dir)).entries.map((e) => [e.name, e]));
+const same = (a?: ProtocolDirectoryEntry, b?: ProtocolDirectoryEntry) => JSON.stringify(a) === JSON.stringify(b);
 
-async function at(root: string, path: string[]): Promise<WireDirectoryEntry | undefined> {
+async function at(root: string, path: string[]): Promise<ProtocolDirectoryEntry | undefined> {
   let dir = root;
   for (const [i, name] of path.entries()) {
     const found = (await entries(dir)).get(name);
@@ -55,17 +55,17 @@ async function at(root: string, path: string[]): Promise<WireDirectoryEntry | un
     dir = found.directory;
   }
 }
-async function replace(root: string, path: string[], value: WireDirectoryEntry | undefined): Promise<string> {
+async function replace(root: string, path: string[], value: ProtocolDirectoryEntry | undefined): Promise<string> {
   const map = await entries(root), [name, ...rest] = path as [string, ...string[]];
   const child = rest.length ? { name, directory: await replace(map.get(name)!.directory!, rest, value) } : value;
   if (child) map.set(name, child); else map.delete(name);
-  return put(encodeWireDirectory({ type: "directory", entries: [...map.values()].sort((a, b) => compareWireNames(a.name, b.name)) }));
+  return put(encodeProtocolDirectory({ type: "directory", entries: [...map.values()].sort((a, b) => compareProtocolNames(a.name, b.name)) }));
 }
 
 /** Three-way merge of one directory; conflicting entries keep the head's. */
 async function merge(base: string | undefined, mine: string, theirs: string, path: string[], conflicts: string[][]): Promise<string> {
   const [b, m, t] = await Promise.all([base ? entries(base) : new Map(), entries(mine), entries(theirs)]);
-  const out: WireDirectoryEntry[] = [];
+  const out: ProtocolDirectoryEntry[] = [];
   for (const name of new Set([...b.keys(), ...m.keys(), ...t.keys()])) {
     const [x, y, z] = [b.get(name), m.get(name), t.get(name)];
     if (same(y, z) || same(x, z)) { if (y) out.push(y); continue; }
@@ -74,7 +74,7 @@ async function merge(base: string | undefined, mine: string, theirs: string, pat
     conflicts.push([...path, name]);
     if (y) out.push(y);
   }
-  return put(encodeWireDirectory({ type: "directory", entries: out.sort((a, b) => compareWireNames(a.name, b.name)) }));
+  return put(encodeProtocolDirectory({ type: "directory", entries: out.sort((a, b) => compareProtocolNames(a.name, b.name)) }));
 }
 
 async function answer(question: any) {

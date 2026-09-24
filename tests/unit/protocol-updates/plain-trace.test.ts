@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { checkPlainTrace, encodeWireDirectory, hashObject, type SourceOperation, type WireDirectoryEntry } from "@overstory/protocol";
+import { checkPlainTrace, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@overstory/merge-protocol";
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 const text = (value: string) => put(new TextEncoder().encode(value));
-const dir = (entries: WireDirectoryEntry[]) => put(encodeWireDirectory({ type: "directory", entries: [...entries].sort((a, b) => a.name < b.name ? -1 : 1) }));
+const dir = (entries: ProtocolDirectoryEntry[]) => put(encodeProtocolDirectory({ type: "directory", entries: [...entries].sort((a, b) => a.name < b.name ? -1 : 1) }));
 const load = async (hash: string) => objects.get(hash) ?? Promise.reject(new Error("missing"));
 
 const note = text("hello world"), inner = dir([{ name: "a.md", file: note }]);

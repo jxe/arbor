@@ -3,8 +3,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
-import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -12,12 +12,12 @@ import { expectReplayableHistory } from "../../support/replay-check.ts";
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
-let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient;
+let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>;
 const token = "source-test-owner";
 async function start(mergeTool?: import("../../../packages/canopyd/src/merge-tool.ts").MergeToolOptions) {
-  running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool: {contentChoices: "file", ...mergeTool} });
-  client = new WireClient(running.url, token);
+  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool: {contentChoices: "file", ...mergeTool} });
+  client = new ProtocolClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 beforeEach(async () => {
@@ -27,10 +27,10 @@ beforeEach(async () => {
   const snapshot = await client.snapshot(tree, descriptor.tree.root);
   objects = new Map(snapshot.objects);
   const bytes = new TextEncoder().encode("abc\r\n"), file = hashObject(bytes);
-  const directory = decodeWireDirectory(objects.get(snapshot.root)!);
+  const directory = decodeProtocolDirectory(objects.get(snapshot.root)!);
   directory.entries.push({ name: "note.md", file });
   directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const encoded = encodeWireDirectory(directory); root = hashObject(encoded);
+  const encoded = encodeProtocolDirectory(directory); root = hashObject(encoded);
   objects.set(file, bytes); objects.set(root, encoded);
   base = (await client.submitUpdate(tree, descriptor.tree.update, { root, objects })).update.id;
 });
@@ -42,9 +42,9 @@ async function edit(text: string, basis = root, range: [number, number] = [0, 3]
   return editAt("/note.md", text, basis, range);
 }
 async function editAt(path: string, text: string, basis = root, range: [number, number] = [0, 3]): Promise<CandidateUpdate> {
-  let directory = decodeWireDirectory(objects.get(basis)!);
+  let directory = decodeProtocolDirectory(objects.get(basis)!);
   const parts = path.slice(1).split("/"), name = parts.pop()!;
-  for (const part of parts) directory = decodeWireDirectory(objects.get(directory.entries.find(e => e.name === part)!.directory!)!);
+  for (const part of parts) directory = decodeProtocolDirectory(objects.get(directory.entries.find(e => e.name === part)!.directory!)!);
   const file = directory.entries.find(e => e.name === name)!.file!;
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: file }, range }, text }];
   const executed = await executeExactSourceEdits(basis, operations, async hash => objects.get(hash)!);
@@ -125,7 +125,7 @@ test("a stale equal-root basis cannot erase newer intent", async () => {
 
 type RangeEdit = { range: [number, number]; text: string };
 async function rangeCandidate(edits: RangeEdit[]): Promise<CandidateUpdate> {
-  const file = decodeWireDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
+  const file = decodeProtocolDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
   const operations = edits.map((edit, i) => ({ key: `range-${i}`, kind: "editSource" as const,
     source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range: edit.range }, text: edit.text }));
   const result = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
@@ -154,7 +154,7 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
     expect(page.decisions[0]!.alternatives).toHaveLength(2);
     for (const request of pair) {
       const alternative = page.decisions[0]!.alternatives.find(a => a.contributions.some(c => c.change === request.change))!;
-      const file = decodeWireDirectory(objects.get(request.candidate)!).entries.find(e => e.name === "note.md")!.file!;
+      const file = decodeProtocolDirectory(objects.get(request.candidate)!).entries.find(e => e.name === "note.md")!.file!;
       expect(alternative.value).toEqual({ file });
       expect(alternative.contributions).toEqual(authored(request).map(op => ({ change: request.change, operation: op.key })));
     }
@@ -166,12 +166,12 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
   });
 }
 test("nested range collisions create a decision at the physical file", async () => {
-  const directory = decodeWireDirectory(objects.get(root)!);
+  const directory = decodeProtocolDirectory(objects.get(root)!);
   const original = directory.entries.find(e => e.name === "note.md")!;
-  const child = encodeWireDirectory({ type: "directory", entries: [original] }), childHash = hashObject(child);
+  const child = encodeProtocolDirectory({ type: "directory", entries: [original] }), childHash = hashObject(child);
   directory.entries.push({ name: "nested", directory: childHash });
   directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(directory); root = hashObject(bytes);
+  const bytes = encodeProtocolDirectory(directory); root = hashObject(bytes);
   objects.set(childHash, child); objects.set(root, bytes);
   base = (await client.submitUpdate(tree, base, { root, objects })).update.id;
   const candidates: CandidateUpdate[] = [];
@@ -235,8 +235,8 @@ test("guard failure preserves a completed prefix and exact retries do not duplic
   for (let attempt = 0; attempt < 2; attempt++) {
     try { await client.submitUpdates(tree, request); throw new Error("Expected conflict"); }
     catch (error) {
-      expect(error).toBeInstanceOf(WireUpdateConflict);
-      const conflict = (error as WireUpdateConflict).result;
+      expect(error).toBeInstanceOf(ProtocolUpdateConflict);
+      const conflict = (error as ProtocolUpdateConflict).result;
       expect(conflict.details.completed).toHaveLength(1);
       expect(conflict.details.failedIndex).toBe(1);
       expect(conflict.details.current.root).toBe(first.candidate);
@@ -246,7 +246,7 @@ test("guard failure preserves a completed prefix and exact retries do not duplic
 });
 test("unauthorized clients and foreign accepted bases cannot submit authored edits", async () => {
   const update = await edit("ABC");
-  await expect(new WireClient(running.url).submitUpdates(tree, { base, updates: [update] })).rejects.toThrow();
+  await expect(new ProtocolClient(running.url).submitUpdates(tree, { base, updates: [update] })).rejects.toThrow();
   const account = await client.account();
   const foreign = await client.descriptor(account.account.configuration.id);
   await expect(client.submitUpdates(tree, { base: foreign.tree.update, updates: [update] })).rejects.toThrow();
@@ -333,9 +333,9 @@ test("whole-file alternatives survive snapshot edits, restart, and guarded resol
 test("deleting the selected file retains hidden material and stale resolution does not discard it", async () => {
   const { update } = await wholeConflict();
   const page = await client.conflicts(tree, update.id, update.root), decision = page.decisions[0]!;
-  const directory = decodeWireDirectory(objects.get(update.root)!);
+  const directory = decodeProtocolDirectory(objects.get(update.root)!);
   directory.entries = directory.entries.filter(e => e.name !== "note.md");
-  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes);
+  const bytes = encodeProtocolDirectory(directory), candidate = hashObject(bytes);
   const request = { base: update.id, updates: [{ change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] }] };
   const deleted = (await client.submitUpdates(tree, request)).results[0]!.update;
   expect(deleted.conflicted).toBe(true);
@@ -343,16 +343,16 @@ test("deleting the selected file retains hidden material and stale resolution do
   expect(current.decisions.find(d=>d.id!==decision.id)!.alternatives.map(a=>a.value)).toContainEqual({directory:candidate});
   const hidden = decision.alternatives.find(a => a.id !== decision.selected)!;
   expect(current.decisions[0]!.alternatives.find(a => a.id === hidden.id)).toMatchObject({ id: hidden.id, revision: hidden.revision, value: hidden.value, contributions: hidden.contributions });
-  await expect(client.submitUpdates(tree, { base: deleted.id, updates: [{ change: crypto.randomUUID(), candidate: deleted.root, trace: [], resolves: [{ state: update.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(client.submitUpdates(tree, { base: deleted.id, updates: [{ change: crypto.randomUUID(), candidate: deleted.root, trace: [], resolves: [{ state: update.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   expect((await client.descriptor(tree)).tree.update).toBe(deleted.id);
   await running.canopy.verifyIntegrity();
 });
 test("inspection pages exceed 32 decisions, stay state-bound, and partial resolution preserves other decisions", async () => {
-  const directory = decodeWireDirectory(objects.get(root)!);
+  const directory = decodeProtocolDirectory(objects.get(root)!);
   const body = new TextEncoder().encode("old"), file = hashObject(body); objects.set(file, body);
   for (let i = 0; i < 33; i++) directory.entries.push({ name: `choice-${i}.txt`, file });
   directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(directory); root = hashObject(bytes); objects.set(root, bytes);
+  const bytes = encodeProtocolDirectory(directory); root = hashObject(bytes); objects.set(root, bytes);
   base = (await client.submitUpdate(tree, base, { root, objects })).update.id;
   async function peer(text: string): Promise<CandidateUpdate> {
     const operations = Array.from({ length: 33 }, (_, i) => ({ key: `edit-${i}`, kind: "editSource" as const,
@@ -405,11 +405,11 @@ test("reviewed replacement chooses a hidden file and incomplete alternative guar
   const page = await client.conflicts(tree, update.id, update.root), decision = page.decisions[0]!;
   const replacement = await edit("second\r\n", update.root, [0,7]);
   const guard = { state: update.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) };
-  await expect(client.submitUpdates(tree, { base: update.id, updates: [{ ...replacement, resolves: [{ ...guard, alternatives: [decision.selected] }] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(client.submitUpdates(tree, { base: update.id, updates: [{ ...replacement, resolves: [{ ...guard, alternatives: [decision.selected] }] }] })).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const resolved = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...replacement, resolves: [guard] }] })).results[0]!.update;
   expect(resolved.conflicted).toBe(false);
   const snapshot = await client.snapshot(tree, resolved.root);
-  const file = decodeWireDirectory(snapshot.objects.get(resolved.root)!).entries.find(e => e.name === "note.md")!.file!;
+  const file = decodeProtocolDirectory(snapshot.objects.get(resolved.root)!).entries.find(e => e.name === "note.md")!.file!;
   expect(new TextDecoder().decode(snapshot.objects.get(file))).toBe("second\r\n");
   expect((await client.conflicts(tree, update.id, update.root)).decisions).toEqual(page.decisions);
 });
@@ -441,10 +441,10 @@ test("snapshot change identities cannot be reused to impersonate later alternati
 test("entry kind changes retain hidden files and nested batch edits keep their attribution", async () => {
   const { update } = await wholeConflict();
   const child = new TextEncoder().encode("abc"), file = hashObject(child);
-  const folder = encodeWireDirectory({ type: "directory", entries: [{ name: "child.txt", file }] }), folderHash = hashObject(folder);
-  const directory = decodeWireDirectory(objects.get(update.root)!);
+  const folder = encodeProtocolDirectory({ type: "directory", entries: [{ name: "child.txt", file }] }), folderHash = hashObject(folder);
+  const directory = decodeProtocolDirectory(objects.get(update.root)!);
   directory.entries = directory.entries.map(e => e.name === "note.md" ? { name: e.name, directory: folderHash } : e);
-  const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded);
+  const encoded = encodeProtocolDirectory(directory), candidate = hashObject(encoded);
   for (const [hash, bytes] of [[file, child], [folderHash, folder], [candidate, encoded]] as Array<[ObjectHash, Uint8Array]>) objects.set(hash, bytes);
   const replacement:CandidateUpdate={ change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [...objects].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
   const placed = (await client.submitUpdates(tree, { base: update.id, updates: [replacement] })).results[0]!.update;
@@ -470,14 +470,14 @@ test("entry kind changes retain hidden files and nested batch edits keep their a
 
 async function installNestedPeers() {
   const file = hashObject(new TextEncoder().encode("abc\r\n"));
-  const leaf = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
+  const leaf = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
   const leafHash = hashObject(leaf); objects.set(leafHash, leaf);
-  const folder = encodeWireDirectory({ type: "directory", entries: [{ name: "left", directory: leafHash }, { name: "right", directory: leafHash }] });
+  const folder = encodeProtocolDirectory({ type: "directory", entries: [{ name: "left", directory: leafHash }, { name: "right", directory: leafHash }] });
   const folderHash = hashObject(folder); objects.set(folderHash, folder);
-  const directory = decodeWireDirectory(objects.get(root)!);
+  const directory = decodeProtocolDirectory(objects.get(root)!);
   directory.entries.push({ name: "nested", directory: folderHash });
   directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(directory); root = hashObject(bytes); objects.set(root, bytes);
+  const bytes = encodeProtocolDirectory(directory); root = hashObject(bytes); objects.set(root, bytes);
   base = (await client.submitUpdate(tree, base, { root, objects })).update.id;
 }
 
@@ -582,7 +582,7 @@ test("the TS runner publishes a stale local change after restart, continues it, 
   expect(working.base!.update).toBe(current.tree.update);
   const inspection = await client.conflicts(tree, current.tree.update, current.tree.root);
   expect(inspection.decisions[0]!.alternatives.map(alternative => alternative.value)).toContainEqual({ file: hashObject(Buffer.from("LATER\r\n")) });
-  const second = new WireClient(running.url, token), decision = inspection.decisions[0]!;
+  const second = new ProtocolClient(running.url, token), decision = inspection.decisions[0]!;
   const resolved = await second.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: current.tree.root,
     trace: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
   expect(resolved.results[0]!.update.conflicted).toBe(false);
@@ -602,14 +602,14 @@ async function nestedConflict() {
   const accepted = (await client.submitUpdates(tree, { base, updates: [mine] })).results[0]!.update;
   return { accepted, page: await client.conflicts(tree, accepted.id, accepted.root) };
 }
-function rootSnapshot(basis: ObjectHash, modify: (directory: ReturnType<typeof decodeWireDirectory>) => void): CandidateUpdate {
-  const directory = decodeWireDirectory(objects.get(basis)!);
+function rootSnapshot(basis: ObjectHash, modify: (directory: ReturnType<typeof decodeProtocolDirectory>) => void): CandidateUpdate {
+  const directory = decodeProtocolDirectory(objects.get(basis)!);
   modify(directory);
   directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
+  const bytes = encodeProtocolDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
   return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] };
 }
-const resolutionGuard = (state: string, decision: Awaited<ReturnType<WireClient["conflicts"]>>["decisions"][number]) =>
+const resolutionGuard = (state: string, decision: Awaited<ReturnType<ProtocolClient["conflicts"]>>["decisions"][number]) =>
   ({ state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) });
 
 test("ancestor deletion retains children and requires coherent joint guards, with replay and restart", async () => {
@@ -630,7 +630,7 @@ test("ancestor deletion retains children and requires coherent joint guards, wit
   expect(snapshot.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION }); snapshot.close();
   // An ancestor-only guard cannot abandon either retained child alternative.
   const incomplete = { ...deletion, change: crypto.randomUUID(), resolves: [resolutionGuard(result.update.id, ancestor)] };
-  await expect(client.submitUpdates(tree, { base: result.update.id, updates: [incomplete] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(client.submitUpdates(tree, { base: result.update.id, updates: [incomplete] })).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   expect((await client.descriptor(tree)).tree.update).toBe(result.update.id);
   await stop(); await start();
   expect(await client.conflicts(tree, result.update.id, result.update.root)).toEqual(page);
@@ -659,7 +659,7 @@ test("selected child edits update the ancestor projection; partial keep resoluti
   expect(ancestor.alternatives.find(a => a.id === ancestor.selected)!.value).not.toEqual(firstPage.decisions.find(d => d.id === ancestor.id)!.alternatives.find(a => a.id === ancestor.selected)!.value);
   // An older reviewed parent is stale even though its alternative IDs survived.
   await expect(client.submitUpdates(tree, { base: continued.id, updates: [{ ...deletion, change: crypto.randomUUID(),
-    resolves: firstPage.decisions.map(d => resolutionGuard(ancestorState.id, d)) }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+    resolves: firstPage.decisions.map(d => resolutionGuard(ancestorState.id, d)) }] })).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const kept = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
     trace: [], resolves: [resolutionGuard(continued.id, ancestor)], objects: [], deltas: [] }] })).results[0]!.update;
   expect(kept.root).toBe(continued.root); expect(kept.conflicted).toBe(true);
@@ -697,7 +697,7 @@ test("snapshot ancestor moves preserve old nested choices rather than guessing a
   const moved = rootSnapshot(accepted.root, d => { d.entries = d.entries.map(e => e.name === "nested" ? { ...e, name: "moved" } : e); });
   const result = (await client.submitUpdates(tree, { base: accepted.id, updates: [moved] })).results[0]!.update;
   const projection = await client.snapshot(tree, result.root);
-  expect(decodeWireDirectory(projection.objects.get(result.root)!).entries.map(e => e.name)).toContain("nested");
+  expect(decodeProtocolDirectory(projection.objects.get(result.root)!).entries.map(e => e.name)).toContain("nested");
   const alternatives=await client.conflicts(tree,result.id,result.root);
   expect(alternatives.decisions.flatMap(d=>d.alternatives.map(a=>a.value))).toContainEqual({directory:moved.candidate});
   const page = await client.conflicts(tree, result.id, result.root);
@@ -707,11 +707,11 @@ test("snapshot ancestor moves preserve old nested choices rather than guessing a
 
 test("several enclosing choices keep dependency closure and cannot resolve away an unguarded grandchild", async () => {
   const { accepted, page: before } = await nestedConflict();
-  const rootDirectory = decodeWireDirectory(objects.get(accepted.root)!);
+  const rootDirectory = decodeProtocolDirectory(objects.get(accepted.root)!);
   const subtree = rootDirectory.entries.find(e => e.name === "nested")!.directory!;
-  const inside = decodeWireDirectory(objects.get(subtree)!);
+  const inside = decodeProtocolDirectory(objects.get(subtree)!);
   inside.entries = inside.entries.filter(e => e.name !== "left");
-  const innerBytes = encodeWireDirectory(inside), innerRoot = hashObject(innerBytes); objects.set(innerRoot, innerBytes);
+  const innerBytes = encodeProtocolDirectory(inside), innerRoot = hashObject(innerBytes); objects.set(innerRoot, innerBytes);
   const innerDeletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.map(e => e.name === "nested" ? { name: e.name, directory: innerRoot } : e); });
   innerDeletion.objects.push({ hash: innerRoot, bytes: innerBytes });
   const inner = (await client.submitUpdates(tree, { base: accepted.id, updates: [innerDeletion] })).results[0]!.update;
@@ -724,7 +724,7 @@ test("several enclosing choices keep dependency closure and cannot resolve away 
   expect(page.decisions.filter(d=>d.id!==leafDecision.id).every(d=>d.dependencies.includes(leafDecision.id))).toBe(true);
   const leaf = before.decisions[0]!.id;
   const incomplete = { ...outerDeletion, change: crypto.randomUUID(), resolves: page.decisions.filter(d => d.id !== leaf).map(d => resolutionGuard(outer.id, d)) };
-  await expect(client.submitUpdates(tree, { base: outer.id, updates: [incomplete] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(client.submitUpdates(tree, { base: outer.id, updates: [incomplete] })).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const resolved = (await client.submitUpdates(tree, { base: outer.id, updates: [{ ...incomplete, change: crypto.randomUUID(), resolves: page.decisions.map(d => resolutionGuard(outer.id, d)) }] })).results[0]!.update;
   expect(resolved.conflicted).toBe(false);
   expect(resolved.root).toBe(outerDeletion.candidate);
@@ -782,7 +782,7 @@ test.each([false, true])("a source successor preserves an independently created 
   expect(evaluatedChanges).toContain(second.change);
   expect(accepted.conflicted).toBe(false);
   const snapshot = await client.snapshot(tree, accepted.root);
-  expect(decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries).toEqual(expect.arrayContaining([
+  expect(decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries).toEqual(expect.arrayContaining([
     { name: "a.md", file }, { name: "note.md", file: hashObject(Buffer.from("B2\r\n")) },
   ]));
   await stop(); await start();
@@ -813,7 +813,7 @@ test("a continuation after a merged prefix retains an intervening same-file snap
   ]));
   expect(decision.alternatives.find(a => a.id !== decision.selected)!.contributions.map(c => c.change)).toEqual([second.change, third.change]);
   const projection = await client.snapshot(tree, current.root);
-  expect(decodeWireDirectory(projection.objects.get(current.root)!).entries).toContainEqual({ name: "a.md", file });
+  expect(decodeProtocolDirectory(projection.objects.get(current.root)!).entries).toContainEqual({ name: "a.md", file });
   await stop(); await start();
   expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
   await running.canopy.verifyIntegrity();
@@ -821,13 +821,13 @@ test("a continuation after a merged prefix retains an intervening same-file snap
 
 test("all eight operation kinds execute through accepted authority and survive restart", async()=>{
  let head={id:base,root};
- let directory=decodeWireDirectory(objects.get(root)!);
+ let directory=decodeProtocolDirectory(objects.get(root)!);
  const body=(text:string)=>{const bytes=Buffer.from(text),hash=hashObject(bytes);objects.set(hash,bytes);return hash;};
  const ref=(name:string)=>({material:{kind:"basis" as const,path:`/${name}`,object:directory.entries.find(e=>e.name===name)!.file!}});
  const changes:string[]=[];
  const apply=async(operation:import("@overstory/protocol").SourceOperation,modify:()=>void)=>{
   modify();directory.entries.sort((a,b)=>Buffer.compare(Buffer.from(a.name),Buffer.from(b.name)));
-  const bytes=encodeWireDirectory(directory),candidate=hashObject(bytes);objects.set(candidate,bytes);
+  const bytes=encodeProtocolDirectory(directory),candidate=hashObject(bytes);objects.set(candidate,bytes);
   const change=crypto.randomUUID();changes.push(change);
   const update:CandidateUpdate={change,candidate,trace:[{before:head.root,after:candidate,operations:[operation]}],resolves:[],objects:[...objects].map(([hash,bytes])=>({hash,bytes})),deltas:[]};
   const result=(await client.submitUpdates(tree,{base:head.id,updates:[update]})).results[0]!;
@@ -883,7 +883,7 @@ test("competing Markdown prose insertions are accepted without review",async()=>
  const accepted=(await client.submitUpdates(tree,{base,updates:[b]})).results[0]!.update;
  expect(accepted.conflicted).toBe(false);
  const snapshot=await client.snapshot(tree,accepted.root);
- const file=decodeWireDirectory(snapshot.objects.get(accepted.root)!).entries.find(e=>e.name==="note.md")!.file!;
+ const file=decodeProtocolDirectory(snapshot.objects.get(accepted.root)!).entries.find(e=>e.name==="note.md")!.file!;
  const text=Buffer.from(snapshot.objects.get(file)!).toString();
  expect(text).toContain(" first");expect(text).toContain(" second");expect(text.endsWith("\r\n")).toBe(true);
 });
@@ -908,7 +908,7 @@ test("source admission preserves an existing snapshot conflict's public identiti
 
 test("independent source conflicts expose ranges and resolve separately across restart", async () => {
   await stop(); await start({contentChoices:"source"});
-  const file = decodeWireDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
+  const file = decodeProtocolDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
   async function changes(first: string, last: string): Promise<CandidateUpdate> {
     const operations = [[0, first], [2, last]].map(([offset, text], index) => ({
       key: `part-${index}`, kind: "editSource" as const,
@@ -945,15 +945,15 @@ test("source choice alternatives replace only their range and preserve an indepe
   const page=await client.conflicts(tree,accepted.id,accepted.root);
   expect(page.decisions.map(d=>d.affected[0]!.range)).toEqual([[0,3],[4,7]]);
   const snap=await client.snapshot(tree,accepted.root);
-  const file=decodeWireDirectory(snap.objects.get(snap.root)!).entries.find(e=>e.name==="note.md")!.file!;
+  const file=decodeProtocolDirectory(snap.objects.get(snap.root)!).entries.find(e=>e.name==="note.md")!.file!;
   expect(page.decisions.every(d=>d.affected[0]!.material.kind==="basis" && d.affected[0]!.material.object===file)).toBe(true);
   const decision=page.decisions[0]!, hidden=decision.alternatives.find(a=>a.id!==decision.selected)!;
   if (!("file" in hidden.value)) throw Error("Expected retained source bytes");
   expect(new TextDecoder().decode(await client.object(tree,hidden.value.file))).toBe("X");
   const bytes=new TextEncoder().encode("XbCCC\r\n"),hash=hashObject(bytes);
-  const directory=decodeWireDirectory(snap.objects.get(snap.root)!);
+  const directory=decodeProtocolDirectory(snap.objects.get(snap.root)!);
   directory.entries.find(e=>e.name==="note.md")!.file=hash;
-  const encoded=encodeWireDirectory(directory),candidate=hashObject(encoded);
+  const encoded=encodeProtocolDirectory(directory),candidate=hashObject(encoded);
   const result=(await client.submitUpdates(tree,{base:accepted.id,updates:[{
     change:crypto.randomUUID(),candidate,
     trace:[{before:accepted.root,after:candidate,operations:[
@@ -988,7 +988,7 @@ test("equal-byte round trips authored as ordinary edits stay unconflicted", asyn
 
 /** A traced `moveSource` of `/note.md`'s `[start, end)` to `offset` on `basis`. */
 function moveNote(basis: ObjectHash, text: string, [start, end]: [number, number], offset: number): CandidateUpdate {
-  const directory = decodeWireDirectory(objects.get(basis)!);
+  const directory = decodeProtocolDirectory(objects.get(basis)!);
   const file = directory.entries.find(e => e.name === "note.md")!.file!;
   const bytes = Buffer.from(text), material = bytes.subarray(start, end);
   const moved = offset <= start
@@ -996,7 +996,7 @@ function moveNote(basis: ObjectHash, text: string, [start, end]: [number, number
     : Buffer.concat([bytes.subarray(0, start), bytes.subarray(end, offset), material, bytes.subarray(offset)]);
   const next = hashObject(moved); objects.set(next, moved);
   directory.entries = directory.entries.map(e => e.name === "note.md" ? { name: e.name, file: next } : e);
-  const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded); objects.set(candidate, encoded);
+  const encoded = encodeProtocolDirectory(directory), candidate = hashObject(encoded); objects.set(candidate, encoded);
   const ref = (range: [number, number]) => ({ material: { kind: "basis" as const, path: "/note.md", object: file }, range });
   return { change: crypto.randomUUID(), candidate, resolves: [], deltas: [],
     trace: [{ before: basis, after: candidate, operations: [{ key: "move", kind: "moveSource", source: ref([start, end]), at: ref([offset, offset]), side: "before" }] }],
@@ -1019,7 +1019,7 @@ test.each([
     const accepted = (await client.submitUpdates(tree, { base: start.id, updates: [moveFirst ? peer : move] })).results[0]!.update;
     expect(accepted.conflicted).toBe(false);
     const snapshot = await client.snapshot(tree, accepted.root);
-    const file = decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e => e.name === "note.md")!.file!;
+    const file = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e => e.name === "note.md")!.file!;
     results.push(Buffer.from(snapshot.objects.get(file)!).toString());
     for (const [hash, bytes] of snapshot.objects) objects.set(hash, bytes);
     head = { id: accepted.id, root: accepted.root };
@@ -1046,7 +1046,7 @@ test.each([false,true])("Markdown source copy accepts an independent edit and su
   await stop();await start();
   expect((await client.submitUpdates(tree,request)).results[0]!.update.id).toBe(result.id);
   const snapshot=await client.snapshot(tree,result.root);
-  const file=decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e=>e.name==="note.md")!.file!;
+  const file=decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e=>e.name==="note.md")!.file!;
   expect(Buffer.from(snapshot.objects.get(file)!).toString()).toBe("ABC\r\nabc\r\n");
   await running.canopy.verifyIntegrity();
 });
@@ -1063,9 +1063,9 @@ test("plain edits fast-forward past open decisions they do not touch, and fall t
   await start({ onTiming: (phase) => { if (phase === "worker-process") workers++; } });
   // A new file beside the choice: accepted as authored, the choice carried unchanged.
   const bytes = new TextEncoder().encode("added\n"), file = hashObject(bytes);
-  const directory = decodeWireDirectory(objects.get(conflicted.root)!);
+  const directory = decodeProtocolDirectory(objects.get(conflicted.root)!);
   directory.entries = [...directory.entries, { name: "added.md", file }].sort((x, y) => Buffer.compare(Buffer.from(x.name), Buffer.from(y.name)));
-  const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded);
+  const encoded = encodeProtocolDirectory(directory), candidate = hashObject(encoded);
   objects.set(file, bytes); objects.set(candidate, encoded);
   const addition: CandidateUpdate = { change: crypto.randomUUID(), candidate, resolves: [], deltas: [],
     objects: [{ hash: file, bytes }, { hash: candidate, bytes: encoded }],

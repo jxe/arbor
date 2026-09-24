@@ -1,7 +1,7 @@
 import { decodeTransitionBasis, decodeAcceptedState, decodeSubmissionResponse, validateReadPayload } from "./accepted-contract.ts";
 import { authoredIntentFromTransport, decodeAuthoredUpdateRequestJSON, decodeAuthoredCandidateJSON, encodeAuthoredUpdateRequestJSON, encodeAuthoredCandidateJSON } from "./authored-transport.ts";
 import { decodeAuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
-import { decodeWireDirectory, hashObject, wireEntryObject, type WireEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
+import { decodeProtocolDirectory, hashObject, protocolEntryObject, type ProtocolEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import type {
   AcceptedTransition,
   AcceptedTransitionPayload,
@@ -275,8 +275,8 @@ export function decodeTreeSnapshotJSON(value: unknown): TreeSnapshot {
 export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete" | "sparse-files" = "complete"): TreeSnapshot {
   const visited = new Set<ObjectHash>();
   const visiting = new Set<ObjectHash>();
-  const kinds = new Map<ObjectHash, WireEntryKind>();
-  const visit = (hash: ObjectHash, kind: WireEntryKind) => {
+  const kinds = new Map<ObjectHash, ProtocolEntryKind>();
+  const visit = (hash: ObjectHash, kind: ProtocolEntryKind) => {
     if (!/^sha256:[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid snapshot hash");
     if (kinds.has(hash) && kinds.get(hash) !== kind) throw new Error(`Snapshot object kind conflict: ${hash}`);
     kinds.set(hash, kind);
@@ -290,8 +290,8 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete"
     if (hashObject(bytes) !== hash) throw new Error(`Snapshot object hash mismatch: ${hash}`);
     visiting.add(hash);
     if (kind === "directory") {
-      for (const entry of decodeWireDirectory(bytes).entries) {
-        const target = wireEntryObject(entry);
+      for (const entry of decodeProtocolDirectory(bytes).entries) {
+        const target = protocolEntryObject(entry);
         if (target) visit(target.hash, target.kind);
       }
     }

@@ -1,6 +1,6 @@
 import { canonicalArborLocator, type TreeID } from "@overstory/protocol";
-import type { CanopyDaemon } from "./canopy.ts";
-import type { CanopyAccount, CanopyTree } from "./model.ts";
+import type { HostDaemon } from "./canopy.ts";
+import type { HostAccount, HostTree } from "./model.ts";
 import { profileLocatorTree } from "./profile.ts";
 
 export type DirectorySource = "community" | `group:${TreeID}` | "access";
@@ -16,12 +16,12 @@ export interface DirectoryEntry {
   sources: DirectorySource[];
 }
 
-function treeLocator(origin: string, tree: CanopyTree): string | undefined {
+function treeLocator(origin: string, tree: HostTree): string | undefined {
   if (!tree.canonicalPath) return undefined;
   return canonicalArborLocator({ path: tree.canonicalPath as `/${string}`, endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}` });
 }
 
-export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccount, origin: string): Promise<DirectoryEntry[]> {
+export async function buildDirectory(canopy: HostDaemon, account: HostAccount, origin: string): Promise<DirectoryEntry[]> {
   const entries = new Map<string, DirectoryEntry>();
   const include = (profile: string, source: DirectorySource, handle?: string) => {
     const existing = entries.get(profile);

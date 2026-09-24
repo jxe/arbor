@@ -1,4 +1,4 @@
-import { decodeTreeSnapshotJSON, decodeWireDirectory, wireEntryObject, type TreeSnapshot } from "@overstory/protocol";
+import { decodeTreeSnapshotJSON, decodeProtocolDirectory, protocolEntryObject, type TreeSnapshot } from "@overstory/protocol";
 import { prepareSourceChange, type AcceptedBase, type AcceptedSource, type AcceptedTree, type LocalChange,
   type UpdateCoordinator } from "@overstory/working-tree";
 import type { ChangeLog } from "@overstory/working-tree/node";
@@ -33,8 +33,8 @@ export class MemoryWorkingTree implements AcceptedTree {
       const bytes = await source.object(next.hash);
       fetched.set(next.hash, bytes);
       if (next.kind !== "directory") continue;
-      for (const entry of decodeWireDirectory(bytes).entries) {
-        const child = wireEntryObject(entry);
+      for (const entry of decodeProtocolDirectory(bytes).entries) {
+        const child = protocolEntryObject(entry);
         if (child) pending.push(child);
       }
     }
@@ -52,8 +52,8 @@ export class MemoryWorkingTree implements AcceptedTree {
       const bytes = this.objects.get(next.hash);
       if (!bytes) throw new Error(`Missing ${next.hash}`);
       objects.set(next.hash, bytes);
-      if (next.kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
-        const child = wireEntryObject(entry);
+      if (next.kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
+        const child = protocolEntryObject(entry);
         if (child) pending.push(child);
       }
     }
@@ -66,7 +66,7 @@ export function readSource(graph: TreeSnapshot, path: string): string {
   let hash = graph.root;
   const parts = path.slice(1).split("/");
   for (const [index, part] of parts.entries()) {
-    const entry = decodeWireDirectory(graph.objects.get(hash)!).entries.find(entry => entry.name === part);
+    const entry = decodeProtocolDirectory(graph.objects.get(hash)!).entries.find(entry => entry.name === part);
     if (!entry) throw new Error(`No ${path}`);
     if (index === parts.length - 1) return new TextDecoder().decode(graph.objects.get(entry.file!)!);
     hash = entry.directory!;

@@ -2,7 +2,7 @@ export * from "./types.ts";
 export * from "./materialization.ts";
 export * from "./discovery.ts";
 export * from "./workspace-fs.ts";
-export * from "./wire-tree.ts";
+export * from "./protocol-tree.ts";
 export {
   commitPrepared,
   pathExists,

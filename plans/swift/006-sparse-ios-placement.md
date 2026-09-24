@@ -26,14 +26,14 @@ whole.
   (`swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/UpdateCoordinator.swift`)
   walks the spine from a root object by object, reuses local objects, fetches
   the rest through the tree-scoped object route, validates with
-  `WireObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
-- **iOS resolves absent files already.** `ArborAppModel` opens each working tree
-  over `CanopyObjectStore`, which reads any object by hash from Canopy, and
+  `ProtocolObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
+- **iOS resolves absent files already.** `CanopyAppModel` opens each working tree
+  over `HostObjectStore`, which reads any object by hash from Canopy, and
   `LayeredObjectStore` puts local objects in front of it.
 - **Only placement is whole.** `WorkingTreePlacementService.place`
   (`swift/Packages/OverstoryClient/Sources/OverstoryClient/WorkingTreePlacementService.swift`)
   still calls `transport.snapshot`, which buffers the complete bundle
-  (`ArborWireClient.snapshot`, `URLSession.data(for:)`) before anything is
+  (`ProtocolClient.snapshot`, `URLSession.data(for:)`) before anything is
   installed. On a slow connection that looks stuck, and a timeout starts over.
   The Mac places through the daemon's loopback sparse bootstrap and is out of
   scope.

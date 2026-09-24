@@ -1,8 +1,8 @@
 import {
-  decodeWireDirectory,
+  decodeProtocolDirectory,
   hashObject,
-  wireEntryObject,
-  type WireDirectory,
+  protocolEntryObject,
+  type ProtocolDirectory,
 } from "@overstory/protocol";
 
 type Reference = { hash: string; kind: "file" | "directory" };
@@ -25,7 +25,7 @@ export async function validateGraphChange(
   load: (hash: string) => Promise<Uint8Array>,
   proposed: ReadonlyMap<string, Uint8Array>,
   validateCollection: (
-    directory: WireDirectory,
+    directory: ProtocolDirectory,
     load: (hash: string) => Promise<Uint8Array>,
   ) => Promise<void | "unproven">,
   basis?: ValidatedGraph,
@@ -61,7 +61,7 @@ export async function validateGraphChange(
       const bytes = await read(hash),
         children: Reference[] = [];
       if (kind === "directory") {
-        const directory = decodeWireDirectory(bytes),
+        const directory = decodeProtocolDirectory(bytes),
           names = new Set<string>();
         for (const entry of directory.entries) {
           if (
@@ -73,7 +73,7 @@ export async function validateGraphChange(
           )
             throw Error(`Invalid or duplicate directory entry: ${entry.name}`);
           names.add(entry.name);
-          const target = wireEntryObject(entry);
+          const target = protocolEntryObject(entry);
           if (target) children.push(target);
         }
         if (directory.childrenSource && (await validateCollection(directory, read)) === "unproven") unproven.add(hash);

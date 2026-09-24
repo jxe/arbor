@@ -21,7 +21,7 @@ public protocol ObjectStore: Sendable {
 /// Verifies that `bytes` are the object named by `hash`.
 @inlinable
 public func verifyObject(_ bytes: Data, hash: String) throws -> Data {
-    let actual = WireObjectCodec.hash(bytes)
+    let actual = ProtocolObjectCodec.hash(bytes)
     guard actual == hash else { throw ObjectStoreError.hashMismatch(expected: hash, actual: actual) }
     return bytes
 }

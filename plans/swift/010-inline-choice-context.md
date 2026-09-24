@@ -20,8 +20,8 @@ review controller. Held folders (refused changes) are a different surface, owned
 [012](012-show-held-folders.md).
 
 Before starting, read [UpdateCoordinator](../../swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/UpdateCoordinator.swift),
-`UpdateCoordinator+Review.swift`, `ArborConflictReview.swift`,
-`ArborDocumentBinding.blocks(overlapping:inSource:)` and the
+`UpdateCoordinator+Review.swift`, `CanopyConflictReview.swift`,
+`CanopyDocumentBinding.blocks(overlapping:inSource:)` and the
 [live change-log tests](../../swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/LiveChangeLogTests.swift).
 `swift/scripts/conflict-lab.ts` reproduces each case against a local canopyd.
 
@@ -34,7 +34,7 @@ not pass it. Fix what it finds before the items below.
 
 ## 2. Show each alternative in its sentence or block
 
-The inline card (`ArborInlineChoice`) shows only the retained fragment. Show each
+The inline card (`CanopyInlineChoice`) shows only the retained fragment. Show each
 alternative within its surrounding sentence or block, keeping exact raw-source
 access, so a reader can judge it without opening the page panel.
 

@@ -2,9 +2,9 @@ import { access, link, mkdir, open, readFile, unlink, utimes } from "node:fs/pro
 import { dirname, join } from "node:path";
 import {
   applyObjectDelta,
-  decodeWireDirectory,
+  decodeProtocolDirectory,
   hashObject,
-  wireEntryObject,
+  protocolEntryObject,
   type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
@@ -118,8 +118,8 @@ export class ObjectStore {
       if (!bytes) return { complete: false, stopped: false };
       if (visit(hash, bytes) === false) return { complete: true, stopped: true };
       if (kind === "directory") {
-        for (const entry of decodeWireDirectory(bytes).entries) {
-          const target = wireEntryObject(entry);
+        for (const entry of decodeProtocolDirectory(bytes).entries) {
+          const target = protocolEntryObject(entry);
           if (target) pending.push(target);
         }
       }
@@ -145,8 +145,8 @@ export class ObjectStore {
         seen.add(hash);
         const bytes = await this.find(hash, proposed);
         if (!bytes) continue;
-        for (const entry of decodeWireDirectory(bytes).entries) {
-          const edge = wireEntryObject(entry);
+        for (const entry of decodeProtocolDirectory(bytes).entries) {
+          const edge = protocolEntryObject(entry);
           if (!edge) continue; // Nested trees have their own authority boundary.
           if (edge.hash === target) return true;
           if (edge.kind === "directory") pending.push(edge.hash);

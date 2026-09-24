@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   materializeTree,
   snapshotDirectory,
-  WireClient,
+  ProtocolClient,
 } from "../../../../packages/protocol/src/index.ts";
 
 type Role = "alice" | "bob" | "carol";
@@ -40,7 +40,7 @@ async function setup(): Promise<void> {
     handles: Record<Role, string>;
   }>();
   const endpoint = "http://127.0.0.1:4318";
-  const owner = new WireClient(endpoint, value.ownerToken);
+  const owner = new ProtocolClient(endpoint, value.ownerToken);
   const account = await owner.account();
   if (!account.profileTree) throw new Error("Owner profile is unavailable");
   const arborOrigin = account.community.arborURL.replace(/\/$/, "");
@@ -73,7 +73,7 @@ async function setup(): Promise<void> {
     await rm(path, { recursive: true, force: true });
     await mkdir(path, { recursive: true });
     await writeFile(join(path, "_index.md"), `---\ntype: person\n---\n\n# ${role}\n`);
-    return new WireClient(endpoint).claim(handle, await snapshotDirectory(path));
+    return new ProtocolClient(endpoint).claim(handle, await snapshotDirectory(path));
   };
 
   await authorCommunity([{ handle: "owner", tree: account.profileTree }]);
@@ -107,7 +107,7 @@ async function create(): Promise<void> {
   await rm(path, { recursive: true, force: true });
   await mkdir(path, { recursive: true });
   await writeFile(join(path, "note.md"), `# ${value.scenario}\n\nalice initial\n`);
-  const client = new WireClient(value.endpoint ?? "http://arbor-community:4318", value.token);
+  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
   const tree = await client.create(value.canonicalPath, await snapshotDirectory(path), {
     publicAccess: "none",
     profileAccess: [
@@ -129,7 +129,7 @@ async function create(): Promise<void> {
 
 async function denyWrite(): Promise<void> {
   const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new WireClient(value.endpoint ?? "http://arbor-community:4318", value.token);
+  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
   const remote = await client.ref(value.tree);
   if (remote.access !== "read" || !remote.update) throw new Error("Bob did not receive read-only access");
   const path = `/tmp/${value.scenario}-bob`;
@@ -154,7 +154,7 @@ async function denyWrite(): Promise<void> {
 
 async function write(): Promise<void> {
   const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new WireClient(value.endpoint ?? "http://arbor-community:4318", value.token);
+  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
   const remote = await client.ref(value.tree);
   if (remote.access !== "write" || !remote.update) throw new Error("Carol did not receive write access");
   const path = `/tmp/${value.scenario}-carol`;
@@ -181,7 +181,7 @@ async function verifyReader(): Promise<void> {
     update: string;
     endpoint?: string;
   }>();
-  const client = new WireClient(value.endpoint ?? "http://arbor-community:4318", value.token);
+  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
   const remote = await client.ref(value.tree);
   if (remote.access !== "read" || remote.ref !== value.root || remote.update !== value.update) {
     throw new Error("Bob did not observe Carol current ref");
@@ -204,7 +204,7 @@ async function verifyOwner(): Promise<void> {
     root: string;
     canonical: string;
   }>();
-  const owner = new WireClient("http://127.0.0.1:4318", value.token);
+  const owner = new ProtocolClient("http://127.0.0.1:4318", value.token);
   if ((await owner.list()).some((tree) => tree.id === value.tree)) {
     throw new Error("No-access owner could list Alice private tree");
   }
@@ -224,7 +224,7 @@ async function verifyWriter(): Promise<void> {
     rejected: string;
     endpoint?: string;
   }>();
-  const client = new WireClient(value.endpoint ?? "http://arbor-community:4318", value.token);
+  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
   const remote = await client.ref(value.tree);
   if (remote.ref !== value.root || remote.update !== value.update) throw new Error("Alice did not observe Carol current ref");
   const path = `/tmp/${value.scenario}-alice-current`;

@@ -1,6 +1,6 @@
 # @overstory/tree-merge
 
-The three-way snapshot tree merge: `mergeWireTrees(base, candidate, current,
+The three-way snapshot tree merge: `mergeProtocolTrees(base, candidate, current,
 load)` combines two directory trees against their common base, node by node,
 and reports the merged root, the objects it generated, the conflicts it could
 not reconcile and the folders a coupled rule failure leaves whole. It has no

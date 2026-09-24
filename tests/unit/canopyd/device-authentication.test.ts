@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { sha256 } from "@overstory/protocol";
 import { AccountDirectory } from "../../../packages/canopyd/src/accounts.ts";
-import { createCanopySchema } from "../../../packages/canopyd/src/schema.ts";
+import { createHostSchema } from "../../../packages/canopyd/src/schema.ts";
 
 test("authentication refreshes a device's last use at most once a minute", () => {
   const db = new Database(":memory:");
-  createCanopySchema(db);
+  createHostSchema(db);
   db.run("INSERT INTO accounts (id, handle, enabled) VALUES ('ac_1', 'owner', 1)");
   db.run("INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES ('dv_1', 'ac_1', 'Mac', ?, 1)", [sha256("secret")]);
   const accounts = new AccountDirectory(db);

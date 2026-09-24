@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mergeWireTrees } from "@overstory/tree-merge";
-import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry, type WireDirectory } from "@overstory/protocol";
+import { mergeProtocolTrees } from "@overstory/tree-merge";
+import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry, type ProtocolDirectory } from "@overstory/protocol";
 
 const objects = new Map<string, Uint8Array>();
 const load = async (hash: ObjectHash) => {
@@ -8,14 +8,14 @@ const load = async (hash: ObjectHash) => {
   if (!bytes) throw new Error(`missing ${hash}`);
   return bytes;
 };
-function stored(object: WireDirectory | { type: "file"; bytes: Uint8Array }): ObjectHash {
-  const bytes = object.type === "file" ? object.bytes : encodeWireDirectory(object);
+function stored(object: ProtocolDirectory | { type: "file"; bytes: Uint8Array }): ObjectHash {
+  const bytes = object.type === "file" ? object.bytes : encodeProtocolDirectory(object);
   const hash = hashObject(bytes);
   objects.set(hash, bytes);
   return hash;
 }
 const file = (text: string) => stored({ type: "file", bytes: new TextEncoder().encode(text) });
-const dir = (entries: WireDirectoryEntry[]) => stored({
+const dir = (entries: ProtocolDirectoryEntry[]) => stored({
   type: "directory",
   entries: entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
 });
@@ -25,7 +25,7 @@ describe("snapshot merge: node by node", () => {
     const base = dir([{ name: "a.md", file: file("A\n") }, { name: "b.md", file: file("B\n") }]);
     const candidate = dir([{ name: "a.md", file: file("A2\n") }, { name: "b.md", file: file("B\n") }]);
     const current = dir([{ name: "a.md", file: file("A\n") }, { name: "b.md", file: file("B2\n") }]);
-    const result = await mergeWireTrees(base, candidate, current, load);
+    const result = await mergeProtocolTrees(base, candidate, current, load);
     expect(result.conflicts).toEqual([]);
     expect(result.summary).toBeUndefined();
     expect(result.root).toBe(dir([{ name: "a.md", file: file("A2\n") }, { name: "b.md", file: file("B2\n") }]));
@@ -35,7 +35,7 @@ describe("snapshot merge: node by node", () => {
     const base = dir([{ name: "note.md", file: file("---\nid: n1\ntitle: T\n---\nBody\n") }]);
     const candidate = dir([{ name: "note.md", file: file("---\nid: n1\ntitle: T\n---\nBody\nMore\n") }]);
     const current = dir([{ name: "note.md", file: file("---\ntitle: T\nid: n1\n---\nBody\n") }]);
-    const result = await mergeWireTrees(base, candidate, current, load);
+    const result = await mergeProtocolTrees(base, candidate, current, load);
     expect(result.conflicts).toEqual([]);
     expect(result.summary).toBeUndefined();
     expect(result.root).toBe(candidate);
@@ -45,7 +45,7 @@ describe("snapshot merge: node by node", () => {
     const base = dir([{ name: "note.md", file: file("Base\n") }]);
     const candidate = dir([{ name: "note.md", file: file("Base\nCandidate\n") }]);
     const current = dir([{ name: "note.md", file: file("Base\nCurrent\n") }]);
-    const merged = await mergeWireTrees(base, candidate, current, load);
+    const merged = await mergeProtocolTrees(base, candidate, current, load);
     expect(merged.conflicts).toEqual([]);
     expect(merged.summary?.version).toBe("markdown-additive-v1");
   });
@@ -54,7 +54,7 @@ describe("snapshot merge: node by node", () => {
     const base = dir([{ name: "asset.bin", file: file("0") }]);
     const candidate = dir([{ name: "asset.bin", file: file("1") }]);
     const current = dir([{ name: "asset.bin", file: file("2") }]);
-    const result = await mergeWireTrees(base, candidate, current, load);
+    const result = await mergeProtocolTrees(base, candidate, current, load);
     expect(result.conflicts).toEqual([{ path: "/asset.bin", reason: "binary-conflict" }]);
   });
 });

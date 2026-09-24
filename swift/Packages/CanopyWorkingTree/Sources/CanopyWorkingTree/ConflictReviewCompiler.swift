@@ -4,34 +4,34 @@ import Foundation
 /// Pure graph compilation after authorized material loading. No live document is
 /// mutated, and no operation history is guessed from a directory diff.
 enum ConflictReviewCompiler {
-    static func compile(_ draft: ConflictReviewDraft, base: WireSnapshot, material: [String: Data], allDecisions: [ConflictReviewDecision] = []) throws -> ConflictReviewPreview {
+    static func compile(_ draft: ConflictReviewDraft, base: ProtocolSnapshot, material: [String: Data], allDecisions: [ConflictReviewDecision] = []) throws -> ConflictReviewPreview {
         guard base.root == draft.snapshot.root else { throw ConflictReviewError.changed }
-        _ = try WireObjectGraph.validate(base)
+        _ = try ProtocolObjectGraph.validate(base)
         guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
         var objects = Dictionary(uniqueKeysWithValues: base.objects.map { ($0.hash, $0.bytes) })
         for (hash, bytes) in material {
-            guard WireObjectCodec.hash(bytes) == hash else { throw ConflictReviewError.unavailable }
+            guard ProtocolObjectCodec.hash(bytes) == hash else { throw ConflictReviewError.unavailable }
             objects[hash] = bytes
         }
         var root = base.root
-        func store(_ object: WireObject) throws -> String {
-            let bytes = try WireObjectCodec.encode(object), hash = WireObjectCodec.hash(bytes)
+        func store(_ object: ProtocolObject) throws -> String {
+            let bytes = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(bytes)
             objects[hash] = bytes; return hash
         }
         func parts(_ path: String) throws -> [String] {
             let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard path.hasPrefix("/"), path != "/", parts.allSatisfy(WireGraph.isPathComponent) else {
+            guard path.hasPrefix("/"), path != "/", parts.allSatisfy(ProtocolGraph.isPathComponent) else {
                 throw ConflictReviewProposalError("Choose a valid absolute destination within this tree.")
             }
             return parts
         }
-        func entries(_ hash: String) throws -> ([WireDirectoryEntry], WireCollectionFileDescriptor?) {
-            guard let bytes = objects[hash], case let .directory(entries, metadata) = try WireObjectCodec.decode(bytes, kind: .directory) else {
+        func entries(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionFileDescriptor?) {
+            guard let bytes = objects[hash], case let .directory(entries, metadata) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
                 throw ConflictReviewError.unavailable
             }
             return (entries, metadata)
         }
-        func entry(_ path: String, in root: String) throws -> WireDirectoryEntry? {
+        func entry(_ path: String, in root: String) throws -> ProtocolDirectoryEntry? {
             if path == "/" { return .init(name: "", directory: root) }
             let names = try parts(path); var cursor = root
             for (i, name) in names.enumerated() {
@@ -41,7 +41,7 @@ enum ConflictReviewCompiler {
             }
             return nil
         }
-        func rewrite(_ hash: String, names: [String], depth: Int, value: WireDirectoryEntry?) throws -> String {
+        func rewrite(_ hash: String, names: [String], depth: Int, value: ProtocolDirectoryEntry?) throws -> String {
             var (children, metadata) = try entries(hash)
             let name = names[depth]
             if depth == names.count - 1 {
@@ -57,11 +57,11 @@ enum ConflictReviewCompiler {
             children.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
             return try store(.directory(children, childrenSource: metadata))
         }
-        struct Assignment { let decision: ConflictReviewDecision; let old: String; let destination: String; let value: WireDirectoryEntry? }
+        struct Assignment { let decision: ConflictReviewDecision; let old: String; let destination: String; let value: ProtocolDirectoryEntry? }
         var assignments: [Assignment] = []
         struct RangeEdit { let decision: ConflictReviewDecision; let range: Range<Int>; let replacement: Data }
         var rangeEdits: [String: [RangeEdit]] = [:]
-        var rangeOperations: [WireSourceOperation] = []
+        var rangeOperations: [ProtocolSourceOperation] = []
         let onlyRanges = draft.decisions.allSatisfy { $0.sourceRange != nil }
         // Files a whole-file choice in this group assigns; a source choice
         // inside one is decided by that file's chosen version.
@@ -93,7 +93,7 @@ enum ConflictReviewCompiler {
                 else { throw ConflictReviewError.unsupported }
                 guard let text = String(data: replacement, encoding: .utf8) else { throw ConflictReviewError.unsupported }
                 rangeEdits[old, default: []].append(.init(decision: decision, range: range, replacement: replacement))
-                let target = try JSONDecoder().decode(WireSemanticValue.self, from: JSONEncoder().encode(decision.affected[0]))
+                let target = try JSONDecoder().decode(ProtocolSemanticValue.self, from: JSONEncoder().encode(decision.affected[0]))
                 let key = "review-\(rangeOperations.count)"
                 if selection.source == nil, selection.remove != true {
                     rangeOperations.append(try .init(["key": .string(key + "-copy"), "kind": .string("copySource"),
@@ -110,7 +110,7 @@ enum ConflictReviewCompiler {
             let destination = selection.destination ?? alternative.placement?.path ?? old
             if old != "/" { _ = try parts(old); _ = try parts(destination) }
             else if destination != "/" { throw ConflictReviewProposalError("The tree root cannot be moved into an entry.") }
-            var value: WireDirectoryEntry?
+            var value: ProtocolDirectoryEntry?
             if selection.remove == true { value = nil }
             else if let source = selection.source {
                 guard alternative.value.file != nil || alternative.value.text != nil else {
@@ -203,7 +203,7 @@ enum ConflictReviewCompiler {
         }
         // Build a recursively inspectable exact effects list, preserving directory metadata.
         var changes: [ConflictReviewChange] = []
-        func compare(_ before: WireDirectoryEntry?, _ after: WireDirectoryEntry?, path: String) throws {
+        func compare(_ before: ProtocolDirectoryEntry?, _ after: ProtocolDirectoryEntry?, path: String) throws {
             if before?.file == after?.file && before?.directory == after?.directory && before?.tree == after?.tree { return }
             changes.append(.init(path: path, before: before, after: after,
                 beforeMetadata: try before?.directory.flatMap { try entries($0).1 },
@@ -215,8 +215,8 @@ enum ConflictReviewCompiler {
             }
         }
         try compare(.init(name: "", directory: base.root), .init(name: "", directory: root), path: "/")
-        let candidate = try WireGraph.reachable(from: root, in: objects) { _, _ in throw ConflictReviewError.unavailable }
-        _ = try WireObjectGraph.validate(candidate)
+        let candidate = try ProtocolGraph.reachable(from: root, in: objects) { _, _ in throw ConflictReviewError.unavailable }
+        _ = try ProtocolObjectGraph.validate(candidate)
         return .init(fingerprint: try draft.fingerprint(), changes: changes, candidate: candidate, operations: onlyRanges ? rangeOperations : nil)
     }
 }

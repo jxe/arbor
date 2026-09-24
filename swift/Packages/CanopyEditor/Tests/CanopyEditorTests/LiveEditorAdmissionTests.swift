@@ -12,7 +12,7 @@ import Testing
 @MainActor
 @Suite("Live editor admission", .serialized)
 struct LiveEditorAdmissionTests {
-    private func place(_ current: WireCurrentTree, client: ArborWireClient) async throws -> WorkingTree {
+    private func place(_ current: ProtocolCurrentTree, client: ProtocolClient) async throws -> WorkingTree {
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: current.tree.id))
         let snapshot = try await client.snapshot(tree: current.tree.id, root: current.tree.root)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot,
@@ -20,26 +20,26 @@ struct LiveEditorAdmissionTests {
         return tree
     }
 
-    private func freshUndoPage(client: ArborWireClient, tree: String) async throws -> WorkspaceReference {
+    private func freshUndoPage(client: ProtocolClient, tree: String) async throws -> WorkspaceReference {
         let current = try await client.descriptor(tree: tree)
         let snapshot = try await client.snapshot(tree: tree, root: current.tree.root)
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
-        guard case let .directory(original, descriptor) = try WireObjectCodec.decode(root.bytes, kind: .directory) else {
+        guard case let .directory(original, descriptor) = try ProtocolObjectCodec.decode(root.bytes, kind: .directory) else {
             throw WorkspaceProviderError.invalidAction("Expected directory")
         }
         let name = "undo-" + UUID().uuidString
-        let file = Data("Causal second\n\nRetained tail\n".utf8), hash = WireObjectCodec.hash(file)
+        let file = Data("Causal second\n\nRetained tail\n".utf8), hash = ProtocolObjectCodec.hash(file)
         var entries = original; entries.append(.init(name: name + ".md", file: hash))
         entries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
-        let bytes = try WireObjectCodec.encode(.directory(entries, childrenSource: descriptor))
-        let update = WireCandidateUpdate(candidate: WireObjectCodec.hash(bytes), change: UUID().uuidString,
-            trace: nil, objects: [.init(hash: hash, bytes: file), .init(hash: WireObjectCodec.hash(bytes), bytes: bytes)])
+        let bytes = try ProtocolObjectCodec.encode(.directory(entries, childrenSource: descriptor))
+        let update = ProtocolCandidateUpdate(candidate: ProtocolObjectCodec.hash(bytes), change: UUID().uuidString,
+            trace: nil, objects: [.init(hash: hash, bytes: file), .init(hash: ProtocolObjectCodec.hash(bytes), bytes: bytes)])
         let request = try await client.prepareUpdates(tree: tree, base: .init(root: snapshot.root, update: current.tree.update), updates: [update])
         _ = try await client.submitUpdateResponse(request)
         return .init(tree: TreeID(rawValue: tree), path: "/" + name)
     }
 
-    private func edit(_ binding: ArborDocumentBinding, text: String) {
+    private func edit(_ binding: CanopyDocumentBinding, text: String) {
         binding.document.transaction(name: "Typing") {
             _ = binding.document.setText(binding.document.children[0].id, AttributedString(text))
         }
@@ -53,19 +53,19 @@ struct LiveEditorAdmissionTests {
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_CROSS_DOCUMENT_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "cross-document-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: url, credential: token)
+        let client = ProtocolClient(origin: url, credential: token)
         let source = try await freshUndoPage(client: client, tree: treeID)
         let destination = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ProtocolReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
         let session = try await provider.openDocument(source)
-        let binding = try await ArborDocumentBinding.open(reference: source, session: session)
-        let host = ArborEditorHost(binding: binding, provider: provider, linkPreviewService: LinkPreviewService(cacheDirectory: root.appending(path: "previews")))
+        let binding = try await CanopyDocumentBinding.open(reference: source, session: session)
+        let host = CanopyEditorHost(binding: binding, provider: provider, linkPreviewService: LinkPreviewService(cacheDirectory: root.appending(path: "previews")))
         let undo = UndoManager(); undo.groupsByEvent = false; binding.document.undoManager = undo
         binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         let original = try await session.snapshot().source
-        #expect(await host.copyToDocument(ArborDocumentReferenceCodec.encode(destination), blocks: [binding.document.children[0]], from: binding.document))
+        #expect(await host.copyToDocument(CanopyDocumentReferenceCodec.encode(destination), blocks: [binding.document.children[0]], from: binding.document))
         _ = try await coordinator.syncOnce()
         let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         #expect(try await queue.retained().contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true })
@@ -80,7 +80,7 @@ struct LiveEditorAdmissionTests {
         binding.appendCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         _ = try await coordinator.syncOnce()
-        let created = try #require(ArborDocumentReferenceCodec.decode(page))
+        let created = try #require(CanopyDocumentReferenceCodec.decode(page))
         #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
             let capture = try await tree.captureSourceBasis(created)
@@ -130,15 +130,15 @@ struct LiveEditorAdmissionTests {
         let root = FileManager.default.temporaryDirectory.appending(path: "live-editor-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let queueRoot = root.appending(path: "client")
-        let client = ArborWireClient(origin: url, credential: token)
+        let client = ProtocolClient(origin: url, credential: token)
         let initial = try await client.descriptor(tree: treeID)
         var tree = try await place(initial, client: client)
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
-        let transport = ArborWireReplicaTransport(client: client)
+        let transport = ProtocolReplicaTransport(client: client)
         var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         var session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let r1 = try await session.snapshot()
-        var binding: ArborDocumentBinding? = try await .open(reference: reference, session: session)
+        var binding: CanopyDocumentBinding? = try await .open(reference: reference, session: session)
         // The editor holds R1 and has not captured its edit yet (Quagmire's
         // typing checkpoint) when a peer's R2 is installed beneath it.
         binding?.stopObserving()
@@ -213,12 +213,12 @@ struct LiveEditorAdmissionTests {
         }
         let ids = try alternatives.map { value -> String in
             guard case let .object(fields) = value, case let .string(id) = fields["id"] else {
-                throw ArborWireValidationError.invalidValue("Missing alternative identity")
+                throw ProtocolValidationError.invalidValue("Missing alternative identity")
             }
             return id
         }
         #expect(alternatives.count == 2)
-        let resolution = WireCandidateUpdate(candidate: current.tree.root, trace: [],
+        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, trace: [],
             resolves: [.init(state: current.tree.update, conflict: id, alternatives: ids)], objects: [])
         let prepared = try await client.prepareUpdates(tree: treeID,
             base: .init(root: current.tree.root, update: current.tree.update), updates: [resolution])
@@ -238,7 +238,7 @@ extension LiveEditorAdmissionTests {
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path:"copy-editor-\(UUID())")
         defer { try? FileManager.default.removeItem(at:root) }
-        let client = ArborWireClient(origin:url,credential:token), transport = ArborWireReplicaTransport(client:ArborWireClient(origin:url,credential:token))
+        let client = ProtocolClient(origin:url,credential:token), transport = ProtocolReplicaTransport(client:ProtocolClient(origin:url,credential:token))
         let initial = try await client.descriptor(tree:treeID)
         var tree = try await place(initial,client:client)
         var coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
@@ -246,7 +246,7 @@ extension LiveEditorAdmissionTests {
         var session = try await WorkingTreeProvider(workingTree:tree,coordinator:coordinator).openDocument(reference)
         let original = try await session.snapshot()
 
-        var binding: ArborDocumentBinding? = try await .open(reference:reference,session:session)
+        var binding: CanopyDocumentBinding? = try await .open(reference:reference,session:session)
         let document = try #require(binding?.document)
         document.didCommitTransaction = { [weak binding] _ in binding?.appendCurrentGeneration() }
         _ = document.insertCopies(of:[document.children[0]],at:.init(parent:nil,position:0))
@@ -293,13 +293,13 @@ extension LiveEditorAdmissionTests {
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "plain-undo-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: url, credential: token)
+        let client = ProtocolClient(origin: url, credential: token)
         let reference = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ProtocolReplicaTransport(client: client),
             stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let original = try await session.snapshot().source
         let manager = UndoManager(); manager.groupsByEvent = false
         let document = binding.document; document.undoManager = manager
@@ -361,13 +361,13 @@ extension LiveEditorAdmissionTests {
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "coalesced-frames-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: url, credential: token)
+        let client = ProtocolClient(origin: url, credential: token)
         let reference = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ProtocolReplicaTransport(client: client),
             stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let document = binding.document
         let bullet = Block.bullet(text: AttributedString())
         document.transaction(name: "Insert list item") { _ = document.insertSubtree(bullet, at: .init(parent: nil, position: 1)) }

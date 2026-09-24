@@ -1,8 +1,8 @@
 import { hostname } from "node:os";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { accountCheckoutPath, arborPrivateRoot, CanopyAccountStore, generateArborID, ProtocolError,
-  saveCurrentAccountDeviceID, sha256, WireClient } from "@overstory/protocol";
+import { accountCheckoutPath, arborPrivateRoot, HostAccountStore, generateArborID, ProtocolError,
+  saveCurrentAccountDeviceID, sha256, ProtocolClient } from "@overstory/protocol";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -59,7 +59,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     const payload = input === undefined ? undefined : validatePayload(input);
     let secrets: PairingSecrets;
     if (pending) {
-      const source = await new CanopyAccountStore(pending.credentialSlot).provisionalCredential();
+      const source = await new HostAccountStore(pending.credentialSlot).provisionalCredential();
       if (!source) throw new ProtocolError("credential-unavailable", "Unlock the credential store to resume this pairing", 409);
       secrets = JSON.parse(source);
       if (secrets.payload.origin !== pending.origin || secrets.payload.pairing.id !== pending.pairingID
@@ -75,7 +75,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
       secrets = { payload, credential, device: { id: generateArborID("dv"), label: hostname() || "Canopy Mac",
         credentialDigest: `sha256:${sha256(credential)}` } };
       pending = { version: 1, origin: payload.origin, pairingID: payload.pairing.id, credentialSlot: generateArborID("tr") };
-      const store = new CanopyAccountStore(pending.credentialSlot);
+      const store = new HostAccountStore(pending.credentialSlot);
       const source = JSON.stringify(secrets);
       await store.storeProvisionalCredential(source);
       if (await store.provisionalCredential() !== source) throw new Error("Pairing credential could not be verified after saving");
@@ -85,8 +85,8 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     }
     // Persisted before the first request. Replays retain the same secret,
     // device and credential even if the host accepted a lost response.
-    await new WireClient(pending.origin).claimPairing(pending.pairingID, secrets.payload.pairing.secret, secrets.device);
-    const wire = new WireClient(pending.origin, secrets.credential);
+    await new ProtocolClient(pending.origin).claimPairing(pending.pairingID, secrets.payload.pairing.secret, secrets.device);
+    const wire = new ProtocolClient(pending.origin, secrets.credential);
     const { account } = await wire.account();
     if (account.device?.id !== secrets.device.id || account.profileTree !== identity.profileTree
       || !account.community.canonical?.endpoint || new URL(account.community.canonical.endpoint).origin !== pending.origin) {
@@ -115,7 +115,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
         await rename(staging, checkout);
       } finally { await rm(staging, { recursive: true, force: true }); }
     }
-    await new CanopyAccountStore(configuration.id).set(secrets.credential, {
+    await new HostAccountStore(configuration.id).set(secrets.credential, {
       origin: pending.origin, account: `${pending.origin}/~${account.handle ?? account.id}`,
       accountID: account.id, ...(account.handle ? { handle: account.handle } : {}), profileTree: identity.profileTree,
       deviceID: secrets.device.id, configurationRef: configuration.root, configurationUpdate: configuration.update,
@@ -125,6 +125,6 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     // Remove the journal first: a crash may leave an unused secret, never a
     // resumable journal whose exact credential has already been deleted.
     await rm(pendingPath());
-    await new CanopyAccountStore(pending.credentialSlot).remove();
+    await new HostAccountStore(pending.credentialSlot).remove();
   });
 }

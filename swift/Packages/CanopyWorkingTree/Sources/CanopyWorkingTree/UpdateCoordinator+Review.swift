@@ -81,15 +81,15 @@ extension UpdateCoordinator {
         if let text = alternative.value.text { return Data(text.utf8) }
         guard let hash = alternative.value.file else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
-        guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+        guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
         return bytes
     }
 
-    public func reviewDirectory(_ alternative: ConflictReviewAlternative) async throws -> [WireDirectoryEntry]? {
+    public func reviewDirectory(_ alternative: ConflictReviewAlternative) async throws -> [ProtocolDirectoryEntry]? {
         guard let hash = alternative.value.directory else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
-        guard WireObjectCodec.hash(bytes) == hash,
-              case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else {
+        guard ProtocolObjectCodec.hash(bytes) == hash,
+              case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
             throw UpdateError.returnedSnapshotMismatch
         }
         return entries
@@ -116,8 +116,8 @@ extension UpdateCoordinator {
         let basis = Set(accepted.graph.objects.map(\.hash))
         let change = UUID().uuidString
         let chosen = preview.operations ?? []
-        let update = WireCandidateUpdate(candidate: candidate.root, change: change,
-            trace: chosen.isEmpty ? nil : [WireTraceFrame(before: fresh.root, after: candidate.root, operations: chosen)],
+        let update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
+            trace: chosen.isEmpty ? nil : [ProtocolTraceFrame(before: fresh.root, after: candidate.root, operations: chosen)],
             resolves: draft.decisions.map { .init(state: draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id)) },
             objects: candidate.objects.filter { !basis.contains($0.hash) })
         let record = try LocalChange(change: change, tree: fresh.tree, basis: .accepted(accepted.base), graph: accepted.graph,
@@ -143,7 +143,7 @@ extension UpdateCoordinator {
         return try await prepareReviewPreview(draft, current: current).preview
     }
 
-    private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot) async throws -> (base: WireSnapshot, preview: ConflictReviewPreview) {
+    private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot) async throws -> (base: ProtocolSnapshot, preview: ConflictReviewPreview) {
         guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
         let base = try await transport.snapshot(tree: current.tree, root: current.root)
         var material: [String: Data] = [:]
@@ -152,7 +152,7 @@ extension UpdateCoordinator {
             guard let selection = draft.selection(for: decision.id), let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }) else {
                 throw ConflictReviewError.unsupported
             }
-            var pending: [(String, WireEntryKind)] = []
+            var pending: [(String, ProtocolEntryKind)] = []
             if let file = alternative.value.file { pending.append((file, .file)) }
             if let directory = alternative.value.directory { pending.append((directory, .directory)) }
             var visited = Set<String>()
@@ -163,9 +163,9 @@ extension UpdateCoordinator {
                 else {
                     bytes = try await transport.object(tree: current.tree, hash: hash)
                 }
-                guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+                guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
                 material[hash] = bytes
-                if kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: kind) {
+                if kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: kind) {
                     for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
                 }
             }
@@ -175,21 +175,21 @@ extension UpdateCoordinator {
 
     /// The directories and Markdown of `snapshot`, plus the `keeping` objects
     /// it introduces: the sparse form every change-log record carries.
-    static func spine(of snapshot: WireSnapshot, keeping extra: Set<String>) throws -> WireSnapshot {
+    static func spine(of snapshot: ProtocolSnapshot, keeping extra: Set<String>) throws -> ProtocolSnapshot {
         let objects = Dictionary(uniqueKeysWithValues: snapshot.objects.map { ($0.hash, $0) })
-        var kept: [WireObjectEnvelope] = [], pending = [snapshot.root], seen = Set<String>()
+        var kept: [ProtocolObjectEnvelope] = [], pending = [snapshot.root], seen = Set<String>()
         while let hash = pending.popLast() {
             guard seen.insert(hash).inserted, let object = objects[hash] else { continue }
             kept.append(object)
-            guard case let .directory(entries, _) = try WireObjectCodec.decode(object.bytes, kind: .directory) else { continue }
+            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(object.bytes, kind: .directory) else { continue }
             for entry in entries {
                 if let directory = entry.directory { pending.append(directory); continue }
                 guard let file = entry.hash, seen.insert(file).inserted, let object = objects[file] else { continue }
                 if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") || extra.contains(file) { kept.append(object) }
             }
         }
-        let spine = WireSnapshot(root: snapshot.root, objects: kept.sorted { $0.hash < $1.hash })
-        _ = try WireObjectGraph.validate(spine, mode: .sparseFiles)
+        let spine = ProtocolSnapshot(root: snapshot.root, objects: kept.sorted { $0.hash < $1.hash })
+        _ = try ProtocolObjectGraph.validate(spine, mode: .sparseFiles)
         return spine
     }
 

@@ -23,10 +23,10 @@ struct ChangeLogTests {
                 }
             }
             let name: String; let generations: [[Edit]]; let source: String
-            let frames: [WireSemanticValue]?; let compacted: [WireSemanticValue]?
+            let frames: [ProtocolSemanticValue]?; let compacted: [ProtocolSemanticValue]?
         }
         let tree: String; let sourcePath: String; let source: String; let changes: [Change]
-        let requests: [String: WireUpdateRequest]
+        let requests: [String: ProtocolUpdateRequest]
         let traces: [Trace]
     }
     func fixture() throws -> Fixture {
@@ -39,11 +39,11 @@ struct ChangeLogTests {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
-    func graph(_ source: String) throws -> WireSnapshot {
-        let file = Data(source.utf8), fileHash = WireObjectCodec.hash(file)
-        let nested = try WireObjectCodec.encode(.directory([.init(name: "note.md", file: fileHash)])), nestedHash = WireObjectCodec.hash(nested)
-        let root = try WireObjectCodec.encode(.directory([.init(name: "nested", directory: nestedHash)]))
-        return WireSnapshot(root: WireObjectCodec.hash(root), objects: [file, nested, root].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
+    func graph(_ source: String) throws -> ProtocolSnapshot {
+        let file = Data(source.utf8), fileHash = ProtocolObjectCodec.hash(file)
+        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: fileHash)])), nestedHash = ProtocolObjectCodec.hash(nested)
+        let root = try ProtocolObjectCodec.encode(.directory([.init(name: "nested", directory: nestedHash)]))
+        return ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [file, nested, root].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
     }
     func records(_ f: Fixture) throws -> [LocalChange] {
         var records: [LocalChange] = []
@@ -65,11 +65,11 @@ struct ChangeLogTests {
     }
 
     /// The fixture stores frames as plain JSON; the wire element decodes them.
-    private func frames(_ raw: [WireSemanticValue]?) throws -> [WireTraceFrame]? {
+    private func frames(_ raw: [ProtocolSemanticValue]?) throws -> [ProtocolTraceFrame]? {
         guard let raw, case let .object(last)? = raw.last, case let .string(after)? = last["after"] else { return nil }
-        let element: WireSemanticValue = .object(["change": .string("trace"), "candidate": .string(after), "trace": .array(raw),
+        let element: ProtocolSemanticValue = .object(["change": .string("trace"), "candidate": .string(after), "trace": .array(raw),
                                                   "resolves": .array([]), "objects": .array([]), "deltas": .array([])])
-        return try JSONDecoder().decode(WireCandidateUpdate.self, from: JSONEncoder().encode(element)).trace
+        return try JSONDecoder().decode(ProtocolCandidateUpdate.self, from: JSONEncoder().encode(element)).trace
     }
 
     @Test("Shared trace vectors: one frame per generation, and compaction agrees with the TypeScript queue and Canopy")
@@ -156,7 +156,7 @@ struct ChangeLogTests {
             let resultObject = try #require(first.candidate.objects.first { $0.hash == delta.result })
             #expect(try delta.apply(to: baseObject.bytes) == resultObject.bytes)
         }
-        #expect(first.update.deltas.contains { $0.result == (try? WireObjectCodec.hash(WireObjectCodec.encode(.file(Data(edited.utf8))))) })
+        #expect(first.update.deltas.contains { $0.result == (try? ProtocolObjectCodec.hash(ProtocolObjectCodec.encode(.file(Data(edited.utf8))))) })
         #expect(undo.update.deltas.isEmpty)
         let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
         try await queue.retain([first, undo])
@@ -183,16 +183,16 @@ struct ChangeLogTests {
         let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "page-conversion-undo.json")))
         let graph = try graph(f.source), file = Data(f.createdSource.utf8)
         let rootObject = try #require(graph.objects.first { $0.hash == graph.root })
-        guard case let .directory(entries, _) = try WireObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
-        let bytes = try WireObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: WireObjectCodec.hash(file))] + entries))
-        let candidate = WireSnapshot(root: WireObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
+        guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
+        let bytes = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: ProtocolObjectCodec.hash(file))] + entries))
+        let candidate = ProtocolSnapshot(root: ProtocolObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
         let created = try LocalChange(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
             creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
         // A creation is traced: one addEntry of the new file under the basis root.
         let added = try #require(created.update.trace?.first?.operations.first)
         #expect(created.update.trace?.count == 1 && created.update.trace?.first?.operations.count == 1)
         #expect(added.kind == "addEntry")
-        #expect(added.fields["value"] == .object(["file": .string(WireObjectCodec.hash(file))]))
+        #expect(added.fields["value"] == .object(["file": .string(ProtocolObjectCodec.hash(file))]))
         #expect(throws: (any Error).self) {
             try LocalChange(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
                 creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: ["/elsewhere"]))
@@ -215,8 +215,8 @@ struct ChangeLogTests {
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
         let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "cross-document-copy.json")))
         let origin = Data(f.original.utf8), destination = Data(f.destination.utf8)
-        let root = try WireObjectCodec.encode(.directory([.init(name: "destination.md", file: WireObjectCodec.hash(destination)), .init(name: "source.md", file: WireObjectCodec.hash(origin))]))
-        let graph = WireSnapshot(root: WireObjectCodec.hash(root), objects: [root, origin, destination].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
+        let root = try ProtocolObjectCodec.encode(.directory([.init(name: "destination.md", file: ProtocolObjectCodec.hash(destination)), .init(name: "source.md", file: ProtocolObjectCodec.hash(origin))]))
+        let graph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [root, origin, destination].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
         let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/destination"), source: f.destination, contentRevision: "r1")
         let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: f.edit.offset..<(f.edit.offset + f.edit.length), replacement: f.edit.replacement,
             copies: f.edit.copies.map { .init(source: $0.source[0]..<$0.source[1], replacement: $0.replacement[0]..<$0.replacement[1], document: $0.document) })])
@@ -320,14 +320,14 @@ struct ChangeLogTests {
     @Test("Journal stores object hashes once and compacts only dependency-free accepted records")
     func objectStorageAndCompaction() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let asset = Data(repeating: 0x5a, count: 1_000_000), assetHash = WireObjectCodec.hash(asset)
-        let source = Data(f.source.utf8), sourceHash = WireObjectCodec.hash(source)
-        let nested = try WireObjectCodec.encode(.directory([.init(name: "note.md", file: sourceHash)])), nestedHash = WireObjectCodec.hash(nested)
-        let rootBytes = try WireObjectCodec.encode(.directory([
+        let asset = Data(repeating: 0x5a, count: 1_000_000), assetHash = ProtocolObjectCodec.hash(asset)
+        let source = Data(f.source.utf8), sourceHash = ProtocolObjectCodec.hash(source)
+        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: sourceHash)])), nestedHash = ProtocolObjectCodec.hash(nested)
+        let rootBytes = try ProtocolObjectCodec.encode(.directory([
             .init(name: "asset.bin", file: assetHash), .init(name: "nested", directory: nestedHash),
         ]))
-        let initialGraph = WireSnapshot(root: WireObjectCodec.hash(rootBytes), objects: [asset, source, nested, rootBytes].map {
-            .init(hash: WireObjectCodec.hash($0), bytes: $0)
+        let initialGraph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(rootBytes), objects: [asset, source, nested, rootBytes].map {
+            .init(hash: ProtocolObjectCodec.hash($0), bytes: $0)
         })
         var graph = initialGraph
         var all: [LocalChange] = []

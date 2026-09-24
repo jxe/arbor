@@ -102,11 +102,11 @@ enum WorkingTreeSemantics {
     static func documentRevision(node: WorkingTreeNode, children: [WorkingTreeNode]) -> String {
         switch node.kind {
         case .markdown:
-            return WireObjectCodec.hash(Data((node.source ?? "").utf8))
+            return ProtocolObjectCodec.hash(Data((node.source ?? "").utf8))
         case .file:
-            return node.ref?.objectHash ?? WireObjectCodec.hash(Data())
+            return node.ref?.objectHash ?? ProtocolObjectCodec.hash(Data())
         case .boundary:
-            return WireObjectCodec.hash(Data((node.boundaryTree ?? "").utf8))
+            return ProtocolObjectCodec.hash(Data((node.boundaryTree ?? "").utf8))
         case .directory:
             let descriptors = children
                 .filter { !$0.path.hasPrefix("/Trash/") && $0.path != "/Trash" }
@@ -116,7 +116,7 @@ enum WorkingTreeSemantics {
             var data = Data((node.source ?? "").utf8)
             data.append(0)
             data.append(Data(descriptors.utf8))
-            return WireObjectCodec.hash(data)
+            return ProtocolObjectCodec.hash(data)
         }
     }
 

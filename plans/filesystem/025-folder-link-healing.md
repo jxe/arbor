@@ -22,8 +22,8 @@ path is stale. Plain Markdown readers, GitHub, agents and `grep` then see a brok
 link. The spec expects authored content to be "healed through an ordinary
 mutation" ([directory format](../../docs/overstory-spec/02-directory-format.md)).
 
-Today that works only for moves made inside Canopy. `ArborEditorWorkspace.healLinks`
-(`swift/Packages/CanopyEditor/Sources/CanopyEditor/ArborEditorWorkspace.swift`)
+Today that works only for moves made inside Canopy. `CanopyEditorWorkspace.healLinks`
+(`swift/Packages/CanopyEditor/Sources/CanopyEditor/CanopyEditorWorkspace.swift`)
 rewrites backlinks and the moved subtree's own links right after an app Rename or
 Move, as ordinary edits through the change log.
 
@@ -54,7 +54,7 @@ update machine publishes it like any other change to the folder.
   `packages/protocol/src/model/logical-url.ts` have Swift twins in
   `CanopyAppKit/LogicalURL.swift`, pinned by shared fixtures.
 - **A source-level healer, Swift only.** `healedLinkPaths` in
-  `ArborEditorWorkspace` rewrites link paths in source text, which preserves every
+  `CanopyEditorWorkspace` rewrites link paths in source text, which preserves every
   other byte. TypeScript has only the block-level rewrite in
   `packages/protocol/src/documents/child-links.ts`.
 - **No backlink index in the daemon.** It was deleted with the editor path. Swift's

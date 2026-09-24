@@ -1,4 +1,4 @@
-import { compareWireNames, decodeWireDirectory, encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry } from "../objects.ts";
+import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
 import type { AuthoredOperation, MaterialRef } from "./authored-contract.ts";
 
 type Edit = Extract<AuthoredOperation, { kind: "editSource" }>;
@@ -56,7 +56,7 @@ export async function executeExactSourceEdits(
       if (index === baseParts.length && object !== ref.material.object) invalid("basis object does not match path");
       if (index === parts.length) break;
       if (kind !== "directory") invalid("selector descends through a file");
-      const entry = decodeWireDirectory(await read(object)).entries.find(e => e.name === parts[index]);
+      const entry = decodeProtocolDirectory(await read(object)).entries.find(e => e.name === parts[index]);
       if (!entry) invalid("path absent from basis");
       if (entry.tree) invalid("selection crosses tree boundary");
       object = (entry.file ?? entry.directory)!;
@@ -114,7 +114,7 @@ export async function executeExactSourceEdits(
     generated.set(hash, bytes); replacements.set(path, hash);
   }
   async function rebuild(hash: ObjectHash, path: string): Promise<ObjectHash> {
-    const directory = decodeWireDirectory(await read(hash));
+    const directory = decodeProtocolDirectory(await read(hash));
     let changed = false;
     for (const entry of directory.entries) {
       const child = path + "/" + entry.name;
@@ -126,7 +126,7 @@ export async function executeExactSourceEdits(
       }
     }
     if (!changed) return hash;
-    const bytes = encodeWireDirectory(directory), result = hashObject(bytes);
+    const bytes = encodeProtocolDirectory(directory), result = hashObject(bytes);
     generated.set(result, bytes); return result;
   }
   return { root: await rebuild(baseRoot, ""), generated, evidence };
@@ -228,7 +228,7 @@ export async function checkPlainTrace(
         for (let depth = 0; depth <= parts.length; depth++) {
           if (depth === base.length && object !== parent.material.object) invalid("basis object does not match path");
           if (depth === parts.length) break;
-          const entry = decodeWireDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
+          const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
           if (!entry?.directory) return { plain: false, reason: "addEntry parent is not a basis directory" };
           object = entry.directory;
         }
@@ -237,7 +237,7 @@ export async function checkPlainTrace(
         const key = path.join("/");
         if (names.has(key)) return { plain: false, reason: "addEntry names one entry twice" };
         names.add(key);
-        const entry = { name: addition.destination.name, ...addition.value } as WireDirectoryEntry;
+        const entry = { name: addition.destination.name, ...addition.value } as ProtocolDirectoryEntry;
         const next = await addEntryAt(root, path, entry, read, generated);
         if (!next) return { plain: false, reason: "addEntry names an existing entry" };
         root = next;
@@ -255,14 +255,14 @@ export async function checkPlainTrace(
 async function addEntryAt(
   root: ObjectHash,
   path: readonly string[],
-  entry: WireDirectoryEntry,
+  entry: ProtocolDirectoryEntry,
   read: (hash: ObjectHash) => Promise<Uint8Array>,
   generated: Map<ObjectHash, Uint8Array>,
 ): Promise<ObjectHash | null> {
-  const directory = decodeWireDirectory(await read(root));
+  const directory = decodeProtocolDirectory(await read(root));
   const [name, ...rest] = path as [string, ...string[]];
   const prior = directory.entries.find((e) => e.name === name);
-  let next: WireDirectoryEntry;
+  let next: ProtocolDirectoryEntry;
   if (rest.length) {
     if (!prior?.directory) return null;
     const child = await addEntryAt(prior.directory, rest, entry, read, generated);
@@ -272,8 +272,8 @@ async function addEntryAt(
     if (prior) return null;
     next = entry;
   }
-  directory.entries = [...directory.entries.filter((e) => e.name !== name), next].sort((a, b) => compareWireNames(a.name, b.name));
-  const bytes = encodeWireDirectory(directory), hash = hashObject(bytes);
+  directory.entries = [...directory.entries.filter((e) => e.name !== name), next].sort((a, b) => compareProtocolNames(a.name, b.name));
+  const bytes = encodeProtocolDirectory(directory), hash = hashObject(bytes);
   generated.set(hash, bytes);
   return hash;
 }

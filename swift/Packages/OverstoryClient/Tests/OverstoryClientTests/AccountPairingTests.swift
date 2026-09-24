@@ -7,7 +7,7 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
     var values: [String: String] = [:]
     var pending: [String: PendingPairingClaim] = [:]
     var pendingAccounts: [String: PendingAccountClaim] = [:]
-    var accountValues: [String: NativeCanopyAccount] = [:]
+    var accountValues: [String: NativeHostAccount] = [:]
     var loads = 0
 
     func load(configurationTree: String) -> String? {
@@ -30,10 +30,10 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
     func savePendingAccount(_ claim: PendingAccountClaim) { pendingAccounts[claim.account.absoluteString] = claim }
     func forgetPendingAccount(account: URL) { pendingAccounts[account.absoluteString] = nil }
 
-    func accounts() -> [NativeCanopyAccount] {
+    func accounts() -> [NativeHostAccount] {
         accountValues.values.sorted { $0.configurationTree < $1.configurationTree }
     }
-    func saveAccount(_ account: NativeCanopyAccount) { accountValues[account.configurationTree] = account }
+    func saveAccount(_ account: NativeHostAccount) { accountValues[account.configurationTree] = account }
     func forgetAccount(configurationTree: String) { accountValues[configurationTree] = nil }
 }
 
@@ -63,19 +63,19 @@ struct NativeAccountPairingTests {
           canonical: 'https://canopy.example/~joe/private'
           access: []
         """
-        let changed = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+        let changed = try AccountConfigurationYAML.replacingTrees(in: source) { trees in
             trees["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access = [
-                ArborAccountAccessRule(
+                AccountAccessRule(
                     subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
                     access: "write"
                 )
             ]
         }
-        let decoded = try ArborAccountConfigurationYAML.trees(from: changed)
+        let decoded = try AccountConfigurationYAML.trees(from: changed)
 
         #expect(decoded.count == 2)
         #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access == [
-            ArborAccountAccessRule(
+            AccountAccessRule(
                 subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
                 access: "write"
             )
@@ -101,17 +101,17 @@ struct NativeAccountPairingTests {
         dv_phone:
           label: 'Joe’s iPhone'
         """
-        let changed = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
+        let changed = try AccountConfigurationYAML.replacingDevices(in: source) { devices in
             var phone = try #require(devices["dv_phone"])
             phone.administrator = true
             devices["dv_phone"] = phone
         }
-        let decoded = try ArborAccountConfigurationYAML.devices(from: changed)
+        let decoded = try AccountConfigurationYAML.devices(from: changed)
 
         #expect(decoded["dv_phone"]?.administrator == true)
         #expect(changed.contains("# Current Mac\ndv_mac:\n  label: Joe's Mac\n  administrator: true"))
         #expect(throws: Never.self) {
-            try ArborAccountConfigurationYAML.validateAdministratorChange(
+            try AccountConfigurationYAML.validateAdministratorChange(
                 devices: decoded,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_phone",
@@ -119,7 +119,7 @@ struct NativeAccountPairingTests {
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborAccountConfigurationYAML.validateAdministratorChange(
+            try AccountConfigurationYAML.validateAdministratorChange(
                 devices: decoded,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_mac",
@@ -131,34 +131,34 @@ struct NativeAccountPairingTests {
     @Test("Device removal requires an administrator and preserves another administrator")
     func deviceRemovalValidation() throws {
         let devices = [
-            "dv_mac": ArborAccountDeviceDeclaration(label: "Joe's Mac", administrator: true),
-            "dv_phone": ArborAccountDeviceDeclaration(label: "Joe’s iPhone", administrator: nil),
-            "dv_tablet": ArborAccountDeviceDeclaration(label: "Joe’s iPad", administrator: nil),
+            "dv_mac": AccountDeviceDeclaration(label: "Joe's Mac", administrator: true),
+            "dv_phone": AccountDeviceDeclaration(label: "Joe’s iPhone", administrator: nil),
+            "dv_tablet": AccountDeviceDeclaration(label: "Joe’s iPad", administrator: nil),
         ]
 
         #expect(throws: Never.self) {
-            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+            try AccountConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_phone"
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+            try AccountConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_phone",
                 targetDeviceID: "dv_phone"
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+            try AccountConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_phone",
                 targetDeviceID: "dv_tablet"
             )
         }
         #expect(throws: (any Error).self) {
-            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+            try AccountConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_mac"
@@ -175,10 +175,10 @@ struct NativeAccountPairingTests {
         dv_phone:
           label: 'Joe’s iPhone'
         """
-        let changed = try ArborAccountConfigurationYAML.replacingDevices(in: source) {
+        let changed = try AccountConfigurationYAML.replacingDevices(in: source) {
             $0["dv_phone"] = nil
         }
-        #expect(Set(try ArborAccountConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
+        #expect(Set(try AccountConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
         #expect(changed.contains("# Keep this administrator note."))
         #expect(changed.contains("# Remove this whole device block."))
     }
@@ -188,26 +188,26 @@ struct NativeAccountPairingTests {
         let dataHome = FileManager.default.temporaryDirectory
             .appending(path: "ArborAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dataHome) }
-        let checkout = ArborAccountConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
+        let checkout = AccountConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
         #expect(checkout.path.hasSuffix("/accounts/tr_config"))
         try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
         let source = "# hosted trees\ntr_first:\n  canonical: /~joe/first\n  access: []\n"
         try source.write(to: checkout.appending(path: "trees.yaml"), atomically: true, encoding: .utf8)
 
-        let written = try ArborAccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { current in
-            try ArborAccountConfigurationYAML.replacingTrees(in: current) { trees in
-                trees["tr_second"] = ArborHostedTreeDeclaration(canonical: "/~joe/second", access: [])
+        let written = try AccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { current in
+            try AccountConfigurationYAML.replacingTrees(in: current) { trees in
+                trees["tr_second"] = HostedTreeDeclaration(canonical: "/~joe/second", access: [])
             }
         } validate: { next in
-            _ = try ArborAccountConfigurationYAML.trees(from: next)
+            _ = try AccountConfigurationYAML.trees(from: next)
         }
         #expect(written.hasPrefix("# hosted trees\ntr_first:"))
         #expect(try String(contentsOf: checkout.appending(path: "trees.yaml"), encoding: .utf8) == written)
-        #expect(try ArborAccountConfigurationYAML.trees(from: written).keys.sorted() == ["tr_first", "tr_second"])
+        #expect(try AccountConfigurationYAML.trees(from: written).keys.sorted() == ["tr_first", "tr_second"])
 
         struct Rejected: Error {}
         #expect(throws: Rejected.self) {
-            try ArborAccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
+            try AccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
                 throw Rejected()
             }
         }
@@ -216,8 +216,8 @@ struct NativeAccountPairingTests {
         #expect(leftovers.isEmpty)
 
         try Data([0xFF, 0xFE, 0x00]).write(to: checkout.appending(path: "devices.yaml"))
-        #expect(throws: ArborAccountConfigurationFileError.self) {
-            try ArborAccountConfigurationYAML.readFile(named: "devices.yaml", in: checkout)
+        #expect(throws: AccountConfigurationFileError.self) {
+            try AccountConfigurationYAML.readFile(named: "devices.yaml", in: checkout)
         }
     }
 
@@ -228,13 +228,13 @@ struct NativeAccountPairingTests {
         tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
           '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb
         """
-        let changed = try ArborLocalPlacementsYAML.adding(
+        let changed = try LocalPlacementsYAML.adding(
             configurationTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
             path: "/Users/joe/Writing",
             tree: "tr_cccccccccccccccccccccccccc",
             to: source
         )
-        let decoded = try ArborLocalPlacementsYAML.placements(from: changed)
+        let decoded = try LocalPlacementsYAML.placements(from: changed)
 
         #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Notes"] == "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb")
         #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Writing"] == "tr_cccccccccccccccccccccccccc")
@@ -244,17 +244,17 @@ struct NativeAccountPairingTests {
 
     @Test("Profile ACL labels prefer handles and protect the current user")
     func profileACLPresentation() throws {
-        #expect(ArborAccountConfigurationYAML.profileDisplayName(
+        #expect(AccountConfigurationYAML.profileDisplayName(
             locator: "arbor://community.example/~alice"
         ) == "~alice")
-        #expect(ArborAccountConfigurationYAML.profileDisplayName(
+        #expect(AccountConfigurationYAML.profileDisplayName(
             locator: nil,
             handle: "joe"
         ) == "~joe")
 
         var rejected = false
         do {
-            try ArborAccountConfigurationYAML.validateAccessChange(
+            try AccountConfigurationYAML.validateAccessChange(
                 subject: .profile(tree: "tr_joe"),
                 access: "none",
                 currentProfileTree: "tr_joe"
@@ -263,16 +263,16 @@ struct NativeAccountPairingTests {
             rejected = true
         }
         #expect(rejected)
-        try ArborAccountConfigurationYAML.validateAccessChange(
+        try AccountConfigurationYAML.validateAccessChange(
             subject: .profile(tree: "tr_alice"),
             access: "none",
             currentProfileTree: "tr_joe"
         )
 
-        let entries = ArborAccountConfigurationYAML.presentedAccessEntries(
+        let entries = AccountConfigurationYAML.presentedAccessEntries(
             rules: [
-                ArborAccountAccessRule(subject: .profile(tree: "tr_alice"), access: "read"),
-                ArborAccountAccessRule(subject: .everyone, access: "read"),
+                AccountAccessRule(subject: .profile(tree: "tr_alice"), access: "read"),
+                AccountAccessRule(subject: .everyone, access: "read"),
             ],
             profileLocators: ["tr_alice": "arbor://community.example/~alice"],
             currentProfileTree: "tr_joe",
@@ -303,7 +303,7 @@ struct NativeAccountPairingTests {
         var firstFailed = false
         do {
             _ = try await first.claim(payload, label: " Joe's iPhone ")
-        } catch is WireHTTPError {
+        } catch is ProtocolHTTPError {
             firstFailed = true
         }
         #expect(firstFailed)
@@ -487,18 +487,18 @@ func resourcePolicyEditing() throws {
           via: tr_supplies
           allow: [read]
     """
-    let original = try ArborAccountConfigurationYAML.trees(from: source)
+    let original = try AccountConfigurationYAML.trees(from: source)
     #expect(original.count == 1)
-    #expect(original["tr_notes"]?.access == [ArborAccountAccessRule(subject: .everyone, access: "read")])
-    let changed = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
-        trees["tr_notes"]!.access = [ArborAccountAccessRule(subject: .everyone, access: "write")]
+    #expect(original["tr_notes"]?.access == [AccountAccessRule(subject: .everyone, access: "read")])
+    let changed = try AccountConfigurationYAML.replacingTrees(in: source) { trees in
+        trees["tr_notes"]!.access = [AccountAccessRule(subject: .everyone, access: "write")]
     }
-    let parsed = try ArborAccountConfigurationYAML.trees(from: changed)
+    let parsed = try AccountConfigurationYAML.trees(from: changed)
     #expect(parsed["tr_notes"]?.resourceAccess.contains(where: { $0.via == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" }) == true)
     #expect(parsed["tr_notes"]?.access.first?.access == "write")
     #expect(changed.contains("# Preserve foreign grants exactly.\ntr_foreign:\n  access:\n    - who: me\n      via: tr_supplies\n      allow: [read]"))
     #expect(!changed.contains("subject:"))
-    #expect(try ArborAccountConfigurationYAML.replacingTrees(in: source) { _ in } == source)
+    #expect(try AccountConfigurationYAML.replacingTrees(in: source) { _ in } == source)
 }
 
 @Test("Resource consent reviews replace one exact key, redact links, and reject stale or non-admin application")
@@ -513,37 +513,37 @@ func resourceConsentReview() throws {
     tr_foreign:
       access: []
     """
-    let rule = try WireResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read, .createChild], within: "/")
-    let review = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, source: source)
+    let rule = try ProtocolResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read, .createChild], within: "/")
+    let review = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, source: source)
     #expect(review.previous?.allow == [.read])
     #expect(review.rule.consentDescription.contains("Me via tr_supplies"))
     let devices = "dv_admin:\n  label: Mac\n  administrator: true\ndv_phone:\n  label: Phone\n"
-    #expect(try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
+    #expect(try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
     #expect(throws: (any Error).self) {
-        try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source + "\n", deviceID: "dv_admin", devicesSource: devices)
+        try AccountConfigurationYAML.applyingResourceConsent(review, to: source + "\n", deviceID: "dv_admin", devicesSource: devices)
     }
     #expect(throws: (any Error).self) {
-        try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
+        try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
     }
-    let removal = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, removing: true, source: review.after)
-    #expect(try ArborAccountConfigurationYAML.trees(from: removal.after)["tr_notes"]?.resourceAccess == [])
-    let foreign = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_foreign", rule: rule, source: source)
+    let removal = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, removing: true, source: review.after)
+    #expect(try AccountConfigurationYAML.trees(from: removal.after)["tr_notes"]?.resourceAccess == [])
+    let foreign = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_foreign", rule: rule, source: source)
     #expect(!foreign.after.components(separatedBy: "tr_foreign:")[1].contains("canonical:"))
-    let link = try WireResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])
+    let link = try ProtocolResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])
     #expect(!link.consentDescription.contains("sha256:"))
 }
 
 @Test("trees.yaml accepts resource rules only; the earlier subject/access rules are rejected")
 func legacyTreesRejected() throws {
     let legacy = "tr_notes:\n  canonical: https://example.test/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n"
-    #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.trees(from: legacy) }
-    #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.replacingTrees(in: legacy) { _ in } }
-    let written = try ArborAccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
-        trees["tr_notes"] = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes",
-            access: [ArborAccountAccessRule(subject: .everyone, access: "read")])
+    #expect(throws: (any Error).self) { try AccountConfigurationYAML.trees(from: legacy) }
+    #expect(throws: (any Error).self) { try AccountConfigurationYAML.replacingTrees(in: legacy) { _ in } }
+    let written = try AccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
+        trees["tr_notes"] = HostedTreeDeclaration(canonical: "https://example.test/~joe/notes",
+            access: [AccountAccessRule(subject: .everyone, access: "read")])
     }
     #expect(!written.contains("subject:"))
-    #expect(try ArborAccountConfigurationYAML.trees(from: written)["tr_notes"]?.resourceAccess == [WireResourceAccessRule(who: .everyone, allow: [.read])])
+    #expect(try AccountConfigurationYAML.trees(from: written)["tr_notes"]?.resourceAccess == [ProtocolResourceAccessRule(who: .everyone, allow: [.read])])
 }
 
 @Test("Policy editors reject duplicate YAML keys, aliases, unknown fields and equivalent rule keys")
@@ -554,15 +554,15 @@ func ambiguousPolicySources() throws {
         "tr_notes:\n  access: []\n  unexpected: true\n",
         "tr_notes:\n  access:\n    - who: me\n      allow: [read]\n    - who: me\n      within: /\n      allow: [write]\n"
     ] {
-        #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.trees(from: source) }
+        #expect(throws: (any Error).self) { try AccountConfigurationYAML.trees(from: source) }
     }
 }
 
 @Test("Ordinary sharing adds read without erasing an existing granular rule or duplicating its key")
 func sharingOverGranularPermission() throws {
-    let original = try WireResourceAccessRule(who: .everyone, allow: [.createChild])
-    var declaration = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes", resourceAccess: [original])
-    declaration.access.append(ArborAccountAccessRule(subject: .everyone, access: "read"))
+    let original = try ProtocolResourceAccessRule(who: .everyone, allow: [.createChild])
+    var declaration = HostedTreeDeclaration(canonical: "https://example.test/~joe/notes", resourceAccess: [original])
+    declaration.access.append(AccountAccessRule(subject: .everyone, access: "read"))
     let complete = try declaration.completeResourceAccess()
     #expect(complete.count == 1)
     #expect(complete[0].allow == [.read, .createChild])
@@ -570,14 +570,14 @@ func sharingOverGranularPermission() throws {
 
 @Test("Resource editors handle the first and last declaration as one YAML mapping")
 func emptyPolicyEditing() throws {
-    let first = try ArborAccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
-        trees["tr_notes"] = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes", access: [])
+    let first = try AccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
+        trees["tr_notes"] = HostedTreeDeclaration(canonical: "https://example.test/~joe/notes", access: [])
     }
-    #expect(try ArborAccountConfigurationYAML.trees(from: first).count == 1)
-    let empty = try ArborAccountConfigurationYAML.replacingTrees(in: first) { $0.removeAll() }
-    #expect(try ArborAccountConfigurationYAML.trees(from: empty).isEmpty)
-    let review = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes",
-        rule: WireResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read]), source: "{}\n")
+    #expect(try AccountConfigurationYAML.trees(from: first).count == 1)
+    let empty = try AccountConfigurationYAML.replacingTrees(in: first) { $0.removeAll() }
+    #expect(try AccountConfigurationYAML.trees(from: empty).isEmpty)
+    let review = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes",
+        rule: ProtocolResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read]), source: "{}\n")
     #expect(review.after.contains("tr_notes:"))
     #expect(!review.after.contains("canonical:"))
 }

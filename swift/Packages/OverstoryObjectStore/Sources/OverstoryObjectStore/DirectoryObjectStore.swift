@@ -50,7 +50,7 @@ public struct DirectoryObjectStore: ObjectOverlay {
             if FileManager.default.fileExists(atPath: url.path) {
                 let existing = try Data(contentsOf: url)
                 guard existing == bytes else {
-                    throw ObjectStoreError.hashMismatch(expected: hash, actual: WireObjectCodec.hash(existing))
+                    throw ObjectStoreError.hashMismatch(expected: hash, actual: ProtocolObjectCodec.hash(existing))
                 }
             } else {
                 try atomicWrite(bytes, to: url)

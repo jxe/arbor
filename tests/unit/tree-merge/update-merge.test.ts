@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mergeWireTrees } from "@overstory/tree-merge";
+import { mergeProtocolTrees } from "@overstory/tree-merge";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
-import { decodeWireCollectionFile } from "@overstory/collection-schema";
+import { decodeProtocolCollectionFile } from "@overstory/collection-schema";
 import {
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type TreeSnapshot,
   type UpdateConflict,
-  type WireDirectoryEntry,
-  type WireDirectory,
+  type ProtocolDirectoryEntry,
+  type ProtocolDirectory,
 } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
@@ -57,14 +57,14 @@ interface MergeFixtures {
   structuralCases: StructuralCase[];
 }
 
-function stored(object: WireDirectory | { type: "file"; bytes: Uint8Array }, objects: Map<string, Uint8Array>): string {
-  const bytes = object.type === "file" ? object.bytes : encodeWireDirectory(object);
+function stored(object: ProtocolDirectory | { type: "file"; bytes: Uint8Array }, objects: Map<string, Uint8Array>): string {
+  const bytes = object.type === "file" ? object.bytes : encodeProtocolDirectory(object);
   const hash = hashObject(bytes);
   objects.set(hash, bytes);
   return hash;
 }
 
-function root(entries: WireDirectoryEntry[], objects: Map<string, Uint8Array>): string {
+function root(entries: ProtocolDirectoryEntry[], objects: Map<string, Uint8Array>): string {
   return stored({ type: "directory", entries }, objects);
 }
 
@@ -100,7 +100,7 @@ async function mergedSource(
   roots: { base: string; candidate: string; remote: string },
   objects: Map<string, Uint8Array>,
 ) {
-  const result = await mergeWireTrees(roots.base, roots.candidate, roots.remote, async (hash) => {
+  const result = await mergeProtocolTrees(roots.base, roots.candidate, roots.remote, async (hash) => {
     const bytes = objects.get(hash);
     if (!bytes) throw new Error(`Missing fixture object ${hash}`);
     return bytes;
@@ -108,7 +108,7 @@ async function mergedSource(
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash);
   const directoryBytes = load(result.root);
   if (!directoryBytes) throw new Error("Missing merged root");
-  const directory = decodeWireDirectory(directoryBytes);
+  const directory = decodeProtocolDirectory(directoryBytes);
   if (directory.type !== "directory") throw new Error("Expected merged directory");
   const note = directory.entries.find((entry) => entry.name === "note.md")?.file;
   if (!note) throw new Error("Expected merged note.md");
@@ -122,7 +122,7 @@ async function mergedPage(
   roots: { base: string; candidate: string; remote: string },
   objects: Map<string, Uint8Array>,
 ) {
-  const result = await mergeWireTrees(roots.base, roots.candidate, roots.remote, async (hash) => {
+  const result = await mergeProtocolTrees(roots.base, roots.candidate, roots.remote, async (hash) => {
     const bytes = objects.get(hash);
     if (!bytes) throw new Error(`Missing fixture object ${hash}`);
     return bytes;
@@ -130,7 +130,7 @@ async function mergedPage(
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash);
   const directoryBytes = load(result.root);
   if (!directoryBytes) throw new Error("Missing merged root");
-  const directory = decodeWireDirectory(directoryBytes);
+  const directory = decodeProtocolDirectory(directoryBytes);
   if (directory.type !== "directory" || directory.entries.length !== 1) throw new Error("Expected one merged page");
   const entry = directory.entries[0]!;
   if (!entry.file) throw new Error("Expected a Markdown hash");
@@ -173,7 +173,7 @@ function expectNoAddedLineOmitted(base: string, candidate: string, remote: strin
 }
 
 const fixtures = JSON.parse(
-  await readFile(join(import.meta.dir, "../../fixtures/canopy/wire-merge.json"), "utf8"),
+  await readFile(join(import.meta.dir, "../../fixtures/canopy/merge.json"), "utf8"),
 ) as MergeFixtures;
 
 describe("reference Canopy merge fixtures", () => {
@@ -184,16 +184,16 @@ describe("reference Canopy merge fixtures", () => {
       jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "Remote B" }]),
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([]);
     expect(result.summary).toEqual({ version: "collection-file-rows-v1", mergedRows: 1 });
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeWireDirectory(load(result.root));
+    const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
     const descriptor = rootObject.childrenSource!;
     const source = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     const schema = load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!);
-    const decoded = decodeWireCollectionFile(descriptor, source, schema);
+    const decoded = decodeProtocolCollectionFile(descriptor, source, schema);
     expect(decoded.rows.map((row) => row.properties)).toEqual([
       { id: "a", title: "Candidate A" },
       { id: "b", title: "Remote B" },
@@ -208,15 +208,15 @@ describe("reference Canopy merge fixtures", () => {
       collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,y\n"),
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([]);
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeWireDirectory(load(result.root));
+    const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
     const descriptor = rootObject.childrenSource!;
     const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,note\n001,10,\n002,2,y\n");
-    const decoded = decodeWireCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
+    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
     expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 10 }, { id: "002", count: 2, note: "y" }]);
   });
 
@@ -234,7 +234,7 @@ describe("reference Canopy merge fixtures", () => {
         },
       }, objects);
     };
-    const result = await mergeWireTrees(legacy("A"), legacy("Candidate"), legacy("Remote"), async (hash) => objects.get(hash)!);
+    const result = await mergeProtocolTrees(legacy("A"), legacy("Candidate"), legacy("Remote"), async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([expect.objectContaining({ reason: "collection-file-schema-conflict" })]);
   });
 
@@ -245,7 +245,7 @@ describe("reference Canopy merge fixtures", () => {
       jsonCollectionFileSnapshot([{ id: "a", title: "Remote" }]),
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([
       expect.objectContaining({ reason: "collection-file-row-conflict" }),
     ]);
@@ -332,7 +332,7 @@ describe("reference Canopy merge fixtures", () => {
         candidate = root([{ name: "item", directory: candidateDirectory }], objects);
         remote = root([{ name: "item", file: remoteFile }], objects);
       }
-      const result = await mergeWireTrees(base, candidate, remote, async (hash) => {
+      const result = await mergeProtocolTrees(base, candidate, remote, async (hash) => {
         const bytes = objects.get(hash);
         if (!bytes) throw new Error(`Missing fixture object ${hash}`);
         return bytes;

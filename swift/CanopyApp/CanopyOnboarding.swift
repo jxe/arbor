@@ -5,12 +5,12 @@ import OverstoryClient
 import SwiftUI
 
 struct CanopyMacLaunchView: View {
-    let workspace: ArborWorkspaceState
+    let workspace: CanopyWorkspaceState
     @State private var ready = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     var body: some View {
         if ready {
-            ArborRootView(workspace: workspace)
+            CanopyRootView(workspace: workspace)
         } else {
             CanopyMacOnboarding(workspace: workspace, resumeExisting: true) { ready = true }
         }
@@ -19,11 +19,11 @@ struct CanopyMacLaunchView: View {
 
 /// The daemon owns the Mac's identity and claims; the view holds presentation only.
 struct CanopyMacOnboarding: View {
-    let workspace: ArborWorkspaceState
+    let workspace: CanopyWorkspaceState
     var resumeExisting = false
     var addingAccount = false
     let complete: () -> Void
-    @State private var state: LocalCanopyAccountsEnvelope?
+    @State private var state: LocalHostAccountsEnvelope?
     @State private var client: ArborSyncRESTClient?
     @State private var legacy: NativeProfileIdentity?
     @State private var legacyConflict = false
@@ -31,11 +31,11 @@ struct CanopyMacOnboarding: View {
     @State private var message: String?
     @State private var community = ""
     @State private var pairingCode = ""
-    @State private var treeChoices: [WireTreeDescriptor] = []
+    @State private var treeChoices: [ProtocolTreeDescriptor] = []
     @State private var treeOrigin: URL?
 
     private var profilePath: String {
-        state?.identity?.profilePath ?? ArborSupportDirectories.root.appending(path: "Profile").path
+        state?.identity?.profilePath ?? CanopySupportDirectories.root.appending(path: "Profile").path
     }
 
     var body: some View {
@@ -66,7 +66,7 @@ struct CanopyMacOnboarding: View {
                     Section("Your public identity") {
                         Text(identity.profileTree).font(.caption.monospaced()).textSelection(.enabled)
                         ShareLink("Share Public Identity", item: "arbor://\(identity.profileTree)/")
-                        Button("Copy Public Identity") { arborCopyToPasteboard("arbor://\(identity.profileTree)/") }
+                        Button("Copy Public Identity") { canopyCopyToPasteboard("arbor://\(identity.profileTree)/") }
                         Text("Send this public ID to a community administrator. Once they add you, enter the community address below.")
                         if !identity.keyAvailable {
                             Text("The private key is unavailable. Recover this identity from its backup to claim new accounts.").foregroundStyle(.red)
@@ -210,7 +210,7 @@ struct CanopyMacOnboarding: View {
             }
             if resumeExisting, !legacyConflict, state?.pendingClaim == nil, state?.pendingPairing == nil,
                state?.identity != nil,
-               (state?.accounts.contains(where: { $0.credentialAvailable }) == true || FileManager.default.fileExists(atPath: ArborSupportDirectories.nativePlacement.path)) {
+               (state?.accounts.contains(where: { $0.credentialAvailable }) == true || FileManager.default.fileExists(atPath: CanopySupportDirectories.nativePlacement.path)) {
                 complete()
             }
         } catch {
@@ -263,10 +263,10 @@ struct CanopyMacOnboarding: View {
         run { client in try await client.backupIdentity(destination: url.path) }
     }
 
-    private func chooseTrees(_ account: LocalCanopyAccountDescriptor) async throws {
+    private func chooseTrees(_ account: LocalHostAccountDescriptor) async throws {
         guard let client, let canopy = account.canopy, let origin = URL(string: canopy) else { return }
         let credential = try await client.credential(configurationTree: account.configurationTree)
-        let wire = ArborWireClient(origin: origin, credential: credential)
+        let wire = ProtocolClient(origin: origin, credential: credential)
         treeChoices = try await wire.trees().snapshot.filter { $0.id != account.configurationTree }
         treeOrigin = origin
     }

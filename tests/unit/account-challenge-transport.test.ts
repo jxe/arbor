@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { WireClient } from "@overstory/protocol";
+import { ProtocolClient } from "@overstory/protocol";
 import fixtures from "../../docs/overstory-spec/conformance/protocol-account-challenges.json";
 
 test("community and exact account requests retain their signed account target", async () => {
@@ -10,7 +10,7 @@ test("community and exact account requests retain their signed account target", 
       return Response.json(fixture.response, { status: 201 });
     } });
     try {
-      const challenge = await new WireClient(server.url.toString().replace(/\/$/, "")).createAccountChallenge(fixture.request);
+      const challenge = await new ProtocolClient(server.url.toString().replace(/\/$/, "")).createAccountChallenge(fixture.request);
       expect(request).toEqual(fixture.request);
       expect(challenge).toEqual({ ...fixture.response, version: 1 });
     } finally { server.stop(true); }

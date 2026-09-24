@@ -42,7 +42,7 @@ export function createAccessTable(db: Database, name = "access"): void {
   `);
 }
 
-export function createCanopySchema(db: Database): void {
+export function createHostSchema(db: Database): void {
   db.run(`CREATE TABLE resource_policy (account_id TEXT NOT NULL, tree_id TEXT NOT NULL, rules_json TEXT NOT NULL, PRIMARY KEY(account_id, tree_id))`);
   db.run(`
     CREATE TABLE trees (
@@ -128,7 +128,7 @@ export class SchemaMismatchError extends Error {
 }
 
 /** Refuse a data root written by a different schema version before touching it. */
-export function assertCanopySchemaVersion(db: Database): void {
+export function assertHostSchemaVersion(db: Database): void {
   const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
   const stamp = hasMeta
     ? (db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null)?.value ?? null
@@ -144,10 +144,10 @@ export function assertCanopySchemaVersion(db: Database): void {
 /**
  * The startup check: the version stamp, then every table's columns and the
  * indexes queries rely on. It reads only the schema, never the rows, so it
- * stays cheap on a large data root; `assertCanopyData` checks the rows.
+ * stays cheap on a large data root; `assertHostData` checks the rows.
  */
-export function assertCurrentCanopySchema(db: Database): void {
-  assertCanopySchemaVersion(db);
+export function assertCurrentHostSchema(db: Database): void {
+  assertHostSchemaVersion(db);
   const issues: string[] = [];
   for (const [table, expected] of Object.entries(AUTHORITY_SCHEMA)) {
     const actual = (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
@@ -171,7 +171,7 @@ export function assertCurrentCanopySchema(db: Database): void {
  * history, each account a device, and no foreign key dangles. These scan
  * whole tables, so the integrity audit runs them rather than every start.
  */
-export function assertCanopyData(db: Database): void {
+export function assertHostData(db: Database): void {
   const issues: string[] = [];
   const missingHistory = db.query(`
     SELECT COUNT(*) AS count FROM trees t
@@ -188,12 +188,12 @@ export function assertCanopyData(db: Database): void {
 }
 
 /** Open (creating and stamping if new, otherwise asserting) the Canopy SQLite database at `path`. */
-export function openCanopyDatabase(path: string): Database {
+export function openHostDatabase(path: string): Database {
   const databaseExists = existsSync(path);
   const db = new Database(path, { create: true });
   try {
-    if (databaseExists) assertCurrentCanopySchema(db);
-    else db.transaction(() => createCanopySchema(db))();
+    if (databaseExists) assertCurrentHostSchema(db);
+    else db.transaction(() => createHostSchema(db))();
   } catch (error) {
     db.close();
     throw error;

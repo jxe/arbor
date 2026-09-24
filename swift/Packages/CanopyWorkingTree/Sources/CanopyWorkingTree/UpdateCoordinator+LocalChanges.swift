@@ -38,11 +38,11 @@ extension UpdateCoordinator {
     private func retainStructure(_ structural: StructuralChange) async throws -> WorkspaceNode {
         try requireOpen()
         let key = try sortedKeysJSON(structural)
-        guard try await structuralActionsAvailable() else { throw UpdateError.awaitingCanopyReconciliation }
+        guard try await structuralActionsAvailable() else { throw UpdateError.awaitingHostReconciliation }
         let prepared: (record: LocalChange, node: WorkspaceNode)
         if let previous = preparedStructures[key] { prepared = previous }
         else {
-            let graph: WireSnapshot, basis: LocalChangeBasis
+            let graph: ProtocolSnapshot, basis: LocalChangeBasis
             if let latest = try await pendingLocalChanges().last {
                 graph = latest.candidate; basis = .authored(change: latest.change)
             } else {
@@ -69,10 +69,10 @@ extension UpdateCoordinator {
                 let node: WorkspaceNode
                 switch structural {
                 case let .action(action):
-                    guard let result = try await provider.perform(action) else { throw ArborWireValidationError.invalidValue("Structural action returned no node") }
+                    guard let result = try await provider.perform(action) else { throw ProtocolValidationError.invalidValue("Structural action returned no node") }
                     node = result
                 case let .pageCreation(parent, name, source, _, _):
-                    guard let result = try await provider.perform(.createMarkdown(parent: parent, name: name, source: source)) else { throw ArborWireValidationError.invalidValue("Page creation returned no node") }
+                    guard let result = try await provider.perform(.createMarkdown(parent: parent, name: name, source: source)) else { throw ProtocolValidationError.invalidValue("Page creation returned no node") }
                     node = result
                 case let .asset(asset, parent):
                     let stored = try await provider.store(asset: asset, in: parent)
@@ -105,13 +105,13 @@ extension UpdateCoordinator {
                     // Remove the first branch introduced by creation. A promoted
                     // Markdown parent's sibling body stays exactly where it was.
                     let parts = (node.reference.path + ".md").dropFirst().split(separator: "/").map(String.init)
-                    let objects = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+                    let objects = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
                     var hash = graph.root, prefix: [String] = []
                     for part in parts {
                         prefix.append(part)
-                        guard case let .directory(entries, _)? = objects[hash] else { throw ArborWireValidationError.invalidValue("Invalid creation parent") }
+                        guard case let .directory(entries, _)? = objects[hash] else { throw ProtocolValidationError.invalidValue("Invalid creation parent") }
                         guard let entry = entries.first(where: { $0.name == part }) else { break }
-                        guard let next = entry.directory else { throw ArborWireValidationError.invalidValue("Creation overwrote an existing entry") }
+                        guard let next = entry.directory else { throw ProtocolValidationError.invalidValue("Creation overwrote an existing entry") }
                         hash = next
                     }
                     creation = .init(document: document, removals: ["/" + prefix.joined(separator: "/")])
@@ -133,7 +133,7 @@ extension UpdateCoordinator {
     }
 
     private struct SourceViewToken: Codable {
-        var base: WireUpdateBase
+        var base: ProtocolUpdateBase
         var reference: WorkspaceReference
         var path: String
     }
@@ -209,11 +209,11 @@ extension UpdateCoordinator {
     /// Bring `tree`, a fork, to `graph` (its own graph when nil) and, when asked,
     /// install the retained local trash. Node metadata outside the hashes, such
     /// as modification dates, carries over from what `tree` held before.
-    private func prepare(_ tree: WorkingTree, at graph: WireSnapshot?, includeTrash: Bool) async throws {
+    private func prepare(_ tree: WorkingTree, at graph: ProtocolSnapshot?, includeTrash: Bool) async throws {
         let heads = try await tree.heads()
         let target = graph?.root ?? heads.materializedRoot
         if heads.materializedRoot != target || heads.acceptedRoot != target {
-            let snapshot: WireSnapshot
+            let snapshot: ProtocolSnapshot
             if let graph { snapshot = graph } else { snapshot = try await tree.localSnapshot() }
             try await tree.project(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
                 update: "local-candidate", mode: .sparseFiles))
@@ -227,7 +227,7 @@ extension UpdateCoordinator {
     }
 
     /// A disposable fork of `base` at `graph`. The caller closes it.
-    private func projectedTree(_ graph: WireSnapshot, from base: WorkingTree, includeTrash: Bool = true) async throws -> WorkingTree {
+    private func projectedTree(_ graph: ProtocolSnapshot, from base: WorkingTree, includeTrash: Bool = true) async throws -> WorkingTree {
         let tree = try await base.fork()
         do { try await prepare(tree, at: graph, includeTrash: includeTrash) }
         catch { await tree.close(); throw error }
@@ -274,7 +274,7 @@ extension UpdateCoordinator {
 
     private func localSourceView(_ record: LocalChange, reference: WorkspaceReference? = nil) async throws -> CapturedSourceBasis {
         guard let reference = reference ?? record.document?.reference else {
-            throw ArborWireValidationError.invalidValue("A structural candidate requires a document reference")
+            throw ProtocolValidationError.invalidValue("A structural candidate requires a document reference")
         }
         let base = try await currentLocalView(changeLog().retained()) ?? workingTree
         let captured: CapturedSourceBasis
@@ -297,7 +297,7 @@ extension UpdateCoordinator {
         let captured = try await workingTree.captureSourceBasis(reference)
         // A change can be appended while the accepted basis is captured.
         if let pending = try await pendingSourceSnapshot(reference) { return pending }
-        guard let accepted = captured.accepted else { throw ArborWireValidationError.invalidValue("This document has no accepted basis to edit against") }
+        guard let accepted = captured.accepted else { throw ProtocolValidationError.invalidValue("This document has no accepted basis to edit against") }
         let token = "source-accepted:" + (try sortedKeysJSON(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
         var document = captured.document; document.contentRevision = token
         sourceViews[token] = CapturedSourceBasis(document: document, graph: captured.graph, accepted: accepted, sourcePath: captured.sourcePath)
@@ -335,14 +335,14 @@ extension UpdateCoordinator {
         }
         guard revision.hasPrefix("source-accepted:"),
               let data = Data(base64Encoded: String(revision.dropFirst("source-accepted:".count))) else {
-            throw ArborWireValidationError.invalidValue("The edit's original tree basis is unavailable; its recovery draft is retained")
+            throw ProtocolValidationError.invalidValue("The edit's original tree basis is unavailable; its recovery draft is retained")
         }
         let token = try JSONDecoder().decode(SourceViewToken.self, from: data)
         guard token.reference == intent.basis.reference, token.reference.tree == (await workingTree.treeID()) else {
-            throw ArborWireValidationError.invalidValue("Recovered source basis has a different scope")
+            throw ProtocolValidationError.invalidValue("Recovered source basis has a different scope")
         }
         let local = try await workingTree.localSnapshot()
-        let graph: WireSnapshot
+        let graph: ProtocolSnapshot
         if local.root == token.base.root { graph = local }
         else if let retained = records.first(where: { $0.graph.root == token.base.root }) { graph = retained.graph }
         else { graph = try await transport.snapshot(tree: token.reference.tree.rawValue, root: token.base.root) }
@@ -360,7 +360,7 @@ extension UpdateCoordinator {
         log.notice("append begin edits=\(intent.patch.edits.count) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
         // it beside the network events so it can be weighed against them.
-        var note = WireNetworkLogEntry(kind: .note, name: "change-log-append")
+        var note = ProtocolNetworkLogEntry(kind: .note, name: "change-log-append")
         do {
             let result = try await task.value
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
@@ -368,13 +368,13 @@ extension UpdateCoordinator {
             if let size = try? FileManager.default.attributesOfItem(atPath: files.changeLogURL.path)[.size] as? Int {
                 note.bytesOut = size
             }
-            WireNetworkLog.current?.record(note)
+            ProtocolNetworkLog.current?.record(note)
             log.notice("append succeeded")
             return result
         } catch {
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
             note.error = String(describing: error)
-            WireNetworkLog.current?.record(note)
+            ProtocolNetworkLog.current?.record(note)
             log.error("append failed: \(String(describing: error), privacy: .public)")
             throw error
         }

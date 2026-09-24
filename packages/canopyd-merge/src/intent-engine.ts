@@ -1,12 +1,12 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
 import { stableJSONString } from "@overstory/protocol";
 import {
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type MaterialRef,
   type SourceOperation,
-  type WireDirectory,
+  type ProtocolDirectory,
 } from "@overstory/protocol";
 import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse, type MergeObjects } from "./engine-contract.ts";
 import { MergeRefusal, OBJECT_HASH } from "@overstory/merge-protocol";
@@ -114,9 +114,9 @@ const absent = (error: unknown): boolean =>
   (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 /** A directory object's contents. Bytes that are not one are invalid
  * material (a candidate can name any object), not an evaluator failure. */
-const directoryOf = (bytes: Uint8Array): WireDirectory => {
+const directoryOf = (bytes: Uint8Array): ProtocolDirectory => {
   try {
-    return decodeWireDirectory(bytes);
+    return decodeProtocolDirectory(bytes);
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Invalid directory object");
   }
@@ -463,11 +463,11 @@ class Engine {
         );
       }
       return this.put(
-        encodeWireDirectory({
+        encodeProtocolDirectory({
           ...node.directory,
           type: "directory",
           entries,
-        } as WireDirectory)
+        } as ProtocolDirectory)
       );
     } finally {
       visiting.delete(root);

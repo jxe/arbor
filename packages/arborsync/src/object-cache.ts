@@ -1,5 +1,5 @@
 import { objectReadError, reportObjectRead, type ObjectReadReporter } from "./object-read-diagnostics.ts";
-import { hashObject, type ObjectHash, type WireClient } from "@overstory/protocol";
+import { hashObject, type ObjectHash, type ProtocolClient } from "@overstory/protocol";
 import type { Workspace } from "./workspace.ts";
 
 export const OBJECT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -11,7 +11,7 @@ export interface TreeObjectCacheDeps {
   /** Bytes a tree's pending local changes carry. */
   pendingBytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined>;
   /** The account client for a placed tree, or an anonymous client for `origin`. */
-  clientFor(tree: string, origin?: string): Promise<WireClient | undefined>;
+  clientFor(tree: string, origin?: string): Promise<ProtocolClient | undefined>;
   /** Bounded bytes retained for fetched-through objects. */
   maxFetchedBytes?: number;
   report?: ObjectReadReporter;
@@ -67,7 +67,7 @@ export class TreeObjectCache {
   async bytes(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
     return await this.fromIndex(tree, hash)
       ?? await this.fromPending(tree, hash)
-      ?? await this.fromCanopy(tree, hash, origin);
+      ?? await this.fromHost(tree, hash, origin);
   }
 
   private async fromIndex(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
@@ -79,7 +79,7 @@ export class TreeObjectCache {
     return workspace.objects.bytes(hash, {
       boundaries: this.deps.boundariesFor(workspace),
       exclusions: this.deps.exclusionsFor(workspace),
-      describe: (directory, name) => workspace.describeWireCollectionFile(directory, name),
+      describe: (directory, name) => workspace.describeProtocolCollectionFile(directory, name),
     }).catch((error) => {
       this.report(objectReadError({ source: "filesystem", tree, hash }, error));
       return undefined;
@@ -97,7 +97,7 @@ export class TreeObjectCache {
     return undefined;
   }
 
-  private async fromCanopy(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
+  private async fromHost(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
     const cached = this.fetched.get(hash);
     if (cached) return cached;
     const client = await this.deps.clientFor(tree, origin).catch((error) => {

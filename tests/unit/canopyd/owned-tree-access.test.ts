@@ -2,16 +2,16 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { ObjectHash } from "@overstory/protocol";
 import { AccessControl, type AccessHost } from "../../../packages/canopyd/src/access.ts";
-import type { CanopyAccount, CanopyTree } from "../../../packages/canopyd/src/model.ts";
-import { createCanopySchema } from "../../../packages/canopyd/src/schema.ts";
+import type { HostAccount, HostTree } from "../../../packages/canopyd/src/model.ts";
+import { createHostSchema } from "../../../packages/canopyd/src/schema.ts";
 
 const ROOT = `sha256:${"a".repeat(64)}` as ObjectHash;
 const LINK = `sha256:${"b".repeat(64)}`;
 
-function tree(id: string, accountID: string | null): CanopyTree {
+function tree(id: string, accountID: string | null): HostTree {
   return { id, canonicalPath: `/${id}`, parentTree: null, kind: "ordinary", ref: ROOT, publicAccess: "none", policy: "ordinary", status: "active", accountID };
 }
-const account = (id: string, profileTree: string): CanopyAccount => ({ id, handle: id.slice(3), profileTree, configTree: null, enabled: true });
+const account = (id: string, profileTree: string): HostAccount => ({ id, handle: id.slice(3), profileTree, configTree: null, enabled: true });
 const owner = account("ac_owner", "tr_owner"), bob = account("ac_bob", "tr_bob"), carol = account("ac_carol", "tr_carol");
 const trees = new Map([["tr_owned", tree("tr_owned", "ac_owner")], ["tr_unowned", tree("tr_unowned", null)]]);
 const host: AccessHost = { tree: (id) => trees.get(id) ?? null, isProfileMember: () => false, rootProfileType: () => null };
@@ -22,7 +22,7 @@ describe("an owned tree is governed by its owner's rules alone", () => {
 
   beforeEach(() => {
     db = new Database(":memory:");
-    createCanopySchema(db);
+    createHostSchema(db);
     for (const a of [owner, bob, carol]) db.run("INSERT INTO accounts (id, handle, profile_tree, enabled) VALUES (?, ?, ?, 1)", [a.id, a.handle, a.profileTree]);
     db.run("INSERT INTO resource_policy (account_id, tree_id, rules_json) VALUES ('ac_owner', 'tr_owned', ?)", [JSON.stringify([
       { who: { profile: "tr_bob" }, allow: ["read", "write"] },

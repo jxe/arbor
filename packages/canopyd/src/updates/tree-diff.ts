@@ -1,10 +1,10 @@
 import {
-  compareWireNames,
-  decodeWireDirectory,
+  compareProtocolNames,
+  decodeProtocolDirectory,
   hashObject,
   type ObjectHash,
-  type WireDirectory,
-  type WireDirectoryEntry,
+  type ProtocolDirectory,
+  type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 
 export type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -17,7 +17,7 @@ export type Load = (hash: ObjectHash) => Promise<Uint8Array>;
  */
 export class TreeReader {
   private readonly objects = new Map<ObjectHash, Promise<Uint8Array>>();
-  private readonly directories = new Map<ObjectHash, Promise<WireDirectory>>();
+  private readonly directories = new Map<ObjectHash, Promise<ProtocolDirectory>>();
 
   constructor(private readonly load: Load, private readonly options: { verified?: boolean } = {}) {}
 
@@ -33,10 +33,10 @@ export class TreeReader {
     return bytes;
   }
 
-  directory(hash: ObjectHash): Promise<WireDirectory> {
+  directory(hash: ObjectHash): Promise<ProtocolDirectory> {
     let directory = this.directories.get(hash);
     if (!directory) {
-      directory = this.bytes(hash).then(decodeWireDirectory);
+      directory = this.bytes(hash).then(decodeProtocolDirectory);
       this.directories.set(hash, directory);
     }
     return directory;
@@ -51,8 +51,8 @@ export function treeReader(load: Load | TreeReader): TreeReader {
 interface DirectoryPair {
   path: string;
   depth: number;
-  before: { hash: ObjectHash; directory: WireDirectory } | null;
-  after: { hash: ObjectHash; directory: WireDirectory } | null;
+  before: { hash: ObjectHash; directory: ProtocolDirectory } | null;
+  after: { hash: ObjectHash; directory: ProtocolDirectory } | null;
 }
 
 /** One name whose entry differs between the two sides. */
@@ -62,8 +62,8 @@ interface EntryPair {
   parent: string;
   name: string;
   depth: number;
-  before?: WireDirectoryEntry;
-  after?: WireDirectoryEntry;
+  before?: ProtocolDirectoryEntry;
+  after?: ProtocolDirectoryEntry;
 }
 
 interface TreeDiffVisitor {
@@ -73,8 +73,8 @@ interface TreeDiffVisitor {
 }
 
 /** A wire entry is its name and exactly one of `file`, `directory`, `tree`
- * (`decodeWireDirectory` admits no other key), so those fields decide equality. */
-function sameEntry(a: WireDirectoryEntry | undefined, b: WireDirectoryEntry | undefined): boolean {
+ * (`decodeProtocolDirectory` admits no other key), so those fields decide equality. */
+function sameEntry(a: ProtocolDirectoryEntry | undefined, b: ProtocolDirectoryEntry | undefined): boolean {
   return a === b || (!!a && !!b && a.name === b.name && a.file === b.file && a.directory === b.directory && a.tree === b.tree);
 }
 
@@ -102,7 +102,7 @@ export async function walkTreeDiff(
     });
     const old = new Map((a?.entries ?? []).map((entry) => [entry.name, entry]));
     const next = new Map((b?.entries ?? []).map((entry) => [entry.name, entry]));
-    const names = [...new Set([...old.keys(), ...next.keys()])].sort(compareWireNames);
+    const names = [...new Set([...old.keys(), ...next.keys()])].sort(compareProtocolNames);
     for (const name of names) {
       const x = old.get(name), y = next.get(name);
       if (sameEntry(x, y)) continue;

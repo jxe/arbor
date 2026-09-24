@@ -2,15 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveCanopy } from "@overstory/canopyd";
-import { WireClient } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { ProtocolClient } from "@overstory/protocol";
 
 let root: string;
-let running: Awaited<ReturnType<typeof serveCanopy>>;
+let running: Awaited<ReturnType<typeof serveHost>>;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-directory-"));
-  running = await serveCanopy({
+  running = await serveHost({
     dataRoot: root,
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -31,7 +31,7 @@ afterAll(async () => {
 
 describe("authenticated user directory", () => {
   test("lists the signed-in profile and another readable community member with card and identity fields", async () => {
-    const client = new WireClient(running.url, "alice-directory-token");
+    const client = new ProtocolClient(running.url, "alice-directory-token");
     const own = (await client.account()).account.profileTree;
     const directory = await client.directory();
     expect(directory.observedThrough).toBeTruthy();

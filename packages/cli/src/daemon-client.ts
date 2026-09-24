@@ -64,7 +64,7 @@ export interface ArborSyncRESTClientOptions {
 }
 
 // Account and identity values are the shared vocabulary in @overstory/protocol:
-// Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
+// Arbor Sync reports exactly what the protocol and the data-home stores use.
 export type { LocalAccountSummary, ProfileIdentity } from "@overstory/protocol";
 
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
@@ -76,7 +76,7 @@ export type BootstrapTreeDescriptor = Pick<
 export interface TreeBootstrap {
   /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
   tree: BootstrapTreeDescriptor;
-  /** The daemon's accepted base; `cursor` equals `update` and seeds a Wire watch. */
+  /** The daemon's accepted base; `cursor` equals `update` and seeds a protocol watch. */
   accepted: { root: string; update: string; cursor: string | null };
   /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
   spine: string;

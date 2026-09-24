@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("Arbor private state", () => {
-  test("a Wire format bump archives journals and rebuilds indexes", async () => {
+  test("a protocol format bump archives journals and rebuilds indexes", async () => {
     const state = await temp("arbor-private-state-version-");
     process.env.ARBOR_DATA_HOME = state;
     await prepareArborDataRoot();

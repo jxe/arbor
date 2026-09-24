@@ -3,13 +3,13 @@ import OverstoryObjectStore
 import Overstory
 import Foundation
 
-/// The daemon's stored Canopy credential as a `WireCredentialProvider`.
+/// The daemon's stored Canopy credential as a `ProtocolCredentialProvider`.
 ///
 /// Fetched from `GET /v1/credential` on first use and cached for the life of the
 /// provider. A caller that sees Canopy answer 401/403 calls `invalidate()` so the
 /// next request re-reads the daemon's (possibly rotated) token instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
-actor ArborSyncCredentialProvider: WireCredentialProvider {
+actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
     private let client: ArborSyncRESTClient
     private let configurationTree: String?
     private var cached: String?
@@ -70,7 +70,7 @@ struct DaemonObjectStore: ObjectStore {
             return try await client.object(tree: tree, hash: hash, origin: origin)
         } catch let error as ArborSyncServerError where error.status == 404 {
             throw ObjectStoreError.missing(hash)
-        } catch let error as ArborWireValidationError {
+        } catch let error as ProtocolValidationError {
             if case let .objectHashMismatch(expected, actual) = error {
                 throw ObjectStoreError.hashMismatch(expected: expected, actual: actual)
             }

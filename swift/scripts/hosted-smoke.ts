@@ -26,7 +26,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { arborPrivateRoot, sha256 } from "@overstory/protocol";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 
@@ -72,7 +72,7 @@ await mkdir(folder, { recursive: true });
 await writeFile(join(folder, "note.md"), "---\nid: pg_smoke\n---\n\n# Smoke\n\nPlaced by the hosted smoke harness.\n");
 
 const identity = await new ProfileIdentityStore().create(profile);
-const canopy = await serveCanopy({
+const canopy = await serveHost({
   dataRoot: join(sandbox, "canopy"),
   publicOrigin: "http://127.0.0.1:0",
   hostname: "127.0.0.1",

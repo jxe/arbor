@@ -2,25 +2,25 @@ import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, sha256, 
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import { AccountDirectory } from "./accounts.ts";
-import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
+import { isAccountConfigPolicy, type HostAccessEntry, type HostAccount, type HostTree } from "./model.ts";
 
 type ResourceRules = ReturnType<typeof parseResourceRules>;
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
 
 export interface AccessHost {
-  tree(id: string): CanopyTree | null;
+  tree(id: string): HostTree | null;
   /**
    * Whether a group profile tree's current root lists this person: by Profile
    * TreeID, or by handle for a legacy scalar `/~handle` member locator.
    */
-  isProfileMember(group: CanopyTree, profileTree: string, handle: string | undefined): boolean;
+  isProfileMember(group: HostTree, profileTree: string, handle: string | undefined): boolean;
   /** The tree's current root frontmatter `type`, or null when it declares neither profile kind. */
-  rootProfileType(tree: CanopyTree): "person" | "group" | null;
+  rootProfileType(tree: HostTree): "person" | "group" | null;
 }
 
 /** A stored access entry as the configuration rule that declares it. */
-export function accessRule(entry: CanopyAccessEntry): AccessRule {
+export function accessRule(entry: HostAccessEntry): AccessRule {
   return {
     subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
       : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
@@ -76,13 +76,13 @@ export class AccessControl {
   /** A tree's whole-tree rules as access entries: an owned tree's from its
    * owner's resource rules (rules scoped below the root, through code, or for
    * the owner alone have no entry), an unowned tree's as stored. */
-  entries(tree: string): CanopyAccessEntry[] {
+  entries(tree: string): HostAccessEntry[] {
     const owner = this.host.tree(tree)?.accountID;
-    if (owner) return (this.rules(owner, tree) ?? []).flatMap((rule): CanopyAccessEntry[] => {
+    if (owner) return (this.rules(owner, tree) ?? []).flatMap((rule): HostAccessEntry[] => {
       if (rule.via || (rule.within ?? "/") !== "/" || rule.who === "me") return [];
       const access = rule.allow.includes("write") ? "write" : rule.allow.includes("read") ? "read" : null;
       if (!access) return [];
-      const [subjectKind, subject]: [CanopyAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
+      const [subjectKind, subject]: [HostAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
         : "profile" in rule.who ? ["profile", rule.who.profile] : ["link", rule.who.link];
       // A stable id per tree and subject, as a stored entry's would be.
       return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
@@ -91,14 +91,14 @@ export class AccessControl {
   }
 
   /** The stored `access` rows of a tree no account owns. */
-  private storedEntries(tree: string): CanopyAccessEntry[] {
+  private storedEntries(tree: string): HostAccessEntry[] {
     return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {
         const value = row as {
           id: string;
           tree_id: string;
-          subject_kind: CanopyAccessEntry["subjectKind"];
+          subject_kind: HostAccessEntry["subjectKind"];
           subject: string;
           access: ReadWriteAccess;
         };
@@ -113,7 +113,7 @@ export class AccessControl {
   }
 
   /** Insert or update one rule of a tree no account owns; callers run this inside their own transaction. */
-  set(treeID: string, subjectKind: CanopyAccessEntry["subjectKind"], subject: string, access: ReadWriteAccess): void {
+  set(treeID: string, subjectKind: HostAccessEntry["subjectKind"], subject: string, access: ReadWriteAccess): void {
     const existing = this.db.query(
       "SELECT id FROM access WHERE tree_id = ? AND subject_kind = ? AND subject = ?",
     ).get(treeID, subjectKind, subject) as { id: string } | null;
@@ -132,7 +132,7 @@ export class AccessControl {
   }
 
   /** The tree `id` names, when its current root declares `type: group`. */
-  private groupTree(id: string): CanopyTree | null {
+  private groupTree(id: string): HostTree | null {
     const group = this.host.tree(id);
     return group && this.host.rootProfileType(group) === "group" ? group : null;
   }
@@ -153,7 +153,7 @@ export class AccessControl {
     }, path, operation);
   }
 
-  directExecution(account: CanopyAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
+  directExecution(account: HostAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
     const tree = this.host.tree(treeID);
     if (!tree?.accountID || tree.policy !== "ordinary") return undefined;
     const policy = this.policy(tree.accountID, treeID);
@@ -193,7 +193,7 @@ export class AccessControl {
   }
 
   /** `treeOrID` is an ID, or a tree the caller already read, which saves reading it again. */
-  canRead(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+  canRead(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
     const treeID = tree.id;
@@ -205,7 +205,7 @@ export class AccessControl {
     return account ? this.effectiveAccess(account, treeID) !== "none" : false;
   }
 
-  canWrite(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+  canWrite(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
     const treeID = tree.id;
@@ -217,7 +217,7 @@ export class AccessControl {
     return this.effectiveAccess(account, treeID) === "write" || tree.publicAccess === "write";
   }
 
-  canAdminister(account: CanopyAccount, treeOrID: string | CanopyTree): boolean {
+  canAdminister(account: HostAccount, treeOrID: string | HostTree): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree || !account.profileTree) return false;
     if (isAccountConfigPolicy(tree.policy) || tree.accountID) return tree.accountID === account.id;
@@ -237,7 +237,7 @@ export class AccessControl {
    * membership. Only a subject whose root declares `type: group` expands: a
    * person profile that merely lists `members` must not widen access.
    */
-  private effectiveAccess(account: CanopyAccount, treeID: string): ReadWriteAccess | "none" {
+  private effectiveAccess(account: HostAccount, treeID: string): ReadWriteAccess | "none" {
     if (!account.profileTree) return "none";
     const direct = this.subjectAccess("profile", account.profileTree, treeID);
     if (direct === "write") return direct;

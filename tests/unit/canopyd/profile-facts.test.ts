@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { rootProfileFacts } from "@overstory/canopyd";
 
 function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, title = "Profile") {
@@ -7,8 +7,8 @@ function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, ti
   const index = new TextEncoder().encode(`---\n${frontmatter}\n---\n\n# ${title}\n`);
   const indexHash = hashObject(index);
   objects.set(indexHash, index);
-  const rootEntries: WireDirectoryEntry[] = [{ name: "_index.md", file: indexHash }];
-  const nested = new Map<string, WireDirectoryEntry[]>();
+  const rootEntries: ProtocolDirectoryEntry[] = [{ name: "_index.md", file: indexHash }];
+  const nested = new Map<string, ProtocolDirectoryEntry[]>();
   for (const [path, bytes] of Object.entries(files)) {
     const parts = path.split("/");
     const file = hashObject(bytes);
@@ -17,12 +17,12 @@ function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, ti
     else nested.set(parts[0]!, [{ name: parts[1]!, file }]);
   }
   for (const [name, entries] of nested) {
-    const bytes = encodeWireDirectory({ type: "directory", entries });
+    const bytes = encodeProtocolDirectory({ type: "directory", entries });
     const hash = hashObject(bytes);
     objects.set(hash, bytes);
     rootEntries.push({ name, directory: hash });
   }
-  const rootBytes = encodeWireDirectory({ type: "directory", entries: rootEntries });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: rootEntries });
   const root = hashObject(rootBytes);
   objects.set(root, rootBytes);
   return { root, load: async (hash: ObjectHash) => {

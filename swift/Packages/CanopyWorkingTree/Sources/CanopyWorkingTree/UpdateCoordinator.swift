@@ -48,9 +48,9 @@ public actor UpdateCoordinator {
     private var timers: [UpdateMachine.Timer: Task<Void, Never>] = [:]
 
     /// The validated response of the persisted attempt, kept for the `apply` it leads to.
-    private var submission: (digest: String, response: WireUpdateResponse, current: CurrentHead)?
+    private var submission: (digest: String, response: ProtocolUpdateResponse, current: CurrentHead)?
     /// The latest watch event, kept for the `catchUp` its cursor names.
-    private var watchEvent: WireWatchEvent?
+    private var watchEvent: ProtocolWatchEvent?
     /// The last failure, for presentation.
     private var failure: String?
 
@@ -91,13 +91,13 @@ public actor UpdateCoordinator {
         self.control = try files.load()
         // An incompatible or altered durable request must remain on disk for recovery.
         if let attempt = control.attempt {
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body)
             guard request.base == attempt.base.update,
                   request.updates.last?.candidate == attempt.candidate,
                   request.updates.last?.change == control.attemptTip,
                   attempt.digest == attempt.allRequestDigests.last,
                   updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
-                throw ArborWireValidationError.invalidValue("Durable update intent does not match its digests")
+                throw ProtocolValidationError.invalidValue("Durable update intent does not match its digests")
             }
         }
         self.machine = UpdateMachine.State(transportAvailable: transportAvailable)
@@ -125,7 +125,7 @@ public actor UpdateCoordinator {
     }
 
     /// Encode one request as an immutable attempt: its body carries every envelope it will ever send.
-    static func attempt(tree: String, base: WireUpdateBase, request: WireUpdateRequest) throws -> UpdateAttempt {
+    static func attempt(tree: String, base: ProtocolUpdateBase, request: ProtocolUpdateRequest) throws -> UpdateAttempt {
         guard let last = request.updates.last else { throw UpdateError.requestEmpty }
         let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
         return UpdateAttempt(
@@ -300,7 +300,7 @@ public actor UpdateCoordinator {
             try faultInjector.reached(.duringUpload)
             let started = Date()
             Self.publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.allRequestDigests.count) bytes=\(attempt.body.count)")
-            let response = try await transport.submit(PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+            let response = try await transport.submit(PreparedProtocolUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
             Self.publicationLog.notice("submit succeeded seconds=\(Date().timeIntervalSince(started)) results=\(response.results.count)")
             try faultInjector.reached(.afterServerAcceptance)
             let current = try await validate(response, for: attempt)
@@ -317,10 +317,10 @@ public actor UpdateCoordinator {
     /// Check that `response` answers `attempt` exactly and select the host's
     /// current head to install. Receipts prove acceptance, not the current
     /// observation boundary; a response that reports its head saves a read.
-    private func validate(_ response: WireUpdateResponse, for attempt: UpdateAttempt) async throws -> CurrentHead {
+    private func validate(_ response: ProtocolUpdateResponse, for attempt: UpdateAttempt) async throws -> CurrentHead {
         guard response.results.map(\.requestDigest) == attempt.allRequestDigests else { throw UpdateError.returnedRequestDigestMismatch }
         for result in response.results {
-            let update: WireAcceptedUpdate
+            let update: ProtocolAcceptedUpdate
             switch result.result { case let .accepted(value), let .unchanged(value): update = try value.validated() }
             guard update.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
         }
@@ -350,16 +350,16 @@ public actor UpdateCoordinator {
             if stashed == nil {
                 // Watch evidence or a restart: replaying the exact durable
                 // request obtains the host's stored response.
-                let response = try await transport.submit(PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+                let response = try await transport.submit(PreparedProtocolUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
                 stashed = (attempt.digest, response, try await validate(response, for: attempt))
             }
             guard let (_, response, current) = stashed, let final = response.results.last else { throw UpdateError.returnedSnapshotMissing }
-            let accepted: WireAcceptedUpdate
+            let accepted: ProtocolAcceptedUpdate
             switch final.result { case let .accepted(value), let .unchanged(value): accepted = try value.validated() }
             try faultInjector.reached(.duringGraphDownload)
             // The projection of our own candidate, while the log still holds it.
             // A re-seeded tree no longer does and installs the host's state instead.
-            var projected: WireSnapshot?
+            var projected: ProtocolSnapshot?
             if let record = try await changeLog().retained().first(where: { $0.change == control.attemptTip }),
                current.update == accepted.id, current.root == accepted.root {
                 if let reconciliation = final.reconciliation {
@@ -367,16 +367,16 @@ public actor UpdateCoordinator {
                     var basis = record.candidate
                     let present = Set(basis.objects.map(\.hash))
                     for hash in Set(reconciliation.deltas.map(\.base)).subtracting(present).sorted() {
-                        basis.objects.append(WireObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
+                        basis.objects.append(ProtocolObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
                     }
-                    projected = try WireTransitionReplay.applying(reconciliation, to: basis, root: accepted.root, mode: .sparseFiles)
+                    projected = try ProtocolTransitionReplay.applying(reconciliation, to: basis, root: accepted.root, mode: .sparseFiles)
                 } else if accepted.root == record.candidate.root {
                     projected = record.candidate
                 }
             }
             let installed = try await install(current: current, projection: projected)
             try faultInjector.reached(.beforeBaseAdvancement)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body)
             control.settled = Array(Set(control.settled + request.updates.map(\.change))).sorted()
             control.attempt = nil
             control.attemptTip = nil
@@ -397,7 +397,7 @@ public actor UpdateCoordinator {
     /// Install the host's current state: `projection` when it is exactly that
     /// state, otherwise the sparse graph walked from the current root, or a
     /// snapshot when an object read is unavailable.
-    private func install(current: CurrentHead, projection: WireSnapshot?) async throws -> UpdateMachine.AcceptedBase {
+    private func install(current: CurrentHead, projection: ProtocolSnapshot?) async throws -> UpdateMachine.AcceptedBase {
         let heads = try await workingTree.heads()
         let installed = UpdateMachine.AcceptedBase(root: current.root, update: current.update, cursor: current.observedThrough, conflicted: current.conflicted)
         if heads.materializedRoot == current.root, heads.acceptedRoot == current.root {
@@ -408,7 +408,7 @@ public actor UpdateCoordinator {
             return installed
         }
         let tree = await workingTree.treeID().rawValue
-        let snapshot: WireSnapshot
+        let snapshot: ProtocolSnapshot
         if let projection { snapshot = projection }
         else if let sparse = try? await sparseDirectoryGraph(treeID: tree, root: current.root) { snapshot = sparse }
         else { snapshot = try await transport.snapshot(tree: tree, root: current.root) }
@@ -446,20 +446,20 @@ public actor UpdateCoordinator {
         }
     }
 
-    private func applyAcceptedTransitions(_ event: WireWatchEvent) async throws -> UpdateMachine.AcceptedBase {
+    private func applyAcceptedTransitions(_ event: ProtocolWatchEvent) async throws -> UpdateMachine.AcceptedBase {
         let heads = try await workingTree.heads()
         guard let final = event.transitions.last,
               final.update.id.utf8.elementsEqual(event.tree.update.utf8),
               final.update.root == event.tree.root else {
-            throw ArborWireValidationError.invalidValue("Watch transition batch does not match its descriptor")
+            throw ProtocolValidationError.invalidValue("Watch transition batch does not match its descriptor")
         }
         guard let first = event.transitions.first,
               first.transportBasis?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
               first.transportBasis?.root == heads.acceptedRoot else {
-            throw ArborWireValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
+            throw ProtocolValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
         }
         let basis = try await sparseBasis(deltaBases: Set(event.transitions.flatMap { $0.deltas.map(\.base) }))
-        let accepted = try WireTransitionReplay.applying(event.transitions, to: basis, mode: .sparseFiles)
+        let accepted = try ProtocolTransitionReplay.applying(event.transitions, to: basis, mode: .sparseFiles)
         if accepted.root == heads.materializedRoot {
             try await workingTree.recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
         } else {
@@ -505,16 +505,16 @@ public actor UpdateCoordinator {
     /// Classify a failure into the machine's taxonomy.
     private func fail(_ error: any Error, id: String?) {
         failure = String(describing: error)
-        if let http = error as? WireHTTPError, http.status == 401 || http.status == 403 {
+        if let http = error as? ProtocolHTTPError, http.status == 401 || http.status == 403 {
             dispatch(.authenticationFailed(reason: http.code))
-        } else if let http = error as? WireHTTPError, http.code == "unsupported-operation", let id {
+        } else if let http = error as? ProtocolHTTPError, http.code == "unsupported-operation", let id {
             hold(.unsupported, detail: http.message ?? http.code, id: id)
-        } else if error is WireUpdateConflictError, let id {
+        } else if error is ProtocolUpdateConflictError, let id {
             hold(.rejected, detail: "the change conflicts with a newer decision", id: id)
-        } else if let http = error as? WireHTTPError, (400..<500).contains(http.status), http.status != 408, http.status != 429, let id {
+        } else if let http = error as? ProtocolHTTPError, (400..<500).contains(http.status), http.status != 408, http.status != 429, let id {
             // Repeating a request the host refused cannot change the answer.
             hold(.rejected, detail: http.message ?? http.code, id: id)
-        } else if error is UpdateError || error is ArborWireValidationError {
+        } else if error is UpdateError || error is ProtocolValidationError {
             dispatch(.validationFailed(reason: String(describing: error)))
         } else {
             dispatch(.transportFailed(id: id))
@@ -561,7 +561,7 @@ public actor UpdateCoordinator {
 
     /** Feed one watch event to the machine and wait for what it caused. */
     @discardableResult
-    public func observe(_ event: WireWatchEvent) async throws -> WorkspaceSyncPresentation {
+    public func observe(_ event: ProtocolWatchEvent) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         await ensureEntered()
         guard event.tree.id == (await workingTree.treeID().rawValue) else { return try await presentation() }
@@ -600,7 +600,7 @@ public actor UpdateCoordinator {
     public func discardHeldChanges() async throws {
         try requireOpen()
         guard case let .held(_, _, request, _) = machine.phase, let attempt = control.attempt, attempt.digest == request.id else { return }
-        let changes = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body).updates.map(\.change)
+        let changes = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body).updates.map(\.change)
         try await changeLog().discard(Set(changes).subtracting(control.settled))
         control.attempt = nil
         control.attemptTip = nil
@@ -659,7 +659,7 @@ public actor UpdateCoordinator {
             value.localAdditions = true
             if case .current = machine.phase { value.state = .locallyPending }
             if !local.structural, value.state == .locallyPending || value.state == .requestPending || value.state == .uploading {
-                value.detail = UpdateError.awaitingCanopyReconciliation.localizedDescription
+                value.detail = UpdateError.awaitingHostReconciliation.localizedDescription
             }
         }
         return value
@@ -672,35 +672,35 @@ public actor UpdateCoordinator {
     /// objects are fetched, so catching up after a restart costs a handful of
     /// small reads rather than a snapshot. Other files stay absent and are
     /// served by hash. Nested trees are separate boundaries and are not entered.
-    private func sparseDirectoryGraph(treeID: String, root: String) async throws -> WireSnapshot {
-        var objects: [WireObjectEnvelope] = []
-        var pending: [(hash: String, kind: WireEntryKind)] = [(root, .directory)], seen = Set<String>()
+    private func sparseDirectoryGraph(treeID: String, root: String) async throws -> ProtocolSnapshot {
+        var objects: [ProtocolObjectEnvelope] = []
+        var pending: [(hash: String, kind: ProtocolEntryKind)] = [(root, .directory)], seen = Set<String>()
         while let next = pending.popLast() {
             guard seen.insert(next.hash).inserted else { continue }
             let bytes: Data
             if let local = try? await workingTree.objectBytes(hash: next.hash) { bytes = local }
             else { bytes = try await transport.object(tree: treeID, hash: next.hash) }
-            guard WireObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
-            objects.append(WireObjectEnvelope(hash: next.hash, bytes: bytes))
-            guard next.kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else { continue }
+            guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
+            objects.append(ProtocolObjectEnvelope(hash: next.hash, bytes: bytes))
+            guard next.kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { continue }
             for entry in entries {
                 guard let child = entry.hash, let kind = entry.kind else { continue }
                 if kind == .directory || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") { pending.append((child, kind)) }
             }
         }
-        let graph = WireSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
-        _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        let graph = ProtocolSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
+        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
         return graph
     }
 
     /// The tree's own sparse graph plus the bytes every delta in a transition
     /// needs, fetched through the object store once each. Files the transition
     /// does not touch stay absent; the replay and the bridge both run sparse.
-    private func sparseBasis(deltaBases: Set<String>) async throws -> WireSnapshot {
+    private func sparseBasis(deltaBases: Set<String>) async throws -> ProtocolSnapshot {
         var basis = try await workingTree.localSnapshot()
         let present = Set(basis.objects.map(\.hash))
         for hash in deltaBases.sorted() where !present.contains(hash) {
-            basis.objects.append(WireObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
+            basis.objects.append(ProtocolObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
         }
         return basis
     }

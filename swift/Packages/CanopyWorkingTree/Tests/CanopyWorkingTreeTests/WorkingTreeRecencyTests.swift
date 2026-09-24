@@ -12,9 +12,9 @@ struct WorkingTreeRecencyTests {
             WorkingTreeNode(path: "/", kind: .directory, source: "# Home\n"),
             WorkingTreeNode(path: "/note", kind: .markdown, source: "A note\n"),
         ])
-        let stored = try WorkingTreeWireCodec.snapshot(for: original)
-        let snapshot = WireSnapshot(root: stored.root, objects: try stored.objects.map {
-            WireObjectEnvelope(hash: $0.hash, bytes: try #require($0.bytes))
+        let stored = try WorkingTreeProtocolCodec.snapshot(for: original)
+        let snapshot = ProtocolSnapshot(root: stored.root, objects: try stored.objects.map {
+            ProtocolObjectEnvelope(hash: $0.hash, bytes: try #require($0.bytes))
         })
         let dates = ["/": Date(timeIntervalSince1970: 1_789_473_600), "/note": Date(timeIntervalSince1970: 1_789_387_200)]
         // Entry metadata is keyed by each page's body entry.
@@ -36,10 +36,10 @@ struct WorkingTreeRecencyTests {
         #expect(results.allSatisfy { $0.modifiedAt == dates[$0.reference.path] })
     }
 
-    private func snapshot(_ state: WorkingTreeState) throws -> WireSnapshot {
-        let stored = try WorkingTreeWireCodec.snapshot(for: state)
-        return WireSnapshot(root: stored.root, objects: try stored.objects.map {
-            WireObjectEnvelope(hash: $0.hash, bytes: try #require($0.bytes))
+    private func snapshot(_ state: WorkingTreeState) throws -> ProtocolSnapshot {
+        let stored = try WorkingTreeProtocolCodec.snapshot(for: state)
+        return ProtocolSnapshot(root: stored.root, objects: try stored.objects.map {
+            ProtocolObjectEnvelope(hash: $0.hash, bytes: try #require($0.bytes))
         })
     }
 

@@ -14,15 +14,15 @@ struct EditorChangeLogTests {
     private let tree: TreeID = "tr_editor_log"
 
     private func placed(_ source: String) async throws -> WorkingTree {
-        let file = try WireObjectCodec.object(.file(Data(source.utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
-        let snapshot = WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+        let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
         let workingTree = try await WorkingTree.inMemory(tree: tree)
         try await workingTree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot, tree: tree, update: "up_initial"))
         return workingTree
     }
 
-    private func type(_ text: String, into binding: ArborDocumentBinding) {
+    private func type(_ text: String, into binding: CanopyDocumentBinding) {
         let paragraph = binding.document.children[binding.document.children.count - 1].id
         binding.document.transaction(name: "Typing") {
             _ = binding.document.setText(paragraph, AttributedString(text))
@@ -39,7 +39,7 @@ struct EditorChangeLogTests {
         var coordinator = try UpdateCoordinator(workingTree: workingTree, transport: OfflineTransport(), stateRoot: root,
             transportAvailable: false, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         var session = try await WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator).openDocument(reference)
-        var binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         type("First", into: binding)
         type("Second", into: binding)
         await binding.flush()
@@ -59,7 +59,7 @@ struct EditorChangeLogTests {
         coordinator = try UpdateCoordinator(workingTree: workingTree, transport: OfflineTransport(), stateRoot: root,
             transportAvailable: false, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         session = try await WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator).openDocument(reference)
-        binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         #expect(try await session.snapshot().source == written)
         #expect(binding.document.children.last.map { String($0.text.characters) } == "Second")
         // Editing continues on the retained chain.
@@ -81,7 +81,7 @@ struct EditorChangeLogTests {
         let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: OfflineTransport(), stateRoot: root,
             transportAvailable: false, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let session = try await WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator).openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
         let journal = root.appending(path: "sync/change-log.json")
         // A directory at the journal forces the atomic write to fail.
         try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
@@ -101,7 +101,7 @@ struct EditorChangeLogTests {
 }
 
 private struct OfflineTransport: UpdateTransport {
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse { throw URLError(.notConnectedToInternet) }
-    func descriptor(tree: String) async throws -> WireCurrentTree { throw URLError(.notConnectedToInternet) }
-    func snapshot(tree: String, root: String) async throws -> WireSnapshot { throw URLError(.notConnectedToInternet) }
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse { throw URLError(.notConnectedToInternet) }
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree { throw URLError(.notConnectedToInternet) }
+    func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot { throw URLError(.notConnectedToInternet) }
 }

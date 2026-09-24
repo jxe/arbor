@@ -122,7 +122,7 @@ Relevant files and responsibilities:
   and passes static globs to `@parcel/watcher`. Dynamic ignore files are not
   represented, and watcher events cannot currently explain why a path is
   excluded.
-- `packages/fs/src/wire-tree.ts` independently checks the same directory set
+- `packages/fs/src/protocol-tree.ts` independently checks the same directory set
   during `snapshotDirectory()` and pull cleanup in `materializeTree()`. Files
   such as `.env` are included. Pull cleanup preserves only the hard-coded set
   and explicit nested-placement roots.
@@ -152,7 +152,7 @@ Conventions to preserve:
   keep consumers thin and pass one immutable policy/snapshot view through an
   operation rather than rereading ignore files at different times.
 - Discovery is symlink-safe, nested mounted roots are explicit exclusions, and
-  Overstory names are ordered with `compareWireNames`, not locale ordering.
+  Overstory names are ordered with `compareProtocolNames`, not locale ordering.
 - Durable private synchronization state lives beneath `.state`; it does not
   enter authored trees or portable account configuration.
 - Tests use `bun:test`, temporary workspace and state directories, and cleanup
@@ -182,7 +182,7 @@ and verify that `bun.lock` contains only the intended package change.
 - a focused ignore-policy module under `packages/fs/src/` and its export;
 - `packages/fs/src/discovery.ts`;
 - `packages/fs/src/workspace-fs.ts`;
-- `packages/fs/src/wire-tree.ts`;
+- `packages/fs/src/protocol-tree.ts`;
 - the narrow Arbor Sync state/coordinator changes required to supply accepted
   tracked membership consistently;
 - `package.json` and `bun.lock` only if a maintained Git-ignore matcher is used;

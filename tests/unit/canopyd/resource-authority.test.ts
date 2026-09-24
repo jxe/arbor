@@ -5,7 +5,7 @@ import type {
   ExecutionContext,
   ExecutionGrant,
 } from "../../../packages/canopyd/src/execution-authority.ts";
-import type { CanopyTree } from "../../../packages/canopyd/src/model.ts";
+import type { HostTree } from "../../../packages/canopyd/src/model.ts";
 
 test("author/user contributions are bounded by caller rules and nonrecursive underlying access", () => {
   const db = new Database(":memory:");
@@ -27,7 +27,7 @@ test("author/user contributions are bounded by caller rules and nonrecursive und
       accountID: "owner",
       policy: "ordinary",
       publicAccess: "none",
-    } as CanopyTree;
+    } as HostTree;
     const access = new AccessControl(db, {
       tree: () => tree,
       rootProfileType: () => null,

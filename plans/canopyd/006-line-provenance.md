@@ -32,8 +32,8 @@ acceptance time and a safe actor. It is like `git blame`, with narrower claims:
 - it exposes no deleted source beyond canopyd 007's History contract.
 
 The first presentation is an optional read-only **Line provenance** view in the
-native Source and Properties inspector (`ArborSourceInspector`,
-`swift/CanopyApp/ArborDailyDriverViews.swift`).
+native Source and Properties inspector (`CanopySourceInspector`,
+`swift/CanopyApp/CanopyDailyDriverViews.swift`).
 
 ## What exists
 
@@ -138,7 +138,7 @@ it, and never on the acceptance path.
 4. **Route.** Current-only, authorized like history, typed failures for stale,
    non-Markdown, invalid UTF-8, oversized and missing objects. Spec text in
    `01-tree-operations.md` and `05-access-control.md`.
-5. **Native view.** `ArborWireClient.blame`; the inspector view with a gutter
+5. **Native view.** `ProtocolClient.blame`; the inspector view with a gutter
    grouping spans, profile labels resolved from the TreeID at display time,
    literal labels for non-profile actors, **Available after changes sync** while the
    change log has unpublished work for the document, and accessibility labels that

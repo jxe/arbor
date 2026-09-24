@@ -185,7 +185,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         return issues
     }
     public func fingerprint() throws -> String {
-        WireObjectCodec.hash(try sortedKeysJSON(self))
+        ProtocolObjectCodec.hash(try sortedKeysJSON(self))
     }
     /// The same draft pinned to `current`, when the accepted state moved but
     /// the draft's group and every decision in it (alternatives, hashes,
@@ -211,17 +211,17 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
 public struct ConflictReviewChange: Codable, Equatable, Sendable, Identifiable {
     public var id: String { path }
     public let path: String
-    public let before: WireDirectoryEntry?
-    public let after: WireDirectoryEntry?
-    public let beforeMetadata: WireCollectionFileDescriptor?
-    public let afterMetadata: WireCollectionFileDescriptor?
+    public let before: ProtocolDirectoryEntry?
+    public let after: ProtocolDirectoryEntry?
+    public let beforeMetadata: ProtocolCollectionFileDescriptor?
+    public let afterMetadata: ProtocolCollectionFileDescriptor?
     public var summary: String { before == nil ? "Add" : after == nil ? "Remove" : "Change" }
 }
 public struct ConflictReviewPreview: Sendable {
     public let fingerprint: String
     public let changes: [ConflictReviewChange]
-    public let candidate: WireSnapshot
-    public var operations: [WireSourceOperation]? = nil
+    public let candidate: ProtocolSnapshot
+    public var operations: [ProtocolSourceOperation]? = nil
 }
 public struct ConflictReviewProposalError: LocalizedError {
     public let message: String
@@ -235,7 +235,7 @@ public enum ConflictReviewError: LocalizedError {
         switch self {
         case .unavailable: "Conflict review is unavailable for this tree."
         case .changed: "This choice has changed. Your draft is retained. Refresh and review the alternatives before applying."
-        case .unsupported: "This choice can be inspected, but this version of Arbor cannot safely resolve its scope yet."
+        case .unsupported: "This choice can be inspected, but this version of Canopy cannot safely resolve its scope yet."
         case .publicationPending: "Local changes are still publishing. Your draft is retained; apply after publication finishes."
         }
     }

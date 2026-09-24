@@ -2,7 +2,7 @@ import { parseResourceRules, type ResourceAccessRule } from "../index.ts";
 import { parseDocument, isAlias, visit } from "yaml";
 import {
   configurationTreeID,
-  type CanopyAccountConfiguration,
+  type AccountConfiguration,
 } from "./account-config.ts";
 export interface ResourceDeclaration {
   canonical?: string;
@@ -12,7 +12,7 @@ export type ResourceConfiguration = Record<string, ResourceDeclaration>;
 /** New policy grammar; legacy readers remain separate for retained history/migration. */
 export function parseResourceConfiguration(
   source: string,
-  account: CanopyAccountConfiguration
+  account: AccountConfiguration
 ): ResourceConfiguration {
   const doc = parseDocument(source, { uniqueKeys: true });
   if (doc.errors.length) throw new Error("Invalid resource configuration YAML");

@@ -1,5 +1,5 @@
 import {
-  decodeWireDirectory,
+  decodeProtocolDirectory,
   intersectResourceRules,
   readAccountConfigGraph,
   resourceRuleKey,
@@ -147,7 +147,7 @@ export async function mergeAccountConfigTrees(
 ): Promise<MergeResult> {
   const graphAt = async (root: ObjectHash) => {
     const objects = new Map<ObjectHash, Uint8Array>([[root, await load(root)]]);
-    for (const entry of decodeWireDirectory(objects.get(root)!).entries)
+    for (const entry of decodeProtocolDirectory(objects.get(root)!).entries)
       if (entry.file) objects.set(entry.file, await load(entry.file));
     return readAccountConfigGraph({ root, objects });
   };

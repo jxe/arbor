@@ -16,7 +16,7 @@ struct ArborSyncServerError: Error, LocalizedError, Sendable {
 }
 
 /// One claimed Canopy account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@arbor/core`).
-struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
+struct LocalHostAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
     var configurationTree: String
     var canopy: String?
     var handle: String?
@@ -44,8 +44,8 @@ struct LocalPendingPairing: Codable, Sendable, Equatable {
     var origin: String
 }
 
-struct LocalCanopyAccountsEnvelope: Codable, Sendable {
-    var accounts: [LocalCanopyAccountDescriptor]
+struct LocalHostAccountsEnvelope: Codable, Sendable {
+    var accounts: [LocalHostAccountDescriptor]
     var identity: LocalProfileIdentity?
     var pendingClaim: LocalPendingClaim?
     var pendingPairing: LocalPendingPairing?
@@ -56,7 +56,7 @@ struct LocalCanopyAccountsEnvelope: Codable, Sendable {
 /// claim), held-change discard, sync, and the three loopback services a
 /// working-tree client uses (bootstrap, credential, objects) plus the event
 /// stream. The daemon has no editor path; editing happens in the working tree.
-/// Pairing offers go to the host directly through `ArborWireClient` (Native 011).
+/// Pairing offers go to the host directly through `ProtocolClient` (Native 011).
 actor ArborSyncRESTClient {
     private let baseURL: URL
     private let session: URLSession
@@ -87,12 +87,12 @@ actor ArborSyncRESTClient {
         let _: Response = try await perform(request)
     }
 
-    func accounts() async throws -> [LocalCanopyAccountDescriptor] {
-        let value: LocalCanopyAccountsEnvelope = try await get(path: "/v1/accounts", items: [])
+    func accounts() async throws -> [LocalHostAccountDescriptor] {
+        let value: LocalHostAccountsEnvelope = try await get(path: "/v1/accounts", items: [])
         return value.accounts
     }
 
-    func onboardingState() async throws -> LocalCanopyAccountsEnvelope {
+    func onboardingState() async throws -> LocalHostAccountsEnvelope {
         try await get(path: "/v1/accounts", items: [])
     }
 
@@ -142,7 +142,7 @@ actor ArborSyncRESTClient {
         request.httpBody = try encoder.encode(Request(configurationTree: configurationTree))
         let response: Response = try await perform(request)
         guard response.synchronized else {
-            throw ArborWireValidationError.invalidValue("Arbor Sync did not confirm synchronization")
+            throw ProtocolValidationError.invalidValue("Arbor Sync did not confirm synchronization")
         }
     }
 
@@ -159,7 +159,7 @@ actor ArborSyncRESTClient {
         guard let bundle = Data(base64Encoded: envelope.spine) else {
             throw TreeBootstrapError.invalidSpine("spine is not base64")
         }
-        let spine = try WireSnapshotBundleCodec.decode(bundle, root: envelope.accepted.root, mode: .sparseFiles)
+        let spine = try ProtocolSnapshotBundleCodec.decode(bundle, root: envelope.accepted.root, mode: .sparseFiles)
         return TreeBootstrap(
             tree: envelope.tree,
             accepted: envelope.accepted,
@@ -176,7 +176,7 @@ actor ArborSyncRESTClient {
             items: configurationTree.map { [URLQueryItem(name: "configurationTree", value: $0)] } ?? []
         )
         guard !value.token.isEmpty else {
-            throw ArborWireValidationError.invalidValue("Arbor Sync returned an empty credential")
+            throw ProtocolValidationError.invalidValue("Arbor Sync returned an empty credential")
         }
         return value.token
     }
@@ -185,7 +185,7 @@ actor ArborSyncRESTClient {
     /// before it is returned. A 404 surfaces as `ArborSyncServerError` with status 404.
     func object(tree: String, hash: String, origin: URL? = nil) async throws -> Data {
         guard hash.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
-            throw ArborWireValidationError.invalidHash(hash)
+            throw ProtocolValidationError.invalidHash(hash)
         }
         var components = URLComponents(url: url("/v1/objects/\(hash)"), resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "tree", value: tree)]
@@ -195,9 +195,9 @@ actor ArborSyncRESTClient {
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         try validate(data: data, status: try statusCode(response))
-        let actual = WireObjectCodec.hash(data)
+        let actual = ProtocolObjectCodec.hash(data)
         guard actual == hash else {
-            throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual)
+            throw ProtocolValidationError.objectHashMismatch(expected: hash, actual: actual)
         }
         return data
     }
@@ -224,7 +224,7 @@ actor ArborSyncRESTClient {
                             throw ArborSyncServerError(status: status, value: try decoder.decode(ArborSyncErrorValue.self, from: data))
                         }
                         reconnectAttempt = 0
-                        var parser = ArborSSEParser()
+                        var parser = ProtocolSSEParser()
                         for try await byte in bytes {
                             for frame in try parser.append(Data([byte])) {
                                 let data = Data(frame.data.utf8)

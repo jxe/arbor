@@ -1,4 +1,4 @@
-import { generateArborID, CanopyAccountStore, loadCanopyAccountConfigurations } from "@overstory/protocol";
+import { generateArborID, HostAccountStore, loadAccountConfigurations } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 
 let sandbox: string;
@@ -15,7 +15,7 @@ let profile: string;
 let source: string;
 let destination: string;
 let tree: string;
-let running: Awaited<ReturnType<typeof serveCanopy>>;
+let running: Awaited<ReturnType<typeof serveHost>>;
 
 async function arbor(args: string[]): Promise<string> {
   const daemon = await serveArborSyncControl({ port: 0 });
@@ -46,7 +46,7 @@ beforeAll(async () => {
   await writeFile(join(source, "todo.md"), "# Keep this\n");
   process.env.ARBOR_DATA_HOME = state;
   const identity = await new ProfileIdentityStore().create(profile);
-  running = await serveCanopy({
+  running = await serveHost({
     dataRoot: join(sandbox, "canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -55,8 +55,8 @@ beforeAll(async () => {
   });
   const daemon = await ArborSyncDaemon.open(profile);
   try {
-    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimCanopyAccount(`${running.url}/~joe`, profile, "Joe");
-    const account = (await loadCanopyAccountConfigurations())[0]!;
+    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${running.url}/~joe`, profile, "Joe");
+    const account = (await loadAccountConfigurations())[0]!;
     tree = generateArborID("tr");
     await writeFile(join(account.path, "trees.yaml"), [
       `${tree}:`,
@@ -79,7 +79,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   process.env.ARBOR_DATA_HOME = state;
-  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
+  for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   running.server.stop(true);
   await running.canopy[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
@@ -98,7 +98,7 @@ describe("arbor mv", () => {
     expect(await stat(source).then(() => true).catch(() => false)).toBe(false);
     expect(await readFile(join(destination, "todo.md"), "utf8")).toBe("# Keep this\n");
     expect((await loadLocalPlacements()).placements).toContainEqual({
-      configurationTree: (await loadCanopyAccountConfigurations())[0]!.configurationTree,
+      configurationTree: (await loadAccountConfigurations())[0]!.configurationTree,
       path: destination,
       tree,
     });
@@ -106,7 +106,7 @@ describe("arbor mv", () => {
 
     const sourceCanonical = `${running.url}/~joe/todos`;
     const destinationCanonical = `${running.url}/~joe/tasks`;
-    const account = (await loadCanopyAccountConfigurations())[0]!;
+    const account = (await loadAccountConfigurations())[0]!;
     const beforeConfiguration = await readFile(join(account.path, "trees.yaml"), "utf8");
     const canonicalDryRun = await arbor(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
     expect(canonicalDryRun).toContain(`Would move ${tree}`);

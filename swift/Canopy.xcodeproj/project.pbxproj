@@ -8,28 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */; };
-		2FD3E4FC804EF4C5A2455FE0 /* ArborAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF9A72F8CB82A8A3F5EC1B6 /* ArborAppModel.swift */; };
-		30566E514B280F135A088116 /* ArborStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D298D8D253A6A0EA05B37B19 /* ArborStyle.swift */; };
+		2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */; };
+		30566E514B280F135A088116 /* CanopyStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */; };
 		427E0873C0581985EA701162 /* CanopyWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 12FFE5432D368FA63265D3F9 /* CanopyWorkingTree */; };
 		6273F793669EF942DAC61667 /* CanopyAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2EF794B989CD4145528451 /* CanopyAppTests.swift */; };
 		645A5216EF21B992B6586D6F /* OverstoryClient in Frameworks */ = {isa = PBXBuildFile; productRef = 5AE724436B4B61FB18E2499B /* OverstoryClient */; };
 		82BBE45599931E74BF01509C /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 298FAA2528B2406F083D24E1 /* QuagmireExtras */; };
 		846874AF6C0B4F543C2F8E60 /* CanopyEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 4745C7CE25C3B47CE1C7FDFA /* CanopyEditor */; };
-		84C2E25C29E59E77B48491D7 /* ArborVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF4B4A512DB429ABAB9F439 /* ArborVisits.swift */; };
-		9FD968ED949F3EF597E23F69 /* ArborDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63ADE18E12FC8CF3509598EC /* ArborDailyDriverViews.swift */; };
+		84C2E25C29E59E77B48491D7 /* CanopyVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */; };
+		9FD968ED949F3EF597E23F69 /* CanopyDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */; };
 		A3694563A13E7FD1C1DDEA32 /* CanopyAppKit in Frameworks */ = {isa = PBXBuildFile; productRef = 60F1A9943FFCB9EC206C3015 /* CanopyAppKit */; };
 		A43136ECFC4D2D39871A02E9 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 89061AE65E245F330BB42FFA /* Overstory */; };
 		ADFBF13A9572E8EC9F2FBC2A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7178057AF35C3F14D9ADB06 /* Assets.xcassets */; };
-		B733490C08AF612381651350 /* ArborConflictReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51EAD9F6E342793374FFDE7 /* ArborConflictReview.swift */; };
+		B733490C08AF612381651350 /* CanopyConflictReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */; };
 		C54947C0138F2B4151C527DB /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = C796D9E8C38165521C40F7CB /* OverstoryObjectStore */; };
-		C8A3D6F3250D2896E4D8A2FC /* ArborApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31651AC411F40A49C39CA50 /* ArborApp.swift */; };
-		C8FDEB921284112F4837E8AA /* ArborDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0CCAA6D6E950AEB2DE8F91 /* ArborDirectoryView.swift */; };
-		D04DEF93C13612B18F18C8D3 /* ArborSaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F488507EF84786EB0AE2DD22 /* ArborSaveDiagnostics.swift */; };
-		D2933F943634F0E9ABA20CD7 /* ArborRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D86631369060ED5B812AC5 /* ArborRootView.swift */; };
-		D9F15BCF282E14AFF67DC6D0 /* ArborNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B197CF4BF9FFD2DDBFFB1 /* ArborNetworkLogView.swift */; };
+		C8A3D6F3250D2896E4D8A2FC /* CanopyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31651AC411F40A49C39CA50 /* CanopyApp.swift */; };
+		C8FDEB921284112F4837E8AA /* CanopyDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */; };
+		D04DEF93C13612B18F18C8D3 /* CanopySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */; };
+		D2933F943634F0E9ABA20CD7 /* CanopyRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D86631369060ED5B812AC5 /* CanopyRootView.swift */; };
+		D9F15BCF282E14AFF67DC6D0 /* CanopyNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */; };
 		DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */; };
-		E5D6C0A84A97D0677205A1A1 /* ArborDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EE529EFC6F562AFAF2BFEA /* ArborDirectory.swift */; };
-		E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */; };
+		E5D6C0A84A97D0677205A1A1 /* CanopyDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */; };
+		E6D54BC465AC7BE111DD3D8A /* CanopySupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */; };
 		A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */; };
 		C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */; };
 		3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */; };
@@ -51,31 +51,31 @@
 /* Begin PBXFileReference section */
 		0FB6B346C13D17D474A125B8 /* CanopyAppKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyAppKit; path = Packages/CanopyAppKit; sourceTree = SOURCE_ROOT; };
 		3600BDEB02C0A0FF8C51027E /* CanopyAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CanopyAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSupportDirectories.swift; sourceTree = "<group>"; };
+		48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySupportDirectories.swift; sourceTree = "<group>"; };
 		5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyOnboarding.swift; sourceTree = "<group>"; };
-		5DF9A72F8CB82A8A3F5EC1B6 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
-		63ADE18E12FC8CF3509598EC /* ArborDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDailyDriverViews.swift; sourceTree = "<group>"; };
+		5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAppModel.swift; sourceTree = "<group>"; };
+		63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDailyDriverViews.swift; sourceTree = "<group>"; };
 		735CCC72D03126B470BA6A7E /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
 		771CDE2BBE024CC560A40090 /* CanopyEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyEditor; path = Packages/CanopyEditor; sourceTree = SOURCE_ROOT; };
 		79D8023DB37FB8EA588574AC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7E4A99041840C4BBDD074CCF /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
 		8C2EF794B989CD4145528451 /* CanopyAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAppTests.swift; sourceTree = "<group>"; };
-		9D4B197CF4BF9FFD2DDBFFB1 /* ArborNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborNetworkLogView.swift; sourceTree = "<group>"; };
-		A6EE529EFC6F562AFAF2BFEA /* ArborDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDirectory.swift; sourceTree = "<group>"; };
+		9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyNetworkLogView.swift; sourceTree = "<group>"; };
+		A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectory.swift; sourceTree = "<group>"; };
 		A980429037927AAD251E5695 /* OverstoryObjectStore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryObjectStore; path = Packages/OverstoryObjectStore; sourceTree = SOURCE_ROOT; };
 		B49F28900BE6CA94197C436C /* Overstory */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Overstory; path = Packages/Overstory; sourceTree = SOURCE_ROOT; };
 		B9AA8EED2BAA87F332CE3C54 /* Canopy.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Canopy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C547423AF5AE67289A5AFC3A /* CanopyWorkingTree */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyWorkingTree; path = Packages/CanopyWorkingTree; sourceTree = SOURCE_ROOT; };
 		CD6D072E434F11F7B408005D /* Canopy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Canopy.entitlements; sourceTree = "<group>"; };
-		CFF4B4A512DB429ABAB9F439 /* ArborVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborVisits.swift; sourceTree = "<group>"; };
-		D298D8D253A6A0EA05B37B19 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
-		D5D86631369060ED5B812AC5 /* ArborRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborRootView.swift; sourceTree = "<group>"; };
+		CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyVisits.swift; sourceTree = "<group>"; };
+		D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyStyle.swift; sourceTree = "<group>"; };
+		D5D86631369060ED5B812AC5 /* CanopyRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyRootView.swift; sourceTree = "<group>"; };
 		D7178057AF35C3F14D9ADB06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E51EAD9F6E342793374FFDE7 /* ArborConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborConflictReview.swift; sourceTree = "<group>"; };
+		E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyConflictReview.swift; sourceTree = "<group>"; };
 		E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingIntents.swift; sourceTree = "<group>"; };
-		F31651AC411F40A49C39CA50 /* ArborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborApp.swift; sourceTree = "<group>"; };
-		F488507EF84786EB0AE2DD22 /* ArborSaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSaveDiagnostics.swift; sourceTree = "<group>"; };
-		FA0CCAA6D6E950AEB2DE8F91 /* ArborDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDirectoryView.swift; sourceTree = "<group>"; };
+		F31651AC411F40A49C39CA50 /* CanopyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyApp.swift; sourceTree = "<group>"; };
+		F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySaveDiagnostics.swift; sourceTree = "<group>"; };
+		FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectoryView.swift; sourceTree = "<group>"; };
 		1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServices.swift; sourceTree = "<group>"; };
 		502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProcessSupervisor.swift; sourceTree = "<group>"; };
 		17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProtocol.swift; sourceTree = "<group>"; };
@@ -136,19 +136,19 @@
 			isa = PBXGroup;
 			children = (
 				6B4877ADFB09A22A0138B811 /* ArborSync */,
-				F31651AC411F40A49C39CA50 /* ArborApp.swift */,
-				5DF9A72F8CB82A8A3F5EC1B6 /* ArborAppModel.swift */,
-				E51EAD9F6E342793374FFDE7 /* ArborConflictReview.swift */,
-				63ADE18E12FC8CF3509598EC /* ArborDailyDriverViews.swift */,
-				A6EE529EFC6F562AFAF2BFEA /* ArborDirectory.swift */,
-				FA0CCAA6D6E950AEB2DE8F91 /* ArborDirectoryView.swift */,
-				9D4B197CF4BF9FFD2DDBFFB1 /* ArborNetworkLogView.swift */,
-				D5D86631369060ED5B812AC5 /* ArborRootView.swift */,
-				F488507EF84786EB0AE2DD22 /* ArborSaveDiagnostics.swift */,
-				D298D8D253A6A0EA05B37B19 /* ArborStyle.swift */,
-				48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */,
+				F31651AC411F40A49C39CA50 /* CanopyApp.swift */,
+				5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */,
+				E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */,
+				63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */,
+				A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */,
+				FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */,
+				9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */,
+				D5D86631369060ED5B812AC5 /* CanopyRootView.swift */,
+				F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */,
+				D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */,
+				48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */,
 				7E4A99041840C4BBDD074CCF /* arborsync.entitlements */,
-				CFF4B4A512DB429ABAB9F439 /* ArborVisits.swift */,
+				CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */,
 				D7178057AF35C3F14D9ADB06 /* Assets.xcassets */,
 				CD6D072E434F11F7B408005D /* Canopy.entitlements */,
 				5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */,
@@ -321,22 +321,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C8A3D6F3250D2896E4D8A2FC /* ArborApp.swift in Sources */,
-				2FD3E4FC804EF4C5A2455FE0 /* ArborAppModel.swift in Sources */,
-				B733490C08AF612381651350 /* ArborConflictReview.swift in Sources */,
-				9FD968ED949F3EF597E23F69 /* ArborDailyDriverViews.swift in Sources */,
-				E5D6C0A84A97D0677205A1A1 /* ArborDirectory.swift in Sources */,
-				C8FDEB921284112F4837E8AA /* ArborDirectoryView.swift in Sources */,
-				D9F15BCF282E14AFF67DC6D0 /* ArborNetworkLogView.swift in Sources */,
-				D2933F943634F0E9ABA20CD7 /* ArborRootView.swift in Sources */,
-				D04DEF93C13612B18F18C8D3 /* ArborSaveDiagnostics.swift in Sources */,
-				30566E514B280F135A088116 /* ArborStyle.swift in Sources */,
-				E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */,
+				C8A3D6F3250D2896E4D8A2FC /* CanopyApp.swift in Sources */,
+				2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */,
+				B733490C08AF612381651350 /* CanopyConflictReview.swift in Sources */,
+				9FD968ED949F3EF597E23F69 /* CanopyDailyDriverViews.swift in Sources */,
+				E5D6C0A84A97D0677205A1A1 /* CanopyDirectory.swift in Sources */,
+				C8FDEB921284112F4837E8AA /* CanopyDirectoryView.swift in Sources */,
+				D9F15BCF282E14AFF67DC6D0 /* CanopyNetworkLogView.swift in Sources */,
+				D2933F943634F0E9ABA20CD7 /* CanopyRootView.swift in Sources */,
+				D04DEF93C13612B18F18C8D3 /* CanopySaveDiagnostics.swift in Sources */,
+				30566E514B280F135A088116 /* CanopyStyle.swift in Sources */,
+				E6D54BC465AC7BE111DD3D8A /* CanopySupportDirectories.swift in Sources */,
 				A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */,
 				C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */,
 				3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */,
 				07B0F233694FFCD76F89A4C5 /* ArborSyncRESTClient.swift in Sources */,
-				84C2E25C29E59E77B48491D7 /* ArborVisits.swift in Sources */,
+				84C2E25C29E59E77B48491D7 /* CanopyVisits.swift in Sources */,
 				DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */,
 				29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */,
 			);

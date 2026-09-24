@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyTransitionPayload, decodeWireDirectory, encodeWireDirectory, hashObject, updateRequestDigests, wireEntryObject,
-  WireTransportError, WireUnsupportedOperation, WireUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
+import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
+  ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
   type UpdateRequest, type UpdateResponse, type UpdateResult } from "@overstory/protocol";
 import { UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
@@ -19,7 +19,7 @@ const TREE = "tr_runner_vectors";
 
 function snapshot(markdown: string): TreeSnapshot {
   const file = new TextEncoder().encode(markdown), fileHash = hashObject(file);
-  const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
   return { root: hashObject(directory), objects: new Map([[fileHash, file], [hashObject(directory), directory]]) };
 }
 
@@ -42,13 +42,13 @@ class VectorHost implements UpdateTransport {
     const digests = updateRequestDigests(tree, request);
     this.digests.push(digests);
     const action = this.script.shift() ?? "accept";
-    if (action === "fail") throw new WireTransportError("connection lost", undefined);
+    if (action === "fail") throw new ProtocolTransportError("connection lost", undefined);
     if (action === "reject") {
       const current = this.head(this.update, this.root, null);
-      throw new WireUpdateConflict({ error: "conflict", message: "refused", retryable: false, details: { kind: "server-update", completed: [], failedIndex: 0,
+      throw new ProtocolUpdateConflict({ error: "conflict", message: "refused", retryable: false, details: { kind: "server-update", completed: [], failedIndex: 0,
         current, base: this.root as never, candidate: request.updates.at(-1)!.candidate as never, draft: { root: this.root as never, objects: [], deltas: [] }, conflicts: [] } });
     }
-    if (action === "unsupported") throw new WireUnsupportedOperation({ error: "unsupported-operation" as never, message: "moveSource", retryable: false });
+    if (action === "unsupported") throw new ProtocolUnsupportedOperation({ error: "unsupported-operation" as never, message: "moveSource", retryable: false });
     const results: UpdateResult[] = [];
     for (const [index, element] of request.updates.entries()) {
       const complete = applyTransitionPayload(this.objects, element);
@@ -63,7 +63,7 @@ class VectorHost implements UpdateTransport {
       this.root = element.candidate;
       this.update = update.id;
     }
-    if (action === "acceptThenFail") throw new WireTransportError("response lost", undefined);
+    if (action === "acceptThenFail") throw new ProtocolTransportError("response lost", undefined);
     return { results, observedThrough: this.update };
   }
 
@@ -86,8 +86,8 @@ class VectorHost implements UpdateTransport {
     for (let next = pending.pop(); next; next = pending.pop()) {
       const bytes = this.objects.get(next.hash);
       if (!bytes) throw new Error(`Candidate object ${next.hash} is missing`);
-      if (next.kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
-        const child = wireEntryObject(entry);
+      if (next.kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
+        const child = protocolEntryObject(entry);
         if (child) pending.push(child);
       }
     }

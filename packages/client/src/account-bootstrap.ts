@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, CanopyAccountStore, arborDataRoot, arborPrivateRoot, loadCanopyAccountConfigurations, saveCurrentAccountDeviceID, WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -93,7 +93,7 @@ async function claimAccountProfileBootstrap(
     if (pending.version !== 2 || (pending.account !== account && account !== origin) || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
       throw new ProtocolError("conflict", "A different account bootstrap is already pending in this data home", 409);
     }
-    credential = await new CanopyAccountStore(pending.configurationTree).provisionalCredential();
+    credential = await new HostAccountStore(pending.configurationTree).provisionalCredential();
     if (!credential || `sha256:${sha256(credential)}` !== pending.credentialDigest) {
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
@@ -109,7 +109,7 @@ async function claimAccountProfileBootstrap(
     if (hasLegacyLayout) {
       throw new ProtocolError("conflict", "Account bootstrap will not mix the plural layout with legacy account files", 409);
     }
-    const existingAccounts = await loadCanopyAccountConfigurations();
+    const existingAccounts = await loadAccountConfigurations();
     if (existingAccounts.some((candidate) => candidate.diagnostics.length || !candidate.account || !candidate.trees || !candidate.devices || !candidate.currentDevice)) {
       throw new ProtocolError("conflict", "All existing account checkouts must be valid before another account is added", 409);
     }
@@ -165,7 +165,7 @@ async function claimAccountProfileBootstrap(
         files,
         configuration: persistableBootstrapSnapshot(await resolveSnapshot(await snapshotDirectory(staging))),
       };
-      await new CanopyAccountStore(configurationTree).storeProvisionalCredential(credential);
+      await new HostAccountStore(configurationTree).storeProvisionalCredential(credential);
       await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
       const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
@@ -176,7 +176,7 @@ async function claimAccountProfileBootstrap(
   }
 
   if (!credential) throw new ProtocolError("conflict", "The bootstrap credential is unavailable", 409);
-  const client = new WireClient(origin);
+  const client = new ProtocolClient(origin);
   if (!pending.challenge || !pending.publicKey || !pending.signature) {
     pending.challenge = await client.createAccountChallenge({
       account: pending.account === origin ? undefined : pending.account,
@@ -251,7 +251,7 @@ async function claimAccountProfileBootstrap(
   }
   await saveCurrentAccountDeviceID(pending.configurationTree, pending.deviceID);
 
-  await new CanopyAccountStore(pending.configurationTree).set(credential, {
+  await new HostAccountStore(pending.configurationTree).set(credential, {
     origin,
     account: pending.account,
     accountID: result.account.id,
@@ -273,7 +273,7 @@ async function claimAccountProfileBootstrap(
  * Claim one Canopy-chosen account locator for an already identified local
  * profile tree. This does not declare or upload the profile tree.
  */
-export async function claimCanopyAccountBootstrap(
+export async function claimHostAccountBootstrap(
   deps: AccountBootstrapDeps,
   accountLocator: string,
   inputPath: string,
@@ -298,10 +298,10 @@ export async function cancelPendingAccountClaim(): Promise<void> {
     const checkout = join(arborDataRoot(), "accounts", pending.configurationTree);
     if (await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return false; throw error;
-    }) || await new CanopyAccountStore(pending.configurationTree).safe()) {
+    }) || await new HostAccountStore(pending.configurationTree).safe()) {
       throw new ProtocolError("conflict", "This preparation already has local account state; resume it instead", 409);
     }
-    await new CanopyAccountStore(pending.configurationTree).remove();
+    await new HostAccountStore(pending.configurationTree).remove();
     await rm(path);
   });
 }

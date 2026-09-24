@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { encodeWireDirectory } from "@overstory/protocol";
+import { encodeProtocolDirectory } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -162,9 +162,9 @@ describe("arborsync object route", () => {
 
   async function indexedSnapshot() {
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const { hashObject, decodeWireDirectory } = await import("@overstory/protocol");
+    const { hashObject, decodeProtocolDirectory } = await import("@overstory/protocol");
     const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, activeWorkspace.objectIndex()));
-    return { snapshot, hashObject, decodeWireDirectory };
+    return { snapshot, hashObject, decodeProtocolDirectory };
   }
 
   test("serves a file object from the index with an immutable ETag", async () => {
@@ -188,14 +188,14 @@ describe("arborsync object route", () => {
     await mkdir(join(root, "object-dir"), { recursive: true });
     await writeFile(join(root, "object-dir", "leaf.md"), "leaf\n");
     await writeFile(join(root, "object-dir", "leaf.bin"), "binary-leaf");
-    const { snapshot, hashObject, decodeWireDirectory } = await indexedSnapshot();
-    const rootObject = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
+    const { snapshot, hashObject, decodeProtocolDirectory } = await indexedSnapshot();
+    const rootObject = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory");
     const directoryHash = rootObject.entries.find((entry) => entry.name === "object-dir")!.directory!;
     for (const hash of [directoryHash, snapshot.root]) {
       const served = await client.object(scope, hash);
       expect(hashObject(served)).toBe(hash);
-      expect(decodeWireDirectory(served).type).toBe("directory");
+      expect(decodeProtocolDirectory(served).type).toBe("directory");
     }
   });
 
@@ -206,8 +206,8 @@ describe("arborsync object route", () => {
     const { folderStateRoot } = await import("../../packages/arborsync/src/folder-sync.ts");
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
-    const empty = encodeWireDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
-    const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash }] }), directoryHash = hashObject(directory);
+    const empty = encodeProtocolDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash }] }), directoryHash = hashObject(directory);
     const change = "folder-pending-object";
     const log = new ChangeLog(scope, folderStateRoot(scope));
     await log.retain({ change, tree: scope, basis: { kind: "accepted", root: emptyHash, update: "up_pending_fixture" },
@@ -225,24 +225,24 @@ describe("arborsync object route", () => {
   });
 
   test("fetches through to Canopy for an unplaced tree named by origin", async () => {
-    const { serveCanopy } = await import("@overstory/canopyd");
-    const { WireClient, hashObject } = await import("@overstory/protocol");
+    const { serveHost } = await import("@overstory/canopyd");
+    const { ProtocolClient, hashObject } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const canopyRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
+    const hostRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
     const token = "object-route-owner";
-    const canopy = await serveCanopy({
-      dataRoot: join(canopyRoot, "canopy"),
+    const canopy = await serveHost({
+      dataRoot: join(hostRoot, "canopy"),
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
     try {
-      const owner = new WireClient(canopy.url, token);
+      const owner = new ProtocolClient(canopy.url, token);
       const account = await owner.account();
       const communityTree = account.account.community.id;
       const community = await owner.descriptor(communityTree);
-      const source = join(canopyRoot, "community");
+      const source = join(hostRoot, "community");
       await mkdir(source, { recursive: true });
       await writeFile(join(source, "_index.md"), "---\ntype: group\n---\n# Community\n");
       const remoteOnly = new TextEncoder().encode("only-on-canopy");
@@ -265,7 +265,7 @@ describe("arborsync object route", () => {
     } finally {
       canopy.server.stop(true);
       await canopy.canopy[Symbol.asyncDispose]();
-      await rm(canopyRoot, { recursive: true, force: true });
+      await rm(hostRoot, { recursive: true, force: true });
     }
   });
 
@@ -290,14 +290,14 @@ describe("arborsync bootstrap and credential routes", () => {
   let previousHome: string | undefined;
   let treeDir: string;
   let tree: string;
-  let canopy: Awaited<ReturnType<typeof import("@overstory/canopyd")["serveCanopy"]>>;
+  let canopy: Awaited<ReturnType<typeof import("@overstory/canopyd")["serveHost"]>>;
   let daemon: Awaited<ReturnType<typeof serveArborSync>>;
   let placedClient: ArborSyncRESTClient;
   let placedBase: string;
 
   beforeAll(async () => {
-    const { serveCanopy } = await import("@overstory/canopyd");
-    const { WireClient } = await import("@overstory/protocol");
+    const { serveHost } = await import("@overstory/canopyd");
+    const { ProtocolClient } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     const { generateArborID } = await import("@overstory/protocol");
     const { readAccountConfigGraph, snapshotAccountConfig } = await import("@overstory/protocol");
@@ -313,14 +313,14 @@ describe("arborsync bootstrap and credential routes", () => {
     await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
     await writeFile(join(treeDir, "sub", "data.bin"), new Uint8Array([9, 8, 7]));
 
-    canopy = await serveCanopy({
+    canopy = await serveHost({
       dataRoot: join(sandbox, "canopy"),
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
-    const owner = new WireClient(canopy.url, token);
+    const owner = new ProtocolClient(canopy.url, token);
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
@@ -357,7 +357,7 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   test("bootstraps a clean placed tree with a sparse spine", async () => {
-    const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@overstory/protocol");
+    const { decodeSparseSnapshotBundle, decodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
     const bootstrap = await placedClient.bootstrap(tree);
     // Page dates come from Canopy's entry metadata, never from the daemon's files.
     expect("modifiedAtByPath" in bootstrap).toBe(false);
@@ -373,8 +373,8 @@ describe("arborsync bootstrap and credential routes", () => {
 
     const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
     expect(spine.has(bootstrap.accepted.root as never)).toBe(true);
-    const directories = [decodeWireDirectory(spine.get(bootstrap.accepted.root)!)];
-    for (const entry of directories[0]!.entries) if (entry.directory) directories.push(decodeWireDirectory(spine.get(entry.directory)!));
+    const directories = [decodeProtocolDirectory(spine.get(bootstrap.accepted.root)!)];
+    for (const entry of directories[0]!.entries) if (entry.directory) directories.push(decodeProtocolDirectory(spine.get(entry.directory)!));
     expect(directories).toHaveLength(2);
     const markdown = directories.flatMap(directory => directory.entries.filter(entry => entry.file && entry.name.endsWith(".md")).map(entry => new TextDecoder().decode(spine.get(entry.file!)!))).sort();
     expect(markdown).toEqual(["# Bootstrap tree\n", "A note\n", "Child\n"]);
@@ -382,14 +382,14 @@ describe("arborsync bootstrap and credential routes", () => {
     // Typed file entries are resolvable even when their payload is omitted.
     const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
     expect(spine.has(photoHash)).toBe(false);
-    const root = decodeWireDirectory(spine.get(bootstrap.accepted.root as never)!);
+    const root = decodeProtocolDirectory(spine.get(bootstrap.accepted.root as never)!);
     if (root.type !== "directory") throw new Error("Expected a directory root");
     expect(root.entries.find((entry) => entry.name === "photo.bin")?.file).toBe(photoHash);
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
   });
 
   test("bootstraps the accepted Canopy root while the folder has an unpublished edit", async () => {
-    const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@overstory/protocol");
+    const { decodeSparseSnapshotBundle, decodeProtocolDirectory } = await import("@overstory/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
     try {
@@ -398,7 +398,7 @@ describe("arborsync bootstrap and credential routes", () => {
       expect("pending" in bootstrap).toBe(false);
       expect("blocked" in bootstrap).toBe(false);
       const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
-      const root = decodeWireDirectory(spine.get(accepted.root as never)!);
+      const root = decodeProtocolDirectory(spine.get(accepted.root as never)!);
       const note = root.entries.find((entry) => entry.name === "note.md")?.file;
       expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
     } finally {

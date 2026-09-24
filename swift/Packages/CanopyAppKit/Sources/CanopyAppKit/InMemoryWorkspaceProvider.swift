@@ -15,13 +15,13 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         let root = WorkspaceNode(
             reference: WorkspaceReference(tree: tree, path: "/"),
             title: "Home",
-            surface: .directory(summary: "A deterministic Arbor workspace"),
+            surface: .directory(summary: "A deterministic Canopy workspace"),
             provenance: .init(authority: .local, sourceDescription: "In-memory preview")
         )
         let welcome = WorkspaceNode(
             reference: WorkspaceReference(tree: tree, path: "/welcome", stableKey: markdownStableKey("pg_welcome")),
             title: "Welcome",
-            surface: .markdown(source: "# Welcome\n\nNative Arbor is ready for a provider.\n", contentRevision: "r1"),
+            surface: .markdown(source: "# Welcome\n\nNative Canopy is ready for a provider.\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "In-memory preview", contentRevision: "r1")
         )
         let files = WorkspaceNode(

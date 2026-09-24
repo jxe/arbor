@@ -3,13 +3,13 @@ import { dirname, join } from "node:path";
 import {
   arborPrivateRoot,
   decodeTreeSnapshotJSON,
-  decodeWireDirectory,
+  decodeProtocolDirectory,
   encodeCandidateUpdateJSON,
   hashObject,
   decodeBase64,
   ProtocolError,
-  wireEntryObject,
-  WireClient,
+  protocolEntryObject,
+  ProtocolClient,
   type LazyTreeSnapshot,
   type ObjectHash,
   type SharedTreePlacement,
@@ -34,10 +34,10 @@ import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
 /** What the daemon provides one folder's synchronization. */
 export interface FolderSyncHost {
   placement(): SharedTreePlacement | undefined;
-  client(placement: SharedTreePlacement): Promise<WireClient>;
+  client(placement: SharedTreePlacement): Promise<ProtocolClient>;
   updateSyncMetadata(placement: SharedTreePlacement): Promise<unknown>;
   setSyncState(state: NonNullable<LocalTreeDescriptor["sync"]>): void;
-  /** Serialize this folder's filesystem reads and writes; never held across Wire I/O. */
+  /** Serialize this folder's filesystem reads and writes; never held across protocol I/O. */
   withWorkspaceIO<T>(run: () => Promise<T>): Promise<T>;
   /** Walk the folder into a lazy graph through its stat index. */
   scan(): Promise<LazyTreeSnapshot>;
@@ -94,8 +94,8 @@ function reachable(root: string, objects: ReadonlyMap<string, Uint8Array>): Set<
     if (next.kind !== "directory") continue;
     const bytes = objects.get(next.hash);
     if (!bytes) throw new Error(`Folder graph is missing directory ${next.hash}`);
-    for (const entry of decodeWireDirectory(bytes).entries) {
-      const child = wireEntryObject(entry);
+    for (const entry of decodeProtocolDirectory(bytes).entries) {
+      const child = protocolEntryObject(entry);
       if (child) pending.push(child);
     }
   }
@@ -150,7 +150,7 @@ export class FolderSync implements AcceptedTree {
     });
   }
 
-  private async client(): Promise<WireClient> {
+  private async client(): Promise<ProtocolClient> {
     const placement = this.host.placement();
     if (!placement) throw new UpdateValidationError(`Tree has no placement: ${this.tree}`);
     return this.host.client(placement);
@@ -303,8 +303,8 @@ export class FolderSync implements AcceptedTree {
       const bytes = graph.objects.get(next.hash as ObjectHash) ?? await source?.bytes();
       if (!bytes || hashObject(bytes) !== next.hash) throw new UpdateValidationError(`The folder changed while it was scanned: ${next.hash}`);
       objects.set(next.hash as ObjectHash, bytes);
-      if (next.kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
-        const child = wireEntryObject(entry);
+      if (next.kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
+        const child = protocolEntryObject(entry);
         if (child) pending.push(child);
       }
     }
@@ -325,7 +325,7 @@ export class FolderSync implements AcceptedTree {
       const bytes = await this.host.objectBytes(next as ObjectHash);
       if (!bytes) throw new UpdateValidationError(`Accepted directory is unavailable: ${next}`);
       objects.set(next as ObjectHash, bytes);
-      for (const entry of decodeWireDirectory(bytes).entries) if (entry.directory) pending.push(entry.directory);
+      for (const entry of decodeProtocolDirectory(bytes).entries) if (entry.directory) pending.push(entry.directory);
     }
     return { root: root as ObjectHash, objects };
   }
@@ -346,7 +346,7 @@ export class FolderSync implements AcceptedTree {
     await this.host.withWorkspaceIO(async () => {
       const lazy = await this.host.scan();
       if (lazy.root !== current.tree.root) {
-        const root = decodeWireDirectory(await lazy.objects.get(lazy.root)!.bytes());
+        const root = decodeProtocolDirectory(await lazy.objects.get(lazy.root)!.bytes());
         if (root.entries.length) {
           throw new ProtocolError("conflict", "A new placement contains local content but has no accepted-update base", 409, {
             tree: this.tree, path: "/", details: { kind: "workspace-revision" },

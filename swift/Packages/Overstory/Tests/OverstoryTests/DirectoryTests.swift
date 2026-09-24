@@ -3,13 +3,13 @@ import Testing
 @testable import Overstory
 
 @Suite("Profile directory wire model")
-struct ProfileDirectoryWireTests {
+struct ProfileDirectoryProtocolTests {
     @Test("Shared directory fixture decodes description as summary")
     func fixture() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appending(path: "../../../../../tests/fixtures/canopy/directory.json").standardizedFileURL
         let value = try JSONDecoder().decode(
-            WireSnapshotEnvelope<[WireProfileDirectoryEntry]>.self,
+            ProtocolSnapshotEnvelope<[ProtocolProfileDirectoryEntry]>.self,
             from: Data(contentsOf: url)
         )
         #expect(value.observedThrough == "42")

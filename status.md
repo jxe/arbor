@@ -90,6 +90,52 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Overstory identifiers and UI copy — 2026-09-24
+
+Implemented; Swift unverified; Mac app build and install pending. Cleanup 006
+finished the vocabulary rename in code: identifiers and user-visible copy
+only. No wire bytes, JSON fields, routes, on-disk or database names, keychain
+services, bundle identifiers or conformance vectors changed; the iOS
+`wire-format` marker keeps its name.
+
+| Concept | Old | New (TypeScript and Swift) |
+|---|---|---|
+| Protocol client and its errors | `WireClient`, `ArborWireClient`, `WireHTTPError`, `WireTransportError`, `WireUnsupportedOperation`, `WireUpdateConflict`, `ArborWireValidationError` | `ProtocolClient`, `ProtocolHTTPError`, `ProtocolTransportError`, `ProtocolUnsupportedOperation`, `ProtocolUpdateConflict`, `ProtocolValidationError` |
+| Protocol objects and models | `Wire<Name>` / `wire<Name>` (e.g. `WireDirectoryEntry`, `encodeWireDirectory`, `WireSnapshot`, `WireObjectCodec`, `decodeWireCollectionFile`, `WireProjection`, `mergeWireTrees`) | `Protocol<Name>` / `protocol<Name>` (`ProtocolDirectoryEntry`, `encodeProtocolDirectory`, `ProtocolSnapshot`, `ProtocolObjectCodec`, `decodeProtocolCollectionFile`, `ProtocolProjection`, `mergeProtocolTrees`) |
+| Account client | `AccountWireClient`, `accountWireClient`, `wireFor` | `AccountProtocolClient`, `accountProtocolClient`, `accountClientFor` |
+| Other Swift protocol types | `ArborWireReplicaTransport`, `ArborSSEParser`, `ArborSSEFrame`, `WireURLProtocolStub` | `ProtocolReplicaTransport`, `ProtocolSSEParser`, `ProtocolSSEFrame`, `HostURLProtocolStub` |
+| The host (canopyd, or a host a client talks to) | `CanopyDaemon`, `serveCanopy`, `CanopyTree`, `CanopyAccount`, `CanopyAccountStore`, `CanopyAccountRecord`, `CanopyObjectStore`, `CanopyWatchRunner`, `NativeCanopyAccount`, `createCanopySchema`, `openCanopyDatabase`, `CanopyDeploymentConfig`, `claimCanopyAccountBootstrap` | `HostDaemon`, `serveHost`, `HostTree`, `HostAccount`, `HostAccountStore`, `HostAccountRecord`, `HostObjectStore`, `HostWatchRunner`, `NativeHostAccount`, `createHostSchema`, `openHostDatabase`, `HostDeploymentConfig`, `claimHostAccountBootstrap` |
+| `account.yaml` | `CanopyAccountConfiguration(Snapshot)`, `load/parse/watchCanopyAccountConfiguration(s)`; Swift `ArborAccountConfigurationYAML`, `ArborHostedTreeDeclaration`, `ArborResourceDeclaration`, `ArborAccountAccessRule` | `AccountConfiguration(Snapshot)`, `load/parse/watchAccountConfiguration(s)`; Swift `AccountConfigurationYAML`, `HostedTreeDeclaration`, `ResourceDeclaration`, `AccountAccessRule` (matching the TypeScript names) |
+| The Canopy app and editor | `Arbor<Name>` in `swift/CanopyApp` and `CanopyEditor` (`ArborAppModel`, `ArborRootView`, `ArborDocumentBinding`, `ArborEditorHost`, `ArborMarkdownCodec`, …) | `Canopy<Name>` |
+
+Files followed their types: 12 `swift/CanopyApp/Arbor*.swift`, four
+`CanopyEditor` `Arbor*.swift`, 11 Overstory/CanopyWorkingTree `Wire*.swift`
+and `ArborWireClient.swift`/`ArborSSEParser.swift`, and
+`HostObjectStore.swift`/`HostWatchRunner.swift`; in TypeScript
+`packages/client/src/account-client.ts`, `packages/fs/src/protocol-tree.ts`,
+`tests/unit/protocol-client.test.ts`,
+`tests/unit/canopyd/projection-collections.test.ts`, and the fixture
+`tests/fixtures/canopy/merge.json` (was `wire-merge.json`). Names that still
+say Arbor name the local tools (`ArborSync*`, `ArborRemoteLocator` and
+`buildArborLocator` for `arbor://`, `generateArborID`, the data-home
+`useArbor` identity choice). UI copy now names Canopy for the app and
+Overstory for trees ("Make This an Overstory Tree", "Canopy is up to date",
+"Disconnect this iPhone from Overstory?", "Opening Canopy…", "Nested Overstory
+tree", the permission prompts, and canopyd's access page). Host-meaning
+"Canopy" in app copy ("People on this Canopy", "Canopy refused a change") and
+runtime error messages that say "Wire" were left for a copy decision.
+
+Verified on Linux with Bun 1.3.14: `bun run typecheck`, `bun run build`, the
+canopyd-merge suites (335 passes), `bun run build:cli:package`,
+`bun run test:cli:package` (12 passes), `bun run check:links` and
+`git diff --check` pass. `bun run test` has 1,332 passes and 14 failures, all
+in the known environment set (libsecret, sidecar restart, workspace
+discovery, client-generated profile bootstrap, journal compaction, a
+node-query race that passes alone). Not verified: every Swift rename is
+uncompiled, and `swift/Canopy.xcodeproj` was hand-edited for the renamed app
+files and must be regenerated with xcodegen on a Mac; the gates are in
+[release and verification](plans/verification/release-and-soak.md#overstory-identifier-rename-mac-gates).
+
 ## Native 011 daemon-client folds — 2026-09-24
 
 Implemented, not installed. Both daemon clients now live with their only

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateArborID, WireClient, hashObject } from "@overstory/protocol";
+import { generateArborID, ProtocolClient, hashObject } from "@overstory/protocol";
 import { snapshotDirectory } from "@overstory/fs";
 import { FilesystemObjectSource } from "../../packages/arborsync/src/filesystem-object-source.ts";
 import { TreeObjectCache } from "../../packages/arborsync/src/object-cache.ts";
@@ -70,7 +70,7 @@ test("object fallback survives a local failure and distinguishes remote missing,
       boundariesFor: () => scope.boundaries,
       exclusionsFor: () => [],
       pendingBytes: async () => undefined,
-      clientFor: async () => new WireClient(server.url.origin),
+      clientFor: async () => new ProtocolClient(server.url.origin),
       maxFetchedBytes: 0,
       report: (value) => diagnostics.push(value),
     });

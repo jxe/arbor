@@ -24,7 +24,7 @@ function descriptorCanonical(placement: TreePlacement, parentTree: string | null
   return { path, endpoint: placement.endpoint, parentTree };
 }
 
-/** The accepted Canopy base a placement derives from, in Wire vocabulary. */
+/** The accepted Canopy base a placement derives from, in protocol vocabulary. */
 function acceptedBase(placement: { ref?: string | null; update?: string | null; conflicted?: boolean }): { root?: Hash; update?: string; conflicted?: boolean } {
   return {
     ...(placement.ref ? { root: placement.ref as Hash } : {}),

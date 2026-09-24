@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { encodeWireDirectory, hashObject, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type MaterialRef, type SourceOperation } from "@overstory/protocol";
 import { composeFrames, executeExactSourceEdits, validateSourceEditCandidate, validateSourceTrace, UnsupportedSourceEdit } from "../../support/source-edits.ts";
 
 function fixture(text: string, nested = false) {
   const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
-  const leaf = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
+  const leaf = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
   const directory = hashObject(leaf);
-  const rootBytes = nested ? encodeWireDirectory({ type: "directory", entries: [{ name: "folder", directory }, { name: "peer", tree: "other-tree" }] }) : leaf;
+  const rootBytes = nested ? encodeProtocolDirectory({ type: "directory", entries: [{ name: "folder", directory }, { name: "peer", tree: "other-tree" }] }) : leaf;
   const root = hashObject(rootBytes), objects = new Map([[file, bytes], [directory, leaf], [root, rootBytes]]);
   const ref = (range?: [number, number]): MaterialRef => ({ material: { kind: "basis", path: nested ? "/folder/note.md" : "/note.md", object: file }, ...(range ? { range } : {}) });
   const edit = (key: string, range: [number, number], text: string): SourceOperation => ({ key, kind: "editSource", source: ref(range), text });
@@ -24,10 +24,10 @@ describe("exact authored source execution", () => {
   });
   test("equal file objects at different paths do not imply one material identity", async () => {
     const bytes = new TextEncoder().encode("same"), file = hashObject(bytes);
-    const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a.md", file }, { name: "b.md", file }] });
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file }, { name: "b.md", file }] });
     const root = hashObject(rootBytes), objects = new Map([[root, rootBytes], [file, bytes]]);
     const changed = new TextEncoder().encode("new");
-    const expected = hashObject(encodeWireDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(changed) }, { name: "b.md", file }] }));
+    const expected = hashObject(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(changed) }, { name: "b.md", file }] }));
     const result = await validateSourceEditCandidate(root, expected, [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/a.md", object: file } }, text: "new" }], async hash => objects.get(hash)!);
     expect(result.evidence[0]!.path).toBe("/a.md");
   });
@@ -97,7 +97,7 @@ describe("authored source traces", () => {
   function pair(a: string, b: string) {
     const bytesA = new TextEncoder().encode(a), fileA = hashObject(bytesA);
     const bytesB = new TextEncoder().encode(b), fileB = hashObject(bytesB);
-    const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a.md", file: fileA }, { name: "b.md", file: fileB }] });
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file: fileA }, { name: "b.md", file: fileB }] });
     const root = hashObject(rootBytes);
     const objects = new Map([[fileA, bytesA], [fileB, bytesB], [root, rootBytes]]);
     return { root, fileA, fileB, objects };

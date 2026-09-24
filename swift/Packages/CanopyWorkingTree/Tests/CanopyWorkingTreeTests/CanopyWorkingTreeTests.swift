@@ -39,9 +39,9 @@ struct WorkingTreeFixtureTests {
     }
 
     @Test("Replica object bytes and hashes match Overstory vectors")
-    func wireObjects() throws {
+    func protocolObjects() throws {
         let fixture = try JSONDecoder().decode(
-            WireFixture.self,
+            ProtocolFixture.self,
             from: Data(contentsOf: fixtureDirectory().appending(path: "protocol-objects.json"))
         )
         for vector in fixture.objects {
@@ -49,14 +49,14 @@ struct WorkingTreeFixtureTests {
             switch vector.model.type {
             case "file": bytes = Data(base64Encoded: vector.model.bytesBase64!)!
             case "directory":
-                bytes = WorkingTreeWireCodec.directory(
+                bytes = WorkingTreeProtocolCodec.directory(
                     vector.model.entries!.map { ($0.name, $0.file, $0.directory, $0.tree) },
                     childrenSource: vector.model.childrenSource
                 )
             default: throw WorkingTreeError.corruptState("Unknown fixture object")
             }
             #expect(bytes.base64EncodedString() == vector.bytesBase64)
-            #expect(WireObjectCodec.hash(bytes) == vector.hash)
+            #expect(ProtocolObjectCodec.hash(bytes) == vector.hash)
         }
     }
 }
@@ -322,7 +322,7 @@ struct WorkingTreeProviderTests {
                     WorkingTreeNode(path: "/nested", kind: .boundary, boundaryTree: "tr_nested")
                 ]
             )
-            let expected = try WorkingTreeWireCodec.snapshot(for: replacementState)
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
             try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
                 root: expected.root,
                 update: "up_remote",
@@ -342,7 +342,7 @@ struct WorkingTreeProviderTests {
             let provider = WorkingTreeProvider(workingTree: workingTree)
             let boundary = try await provider.resolve(.init(tree: tree, path: "/nested"))
             #expect(boundary.reference == WorkspaceReference(tree: "tr_nested", path: "/"))
-            #expect(boundary.surface == .directory(summary: "Nested Arbor tree"))
+            #expect(boundary.surface == .directory(summary: "Nested Overstory tree"))
             #expect(!boundary.isWritable)
             _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
             await #expect(throws: WorkingTreeError.pendingLocalChanges) {
@@ -368,7 +368,7 @@ struct WorkingTreeProviderTests {
                     WorkingTreeNode(path: "/page", pageID: "pg_page", kind: .markdown, source: source)
                 ]
             )
-            let expected = try WorkingTreeWireCodec.snapshot(for: state)
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: state)
             try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
                 root: expected.root,
                 update: "up_page",
@@ -422,7 +422,7 @@ struct WorkingTreeProviderTests {
                     WorkingTreeNode(path: "/note", pageID: "pg_note", kind: .markdown, source: afterSource)
                 ]
             )
-            let replacement = try WorkingTreeWireCodec.snapshot(for: replacementState)
+            let replacement = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
             try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
                 root: replacement.root,
                 update: "up_after",
@@ -465,7 +465,7 @@ struct WorkingTreeProviderTests {
             #expect(promoted.kind == .directory)
             #expect(promoted.directoryBodyPlacement == .siblingMarkdown)
             #expect(promoted.source == leaf.source)
-            let expected = try WorkingTreeWireCodec.snapshot(for: WorkingTreeState(
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: WorkingTreeState(
                 tree: tree.rawValue,
                 nodes: [
                     WorkingTreeNode(path: "/", kind: .directory),
@@ -496,7 +496,7 @@ struct WorkingTreeProviderTests {
 
         #expect(record.directoryBodyPlacement == nil)
         #expect(record.shadowedSiblingMarkdownSource == nil)
-        let snapshot = try WorkingTreeWireCodec.snapshot(for: WorkingTreeState(
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: WorkingTreeState(
             tree: "tr_legacy",
             nodes: [WorkingTreeNode(path: "/", kind: .directory), record]
         ))
@@ -515,7 +515,7 @@ struct WorkingTreeProviderTests {
         )
 
         #expect(throws: WorkingTreeError.self) {
-            _ = try WorkingTreeWireCodec.snapshot(for: state)
+            _ = try WorkingTreeProtocolCodec.snapshot(for: state)
         }
     }
 
@@ -721,7 +721,7 @@ private struct DirectoryFixture: Decodable {
     var cases: [Case]
 }
 
-private struct WireFixture: Decodable {
+private struct ProtocolFixture: Decodable {
     struct Vector: Decodable {
         struct Model: Decodable {
             struct Entry: Decodable {
@@ -733,7 +733,7 @@ private struct WireFixture: Decodable {
             var type: String
             var bytesBase64: String?
             var entries: [Entry]?
-            var childrenSource: WireCollectionFileDescriptor?
+            var childrenSource: ProtocolCollectionFileDescriptor?
         }
         var model: Model
         var bytesBase64: String

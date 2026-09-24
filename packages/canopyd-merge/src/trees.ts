@@ -1,9 +1,9 @@
 import {
-  compareWireNames,
-  decodeWireDirectory,
-  encodeWireDirectory,
-  type WireDirectory,
-  type WireDirectoryEntry,
+  compareProtocolNames,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
+  type ProtocolDirectory,
+  type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 
 /** Tree reads and path-copying writes over the object store. */
@@ -13,12 +13,12 @@ export interface TreeIO {
   put(bytes: Uint8Array): string;
 }
 
-export async function directory(io: TreeIO, hash: string): Promise<WireDirectory> {
-  return decodeWireDirectory(await io.read(hash));
+export async function directory(io: TreeIO, hash: string): Promise<ProtocolDirectory> {
+  return decodeProtocolDirectory(await io.read(hash));
 }
 
 /** The entry at `names` below `root`, or null. */
-export async function entryAt(io: TreeIO, root: string, names: readonly string[]): Promise<WireDirectoryEntry | null> {
+export async function entryAt(io: TreeIO, root: string, names: readonly string[]): Promise<ProtocolDirectoryEntry | null> {
   let object = root;
   for (const [index, name] of names.entries()) {
     const entry = (await directory(io, object)).entries.find((e) => e.name === name);
@@ -35,12 +35,12 @@ export async function withEntry(
   io: TreeIO,
   root: string,
   names: readonly string[],
-  entry: WireDirectoryEntry | null,
+  entry: ProtocolDirectoryEntry | null,
 ): Promise<string | null> {
   const value = await directory(io, root);
   const [name, ...rest] = names as [string, ...string[]];
   const prior = value.entries.find((e) => e.name === name);
-  let next: WireDirectoryEntry | null = entry;
+  let next: ProtocolDirectoryEntry | null = entry;
   if (rest.length) {
     if (!prior?.directory) return null;
     const child = await withEntry(io, prior.directory, rest, entry);
@@ -48,12 +48,12 @@ export async function withEntry(
     next = { ...prior, directory: child };
   }
   value.entries = [...value.entries.filter((e) => e.name !== name), ...(next ? [next] : [])]
-    .sort((a, b) => compareWireNames(a.name, b.name));
-  return io.put(encodeWireDirectory(value));
+    .sort((a, b) => compareProtocolNames(a.name, b.name));
+  return io.put(encodeProtocolDirectory(value));
 }
 
 /** The value an entry holds: a file or a directory, or null (absent or a nested tree). */
-export function entryValue(entry: WireDirectoryEntry | null | undefined): { file: string } | { directory: string } | null {
+export function entryValue(entry: ProtocolDirectoryEntry | null | undefined): { file: string } | { directory: string } | null {
   if (entry?.file) return { file: entry.file };
   if (entry?.directory) return { directory: entry.directory };
   return null;
@@ -64,8 +64,8 @@ export function entryValue(entry: WireDirectoryEntry | null | undefined): { file
  * at the directory. */
 export async function changedEntryPaths(io: TreeIO, before: string, after: string): Promise<string[]> {
   const paths: string[] = [];
-  const metadata = ({ entries: _entries, ...rest }: WireDirectory) => JSON.stringify(rest);
-  const value = (entry?: WireDirectoryEntry) =>
+  const metadata = ({ entries: _entries, ...rest }: ProtocolDirectory) => JSON.stringify(rest);
+  const value = (entry?: ProtocolDirectoryEntry) =>
     entry?.file ? `file:${entry.file}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
   const walk = async (left: string, right: string, path: string): Promise<void> => {
     if (left === right) return;
@@ -73,7 +73,7 @@ export async function changedEntryPaths(io: TreeIO, before: string, after: strin
     if (metadata(a) !== metadata(b)) paths.push(path || "/");
     const old = new Map(a.entries.map((e) => [e.name, e]));
     const next = new Map(b.entries.map((e) => [e.name, e]));
-    for (const name of [...new Set([...old.keys(), ...next.keys()])].sort(compareWireNames)) {
+    for (const name of [...new Set([...old.keys(), ...next.keys()])].sort(compareProtocolNames)) {
       const x = old.get(name), y = next.get(name), child = `${path}/${name}`;
       if (x?.directory && y?.directory) await walk(x.directory, y.directory, child);
       else if (value(x) !== value(y)) paths.push(child);

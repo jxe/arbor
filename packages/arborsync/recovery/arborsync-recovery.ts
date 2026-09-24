@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { mergeWireTrees, type MergeResult } from "@overstory/tree-merge";
+import { mergeProtocolTrees, type MergeResult } from "@overstory/tree-merge";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
   applyTransitionPayload,
-  compareWireNames,
+  compareProtocolNames,
   decodeObjectDeltas,
   decodeObjectEnvelopes,
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
-  resolveWireLogicalNode,
+  resolveProtocolLogicalNode,
   verifyTreeSnapshotGraph,
   type ObjectHash,
   type TreeSnapshot,
@@ -19,7 +19,7 @@ import {
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
-/** Historical recovery artifact only; these policy fields are never emitted on current Wire. */
+/** Historical recovery artifact only; these policy fields are never emitted on the current protocol. */
 export interface StoredCandidate {
   base: string | null;
   candidate: ObjectHash;
@@ -232,7 +232,7 @@ export function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<Objec
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
     objects.set(hash, bytes);
-    if (kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
+    if (kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
       if (entry.file) visit(entry.file, "file");
       if (entry.directory) visit(entry.directory, "directory");
     }
@@ -241,8 +241,8 @@ export function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<Objec
   return verifyTreeSnapshotGraph({ root, objects });
 }
 
-export async function textAtWirePath(snapshot: TreeSnapshot, path: string): Promise<string | null> {
-  const node = await resolveWireLogicalNode(snapshot.root, logicalPathForWireFile(path), async (hash) => {
+export async function textAtProtocolPath(snapshot: TreeSnapshot, path: string): Promise<string | null> {
+  const node = await resolveProtocolLogicalNode(snapshot.root, logicalPathForProtocolFile(path), async (hash) => {
     const bytes = snapshot.objects.get(hash);
     if (!bytes) throw new Error(`Snapshot is missing object: ${hash}`);
     return bytes;
@@ -251,15 +251,15 @@ export async function textAtWirePath(snapshot: TreeSnapshot, path: string): Prom
   return new TextDecoder("utf8", { fatal: true }).decode(node.body);
 }
 
-function logicalPathForWireFile(path: string): string {
+function logicalPathForProtocolFile(path: string): string {
   const parts = path.split("/").filter(Boolean);
   if (parts.at(-1) === "_index.md") parts.pop();
   else if (parts.at(-1)?.endsWith(".md")) parts[parts.length - 1] = parts.at(-1)!.slice(0, -3);
   return `/${parts.join("/")}`;
 }
 
-/** Replace one physical Wire file while retaining every other disk node and byte. */
-export function replaceWireFile(snapshot: TreeSnapshot, path: string, source: string): TreeSnapshot {
+/** Replace one physical tree file while retaining every other disk node and byte. */
+export function replaceProtocolFile(snapshot: TreeSnapshot, path: string, source: string): TreeSnapshot {
   const parts = path.split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => part === "." || part === "..")) throw new Error(`Invalid Wire file path: ${path}`);
   const objects = new Map(snapshot.objects);
@@ -269,7 +269,7 @@ export function replaceWireFile(snapshot: TreeSnapshot, path: string, source: st
   const rewrite = (directoryHash: ObjectHash, depth: number): ObjectHash => {
     const bytes = objects.get(directoryHash);
     if (!bytes) throw new Error(`Snapshot is missing object: ${directoryHash}`);
-    const directory = decodeWireDirectory(bytes);
+    const directory = decodeProtocolDirectory(bytes);
     if (directory.type !== "directory") throw new Error(`Wire path parent is not a directory: ${path}`);
     const name = parts[depth]!;
     const prior = directory.entries.find((entry) => entry.name === name);
@@ -280,8 +280,8 @@ export function replaceWireFile(snapshot: TreeSnapshot, path: string, source: st
     }
     const entries = directory.entries.filter((entry) => entry.name !== name);
     entries.push(depth === parts.length - 1 ? { name, file: replacement } : { name, directory: replacement });
-    entries.sort((left, right) => compareWireNames(left.name, right.name));
-    const next = encodeWireDirectory({
+    entries.sort((left, right) => compareProtocolNames(left.name, right.name));
+    const next = encodeProtocolDirectory({
       type: "directory",
       entries,
       ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}),
@@ -310,13 +310,13 @@ export async function mergeRecoveryVariant(input: {
     ...input.local.objects,
     ...input.current.objects,
   ]);
-  const merge = await mergeWireTrees(input.base.root, input.local.root, input.current.root, async (hash) => {
+  const merge = await mergeProtocolTrees(input.base.root, input.local.root, input.current.root, async (hash) => {
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Merge object unavailable: ${hash}`);
     return bytes;
   });
   const snapshot = reachableSnapshot(merge.root, new Map([...available, ...merge.objects]));
-  const source = input.sourcePath ? await textAtWirePath(input.local, input.sourcePath) : null;
+  const source = input.sourcePath ? await textAtProtocolPath(input.local, input.sourcePath) : null;
   return {
     name: input.name,
     localRoot: input.local.root,
@@ -330,7 +330,7 @@ export async function mergeRecoveryVariant(input: {
   };
 }
 
-export function assertUnchangedCanopy(
+export function assertUnchangedHost(
   expected: { update: string; root: ObjectHash },
   actual: { update: string; root: ObjectHash },
 ): void {

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeWireDirectory, hashObject } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject } from "@overstory/protocol";
 import { validateGraphChange } from "../../../packages/canopyd/src/updates/graph-validation.ts";
 function fixture() {
   const objects = new Map<string, Uint8Array>(),
@@ -12,7 +12,7 @@ function fixture() {
   const file = (text: string) => put(new TextEncoder().encode(text));
   const dir = (entries: any[]) =>
     put(
-      encodeWireDirectory({
+      encodeProtocolDirectory({
         type: "directory",
         entries: [...entries].sort((a, b) =>
           Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)),
@@ -136,7 +136,7 @@ test("changed collections are revalidated while unchanged siblings inherit their
   const f = fixture();
   const make = (text: string) =>
     f.put(
-      encodeWireDirectory({
+      encodeProtocolDirectory({
         type: "directory",
         entries: [
           { name: "_store.json", file: f.file(text) },
@@ -172,7 +172,7 @@ test("changed collections are revalidated while unchanged siblings inherit their
 test("an unproven basis collection lends no proof, so a candidate keeping it is revalidated", async () => {
   const f = fixture();
   const retired = f.put(
-    encodeWireDirectory({
+    encodeProtocolDirectory({
       type: "directory",
       entries: [
         { name: "_store.json", file: f.file("rows") },

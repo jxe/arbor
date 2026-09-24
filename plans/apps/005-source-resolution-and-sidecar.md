@@ -49,7 +49,7 @@ At this baseline, `packages/canopyd/src/host.ts` has:
 
 ```ts
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
-// serveCanopy options:
+// serveHost options:
 queryRuntime?: QueryStreamRuntime;
 mutationRuntime?: MutationCallRuntime;
 ```

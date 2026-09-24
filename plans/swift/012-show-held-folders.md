@@ -15,13 +15,13 @@ Today the app reads that state and shows nothing actionable.
 ## What exists
 
 - `ArborSyncRESTClient.discardHeld(tree:)` (`swift/CanopyApp/ArborSync/`) calls the route.
-- `ArborAppModel` receives each daemon tree's `sync` in
+- `CanopyAppModel` receives each daemon tree's `sync` in
   `LocalArborSyncTreePresentation`.
 - `editAccountConfigurationFile` refuses to edit a configuration tree in
   `conflict` with "review it in Sync Status", which names a review that no
   longer exists.
 - The app's own working tree already has "Discard Refused Changes…" in
-  `ArborSyncStatusView`, backed by `ArborAppModel.discardHeldChanges()`.
+  `ArborSyncStatusView`, backed by `CanopyAppModel.discardHeldChanges()`.
 
 ## Work
 

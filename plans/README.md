@@ -12,7 +12,6 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Plan | What it does |
 |---|---|
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
-| Cleanup [006](soon/006-overstory-identifiers.md) | Rename `Wire*`/`Canopy*` identifiers and UI copy to the Overstory vocabulary |
 | Apps [007](soon/007-cddl-collection-schemas.md) | Swift verification and the authorized cutover of the implemented CDDL collection schemas |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
 | Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) | Decide who owns a Mac's identity and account credentials (data home or app); the client folds and unused daemon routes are done |

@@ -1,4 +1,4 @@
-import { decodeWireDirectory, encodeWireDirectory, hashObject, verifyTreeSnapshotGraph, type TreeSnapshot, type SourceOperation } from "@overstory/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, verifyTreeSnapshotGraph, type TreeSnapshot, type SourceOperation } from "@overstory/protocol";
 
 /** Exact editor-declared relocation. This constructs a candidate; it does not infer
  * moves from snapshots or reconcile concurrent trees. */
@@ -17,7 +17,7 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
   for(const [hash,bytes] of context.candidate?.objects ?? []) {
     if(hashObject(bytes)!==hash)throw Error("Invalid candidate object");objects.set(hash,bytes);
   }
-  const directory=(hash:string)=>{const bytes=objects.get(hash);if(!bytes)throw Error("Missing directory");return decodeWireDirectory(bytes);};
+  const directory=(hash:string)=>{const bytes=objects.get(hash);if(!bytes)throw Error("Missing directory");return decodeProtocolDirectory(bytes);};
   const locate=(parts:string[])=>{let hash=graph.root;for(const name of parts){const entry=directory(hash).entries.find(e=>e.name===name);if(!entry?.directory)throw Error("Path crosses a file or tree boundary");hash=entry.directory;}return hash;};
   const sourceParent=locate(source.slice(0,-1)),destination=locate(parent);
   const entry=directory(sourceParent).entries.find(e=>e.name===source.at(-1));
@@ -28,7 +28,7 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
     if(!parts.length)mutate(d);
     else{const e=d.entries.find(e=>e.name===parts[0]);if(!e?.directory)throw Error("Missing parent");e.directory=change(e.directory,parts.slice(1),mutate);}
     d.entries.sort((a,b)=>Buffer.compare(Buffer.from(a.name),Buffer.from(b.name)));
-    const bytes=encodeWireDirectory(d),next=hashObject(bytes);objects.set(next,bytes);return next;
+    const bytes=encodeProtocolDirectory(d),next=hashObject(bytes);objects.set(next,bytes);return next;
   }
   let root=graph.root;
   if(input.kind==="moveEntry")root=change(root,source.slice(0,-1),d=>{d.entries=d.entries.filter(e=>e.name!==source.at(-1));});
@@ -80,11 +80,11 @@ export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, 
   const objects=new Map(current.objects);let root=current.root;
   function remove(hash:string,parts:string[]):string {
     const bytes=objects.get(hash);if(!bytes)throw Error("Missing directory");
-    const d=decodeWireDirectory(bytes),index=d.entries.findIndex(e=>e.name===parts[0]);
+    const d=decodeProtocolDirectory(bytes),index=d.entries.findIndex(e=>e.name===parts[0]);
     if(index<0)throw Error("Missing removal source");
     if(parts.length===1)d.entries.splice(index,1);
     else {const e=d.entries[index]!;if(!e.directory)throw Error("Removal crosses boundary");e.directory=remove(e.directory,parts.slice(1));}
-    const encoded=encodeWireDirectory(d),result=hashObject(encoded);objects.set(result,encoded);return result;
+    const encoded=encodeProtocolDirectory(d),result=hashObject(encoded);objects.set(result,encoded);return result;
   }
   for(const [index,path] of actions.removals.entries()) {
     const parts=path.slice(1).split("/");
@@ -92,7 +92,7 @@ export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, 
     let hash=graph.root;
     for(const [i,part] of parts.entries()) {
       const bytes=graph.objects.get(hash);if(!bytes)throw Error("Missing basis directory");
-      const entry=decodeWireDirectory(bytes).entries.find(e=>e.name===part);
+      const entry=decodeProtocolDirectory(bytes).entries.find(e=>e.name===part);
       if(!entry || !(entry.file??entry.directory) || (i<parts.length-1&&!entry.directory))throw Error("Invalid removal source");
       hash=(entry.file??entry.directory)!;
     }
@@ -100,7 +100,7 @@ export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, 
     root=remove(root,parts);
   }
   const reachable=new Set<string>();
-  function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of decodeWireDirectory(objects.get(hash)!).entries){if(e.file)visit(e.file,false);else if(e.directory)visit(e.directory,true);}}
+  function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of decodeProtocolDirectory(objects.get(hash)!).entries){if(e.file)visit(e.file,false);else if(e.directory)visit(e.directory,true);}}
   visit(root,true);
   return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
 }

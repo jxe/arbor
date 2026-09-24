@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CanopyDaemon, serveCanopy } from "@overstory/canopyd";
-import { generateArborID, readAccountConfigGraph, sha256, snapshotAccountConfig, WireClient, type ObjectHash } from "@overstory/protocol";
+import { HostDaemon, serveHost } from "@overstory/canopyd";
+import { generateArborID, readAccountConfigGraph, sha256, snapshotAccountConfig, ProtocolClient, type ObjectHash } from "@overstory/protocol";
 import { ObjectStore } from "@overstory/object-store";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { migrateAccessStore, UnmigratableAccessError } from "./run.ts";
@@ -49,13 +49,13 @@ function toSchema19(path: string): void {
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-migration-019-"));
   root = join(sandbox, "canopy");
-  const running = await serveCanopy({
+  const running = await serveHost({
     dataRoot: root,
     accounts: [{ handle: "owner", token: ownerToken, communityWriter: true }, { handle: "bob", token: bobToken, communityWriter: false }],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
   });
   try {
-    const owner = new WireClient(running.url, ownerToken);
+    const owner = new ProtocolClient(running.url, ownerToken);
     const account = (await owner.account()).account;
     const configuration = await owner.descriptor(account.configuration.id);
     const graph = readAccountConfigGraph(await owner.snapshot(configuration.tree.id, configuration.tree.root), configuration.tree.id);
@@ -141,7 +141,7 @@ test("owners, rules and columns after the run, once", async () => {
   expect(again.trees).toEqual(report.trees);
 
   // This build serves the migrated root with the access schema 19 gave.
-  const canopy = await CanopyDaemon.open(root);
+  const canopy = await HostDaemon.open(root);
   try {
     const owner = canopy.accountByHandle("owner")!, bob = canopy.accountByHandle("bob")!;
     expect(canopy.canRead(null, ids.community)).toBe(true);

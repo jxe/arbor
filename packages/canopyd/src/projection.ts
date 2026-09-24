@@ -3,55 +3,55 @@ import {
   isPageID,
   pageIDStableKey,
   parseMarkdown,
-  resolveWireLogicalNode,
+  resolveProtocolLogicalNode,
   type CollectionFileDescriptor,
   type ObjectHash,
-  type ResolvedWireLogicalNode,
-  type WireDirectory,
+  type ResolvedProtocolLogicalNode,
+  type ProtocolDirectory,
 } from "@overstory/protocol";
 import {
-  decodeWireCollectionFile,
+  decodeProtocolCollectionFile,
   unsupportedLegacyCollection,
-  type DecodedWireCollectionFile,
-  type WireCollectionFileRow,
+  type DecodedProtocolCollectionFile,
+  type ProtocolCollectionFileRow,
 } from "@overstory/collection-schema";
 
-export interface WireProjectionOptions {
+export interface ProtocolProjectionOptions {
   root: ObjectHash;
   load(hash: ObjectHash): Promise<Uint8Array>;
 }
 
-export type WireResolution =
-  | { kind: "node"; path: string; node: ResolvedWireLogicalNode }
-  | { kind: "collection-file-row"; path: string; row: WireCollectionFileRow; descriptor: CollectionFileDescriptor }
+export type ProtocolResolution =
+  | { kind: "node"; path: string; node: ResolvedProtocolLogicalNode }
+  | { kind: "collection-file-row"; path: string; row: ProtocolCollectionFileRow; descriptor: CollectionFileDescriptor }
   | { kind: "missing"; path: string };
 
-function wireNodeStableKey(node: ResolvedWireLogicalNode): string | null {
+function protocolNodeStableKey(node: ResolvedProtocolLogicalNode): string | null {
   const file = node.kind === "file" ? node.bytes : node.body;
   if (!file) return null;
   const id = parseMarkdown(new TextDecoder().decode(file)).frontmatter.id;
   return isPageID(id) ? pageIDStableKey(id) : null;
 }
 
-export function wireCollectionFileRowTitle(row: WireCollectionFileRow): string {
+export function protocolCollectionFileRowTitle(row: ProtocolCollectionFileRow): string {
   return typeof row.properties.title === "string" ? row.properties.title
     : typeof row.properties.name === "string" ? row.properties.name
     : typeof row.properties.slug === "string" ? row.properties.slug
     : row.path;
 }
 
-export function wireCollectionFileRowMarkdown(row: WireCollectionFileRow): string {
+export function protocolCollectionFileRowMarkdown(row: ProtocolCollectionFileRow): string {
   const json = JSON.stringify(row.properties, null, 2);
   const longest = Math.max(2, ...[...json.matchAll(/`+/g)].map((match) => match[0].length));
   const fence = "`".repeat(longest + 1);
-  return `# ${wireCollectionFileRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
+  return `# ${protocolCollectionFileRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
-/** Path and stable-key resolution over a content-addressed Wire tree. */
-export class WireProjection {
-  constructor(private readonly options: WireProjectionOptions) {}
+/** Path and stable-key resolution over a content-addressed protocol tree. */
+export class ProtocolProjection {
+  constructor(private readonly options: ProtocolProjectionOptions) {}
 
-  async collectionFile(directory: WireDirectory): Promise<DecodedWireCollectionFile | null> {
+  async collectionFile(directory: ProtocolDirectory): Promise<DecodedProtocolCollectionFile | null> {
     const descriptor = directory.childrenSource;
     if (!descriptor) return null;
     // Retired version-1 collections are an explicit unsupported read, never ordinary files.
@@ -63,13 +63,13 @@ export class WireProjection {
       this.options.load(sourceHash),
       this.options.load(schemaHash),
     ]);
-    return decodeWireCollectionFile(descriptor, source, schema);
+    return decodeProtocolCollectionFile(descriptor, source, schema);
   }
 
-  async resolve(requestedPath: string, stableKey: string | null = null): Promise<WireResolution> {
+  async resolve(requestedPath: string, stableKey: string | null = null): Promise<ProtocolResolution> {
     const path = canonicalNodePath(requestedPath);
-    let node = await resolveWireLogicalNode(this.options.root, path, this.options.load);
-    if (node && (!stableKey || wireNodeStableKey(node) === stableKey)) return { kind: "node", path, node };
+    let node = await resolveProtocolLogicalNode(this.options.root, path, this.options.load);
+    if (node && (!stableKey || protocolNodeStableKey(node) === stableKey)) return { kind: "node", path, node };
 
     const collectionFileRow = await this.findCollectionFileRow(path, stableKey);
     if (collectionFileRow) return collectionFileRow;
@@ -79,10 +79,10 @@ export class WireProjection {
     return healed ?? { kind: "missing", path };
   }
 
-  private async findCollectionFileRow(path: string, stableKey: string | null): Promise<Extract<WireResolution, { kind: "collection-file-row" }> | null> {
+  private async findCollectionFileRow(path: string, stableKey: string | null): Promise<Extract<ProtocolResolution, { kind: "collection-file-row" }> | null> {
     if (path === "/") return null;
     const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-    const parent = await resolveWireLogicalNode(this.options.root, parentPath, this.options.load);
+    const parent = await resolveProtocolLogicalNode(this.options.root, parentPath, this.options.load);
     if (parent?.kind !== "directory") return null;
     const descriptor = parent.directory.childrenSource;
     if (!descriptor) return null;
@@ -100,7 +100,7 @@ export class WireProjection {
     } : null;
   }
 
-  private async findNodeByStableKey(stableKey: string): Promise<Extract<WireResolution, { kind: "node" }> | null> {
+  private async findNodeByStableKey(stableKey: string): Promise<Extract<ProtocolResolution, { kind: "node" }> | null> {
     const pending = ["/"];
     const visited = new Set<string>();
     while (pending.length) {
@@ -108,9 +108,9 @@ export class WireProjection {
       const path = pending.shift()!;
       if (visited.has(path)) continue;
       visited.add(path);
-      const node = await resolveWireLogicalNode(this.options.root, path, this.options.load);
+      const node = await resolveProtocolLogicalNode(this.options.root, path, this.options.load);
       if (!node) continue;
-      if (wireNodeStableKey(node) === stableKey) return { kind: "node", path, node };
+      if (protocolNodeStableKey(node) === stableKey) return { kind: "node", path, node };
       if (node.kind !== "directory") continue;
       const directories = new Set(node.directory.entries
         .filter((entry) => !entry.tree && (entry.file ?? entry.directory) && entry.name !== "_index.md" && !entry.name.endsWith(".md"))

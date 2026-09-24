@@ -70,7 +70,7 @@ the file-backed `ChangeLog` and `FileControlStore`. The runner takes:
 - a **change log** (`ChangeLogPort`): `retained`, `nextPublication`,
   `request`, `compact`, `discard`;
 - a **control store** (`ControlStore`): the `UpdateControl` record below;
-- a **transport**: `WireClient`'s `submitUpdates` and `descriptor`, and
+- a **transport**: `ProtocolClient`'s `submitUpdates` and `descriptor`, and
   `object` or `snapshot` for installs;
 - an **accepted tree** (`AcceptedTree`): its installed accepted state, its
   local objects, `install`, and `recordAccepted`.
@@ -142,7 +142,7 @@ survives restart; later changes authored on it wait with it. The app offers
 refused while it is being applied is discarded at once, because its draft is
 retained.
 
-**Watching.** `CanopyWatchRunner` (`OverstoryClient`) follows one tree's watch
+**Watching.** `HostWatchRunner` (`OverstoryClient`) follows one tree's watch
 stream, feeds every event to the coordinator, reconnects with backoff, and
 recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and visits
 share it. A watch frame under a transport failure is evidence that transport
@@ -150,7 +150,7 @@ works and retries at once.
 
 **Structural gating.** Structural actions, imports and assets are available
 only when unsettled changes form one chain from the installed accepted graph;
-otherwise they report `awaitingCanopyReconciliation`. Provider capabilities
+otherwise they report `awaitingHostReconciliation`. Provider capabilities
 advertise that restriction; the coordinator enforces it. Local Trash nodes and
 locally held file objects are private recovery material in the same structural
 record, excluded from Overstory candidates.

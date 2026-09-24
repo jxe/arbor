@@ -2,13 +2,13 @@ import Foundation
 import Overstory
 import Yams
 
-public enum ArborAccountAccessSubject: Hashable, Sendable {
+public enum AccountAccessSubject: Hashable, Sendable {
     case everyone
     case profile(tree: String)
     case link(digest: String)
 }
 
-extension ArborAccountAccessSubject: Codable {
+extension AccountAccessSubject: Codable {
     private enum CodingKeys: String, CodingKey { case kind, tree, digest }
 
     public init(from decoder: Decoder) throws {
@@ -21,7 +21,7 @@ extension ArborAccountAccessSubject: Codable {
             throw DecodingError.dataCorruptedError(
                 forKey: .kind,
                 in: values,
-                debugDescription: "Unknown Arbor access subject"
+                debugDescription: "Unknown access subject"
             )
         }
     }
@@ -41,11 +41,11 @@ extension ArborAccountAccessSubject: Codable {
     }
 }
 
-public struct ArborAccountAccessRule: Codable, Hashable, Sendable {
-    public var subject: ArborAccountAccessSubject
+public struct AccountAccessRule: Codable, Hashable, Sendable {
+    public var subject: AccountAccessSubject
     public var access: String
 
-    public init(subject: ArborAccountAccessSubject, access: String) {
+    public init(subject: AccountAccessSubject, access: String) {
         self.subject = subject
         self.access = access
     }
@@ -55,78 +55,78 @@ public struct ArborAccountAccessRule: Codable, Hashable, Sendable {
 /// complete resource policy; `access` projects its unscoped read/write rules for
 /// the ordinary sharing UI, which edits only those. Other rules are never
 /// flattened, and the entry is always written back as resource rules.
-public struct ArborHostedTreeDeclaration: Hashable, Sendable {
+public struct HostedTreeDeclaration: Hashable, Sendable {
     public var canonical: String
-    private var ordinaryAccess: [ArborAccountAccessRule]
-    public var resourceAccess: [WireResourceAccessRule]
-    public var access: [ArborAccountAccessRule] {
+    private var ordinaryAccess: [AccountAccessRule]
+    public var resourceAccess: [ProtocolResourceAccessRule]
+    public var access: [AccountAccessRule] {
         get { ordinaryAccess }
         set { ordinaryAccess = newValue }
     }
-    public func completeResourceAccess() throws -> [WireResourceAccessRule] {
+    public func completeResourceAccess() throws -> [ProtocolResourceAccessRule] {
         if resourceAccess.compactMap(Self.ordinaryRule) == ordinaryAccess { return resourceAccess }
         var retained = resourceAccess.filter { Self.ordinaryRule($0) == nil }
         for rule in try ordinaryAccess.map(Self.resourceRule) {
             if let index = retained.firstIndex(where: { $0.sameConsentKey(as: rule) }) {
                 let previous = retained[index]
-                let combined = WireResourceOperation.allCases.filter { previous.allow.contains($0) || rule.allow.contains($0) }
-                retained[index] = try WireResourceAccessRule(who: previous.who, via: previous.via,
+                let combined = ProtocolResourceOperation.allCases.filter { previous.allow.contains($0) || rule.allow.contains($0) }
+                retained[index] = try ProtocolResourceAccessRule(who: previous.who, via: previous.via,
                     allow: combined.contains(.write) ? [.write] : combined, within: previous.within)
             } else { retained.append(rule) }
         }
         return retained
     }
     /// A new entry from the sharing controls' read/write rules.
-    public init(canonical: String, access: [ArborAccountAccessRule]) {
+    public init(canonical: String, access: [AccountAccessRule]) {
         self.canonical = canonical; self.ordinaryAccess = access; self.resourceAccess = []
     }
-    public init(canonical: String, resourceAccess: [WireResourceAccessRule]) {
+    public init(canonical: String, resourceAccess: [ProtocolResourceAccessRule]) {
         self.canonical = canonical; self.ordinaryAccess = resourceAccess.compactMap(Self.ordinaryRule); self.resourceAccess = resourceAccess
     }
-    static func ordinaryRule(_ rule: WireResourceAccessRule) -> ArborAccountAccessRule? {
+    static func ordinaryRule(_ rule: ProtocolResourceAccessRule) -> AccountAccessRule? {
         guard rule.via == nil, rule.within == nil || rule.within == "/",
               rule.allow == [.read] || rule.allow == [.write] else { return nil }
-        let subject: ArborAccountAccessSubject
+        let subject: AccountAccessSubject
         switch rule.who {
         case .everyone: subject = .everyone
         case .profile(let tree): subject = .profile(tree: tree)
         case .link(let digest): subject = .link(digest: digest)
         case .me: return nil
         }
-        return ArborAccountAccessRule(subject: subject, access: rule.allow[0].rawValue)
+        return AccountAccessRule(subject: subject, access: rule.allow[0].rawValue)
     }
-    static func resourceRule(_ rule: ArborAccountAccessRule) throws -> WireResourceAccessRule {
+    static func resourceRule(_ rule: AccountAccessRule) throws -> ProtocolResourceAccessRule {
         guard rule.access == "read" || rule.access == "write" else { throw ResourcePolicyError.invalid }
-        let who: WireResourceWho
+        let who: ProtocolResourceWho
         switch rule.subject {
         case .everyone: who = .everyone
         case .profile(let tree): who = .profile(tree)
         case .link(let digest): who = .link(digest)
         }
         // Rules produced by the sharing controls have validated subjects/access.
-        return try WireResourceAccessRule(who: who, allow: [rule.access == "write" ? .write : .read])
+        return try ProtocolResourceAccessRule(who: who, allow: [rule.access == "write" ? .write : .read])
     }
 }
 
-public struct ArborResourceDeclaration: Codable, Hashable, Sendable {
+public struct ResourceDeclaration: Codable, Hashable, Sendable {
     public var canonical: String?
-    public var access: [WireResourceAccessRule]
+    public var access: [ProtocolResourceAccessRule]
 }
 
-public struct ArborAccountDeviceDeclaration: Codable, Hashable, Sendable {
+public struct AccountDeviceDeclaration: Codable, Hashable, Sendable {
     public var label: String
     public var administrator: Bool?
 }
 
 public struct NativeTreeAccessEntry: Identifiable, Hashable, Sendable {
-    public var subject: ArborAccountAccessSubject
+    public var subject: AccountAccessSubject
     public var locator: String?
     public var displayName: String?
     public var access: String
     public var isCurrentUser: Bool
 
     public init(
-        subject: ArborAccountAccessSubject,
+        subject: AccountAccessSubject,
         locator: String? = nil,
         displayName: String? = nil,
         access: String,
@@ -153,9 +153,9 @@ public struct NativeTreeAccessPresentation: Hashable, Sendable {
     public var canonical: String
     public var entries: [NativeTreeAccessEntry]
     public var canEdit: Bool
-    public var resourceRules: [WireResourceAccessRule]
+    public var resourceRules: [ProtocolResourceAccessRule]
 
-    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool, resourceRules: [WireResourceAccessRule] = []) {
+    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool, resourceRules: [ProtocolResourceAccessRule] = []) {
         self.tree = tree
         self.canonical = canonical
         self.entries = entries
@@ -167,31 +167,31 @@ public struct NativeTreeAccessPresentation: Hashable, Sendable {
 public enum NativeTreeAccessTarget: Hashable, Sendable {
     case everyone
     case profile(locator: String)
-    case existing(ArborAccountAccessSubject)
+    case existing(AccountAccessSubject)
 }
 
-public enum ArborAccountConfigurationYAML {
+public enum AccountConfigurationYAML {
     /// Parse `trees.yaml`, which holds resource rules (`who` / `allow` /
     /// `within` / `via`) only; the earlier `subject` / `access` rules are rejected.
-    private static func parseResources(_ source: String) throws -> [String: ArborResourceDeclaration] {
+    private static func parseResources(_ source: String) throws -> [String: ResourceDeclaration] {
         try validatePolicyYAML(source)
-        return try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source)
+        return try YAMLDecoder().decode([String: ResourceDeclaration].self, from: source)
     }
 
     /// The hosted entries of `trees.yaml`; policy-only entries have no canonical URL.
-    public static func trees(from source: String) throws -> [String: ArborHostedTreeDeclaration] {
+    public static func trees(from source: String) throws -> [String: HostedTreeDeclaration] {
         try parseResources(source).compactMapValues { value in
-            value.canonical.map { ArborHostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+            value.canonical.map { HostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
         }
     }
 
     public static func replacingTrees(
         in source: String,
-        with change: (inout [String: ArborHostedTreeDeclaration]) throws -> Void
+        with change: (inout [String: HostedTreeDeclaration]) throws -> Void
     ) throws -> String {
         var resources = try parseResources(source)
         let original = resources.compactMapValues { value in
-            value.canonical.map { ArborHostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+            value.canonical.map { HostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
         }
         var changed = original
         try change(&changed)
@@ -199,7 +199,7 @@ public enum ArborAccountConfigurationYAML {
         let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
         for key in keys {
             if let tree = changed[key] {
-                resources[key] = ArborResourceDeclaration(canonical: tree.canonical,
+                resources[key] = ResourceDeclaration(canonical: tree.canonical,
                     access: try tree.completeResourceAccess())
             } else { resources[key] = nil }
         }
@@ -210,11 +210,11 @@ public enum ArborAccountConfigurationYAML {
         var result = source
         for key in keys.sorted() {
             let replacement = try resources[key].map { try YAMLEncoder().encode([key: $0]) } ?? ""
-            if let range = arborTopLevelBlock(named: key, in: result) {
+            if let range = topLevelYAMLBlock(named: key, in: result) {
                 result = result.replacingCharacters(in: range, with: replacement)
             } else {
                 guard original[key] == nil else {
-                    throw ArborWireValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
+                    throw ProtocolValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
                 }
                 result += (result.hasSuffix("\n") || result.isEmpty ? "" : "\n") + replacement
             }
@@ -223,13 +223,13 @@ public enum ArborAccountConfigurationYAML {
         return result
     }
 
-    public static func devices(from source: String) throws -> [String: ArborAccountDeviceDeclaration] {
-        try YAMLDecoder().decode([String: ArborAccountDeviceDeclaration].self, from: source)
+    public static func devices(from source: String) throws -> [String: AccountDeviceDeclaration] {
+        try YAMLDecoder().decode([String: AccountDeviceDeclaration].self, from: source)
     }
 
     public static func replacingDevices(
         in source: String,
-        with change: (inout [String: ArborAccountDeviceDeclaration]) throws -> Void
+        with change: (inout [String: AccountDeviceDeclaration]) throws -> Void
     ) throws -> String {
         let original = try devices(from: source)
         var changed = original
@@ -238,7 +238,7 @@ public enum ArborAccountConfigurationYAML {
         guard keys.count == 1, let key = keys.first else {
             return try YAMLEncoder().encode(changed)
         }
-        if let range = arborTopLevelBlock(named: key, in: source) {
+        if let range = topLevelYAMLBlock(named: key, in: source) {
             let replacement = try changed[key].map { value in
                 try YAMLEncoder().encode([key: value])
             } ?? ""
@@ -257,43 +257,43 @@ public enum ArborAccountConfigurationYAML {
     }
 
     public static func validateAdministratorChange(
-        devices: [String: ArborAccountDeviceDeclaration],
+        devices: [String: AccountDeviceDeclaration],
         currentDeviceID: String?,
         targetDeviceID: String,
         administrator: Bool
     ) throws {
         guard let currentDeviceID,
               devices[currentDeviceID]?.administrator == true else {
-            throw ArborWireValidationError.invalidValue("Only an administrator can change device roles")
+            throw ProtocolValidationError.invalidValue("Only an administrator can change device roles")
         }
         guard devices[targetDeviceID] != nil else {
-            throw ArborWireValidationError.invalidValue("The device is no longer active")
+            throw ProtocolValidationError.invalidValue("The device is no longer active")
         }
         guard targetDeviceID != currentDeviceID else {
-            throw ArborWireValidationError.invalidValue("A device cannot change its own administrator role")
+            throw ProtocolValidationError.invalidValue("A device cannot change its own administrator role")
         }
         if !administrator,
            devices.values.filter({ $0.administrator == true }).count == 1,
            devices[targetDeviceID]?.administrator == true {
-            throw ArborWireValidationError.invalidValue("The last administrator cannot be removed")
+            throw ProtocolValidationError.invalidValue("The last administrator cannot be removed")
         }
     }
 
     public static func validateDeviceRemoval(
-        devices: [String: ArborAccountDeviceDeclaration],
+        devices: [String: AccountDeviceDeclaration],
         currentDeviceID: String?,
         targetDeviceID: String
     ) throws {
         guard let currentDeviceID,
               devices[currentDeviceID]?.administrator == true else {
-            throw ArborWireValidationError.invalidValue("Only an administrator can deauthorize a device")
+            throw ProtocolValidationError.invalidValue("Only an administrator can deauthorize a device")
         }
         guard let target = devices[targetDeviceID] else {
-            throw ArborWireValidationError.invalidValue("The device is no longer active")
+            throw ProtocolValidationError.invalidValue("The device is no longer active")
         }
         if target.administrator == true,
            devices.values.filter({ $0.administrator == true }).count == 1 {
-            throw ArborWireValidationError.invalidValue("The last administrator cannot be deauthorized")
+            throw ProtocolValidationError.invalidValue("The last administrator cannot be deauthorized")
         }
     }
 
@@ -308,7 +308,7 @@ public enum ArborAccountConfigurationYAML {
     }
 
     public static func presentedAccessEntries(
-        rules: [ArborAccountAccessRule],
+        rules: [AccountAccessRule],
         profileLocators: [String: String],
         currentProfileTree: String?,
         currentHandle: String?
@@ -345,23 +345,23 @@ public enum ArborAccountConfigurationYAML {
     }
 
     public static func validateAccessChange(
-        subject: ArborAccountAccessSubject,
+        subject: AccountAccessSubject,
         access: String,
         currentProfileTree: String?
     ) throws {
         guard access == "none" || access == "read" || access == "write" else {
-            throw ArborWireValidationError.invalidValue("Unknown access level")
+            throw ProtocolValidationError.invalidValue("Unknown access level")
         }
         if access == "none",
            case let .profile(tree) = subject,
            tree == currentProfileTree {
-            throw ArborWireValidationError.invalidValue("You cannot remove your own access")
+            throw ProtocolValidationError.invalidValue("You cannot remove your own access")
         }
     }
 
 }
 
-public enum ArborAccountConfigurationFileError: Error, LocalizedError, Sendable, Equatable {
+public enum AccountConfigurationFileError: Error, LocalizedError, Sendable, Equatable {
     case notUTF8(String)
 
     public var errorDescription: String? {
@@ -371,7 +371,7 @@ public enum ArborAccountConfigurationFileError: Error, LocalizedError, Sendable,
     }
 }
 
-public extension ArborAccountConfigurationYAML {
+public extension AccountConfigurationYAML {
     /// The on-disk checkout of one account-configuration tree beneath a data
     /// home: `<dataHome>/accounts/<configurationTree>/`.
     static func checkoutURL(dataHome: URL, configurationTree: String) -> URL {
@@ -385,7 +385,7 @@ public extension ArborAccountConfigurationYAML {
         let url = checkout.appending(path: filename)
         let data = try Data(contentsOf: url)
         guard let source = String(data: data, encoding: .utf8) else {
-            throw ArborAccountConfigurationFileError.notUTF8(url.path)
+            throw AccountConfigurationFileError.notUTF8(url.path)
         }
         return source
     }
@@ -434,7 +434,7 @@ public extension ArborAccountConfigurationYAML {
     }
 }
 
-public enum ArborLocalPlacementsYAML {
+public enum LocalPlacementsYAML {
     public static func placements(from source: String) throws -> [String: [String: String]] {
         try YAMLDecoder().decode([String: [String: String]].self, from: source)
     }
@@ -448,14 +448,14 @@ public enum ArborLocalPlacementsYAML {
         var placements = try placements(from: source)
         if placements[configurationTree]?[path] == tree { return source }
         if let occupied = placements.values.first(where: { $0[path] != nil })?[path], occupied != tree {
-            throw ArborWireValidationError.invalidValue("Another tree is already placed at \(path)")
+            throw ProtocolValidationError.invalidValue("Another tree is already placed at \(path)")
         }
         if let existing = placements.values.flatMap(\.values).first(where: { $0 == tree }), existing == tree,
            placements[configurationTree]?[path] != tree {
-            throw ArborWireValidationError.invalidValue("Tree \(tree) already has a local placement")
+            throw ProtocolValidationError.invalidValue("Tree \(tree) already has a local placement")
         }
         if placements[configurationTree] != nil {
-            if let range = arborTopLevelBlock(named: configurationTree, in: source),
+            if let range = topLevelYAMLBlock(named: configurationTree, in: source),
                source[range].hasPrefix("\(configurationTree):\n") {
                 let quotedPath = String(decoding: try JSONEncoder().encode(path), as: UTF8.self)
                 let newline = source[..<range.upperBound].hasSuffix("\n") ? "" : "\n"
@@ -476,7 +476,7 @@ public enum ArborLocalPlacementsYAML {
     }
 }
 
-func arborTopLevelBlock(named key: String, in source: String) -> Range<String.Index>? {
+func topLevelYAMLBlock(named key: String, in source: String) -> Range<String.Index>? {
     var cursor = source.startIndex
     var start: String.Index?
     var trailing: String.Index?

@@ -8,14 +8,14 @@ import Yams
 public struct NativeResourceConsent: Sendable {
     public let configurationTree: String
     public let tree: String
-    public let rule: WireResourceAccessRule
+    public let rule: ProtocolResourceAccessRule
     public let removing: Bool
-    public let previous: WireResourceAccessRule?
+    public let previous: ProtocolResourceAccessRule?
     public let before: String
     public let after: String
 }
 
-public extension WireResourceAccessRule {
+public extension ProtocolResourceAccessRule {
     var consentDescription: String {
         let caller: String
         switch who {
@@ -36,19 +36,19 @@ public extension WireResourceAccessRule {
         }.joined(separator: ", ")
         return "\(caller)\(via.map { " via " + $0 } ?? " using ordinary access, including through code"): \(operations) within \(within ?? "/") (excluding nested trees)."
     }
-    func sameConsentKey(as other: WireResourceAccessRule) -> Bool {
+    func sameConsentKey(as other: ProtocolResourceAccessRule) -> Bool {
         who == other.who && via == other.via && (within ?? "/") == (other.within ?? "/")
     }
 }
 
-public extension ArborAccountConfigurationYAML {
+public extension AccountConfigurationYAML {
     static func prepareResourceConsent(
-        configurationTree: String, tree: String, rule: WireResourceAccessRule,
+        configurationTree: String, tree: String, rule: ProtocolResourceAccessRule,
         removing: Bool = false, source: String
     ) throws -> NativeResourceConsent {
         // No implicit conversion while the coordinated migration is pending.
         try validatePolicyYAML(source)
-        var resources = try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source)
+        var resources = try YAMLDecoder().decode([String: ResourceDeclaration].self, from: source)
         guard TreeID.isWellFormed(tree),
               tree != configurationTree else { throw ResourcePolicyError.invalid }
         let wasEmpty = resources.isEmpty
@@ -56,7 +56,7 @@ public extension ArborAccountConfigurationYAML {
         let prior = resources[tree]?.access ?? []
         guard prior.filter({ $0.sameConsentKey(as: rule) }).count <= 1 else { throw ResourcePolicyError.invalid }
         let previous = prior.first { $0.sameConsentKey(as: rule) }
-        var declaration = resources[tree] ?? ArborResourceDeclaration(canonical: nil, access: [])
+        var declaration = resources[tree] ?? ResourceDeclaration(canonical: nil, access: [])
         declaration.access.removeAll { $0.sameConsentKey(as: rule) }
         if !removing { declaration.access.append(rule) }
         resources[tree] = declaration
@@ -64,16 +64,16 @@ public extension ArborAccountConfigurationYAML {
         let after: String
         if wasEmpty {
             after = try YAMLEncoder().encode(resources)
-        } else if let range = arborTopLevelBlock(named: tree, in: source) {
+        } else if let range = topLevelYAMLBlock(named: tree, in: source) {
             after = source.replacingCharacters(in: range, with: replacement)
         } else {
             guard !existed else {
-                throw ArborWireValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
+                throw ProtocolValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
             }
             after = source + (source.isEmpty || source.hasSuffix("\n") ? "" : "\n") + replacement
         }
         try validatePolicyYAML(after)
-        _ = try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: after)
+        _ = try YAMLDecoder().decode([String: ResourceDeclaration].self, from: after)
         return NativeResourceConsent(configurationTree: configurationTree, tree: tree, rule: rule,
             removing: removing, previous: previous, before: source, after: after)
     }
@@ -81,10 +81,10 @@ public extension ArborAccountConfigurationYAML {
     static func applyingResourceConsent(_ review: NativeResourceConsent, to source: String,
                                        deviceID: String?, devicesSource: String) throws -> String {
         guard try isAdministrator(deviceID: deviceID, devicesSource: devicesSource) else {
-            throw ArborWireValidationError.invalidValue("Only an administrator may change resource permissions")
+            throw ProtocolValidationError.invalidValue("Only an administrator may change resource permissions")
         }
         guard source == review.before else {
-            throw ArborWireValidationError.invalidValue("Configuration changed; review permissions again")
+            throw ProtocolValidationError.invalidValue("Configuration changed; review permissions again")
         }
         return review.after
     }
@@ -117,7 +117,7 @@ func validatePolicyYAML(_ source: String) throws {
               fields.allSatisfy({ ["canonical", "access"].contains($0.key.string ?? "") }) else { throw ResourcePolicyError.invalid }
         if let access = fields.first(where: { $0.key.string == "access" })?.value.sequence {
             // Resource rules only: an earlier `subject` / `access` rule fails to decode here.
-            let rules = try access.map { try YAMLDecoder().decode(WireResourceAccessRule.self, from: Yams.serialize(node: $0)) }
+            let rules = try access.map { try YAMLDecoder().decode(ProtocolResourceAccessRule.self, from: Yams.serialize(node: $0)) }
             for (i, rule) in rules.enumerated() where rules.prefix(i).contains(where: { $0.sameConsentKey(as: rule) }) {
                 throw ResourcePolicyError.invalid
             }

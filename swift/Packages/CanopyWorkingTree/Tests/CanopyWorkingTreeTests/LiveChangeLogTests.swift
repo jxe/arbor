@@ -17,7 +17,7 @@ struct LiveChangeLogTests {
                 expected: String(basis.source.dropLast()))]), source: source)
     }
 
-    private func place(_ current: WireCurrentTree, client: ArborWireClient) async throws -> WorkingTree {
+    private func place(_ current: ProtocolCurrentTree, client: ProtocolClient) async throws -> WorkingTree {
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: current.tree.id))
         let snapshot = try await client.snapshot(tree: current.tree.id, root: current.tree.root)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot,
@@ -26,16 +26,16 @@ struct LiveChangeLogTests {
     }
 
     @Test("Stale admission survives several peer updates, restart, hidden continuation and resolution", arguments: ["/page", "/sub/child"])
-    func staleAdmissionThroughCanopy(path: String) async throws {
+    func staleAdmissionThroughHost(path: String) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"],
               let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "source-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: origin, credential: token)
-        let peer = ArborWireClient(origin: origin, credential: token)
-        let transport = ArborWireReplicaTransport(client: client)
+        let client = ProtocolClient(origin: origin, credential: token)
+        let peer = ProtocolClient(origin: origin, credential: token)
+        let transport = ProtocolReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: path)
@@ -91,11 +91,11 @@ struct LiveChangeLogTests {
         guard case let .array(decisions) = inspection.fields["decisions"], !decisions.isEmpty else {
             Issue.record("Expected accepted choices"); return
         }
-        let expectedHashes = Set(["Peer at R2", "My continued alternative"].map { WireObjectCodec.hash(Data($0.utf8)) })
+        let expectedHashes = Set(["Peer at R2", "My continued alternative"].map { ProtocolObjectCodec.hash(Data($0.utf8)) })
         // The successor advances the same scoped choice. The unchanged final
         // newline stays outside it; no whole-file enclosure is introduced.
         #expect(decisions.count == 1)
-        let complete = decisions.compactMap { value -> [String: WireReadValue]? in
+        let complete = decisions.compactMap { value -> [String: ProtocolReadValue]? in
             guard case let .object(fields) = value, case let .array(choices) = fields["alternatives"] else { return nil }
             let hashes = choices.compactMap { value -> String? in
                 guard case let .object(a) = value, case let .object(v) = a["value"], case let .string(hash) = v["file"] else { return nil }
@@ -125,19 +125,19 @@ struct LiveChangeLogTests {
         #expect(try await peer.conflicts(tree: treeID, state: firstConflict.tree.update, root: firstConflict.tree.root) == firstInspection)
         let identities = try alternatives.map { value -> String in
             guard case let .object(fields) = value, case let .string(id) = fields["id"] else {
-                throw ArborWireValidationError.invalidValue("Missing alternative identity")
+                throw ProtocolValidationError.invalidValue("Missing alternative identity")
             }
             return id
         }
-        let guards = try decisions.map { value -> WireResolutionDeclaration in
-            guard case let .object(d) = value, case let .string(id) = d["id"], case let .array(values) = d["alternatives"] else { throw ArborWireValidationError.invalidValue("Missing guard") }
+        let guards = try decisions.map { value -> ProtocolResolutionDeclaration in
+            guard case let .object(d) = value, case let .string(id) = d["id"], case let .array(values) = d["alternatives"] else { throw ProtocolValidationError.invalidValue("Missing guard") }
             return .init(state:current.tree.update, conflict:id, alternatives:try values.map { value in
-                guard case let .object(a) = value, case let .string(id) = a["id"] else { throw ArborWireValidationError.invalidValue("Missing alternative") }
+                guard case let .object(a) = value, case let .string(id) = a["id"] else { throw ProtocolValidationError.invalidValue("Missing alternative") }
                 return id
             })
         }
         #expect(guards.contains { $0.conflict == conflict && Set($0.alternatives) == Set(identities) })
-        let resolution = WireCandidateUpdate(candidate: current.tree.root, trace: [], resolves:guards, objects: [])
+        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, trace: [], resolves:guards, objects: [])
         var staleResolution = resolution
         staleResolution.change = UUID().uuidString
         staleResolution.resolves[0].state = firstConflict.tree.update
@@ -146,7 +146,7 @@ struct LiveChangeLogTests {
         do {
             _ = try await peer.submitUpdateResponse(staleRequest)
             Issue.record("Stale resolution must not clear the newer decision")
-        } catch is WireUpdateConflictError { }
+        } catch is ProtocolUpdateConflictError { }
         #expect(try await peer.descriptor(tree: treeID).tree.update == current.tree.update)
         let resolutionRequest = try await peer.prepareUpdates(tree: treeID,
             base: .init(root: current.tree.root, update: current.tree.update), updates: [resolution])
@@ -171,8 +171,8 @@ extension LiveChangeLogTests {
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "structure-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: origin, credential: token)
-        let transport = ArborWireReplicaTransport(client: client)
+        let client = ProtocolClient(origin: origin, credential: token)
+        let transport = ProtocolReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
@@ -227,8 +227,8 @@ extension LiveChangeLogTests {
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "branch-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: origin, credential: token)
-        let transport = ArborWireReplicaTransport(client: client)
+        let client = ProtocolClient(origin: origin, credential: token)
+        let transport = ProtocolReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID), tree = try await place(initial, client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
@@ -241,7 +241,7 @@ extension LiveChangeLogTests {
         let addedSource = a1.source + "Continued locally\n"
         _ = try await added.admit(intent: intent(addedSource, from: a1))
         #expect(await provider.capabilities().structuralActions == false)
-        await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+        await #expect(throws: UpdateError.awaitingHostReconciliation) {
             try await provider.perform(.rename(reference: created.reference, name: "blocked"))
         }
         let queue = try await ChangeLog(tree: treeID, stateRoot: root), records = try await queue.retained()
@@ -297,21 +297,21 @@ extension LiveChangeLogTests {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string:address),
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
-        struct Fixture: Decodable { let graph: WireSnapshot }
+        struct Fixture: Decodable { let graph: ProtocolSnapshot }
         let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../docs/overstory-spec/conformance/entry-actions.json")
         let fixture = try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path))
         let root = FileManager.default.temporaryDirectory.appending(path:"compound-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at:root) }
-        let client = ArborWireClient(origin:origin,credential:token)
-        let transport = ArborWireReplicaTransport(client:client)
+        let client = ProtocolClient(origin:origin,credential:token)
+        let transport = ProtocolReplicaTransport(client:client)
         let current = try await client.descriptor(tree:treeID)
         let snapshot = try await client.snapshot(tree:treeID,root:current.tree.root)
         let objects = Dictionary(uniqueKeysWithValues:snapshot.objects.map { ($0.hash,$0.bytes) })
         let fixtureObjects = Dictionary(uniqueKeysWithValues:fixture.graph.objects.map { ($0.hash,$0.bytes) })
-        guard case let .directory(existing,descriptor) = try WireObjectCodec.decode(#require(objects[snapshot.root]),kind:.directory),
-              case let .directory(additions,_) = try WireObjectCodec.decode(#require(fixtureObjects[fixture.graph.root]),kind:.directory) else { Issue.record("Expected directories"); return }
-        let bytes = try WireObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },childrenSource:descriptor))
-        let seed = WireCandidateUpdate(candidate:WireObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:WireObjectCodec.hash(bytes),bytes:bytes)])
+        guard case let .directory(existing,descriptor) = try ProtocolObjectCodec.decode(#require(objects[snapshot.root]),kind:.directory),
+              case let .directory(additions,_) = try ProtocolObjectCodec.decode(#require(fixtureObjects[fixture.graph.root]),kind:.directory) else { Issue.record("Expected directories"); return }
+        let bytes = try ProtocolObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },childrenSource:descriptor))
+        let seed = ProtocolCandidateUpdate(candidate:ProtocolObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:ProtocolObjectCodec.hash(bytes),bytes:bytes)])
         _ = try await client.submitUpdateResponse(client.prepareUpdates(tree:treeID,base:.init(root:current.tree.root,update:current.tree.update),updates:[seed]))
         let initial = try await client.descriptor(tree:treeID), tree = try await place(initial,client:client)
         let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
@@ -343,7 +343,7 @@ extension LiveChangeLogTests {
 
 extension LiveChangeLogTests {
     @Test("Native review reads hidden material, resolves exact content and recovers a lost response", arguments: ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"])
-    func nativeReviewThroughCanopy(mode: String) async throws {
+    func nativeReviewThroughHost(mode: String) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"],
@@ -351,7 +351,7 @@ extension LiveChangeLogTests {
               let treeID = try JSONDecoder().decode([String: String].self, from: Data(trees.utf8))[mode] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "review-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: origin, credential: token)
+        let client = ProtocolClient(origin: origin, credential: token)
         let transport = ReviewResponseLossTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
@@ -391,10 +391,10 @@ extension LiveChangeLogTests {
             // Deleting an ancestor of an unresolved leaf produces a coupled root choice.
             let projected = try await client.snapshot(tree: treeID, root: inspection.root)
             let rootBytes = try #require(projected.objects.first { $0.hash == projected.root }?.bytes)
-            guard case let .directory(entries, metadata) = try WireObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
-            let deletionBytes = try WireObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, childrenSource: metadata))
-            let deletionRoot = WireObjectCodec.hash(deletionBytes)
-            let deletion = WireCandidateUpdate(candidate: deletionRoot, trace: nil,
+            guard case let .directory(entries, metadata) = try ProtocolObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
+            let deletionBytes = try ProtocolObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, childrenSource: metadata))
+            let deletionRoot = ProtocolObjectCodec.hash(deletionBytes)
+            let deletion = ProtocolCandidateUpdate(candidate: deletionRoot, trace: nil,
                 objects: [.init(hash: deletionRoot, bytes: deletionBytes)])
             let deletionRequest = try await client.prepareUpdates(tree: treeID,
                 base: .init(root: inspection.root, update: inspection.state), updates: [deletion])
@@ -490,12 +490,12 @@ extension LiveChangeLogTests {
                     if let content = try await coordinator.reviewContent(alternative),
                        content == Data(later.utf8) || content == Data(later.dropLast().utf8) { preserved = true }
                     if let directory = alternative.value.directory {
-                        var pending = [(directory, WireEntryKind.directory)], visited = Set<String>()
+                        var pending = [(directory, ProtocolEntryKind.directory)], visited = Set<String>()
                         while let (hash, kind) = pending.popLast() {
                             guard visited.insert(hash).inserted else { continue }
                             let bytes = try await client.object(tree: treeID, hash: hash)
                             if kind == .file, bytes == Data(later.utf8) { preserved = true }
-                            if kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: kind) {
+                            if kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: kind) {
                                 for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
                             }
                         }
@@ -532,9 +532,9 @@ extension LiveChangeLogTests {
               let treeID = try JSONDecoder().decode([String: String].self, from: Data(trees.utf8))["independent-ranges"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "range-review-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let client = ArborWireClient(origin: origin, credential: token)
+        let client = ProtocolClient(origin: origin, credential: token)
         let tree = try await place(try await client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ProtocolReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
         let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let initialSource = try await session.snapshot()
@@ -576,7 +576,7 @@ extension LiveChangeLogTests {
 }
 
 private actor ReviewResponseLossTransport: UpdateTransport {
-    let client: ArborWireClient
+    let client: ProtocolClient
     private var shouldDrop = false
     private var shouldHold = false
     private var continuation: CheckedContinuation<Void, Never>?
@@ -585,12 +585,12 @@ private actor ReviewResponseLossTransport: UpdateTransport {
     func releaseResponse() { continuation?.resume(); continuation = nil; shouldHold = false }
     private var dropped: Data?
     private var replay: Data?
-    init(client: ArborWireClient) { self.client = client }
+    init(client: ProtocolClient) { self.client = client }
     func dropNextResponse() { shouldDrop = true }
     func replayedExactBody() -> Bool { dropped != nil && dropped == replay }
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         let response = try await client.submitUpdateResponse(prepared)
-        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
         if shouldHold, request.updates.contains(where: { !$0.resolves.isEmpty }) {
             await withCheckedContinuation { continuation = $0 }
         }
@@ -601,9 +601,9 @@ private actor ReviewResponseLossTransport: UpdateTransport {
         if dropped != nil { replay = prepared.body }
         return response
     }
-    func descriptor(tree: String) async throws -> WireCurrentTree { try await client.descriptor(tree: tree) }
-    func snapshot(tree: String, root: String) async throws -> WireSnapshot { try await client.snapshot(tree: tree, root: root) }
-    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree { try await client.descriptor(tree: tree) }
+    func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot { try await client.snapshot(tree: tree, root: root) }
+    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> ProtocolDecisionPageContract {
         try await client.conflicts(tree: tree, state: state, root: root, after: after)
     }
     func object(tree: String, hash: String) async throws -> Data { try await client.object(tree: tree, hash: hash) }

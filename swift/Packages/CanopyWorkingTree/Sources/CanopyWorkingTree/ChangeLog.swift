@@ -5,7 +5,7 @@ import Foundation
 
 /// A local publication dependency. Equal roots never identify a predecessor.
 public enum LocalChangeBasis: Codable, Equatable, Sendable {
-    case accepted(WireUpdateBase)
+    case accepted(ProtocolUpdateBase)
     case authored(change: String)
 }
 
@@ -39,11 +39,11 @@ public struct LocalChange: Codable, Equatable, Sendable {
     public let change: String
     public let tree: String
     public let basis: LocalChangeBasis
-    public let graph: WireSnapshot
+    public let graph: ProtocolSnapshot
     public let sourcePath: String?
     public let document: SourceDocumentCapture?
-    public let candidate: WireSnapshot
-    public let update: WireCandidateUpdate
+    public let candidate: ProtocolSnapshot
+    public let update: ProtocolCandidateUpdate
     public var entryTransfer: EntryTransfer?
     public var entryActions: EntryActions?
     public var creation: SourcePageCreation?
@@ -52,7 +52,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// Digest of a captured intent, for exact-retry recognition without sources.
     public static func intentDigest(_ intent: WorkspaceDocumentIntent) -> String {
-        WireObjectCodec.hash((try? sortedKeysJSON(intent)) ?? Data())
+        ProtocolObjectCodec.hash((try? sortedKeysJSON(intent)) ?? Data())
     }
 
     /// The wire allows this many frames per element and this many operations
@@ -69,7 +69,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// edits (`compactTrace`). Only the final candidate's objects travel;
     /// the authority reproduces intermediate roots by executing the frames.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
-                graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true) throws {
+                graph: ProtocolSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true) throws {
         try intent.validate()
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -104,13 +104,13 @@ public struct LocalChange: Codable, Equatable, Sendable {
             }
         }
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
-              parts.allSatisfy(WireGraph.isPathComponent),
+              parts.allSatisfy(ProtocolGraph.isPathComponent),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
-        var decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        var decoded = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
-        func store(_ object: WireObject) throws -> String {
-            let value = try WireObjectCodec.encode(object), hash = WireObjectCodec.hash(value)
+        func store(_ object: ProtocolObject) throws -> String {
+            let value = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(value)
             bytes[hash] = value
             decoded[hash] = object
             return hash
@@ -130,7 +130,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                !entries.contains(where: { $0.name == parts[depth] }), previous.isEmpty {
                 let body = try store(.file(Data(source.utf8)))
                 addedBody = (depth == 0 ? "/" : "/" + parts[..<depth].joined(separator: "/"), hash, body)
-                entries.append(WireDirectoryEntry(name: parts[depth], file: body))
+                entries.append(ProtocolDirectoryEntry(name: parts[depth], file: body))
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
                 return try store(.directory(entries, childrenSource: descriptor))
             }
@@ -149,12 +149,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
             resultDirectories[depth] = result
             return result
         }
-        func copyMaterial(_ copy: WorkspaceSourceLineage, file: String) throws -> WireSemanticValue {
+        func copyMaterial(_ copy: WorkspaceSourceLineage, file: String) throws -> ProtocolSemanticValue {
             guard let document = copy.document else {
                 return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
             }
             let parts = document.path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard document.path.hasPrefix("/"), parts.allSatisfy(WireGraph.isPathComponent) else { throw Self.invalid("Invalid copy path") }
+            guard document.path.hasPrefix("/"), parts.allSatisfy(ProtocolGraph.isPathComponent) else { throw Self.invalid("Invalid copy path") }
             // Other documents are untouched by this record, so their basis
             // object is the same in every frame's `before` tree.
             var hash = graph.root
@@ -169,7 +169,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             }
             throw Self.invalid("Invalid copy source")
         }
-        var frames: [WireTraceFrame] = []
+        var frames: [ProtocolTraceFrame] = []
         var sources: [String: String] = [graph.root: intent.basis.source]
         var previousRoot = graph.root, previousSource = intent.basis.source
         var evidence = true
@@ -179,7 +179,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             if frame == 0 { basisFile = file }
             sources[root] = generation.source
             let basisSource = Array(previousSource.utf8)
-            var operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
+            var operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [ProtocolSourceOperation] in
                 // Byte-valid output alone does not prove scalar-aligned selection.
                 for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
                     if offset < basisSource.count && basisSource[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
@@ -188,12 +188,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
                 let key = "edit-\(frame)-\(index)"
                 if edit.utf8Range.isEmpty, let copies = edit.copies, copies.count == 1,
                    copies[0].replacement == 0..<edit.replacement.utf8.count {
-                    let material: WireSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
-                    return [try WireSourceOperation(["key":.string("copy-\(frame)-\(index)-0"),"kind":.string("copySource"),
+                    let material: ProtocolSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
+                    return [try ProtocolSourceOperation(["key":.string("copy-\(frame)-\(index)-0"),"kind":.string("copySource"),
                         "source":.object(["material":try copyMaterial(copies[0], file: file),"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
                         "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
                 }
-                var fields: [String: WireSemanticValue] = [
+                var fields: [String: ProtocolSemanticValue] = [
                     "key": .string(key), "kind": .string("editSource"),
                     "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
                                        "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
@@ -206,21 +206,21 @@ public struct LocalChange: Codable, Equatable, Sendable {
                         "range": .array([.integer(part.replacement.lowerBound), .integer(part.replacement.upperBound)])
                     ]) })
                 }
-                var operations = [try WireSourceOperation(fields)]
+                var operations = [try ProtocolSourceOperation(fields)]
                 for (copyIndex, copy) in (edit.copies ?? []).enumerated() {
-                    let target: WireSemanticValue = .object([
+                    let target: ProtocolSemanticValue = .object([
                         "material":.object(["kind":.string("operation"),"change":.string(change),"operation":.string(key)]),
                         "range":.array([.integer(copy.replacement.lowerBound),.integer(copy.replacement.upperBound)])])
-                    let source: WireSemanticValue = .object([
+                    let source: ProtocolSemanticValue = .object([
                         "material":try copyMaterial(copy, file: file),
                         "range":.array([.integer(copy.source.lowerBound),.integer(copy.source.upperBound)])])
-                    operations.append(try WireSourceOperation(["key":.string("copy-\(frame)-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
-                    operations.append(try WireSourceOperation(["key":.string("copy-placeholder-\(frame)-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
+                    operations.append(try ProtocolSourceOperation(["key":.string("copy-\(frame)-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
+                    operations.append(try ProtocolSourceOperation(["key":.string("copy-placeholder-\(frame)-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
                 }
                 return operations
             }
             if file == nil, let added = addedBody {
-                operations = [try WireSourceOperation([
+                operations = [try ProtocolSourceOperation([
                     "key": .string("add-\(frame)"), "kind": .string("addEntry"),
                     "destination": .object([
                         "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(added.parentPath), "object": .string(added.parent)])]),
@@ -232,12 +232,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
             // A generation without operations cannot be a frame; the whole
             // record is then a snapshot.
             if operations.isEmpty { evidence = false }
-            frames.append(WireTraceFrame(before: previousRoot, after: root, operations: operations))
+            frames.append(ProtocolTraceFrame(before: previousRoot, after: root, operations: operations))
             previousRoot = root; previousSource = generation.source
         }
         let root = previousRoot
-        let candidate = try WireGraph.reachable(from: root, in: bytes)
-        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+        let candidate = try ProtocolGraph.reachable(from: root, in: bytes)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
         if evidence, compact {
             // A compacted frame is proven against the generation sources it
             // spans before it replaces the chain; otherwise the chain stays.
@@ -246,7 +246,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         }
         if frames.count > Self.traceFrameLimit || frames.reduce(0, { $0 + $1.operations.count }) > Self.traceOperationLimit { evidence = false }
         let known = Set(graph.objects.map(\.hash))
-        var update = WireCandidateUpdate(candidate: root, change: change,
+        var update = ProtocolCandidateUpdate(candidate: root, change: change,
                                          trace: evidence && !frames.isEmpty ? frames : nil,
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Against an accepted basis the server can rebuild the edited file from
@@ -256,9 +256,9 @@ public struct LocalChange: Codable, Equatable, Sendable {
         // accepted base root before the request's own objects are stored),
         // so its file goes whole.
         if case .accepted = basis {
-            var deltas: [WireObjectDelta] = []
+            var deltas: [ProtocolObjectDelta] = []
             if let file = basisFile,
-               let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
+               let resultHash = (try? ProtocolObjectCodec.encode(.file(Data(intent.source.utf8)))).map(ProtocolObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
                let delta = Self.delta(baseHash: file, base: Data(intent.basis.source.utf8), edits: intent.patch.edits, result: result) {
                 deltas.append(delta)
@@ -275,17 +275,17 @@ public struct LocalChange: Codable, Equatable, Sendable {
             update.objects.removeAll { replaced.contains($0.hash) }
             update.deltas = deltas
         }
-        // Validate the complete Wire grammar, including change and operation identities.
+        // Validate the complete protocol grammar, including change and operation identities.
         _ = try JSONEncoder().encode(update)
         self.change = change; self.tree = tree; self.basis = basis
-        self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
+        self.graph = ProtocolSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = sourcePath; self.candidate = candidate; self.update = update
         self.document = SourceDocumentCapture(reference: intent.basis.reference, basisRevision: intent.basis.contentRevision, intentDigest: Self.intentDigest(intent))
     }
 
     /// A frame is plain when every operation is a lineage-free `editSource`
     /// over `basis` material of one path with a range: what `compose` handles.
-    private static func plainEdits(_ frame: WireTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
+    private static func plainEdits(_ frame: ProtocolTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
         var path: String?, object: String?, edits: [WorkspaceSourceEdit] = []
         for operation in frame.operations {
             guard operation.kind == "editSource", operation.fields["lineage"] == nil || operation.fields["lineage"] == .array([]),
@@ -312,8 +312,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// operation material are kept as they are, so a claim always stays in the
     /// frame whose basis it was captured against (docs/overstory-spec/09). The same rule runs
     /// in `@arbor/canopy-client` and in Canopy's `composeFrames`.
-    public static func compactTrace(_ frames: [WireTraceFrame]) -> [WireTraceFrame] {
-        var result: [WireTraceFrame] = []
+    public static func compactTrace(_ frames: [ProtocolTraceFrame]) -> [ProtocolTraceFrame] {
+        var result: [ProtocolTraceFrame] = []
         var index = 0
         while index < frames.count {
             guard let first = plainEdits(frames[index]) else { result.append(frames[index]); index += 1; continue }
@@ -324,12 +324,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
             else if before == after { /* a plain run back to its start states nothing */ }
             else if let composed = try? WorkspaceSourceEdit.compose(generations: generations) {
                 let operations = composed.enumerated().compactMap { i, edit in
-                    try? WireSourceOperation(["key": .string("edit-\(index)-\(i)"), "kind": .string("editSource"),
+                    try? ProtocolSourceOperation(["key": .string("edit-\(index)-\(i)"), "kind": .string("editSource"),
                         "source": .object(["material": .object(["kind": .string("basis"), "path": .string(first.path), "object": .string(first.object)]),
                                            "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
                         "text": .string(edit.replacement)])
                 }
-                if operations.count == composed.count, !operations.isEmpty { result.append(WireTraceFrame(before: before, after: after, operations: operations)) }
+                if operations.count == composed.count, !operations.isEmpty { result.append(ProtocolTraceFrame(before: before, after: after, operations: operations)) }
                 else { result.append(contentsOf: frames[index..<end]) }
             } else { result.append(contentsOf: frames[index..<end]) }
             index = end
@@ -339,7 +339,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// Whether a plain frame's operations take the source at its `before`
     /// root to the source at its `after` root; frames of other kinds pass.
-    private static func reproduces(_ frame: WireTraceFrame, sourcePath: String, sources: [String: String]) -> Bool {
+    private static func reproduces(_ frame: ProtocolTraceFrame, sourcePath: String, sources: [String: String]) -> Bool {
         guard let plain = plainEdits(frame), plain.path == sourcePath else { return true }
         guard let before = sources[frame.before], let after = sources[frame.after],
               let produced = try? WorkspaceDocumentPatch(baseContentRevision: "", edits: plain.edits).applying(to: before) else { return false }
@@ -348,19 +348,19 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// A common-prefix/common-suffix splice for a byte object whose base is
     /// retained; used for directory objects where one entry changed.
-    static func spliceDelta(baseHash: String, base: Data, result: WireObjectEnvelope) -> WireObjectDelta? {
+    static func spliceDelta(baseHash: String, base: Data, result: ProtocolObjectEnvelope) -> ProtocolObjectDelta? {
         let target = result.bytes
         var prefix = 0
         while prefix < base.count, prefix < target.count, base[base.startIndex + prefix] == target[target.startIndex + prefix] { prefix += 1 }
         var suffix = 0
         while suffix < base.count - prefix, suffix < target.count - prefix,
               base[base.endIndex - 1 - suffix] == target[target.endIndex - 1 - suffix] { suffix += 1 }
-        var instructions: [WireObjectDeltaInstruction] = []
+        var instructions: [ProtocolObjectDeltaInstruction] = []
         if prefix > 0 { instructions.append(.copy(offset: 0, length: prefix)) }
         let middle = target.subdata(in: (target.startIndex + prefix)..<(target.endIndex - suffix))
         if !middle.isEmpty { instructions.append(.insert(middle)) }
         if suffix > 0 { instructions.append(.copy(offset: base.count - suffix, length: suffix)) }
-        guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
+        guard !instructions.isEmpty, let delta = try? ProtocolObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
               (try? delta.apply(to: base)) == target else { return nil }
         guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
@@ -369,8 +369,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// Copy/insert instructions from ordered, non-overlapping patch edits over
     /// the file payload `base`, only when the delta reproduces the exact result
     /// bytes and is smaller than them.
-    static func delta(baseHash: String, base: Data, edits: [WorkspaceSourceEdit], result: WireObjectEnvelope) -> WireObjectDelta? {
-        var instructions: [WireObjectDeltaInstruction] = []
+    static func delta(baseHash: String, base: Data, edits: [WorkspaceSourceEdit], result: ProtocolObjectEnvelope) -> ProtocolObjectDelta? {
+        var instructions: [ProtocolObjectDeltaInstruction] = []
         var cursor = 0
         for edit in edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
             let lower = edit.utf8Range.lowerBound
@@ -381,8 +381,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
             cursor = edit.utf8Range.upperBound
         }
         if cursor < base.count { instructions.append(.copy(offset: cursor, length: base.count - cursor)) }
-        guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
-              let baseObject = try? WireObjectCodec.encode(.file(base)),
+        guard !instructions.isEmpty, let delta = try? ProtocolObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
+              let baseObject = try? ProtocolObjectCodec.encode(.file(base)),
               (try? delta.apply(to: baseObject)) == result.bytes else { return nil }
         guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
@@ -391,14 +391,14 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// Structural actions retain captured operations when available, otherwise
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
-                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
-        _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
-        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+                graph: ProtocolSnapshot, candidate: ProtocolSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
+        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
         self.change = change; self.tree = tree; self.basis = basis
-        self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
-        self.candidate = WireSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
+        self.graph = ProtocolSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
+        self.candidate = ProtocolSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = nil; self.document = nil
         guard entryTransfer == nil || entryActions == nil else { throw Self.invalid("Multiple entry intent representations") }
         self.entryTransfer = entryTransfer; self.entryActions = entryActions
@@ -412,19 +412,19 @@ public struct LocalChange: Codable, Equatable, Sendable {
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
         let captured = try prepared?.operations ?? creation.map { try Self.creationOperations($0, graph: graph, candidate: candidate) } ?? []
-        self.update = WireCandidateUpdate(candidate: candidate.root, change: change,
-                                          trace: captured.isEmpty ? nil : [WireTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
+        self.update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
+                                          trace: captured.isEmpty ? nil : [ProtocolTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
                                           objects: self.candidate.objects.filter { !known.contains($0.hash) })
         _ = try JSONEncoder().encode(update)
     }
 
     /// Rehydrate a stored record. The journal keeps the wire element verbatim,
     /// so nothing is re-derived from document sources on load.
-    init(change: String, tree: String, basis: LocalChangeBasis, graph: WireSnapshot, candidate: WireSnapshot, update: WireCandidateUpdate,
+    init(change: String, tree: String, basis: LocalChangeBasis, graph: ProtocolSnapshot, candidate: ProtocolSnapshot, update: ProtocolCandidateUpdate,
          sourcePath: String?, document: SourceDocumentCapture?, entryTransfer: EntryTransfer?, entryActions: EntryActions?, creation: SourcePageCreation?, localTrash: WorkingTreeLocalTrash?) throws {
         self.change = change; self.tree = tree; self.basis = basis
-        self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
-        self.candidate = WireSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
+        self.graph = ProtocolSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
+        self.candidate = ProtocolSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
         self.update = update; self.sourcePath = sourcePath; self.document = document
         self.entryTransfer = entryTransfer; self.entryActions = entryActions; self.creation = creation; self.localTrash = localTrash
         try validate()
@@ -436,8 +436,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
         guard !change.isEmpty, update.change == change, update.candidate == candidate.root else { throw Self.invalid("Wire element does not name its record") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
-        _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
-        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
         let known = Set(graph.objects.map(\.hash)), present = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash, $0.bytes) })
         for object in update.objects {
             guard !known.contains(object.hash), present[object.hash] == object.bytes else { throw Self.invalid("Update object is not a new candidate object") }
@@ -480,15 +480,15 @@ public struct LocalChange: Codable, Equatable, Sendable {
         }
     }
 
-    private static func invalid(_ message: String) -> ArborWireValidationError { .invalidValue(message) }
+    private static func invalid(_ message: String) -> ProtocolValidationError { .invalidValue(message) }
 
     /// A page creation adds the first new branch of its path under the basis
     /// directory that already held it. The removal proof in `init` shows the
     /// candidate is exactly the basis plus these branches.
-    static func creationOperations(_ creation: SourcePageCreation, graph: WireSnapshot, candidate: WireSnapshot) throws -> [WireSourceOperation] {
-        let basis = try WireObjectGraph.validate(graph, mode: .sparseFiles)
-        let result = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
-        func directory(_ objects: [String: WireObject], _ root: String, _ parts: ArraySlice<String>) throws -> [WireDirectoryEntry] {
+    static func creationOperations(_ creation: SourcePageCreation, graph: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> [ProtocolSourceOperation] {
+        let basis = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        let result = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        func directory(_ objects: [String: ProtocolObject], _ root: String, _ parts: ArraySlice<String>) throws -> [ProtocolDirectoryEntry] {
             var hash = root
             for part in parts {
                 guard case let .directory(entries, _)? = objects[hash], let next = entries.first(where: { $0.name == part })?.directory else {
@@ -513,12 +513,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
             guard let added = try directory(result, candidate.root, parentParts).first(where: { $0.name == name }) else {
                 throw invalid("Page creation entry is not in its candidate")
             }
-            let value: WireSemanticValue
+            let value: ProtocolSemanticValue
             if let file = added.file { value = .object(["file": .string(file)]) }
             else if let directory = added.directory { value = .object(["directory": .string(directory)]) }
             else { throw invalid("Page creation entry is not a file or directory") }
             let parentPath = parentParts.isEmpty ? "/" : "/" + parentParts.joined(separator: "/")
-            return try WireSourceOperation([
+            return try ProtocolSourceOperation([
                 "key": .string("add-\(index)"), "kind": .string("addEntry"),
                 "destination": .object([
                     "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(parentPath), "object": .string(parentHash)])]),
@@ -550,7 +550,7 @@ private struct StoredLocalChange: Codable {
     var sourcePath: String?
     var document: SourceDocumentCapture?
     var candidate: StoredSourceSnapshot
-    var update: WireCandidateUpdate
+    var update: ProtocolCandidateUpdate
     var updateObjects: [String]
     var localTrash: StoredSourceTrash?
     var entryTransfer: EntryTransfer?
@@ -633,7 +633,7 @@ public actor ChangeLog {
                 var known = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
                 for record in batch {
                     if let prior = known[record.change] {
-                        guard prior == record else { throw ArborWireValidationError.invalidValue("Authored identity was reused") }
+                        guard prior == record else { throw ProtocolValidationError.invalidValue("Authored identity was reused") }
                     } else {
                         added.append(record)
                         known[record.change] = record
@@ -739,10 +739,10 @@ public actor ChangeLog {
 
     /// Replays the original candidate chain, including an already accepted prefix.
     /// A selected peer projection never becomes a substitute for a local predecessor.
-    public func request(through change: String, accepted: Set<String> = []) async throws -> (base: WireUpdateBase, request: WireUpdateRequest) {
+    public func request(through change: String, accepted: Set<String> = []) async throws -> (base: ProtocolUpdateBase, request: ProtocolUpdateRequest) {
         try await reloadIfChanged()
         let byChange = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
-        var current = change, updates: [WireCandidateUpdate] = []
+        var current = change, updates: [ProtocolCandidateUpdate] = []
         while let record = byChange[current] {
             var update = record.update
             // Durable receipts prove these objects already reached Canopy.
@@ -753,18 +753,18 @@ public actor ChangeLog {
             }
             updates.insert(update, at: 0)
             switch record.basis {
-            case let .accepted(base): return (base, WireUpdateRequest(base: base.update, updates: updates))
+            case let .accepted(base): return (base, ProtocolUpdateRequest(base: base.update, updates: updates))
             case let .authored(parent): current = parent
             }
         }
-        throw ArborWireValidationError.invalidValue("Missing authored dependency")
+        throw ProtocolValidationError.invalidValue("Missing authored dependency")
     }
 
     private func load(settled: Set<String> = []) async throws -> (records: [LocalChange], objects: [String: Data]) {
         guard let data = try files.readChangeLogData() else { return ([], [:]) }
         let journal = try JSONDecoder().decode(ChangeLogJournal.self, from: data)
         guard journal.schema == ChangeLogJournal.currentSchema, journal.tree == tree else {
-            throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
+            throw ProtocolValidationError.invalidValue("Invalid source journal schema or tree")
         }
         if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
             try writeJournal([])
@@ -851,21 +851,21 @@ public actor ChangeLog {
     }
 
     private func materialize(_ record: StoredLocalChange, from bytes: [String: Data]) throws -> LocalChange {
-        func snapshot(_ stored: StoredSourceSnapshot) throws -> WireSnapshot {
-            WireSnapshot(root: stored.root, objects: try stored.objects.map { hash in
+        func snapshot(_ stored: StoredSourceSnapshot) throws -> ProtocolSnapshot {
+            ProtocolSnapshot(root: stored.root, objects: try stored.objects.map { hash in
                 guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
-                return WireObjectEnvelope(hash: hash, bytes: value)
+                return ProtocolObjectEnvelope(hash: hash, bytes: value)
             })
         }
         var update = record.update
         update.objects = try record.updateObjects.map { hash in
             guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
-            return WireObjectEnvelope(hash: hash, bytes: value)
+            return ProtocolObjectEnvelope(hash: hash, bytes: value)
         }
         let trash = try record.localTrash.map { trash in
             WorkingTreeLocalTrash(nodes: trash.nodes, objects: try trash.objects.map { hash in
                 guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
-                return WireObjectEnvelope(hash: hash, bytes: value)
+                return ProtocolObjectEnvelope(hash: hash, bytes: value)
             })
         }
         return try LocalChange(change: record.change, tree: record.tree, basis: record.basis, graph: try snapshot(record.graph),
@@ -888,12 +888,12 @@ public actor ChangeLog {
         var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
             try record.validate()
-            guard record.tree == tree, prior[record.change] == nil else { throw ArborWireValidationError.invalidValue("Invalid queue scope or duplicate identity") }
+            guard record.tree == tree, prior[record.change] == nil else { throw ProtocolValidationError.invalidValue("Invalid queue scope or duplicate identity") }
             switch record.basis {
             case let .accepted(base):
-                guard !base.update.isEmpty, base.root == record.graph.root else { throw ArborWireValidationError.invalidValue("Accepted basis does not match graph") }
+                guard !base.update.isEmpty, base.root == record.graph.root else { throw ProtocolValidationError.invalidValue("Accepted basis does not match graph") }
             case let .authored(change):
-                guard let parent = prior[change], parent.candidate == record.graph else { throw ArborWireValidationError.invalidValue("Missing or altered authored basis") }
+                guard let parent = prior[change], parent.candidate == record.graph else { throw ProtocolValidationError.invalidValue("Missing or altered authored basis") }
             }
             prior[record.change] = record
         }
@@ -904,8 +904,8 @@ public actor ChangeLog {
 /// change the graph. It is not reconstructed from a document's byte revision.
 public struct CapturedSourceBasis: Sendable {
     public let document: WorkspaceDocumentSnapshot
-    public let graph: WireSnapshot
-    public let accepted: WireUpdateBase?
+    public let graph: ProtocolSnapshot
+    public let accepted: ProtocolUpdateBase?
     public let sourcePath: String
 
     /// `compact` merges adjacent plain frames of a multi-generation intent
@@ -915,31 +915,31 @@ public struct CapturedSourceBasis: Sendable {
         guard intent.basis.reference == document.reference,
               intent.basis.contentRevision == document.contentRevision,
               Data(intent.basis.source.utf8) == Data(document.source.utf8) else {
-            throw ArborWireValidationError.invalidValue("Intent does not name the captured document basis")
+            throw ProtocolValidationError.invalidValue("Intent does not name the captured document basis")
         }
         let basis: LocalChangeBasis
         if let accepted {
-            guard predecessor == nil else { throw ArborWireValidationError.invalidValue("Cannot relabel a captured accepted basis as a local predecessor") }
+            guard predecessor == nil else { throw ProtocolValidationError.invalidValue("Cannot relabel a captured accepted basis as a local predecessor") }
             basis = .accepted(accepted)
         }
         else if let predecessor { basis = .authored(change: predecessor) }
-        else { throw ArborWireValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
+        else { throw ProtocolValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
         return try LocalChange(change: change, tree: document.reference.tree.rawValue,
                                          basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, compact: compact)
     }
 }
 
-/// Private recovery material, excluded from candidate snapshots and Wire requests.
+/// Private recovery material, excluded from candidate snapshots and protocol requests.
 struct WorkingTreeLocalTrash: Codable, Equatable, Sendable {
     var nodes: [WorkingTreeNode]
-    var objects: [WireObjectEnvelope]
+    var objects: [ProtocolObjectEnvelope]
 
     func validate() throws {
         guard nodes.allSatisfy({ $0.path == "/Trash" || $0.path.hasPrefix("/Trash/") }),
               Set(nodes.map(\.path)).count == nodes.count,
               Set(objects.map(\.hash)).count == objects.count,
-              objects.allSatisfy({ WireObjectCodec.hash($0.bytes) == $0.hash }) else {
-            throw ArborWireValidationError.invalidValue("Invalid retained local trash")
+              objects.allSatisfy({ ProtocolObjectCodec.hash($0.bytes) == $0.hash }) else {
+            throw ProtocolValidationError.invalidValue("Invalid retained local trash")
         }
     }
 }

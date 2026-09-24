@@ -85,7 +85,7 @@ export class WorkspaceEditor implements AsyncDisposable {
     };
   }
 
-  describeWireCollectionFile(directory: string, sourceName: string) {
+  describeProtocolCollectionFile(directory: string, sourceName: string) {
     return this.provider.collectionFileDescriptor(directory, sourceName);
   }
 

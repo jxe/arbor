@@ -3,7 +3,7 @@
 Client-side account plumbing against an Overstory host. The Swift twin is
 `OverstoryClient`.
 
-- `account-bootstrap.ts`, `account-wire.ts`, `account-pairing.ts`, `ports.ts`:
+- `account-bootstrap.ts`, `account-client.ts`, `account-pairing.ts`, `ports.ts`:
   claiming and pairing through the host, and the ports a daemon or app
   implements.
 - `sync-state.ts`: retiring the earlier folder synchronizer's

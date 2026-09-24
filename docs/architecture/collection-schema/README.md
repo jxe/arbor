@@ -63,8 +63,8 @@ vector is otherwise-valid CDDL; it does parse the control-operator, `/=`, `//`,
 
 | Consumer | Uses |
 |---|---|
-| canopyd acceptance (`Canopy.validateGraph`) | `decodeWireCollectionFile` with the host's `CollectionSchemaCache`; version-1 descriptors are `422 unsupported-operation`, and in the accepted basis they are left unproven so only a candidate that replaces them is accepted |
-| canopyd projection and public pages (`WireProjection`) | `decodeWireCollectionFile`; a version-1 collection read is `422 unsupported-operation` |
+| canopyd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache`; version-1 descriptors are `422 unsupported-operation`, and in the accepted basis they are left unproven so only a candidate that replaces them is accepted |
+| canopyd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile`; a version-1 collection read is `422 unsupported-operation` |
 | `tree-merge` (`collection-file-rows-v1`) | decode and encode; any version-1 side is a `collection-file-schema-conflict` |
 | Arbor Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, version-2 descriptors; a directory with `schema.ts` reports `legacy-collection-schema` (or `ambiguous-collection-schema` beside `schema.cddl`), and a `schema.ts` collection file refuses to snapshot |
 | Arbor Sync generated types | `collectionTypeDeclarations` |

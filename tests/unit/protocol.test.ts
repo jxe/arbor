@@ -5,12 +5,12 @@ import type {
   ArborError,
   WorkspaceEvent,
 } from "@overstory/protocol";
-import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
+import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
 import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
-// Test-local checks mirroring Overstory's `WireTreeDescriptor.validated()` and
-// `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor
+// Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
+// `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
 // validator, so these only assert that the shared vectors are self-consistent.
 const TREE_KINDS = new Set(["ordinary", "account-configuration"]);
 const ACCESS_LEVELS = new Set(["none", "read", "write"]);
@@ -39,7 +39,7 @@ function validateAccessEntry(value: unknown): AccessEntry {
   if (subject.kind === "link" && Object.keys(subject).length === 1) return entry as AccessEntry;
   throw new TypeError("unsafe or unknown access subject");
 }
-function decodeWireValue(value: unknown): unknown {
+function decodeProtocolValue(value: unknown): unknown {
   const record = value as Record<string, unknown>;
   if ("subject" in record) return validateAccessEntry(record);
   if ("ref" in record) {
@@ -80,7 +80,7 @@ describe("REST v1 protocol fixtures", () => {
     expect("modifiedAtByPath" in clean).toBe(false);
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
     const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
-    const root = decodeWireDirectory(spine.get(clean.accepted.root as never)!);
+    const root = decodeProtocolDirectory(spine.get(clean.accepted.root as never)!);
     if (root.type !== "directory") throw new Error("Expected a directory root");
     expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
     expect(spine.has(root.entries[0]!.file!)).toBe(true);
@@ -150,7 +150,7 @@ describe("REST v1 protocol fixtures", () => {
           status: 200,
           headers: { "content-type": "text/event-stream; charset=utf-8" },
         })) as unknown as typeof fetch;
-        const client = new WireClient("https://community.example");
+        const client = new ProtocolClient("https://community.example");
         await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Arbor watch event");
       }
     } finally {
@@ -187,7 +187,7 @@ describe("REST v1 protocol fixtures", () => {
       "resolution-omits-tree",
     ]);
     for (const item of values.invalid) {
-      expect(() => decodeWireValue(item.value), item.name).toThrow();
+      expect(() => decodeProtocolValue(item.value), item.name).toThrow();
     }
   });
 
@@ -202,7 +202,7 @@ describe("REST v1 protocol fixtures", () => {
       }>;
     }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
-    const merges = JSON.parse(await readFile(join(canopyFixtures, "wire-merge.json"), "utf8")) as {
+    const merges = JSON.parse(await readFile(join(canopyFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;
       pageMoveCases: Array<{ name: string }>;

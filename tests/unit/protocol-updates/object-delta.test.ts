@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyObjectDelta, encodeWireDirectory, hashObject, objectDelta, type ObjectDelta } from "@overstory/protocol";
+import { applyObjectDelta, encodeProtocolDirectory, hashObject, objectDelta, type ObjectDelta } from "@overstory/protocol";
 
 function pseudoRandom(length: number, seed: number): Uint8Array {
   const bytes = new Uint8Array(length);
@@ -67,8 +67,8 @@ describe("object delta derivation", () => {
   test("handles a directory that gained one entry among many", () => {
     const file = hashObject(new Uint8Array([1]));
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const base = encodeWireDirectory({ type: "directory", entries: names.map((name) => ({ name, file: file })) });
-    const target = encodeWireDirectory({
+    const base = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: file })) });
+    const target = encodeProtocolDirectory({
       type: "directory",
       entries: [...names, "page-0200a.md"].sort().map((name) => ({ name, file: file })),
     });

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceChange, type SourceIntent, type LocalChange } from "@overstory/working-tree";
 import { ChangeLog } from "@overstory/working-tree/node";
-import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
+import { decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { singleStep } from "./canopyd-merge/fixture.ts";
 import { evaluateIntent } from "../support/merge-engine.ts";
@@ -15,8 +15,8 @@ const authored = (update: { trace: Array<{ operations: SourceOperation[] }> | nu
   (update.trace ?? []).flatMap(frame => frame.operations);
 function initial(): TreeSnapshot {
   const file = new TextEncoder().encode(fixture.source), hash = hashObject(file);
-  const nested = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: hash }] }), directory = hashObject(nested);
-  const root = encodeWireDirectory({ type: "directory", entries: [{ name: "nested", directory }] });
+  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hash }] }), directory = hashObject(nested);
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "nested", directory }] });
   return { root: hashObject(root), objects: new Map([[hash, file], [directory, nested], [hashObject(root), root]]) };
 }
 type Prepared = ReturnType<typeof prepareSourceChange> & { intent: SourceIntent };
@@ -139,7 +139,7 @@ test("prepared records round-trip optional guards and reject unrepresentable rep
 }));
 
 test("first directory-body save adds the body without inventing source material", async () => withQueue(async q => {
-  const bytes = encodeWireDirectory({ type: "directory", entries: [] }), root = hashObject(bytes);
+  const bytes = encodeProtocolDirectory({ type: "directory", entries: [] }), root = hashObject(bytes);
   const graph = { root, objects: new Map([[root, bytes]]) };
   const record = prepareSourceChange({ tree: fixture.tree, graph, basis: { kind: "accepted", root, update: "empty" }, sourcePath: "/_index.md",
     intent: { basis: { tree: fixture.tree, path: "/", revision: "empty-body", source: "" }, source: "Exact\r\n", edits: [{ offset: 0, length: 0, replacement: "Exact\r\n" }] } });
@@ -154,8 +154,8 @@ test("first directory-body save adds the body without inventing source material"
 
 test("journal references platform objects and compacts only dependency-free settlements", async () => withQueue(async (_q, root) => {
   const note = Buffer.from(fixture.source), noteHash = hashObject(note), asset = Buffer.alloc(1_000_000, 0x5a), assetHash = hashObject(asset);
-  const nested = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash }] }), nestedHash = hashObject(nested);
-  const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash }, { name: "nested", directory: nestedHash }] });
+  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash }] }), nestedHash = hashObject(nested);
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash }, { name: "nested", directory: nestedHash }] });
   const initialGraph: TreeSnapshot = { root: hashObject(rootBytes), objects: new Map([[assetHash, asset], [noteHash, note], [nestedHash, nested], [hashObject(rootBytes), rootBytes]]) };
   const platform = { bytes: async (hash: string) => initialGraph.objects.get(hash) };
   const q = new ChangeLog(fixture.tree, root, platform);
@@ -185,7 +185,7 @@ test("journal references platform objects and compacts only dependency-free sett
 test("source preservation fixtures retain verified lineage across queue restart", async () => {
   const data=JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-preservation.json",import.meta.url),"utf8"));
   for(const value of data.cases) await withQueue(async (queue,root) => {
-    const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
     const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,graph,basis:{kind:"accepted",root:graph.root,update:"basis"},sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"revision",source:value.source},source:value.replacement,edits:[{offset:0,length:bytes.length,replacement:value.replacement,lineage:value.lineage}]}});
     if(!value.valid){expect(prepare).toThrow();return;}
@@ -218,9 +218,9 @@ test("copy metadata edits bind to operation output and survive recovery", async 
   const graph=initial(),entryTransfer={kind:"copyEntry" as const,source:"/nested/note.md",parent:"/",name:"copy.md"};
   const pure=prepareEntryTransfer(graph,entryTransfer).candidate;
   const bytes=Buffer.from("New page identity\r\n"),file=hashObject(bytes);
-  const {decodeWireDirectory}=await import("@overstory/protocol");
-  const directory=decodeWireDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
-  const encoded=encodeWireDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
+  const {decodeProtocolDirectory}=await import("@overstory/protocol");
+  const directory=decodeProtocolDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
+  const encoded=encodeProtocolDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
   const record=prepareEntryChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
   await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
   const operations=authored(decodeCandidateUpdateJSON(record.update));
@@ -248,7 +248,7 @@ test("compound entry fixtures retain one basis and execute atomically after rest
 test("compound move transports a concurrent child edit without changing the sibling body",async()=>withQueue(async(_queue,root)=>{
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/entry-actions.json",import.meta.url)).json();
   const {prepareEntryChange}=await import("@overstory/working-tree");
-  const {decodeWireDirectory}=await import("@overstory/protocol");
+  const {decodeProtocolDirectory}=await import("@overstory/protocol");
   const graph=decodeTreeSnapshotJSON(fixtures.graph),basis={kind:"accepted" as const,root:graph.root,update:"basis"};
   const source="child é\r\n",text="Peer child é\r\n";
   const peer=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/pair/child.md",intent:{basis:{tree:fixture.tree,path:"/pair/child",revision:"r",source},edits:[{offset:0,length:0,replacement:"Peer "}],source:text}});
@@ -260,19 +260,19 @@ test("compound move transports a concurrent child edit without changing the sibl
   const result=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(move.update)))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   let hash=result.response.result.object;
-  for(const part of ["archive","moved","child.md"]){const entry=decodeWireDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
+  for(const part of ["archive","moved","child.md"]){const entry=decodeProtocolDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
   expect(Buffer.from(objects.get(hash)!).toString()).toBe(text);
-  const rootEntries=decodeWireDirectory(objects.get(result.response.result.object)!).entries;
+  const rootEntries=decodeProtocolDirectory(objects.get(result.response.result.object)!).entries;
   const archive=rootEntries.find(e=>e.name==="archive")!.directory!;
-  const body=decodeWireDirectory(objects.get(archive)!).entries.find(e=>e.name==="moved.md")!.file;
-  const originalBody=decodeWireDirectory(graph.objects.get(graph.root)!).entries.find(e=>e.name==="pair.md")!.file;
+  const body=decodeProtocolDirectory(objects.get(archive)!).entries.find(e=>e.name==="moved.md")!.file;
+  const originalBody=decodeProtocolDirectory(graph.objects.get(graph.root)!).entries.find(e=>e.name==="pair.md")!.file;
   expect(body).toBe(originalBody);
 }));
 
 test("explicit source copies validate, survive recovery, and execute through the merge process",async()=>{
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/source-copy.json",import.meta.url)).json();
   for(const c of fixtures.cases)await withQueue(async(queue,root)=>{
-    const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
     const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"r",source:c.source},edits:[{offset:0,length:bytes.length,replacement:c.replacement,copies:c.copies,...(c.lineage?{lineage:c.lineage}:{})}],source:c.replacement}});
     if(!c.valid){expect(prepare).toThrow();return;}
@@ -285,7 +285,7 @@ test("explicit source copies validate, survive recovery, and execute through the
 });
 
 test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit under the %s merge policy",async(name)=>withQueue(async(_queue,root)=>{
-  const source="abc\n\n",bytes=Buffer.from(source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name,file}]});
+  const source="abc\n\n",bytes=Buffer.from(source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name,file}]});
   const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])},basis={kind:"accepted" as const,root:hashObject(directory),update:"basis"};
   const base={tree:fixture.tree,path:"/note",revision:"r",source};
   const copy=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:5,replacement:source+source,lineage:[{source:[0,5],replacement:[0,5]}],copies:[{source:[0,5],replacement:[5,10]}]}],source:source+source}});
@@ -296,8 +296,8 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
   const result=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(copy.update)))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
-  const {decodeWireDirectory}=await import("@overstory/protocol");
-  const hash=decodeWireDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
+  const {decodeProtocolDirectory}=await import("@overstory/protocol");
+  const hash=decodeProtocolDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
   if(!("decisions" in result.response))throw Error("Expected evaluated intent response");
   expect(result.response.decisions).toEqual([]);
   expect(Buffer.from(objects.get(hash)!).toString()).toBe("Xbc\n\nabc\n\n");
@@ -335,7 +335,7 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
 test("cross-document copies bind the captured source path and reject changed source bytes", () => {
   const graph = initial(), original = fixture.source as string;
   const target = Buffer.from("Destination\n"), targetHash = hashObject(target);
-  const directory = encodeWireDirectory({type:"directory",entries:[{name:"dest.md",file:targetHash},{name:"source.md",file:hashObject(Buffer.from(original))}]});
+  const directory = encodeProtocolDirectory({type:"directory",entries:[{name:"dest.md",file:targetHash},{name:"source.md",file:hashObject(Buffer.from(original))}]});
   graph.root=hashObject(directory); graph.objects=new Map([[graph.root,directory],[targetHash,target],[hashObject(Buffer.from(original)),Buffer.from(original)]]);
   const build=(source:string)=>prepareSourceChange({tree:fixture.tree,change:"cross-copy",graph,sourcePath:"/dest.md",basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:fixture.tree,path:"/dest",revision:"r1",source:target.toString()},source:target.toString()+original,edits:[{offset:target.length,length:0,replacement:original,copies:[{source:[0,Buffer.byteLength(original)],replacement:[0,Buffer.byteLength(original)],document:{path:"/source.md",source}}]}]}});
   const record=build(original);
@@ -346,7 +346,7 @@ test("cross-document copies bind the captured source path and reject changed sou
 test("shared cross-document fixture validates exact UTF-8 material", async () => {
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/cross-document-copy.json",import.meta.url)).json();
   const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
-  const directory=encodeWireDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
+  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
   const graph={root:hashObject(directory),objects:new Map([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
   const record=prepareSourceChange({tree:f.tree,change:"shared-cross-copy",graph,sourcePath:f.destinationPath,basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:f.tree,path:"/destination",source:f.destination,revision:"r1"},source:f.destination+f.edit.replacement,edits:[f.edit]}});
   expect(authored(record.update)[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
@@ -356,11 +356,11 @@ test("page creation records reproduce their original graph without an undo trans
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/page-conversion-undo.json",import.meta.url)).json();
   const {preparePageCreation}=await import("@overstory/working-tree");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
-  const nested=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
-  const rootBytes=encodeWireDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
+  const nested=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
+  const rootBytes=encodeProtocolDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
   const graph={root:hashObject(rootBytes),objects:new Map([[fileSource,source],[nestedHash,nested],[hashObject(rootBytes),rootBytes]])};
   const bytes=Buffer.from(f.createdSource),file=hashObject(bytes);
-  const directory=encodeWireDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
+  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
   const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
   candidate.objects.set(file,bytes);candidate.objects.set(candidate.root,directory);
   const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});

@@ -6,7 +6,7 @@ import Testing
 @Suite("Native profile directory")
 struct DirectoryTests {
     private func person(name: String?, handle: String?, origin: String = "https://example.com", sources: [String] = ["community"]) -> DirectoryPerson {
-        DirectoryPerson(origin: URL(string: origin)!, entry: WireProfileDirectoryEntry(
+        DirectoryPerson(origin: URL(string: origin)!, entry: ProtocolProfileDirectoryEntry(
             profile: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", kind: "person", handle: handle,
             displayName: name, sources: sources
         ))

@@ -40,7 +40,7 @@ final class ArborSyncClientTests: XCTestCase {
         let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: fixtures.appending(path: "cursors.json"))
         ) as? [String: String])
-        let mergeFixtureData = try Data(contentsOf: canopyFixtures.appending(path: "wire-merge.json"))
+        let mergeFixtureData = try Data(contentsOf: canopyFixtures.appending(path: "merge.json"))
         let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
         let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "protocol-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])

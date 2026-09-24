@@ -49,13 +49,13 @@ extension ObjectOverlay {
     }
 
     public func reachableHashes(from roots: Set<String>) throws -> Set<String> {
-        var pending = roots.map { (hash: $0, kind: WireEntryKind.directory) }
+        var pending = roots.map { (hash: $0, kind: ProtocolEntryKind.directory) }
         var visited = Set<String>()
         while let (hash, kind) = pending.popLast() {
             guard visited.insert(hash).inserted else { continue }
             guard kind == .directory else { continue }
             guard let bytes = try storedBytes(hash) else { throw ObjectStoreError.missing(hash) }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) {
+            if case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) {
                 for entry in entries {
                     if let child = entry.hash, let kind = entry.kind { pending.append((child, kind)) }
                 }
@@ -83,7 +83,7 @@ public final class InMemoryObjectOverlay: ObjectOverlay, @unchecked Sendable {
         for (hash, bytes) in objects {
             _ = try verifyObject(bytes, hash: hash)
             if let existing = self.objects[hash] {
-                guard existing == bytes else { throw ObjectStoreError.hashMismatch(expected: hash, actual: WireObjectCodec.hash(existing)) }
+                guard existing == bytes else { throw ObjectStoreError.hashMismatch(expected: hash, actual: ProtocolObjectCodec.hash(existing)) }
             } else {
                 self.objects[hash] = bytes
             }

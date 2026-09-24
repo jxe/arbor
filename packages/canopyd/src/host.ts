@@ -4,17 +4,17 @@ import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
-import { WireCollectionFileError } from "@overstory/collection-schema";
+import { ProtocolCollectionFileError } from "@overstory/collection-schema";
 import {
   AlreadyClaimedError,
   RefConflictError,
   ReservedBoundaryConflictError,
   UpdateProtocolError,
-  CanopyDaemon,
-  type CanopyAccount,
-  type CanopyAuthentication,
-  type CanopyTree,
-  type CanopyBootstrapAccount,
+  HostDaemon,
+  type HostAccount,
+  type HostAuthentication,
+  type HostTree,
+  type HostBootstrapAccount,
 } from "./canopy.ts";
 import { handleOfPath } from "./profile.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
@@ -26,7 +26,7 @@ import {
   type RemoteAccountDescriptor,
 } from "@overstory/protocol";
 import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
-import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTitle } from "./projection.ts";
+import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
 
 
@@ -61,7 +61,7 @@ function immutableHeaders(request: Request, etag: string): HeadersInit {
   };
 }
 
-function wireError(
+function protocolError(
   error: string,
   message: string,
   status: number,
@@ -72,7 +72,7 @@ function wireError(
   return json({ error, message, retryable, ...context, ...(Object.keys(details).length ? { details } : {}) }, status);
 }
 
-function descriptor(origin: string, tree: CanopyTree, access: AccessLevel = "read"): RemoteTreeDescriptor {
+function descriptor(origin: string, tree: HostTree, access: AccessLevel = "read"): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
@@ -95,8 +95,8 @@ function arborLocator(tree: RemoteTreeDescriptor): string | null {
 
 function descriptorWithUpdate(
   origin: string,
-  canopy: CanopyDaemon,
-  tree: CanopyTree,
+  canopy: HostDaemon,
+  tree: HostTree,
   access: ReadWriteAccess = "read",
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
@@ -106,7 +106,7 @@ function descriptorWithUpdate(
 
 function watchDescriptor(
   origin: string,
-  tree: CanopyTree,
+  tree: HostTree,
   transitions: AcceptedTransition[],
   access: ReadWriteAccess,
   cursor: string,
@@ -131,7 +131,7 @@ function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
   return encodeUpdateResponseJSON(value);
 }
 
-function accountDescriptor(origin: string, canopy: CanopyDaemon, account: CanopyAccount): RemoteAccountDescriptor {
+function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor {
   const profile = account.profileTree ? canopy.get(account.profileTree) : null;
   const configuration = account.configTree ? canopy.get(account.configTree) : null;
   const community = canopy.community();
@@ -158,9 +158,9 @@ function linkDigest(request: Request): string | undefined {
 }
 
 function linkBootstrap(): Response {
-  return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Arbor access</title><body><p>Opening shared Arbor tree…</p><script>
+  return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Overstory access</title><body><p>Opening shared Overstory tree…</p><script>
 const secret = location.hash.startsWith("#arbor-access=") ? decodeURIComponent(location.hash.slice(14)) : "";
-if (!secret) document.body.textContent = "This Arbor tree requires access.";
+if (!secret) document.body.textContent = "This Overstory tree requires access.";
 else fetch(location.pathname + location.search, { headers: { "Arbor-Access-Link": secret } })
   .then(async response => {
     if (!response.ok) throw new Error("This access link is invalid or revoked.");
@@ -189,7 +189,7 @@ function bodySnapshot(body: unknown): TreeSnapshot {
  * `authorizationEpoch` shows the database or execution authority changed.
  * Watches poll it often; between changes it costs one trivial query.
  */
-function cachedAuthorization(canopy: CanopyDaemon, check: () => boolean): () => boolean {
+function cachedAuthorization(canopy: HostDaemon, check: () => boolean): () => boolean {
   let epoch: string | undefined;
   let allowed = false;
   return () => {
@@ -203,12 +203,12 @@ function cachedAuthorization(canopy: CanopyDaemon, check: () => boolean): () => 
 }
 
 /** The request's device-authenticated account; execution tokens never qualify. */
-function requireAccount(authentication: CanopyAuthentication | null): CanopyAccount {
+function requireAccount(authentication: HostAuthentication | null): HostAccount {
   if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
   return authentication.account;
 }
 
-export async function serveCanopy(options: {
+export async function serveHost(options: {
   mergeTool?: import("./merge-tool.ts").MergeToolOptions;
   dataRoot: string;
   publicOrigin: string;
@@ -217,7 +217,7 @@ export async function serveCanopy(options: {
     name: string;
     firstWriter?: { handle: string; profileTree: string; name?: string };
   };
-  accounts?: CanopyBootstrapAccount[];
+  accounts?: HostBootstrapAccount[];
   port?: number;
   hostname?: string;
   queryRuntime?: QueryStreamRuntime;
@@ -226,7 +226,7 @@ export async function serveCanopy(options: {
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
   const dynamicLoopbackOrigin = /^https?:\/\/(?:127\.0\.0\.1|localhost):0$/.test(publicOrigin);
-  const canopy = await CanopyDaemon.open(resolve(options.dataRoot), {
+  const canopy = await HostDaemon.open(resolve(options.dataRoot), {
     handle: options.community?.handle ?? "community",
     name: options.community?.name ?? "Arbor Community",
     accounts: bootstrapAccounts,
@@ -241,7 +241,7 @@ export async function serveCanopy(options: {
     async fetch(request, server) {
       const token = bearer(request);
       const execution = token?.startsWith("execution_") ? canopy.execution.resolve(token) : undefined;
-      if (token?.startsWith("execution_") && !execution) return wireError("unauthenticated", "Execution authorization is unavailable", 401);
+      if (token?.startsWith("execution_") && !execution) return protocolError("unauthenticated", "Execution authorization is unavailable", 401);
       const response = await canopy.execution.run(execution, async () => {
       const url = new URL(request.url);
       // The one authentication of this request; routes below reuse it.
@@ -250,7 +250,7 @@ export async function serveCanopy(options: {
       const link = linkDigest(request);
       try {
         if (url.pathname === "/.arbor/execution/authority-watch" && request.method === "GET") {
-          if (!execution) return wireError("unauthenticated", "Execution authorization is required", 401);
+          if (!execution) return protocolError("unauthenticated", "Execution authorization is required", 401);
           server.timeout(request, 0);
           let cleanup = () => {};
           // Token validity (revocation, expiry, its host callback) is checked
@@ -278,10 +278,10 @@ export async function serveCanopy(options: {
         }
         const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
-          if (!options.queryRuntime) return wireError("unsupported-operation", "No query runtime is active", 422);
+          if (!options.queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
           const treeID = decodeURIComponent(queryRoute[1]!);
           const tree = canopy.get(treeID);
-          if (!tree || !canopy.canRead(account, tree, link)) return wireError("not-found", "Tree not found", 404);
+          if (!tree || !canopy.canRead(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
           server.timeout(request, 0);
           return treeQueryResponse(
             options.queryRuntime,
@@ -292,10 +292,10 @@ export async function serveCanopy(options: {
         }
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
-          if (!options.mutationRuntime) return wireError("unsupported-operation", "No mutation runtime is active", 422);
+          if (!options.mutationRuntime) return protocolError("unsupported-operation", "No mutation runtime is active", 422);
           const treeID = decodeURIComponent(mutateRoute[1]!);
           const tree = canopy.get(treeID);
-          if (!tree || !account || !canopy.canWrite(account, tree, link)) return wireError("not-found", "Tree not found", 404);
+          if (!tree || !account || !canopy.canWrite(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
           return treeMutationResponse(
             options.mutationRuntime,
             request,
@@ -309,7 +309,7 @@ export async function serveCanopy(options: {
             return json({ status: "ok" });
           } catch (error) {
             console.error("Arbor canopy database check failed", error);
-            return wireError("internal-error", "Canopy database check failed", 503, true);
+            return protocolError("internal-error", "Canopy database check failed", 503, true);
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/integrity") {
@@ -319,7 +319,7 @@ export async function serveCanopy(options: {
             return json({ status: "ok" });
           } catch (error) {
             console.error("Arbor canopy integrity check failed", error);
-            return wireError("internal-error", "Canopy integrity check failed", 503, true);
+            return protocolError("internal-error", "Canopy integrity check failed", 503, true);
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
@@ -359,7 +359,7 @@ export async function serveCanopy(options: {
           const rateKey = `${address}:${pairingID}`;
           const cutoff = Date.now() - 10 * 60 * 1000;
           const recent = (pairingClaimAttempts.get(rateKey) ?? []).filter((attempt) => attempt > cutoff);
-          if (recent.length >= 10) return wireError("rate-limited", "Too many pairing claims", 429, true);
+          if (recent.length >= 10) return protocolError("rate-limited", "Too many pairing claims", 429, true);
           recent.push(Date.now());
           pairingClaimAttempts.set(rateKey, recent);
           const body = await request.json() as {
@@ -449,7 +449,7 @@ export async function serveCanopy(options: {
             const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
             const policy = canopy.resourcePolicy(authenticated, treeID);
-            if (!administer && !policy) return wireError("not-found", "Tree not found", 404);
+            if (!administer && !policy) return protocolError("not-found", "Tree not found", 404);
             const snapshot: AccessEntry[] = !administer ? [] : canopy.accessEntries(treeID)
               .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.profileTree)
               .map((entry) => {
@@ -509,7 +509,7 @@ export async function serveCanopy(options: {
           const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
           if (!state || ["state", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
               (after !== null && (!after || selected !== null)) || selected === "") {
-            return wireError("invalid-request", "Invalid conflict inspection query", 400);
+            return protocolError("invalid-request", "Invalid conflict inspection query", 400);
           }
           const page = await canopy.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
           return page ? json(page) : new Response("Not found", { status: 404 });
@@ -579,7 +579,7 @@ export async function serveCanopy(options: {
               logUpdate({ event: "update", tree: treeID, status: "error", error: message, updates: update.updates.length, ...timer.summary() });
               throw error;
             }
-            if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
+            if (direct && !canopy.execution.covered(direct)) return protocolError("permission-denied", "Authorization changed before receipt disclosure", 403);
             // The server's current head lets the client skip a descriptor read
             // after acceptance; the watch still delivers anything newer.
             const headTree = canopy.get(treeID), headUpdate = headTree ? canopy.currentUpdate(treeID) : null;
@@ -610,7 +610,7 @@ export async function serveCanopy(options: {
           const headerCursor = request.headers.get("last-event-id");
           const queryCursor = url.searchParams.get("after");
           if (headerCursor && queryCursor && headerCursor !== queryCursor) {
-            return wireError("invalid-request", "after and Last-Event-ID disagree", 400);
+            return protocolError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
           const keepaliveRequested = request.headers.get("arbor-watch-keepalive") === "1";
@@ -711,9 +711,9 @@ export async function serveCanopy(options: {
         if (object && request.method === "GET") {
           const treeID = decodeURIComponent(object[1]!);
           const hash = object[2] as ObjectHash;
-          if (!canopy.isReadableObject(treeID, account, link)) return wireError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
+          if (!canopy.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.retainedObject(hash);
-          if (!bytes) return wireError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
+          if (!bytes) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
             headers: { ...immutableHeaders(request, hash), "content-type": "application/octet-stream" },
           });
@@ -739,8 +739,8 @@ export async function serveCanopy(options: {
           }
           const tree = resolved.tree;
           const load = (hash: ObjectHash) => canopy.object(hash);
-          const wireProjection = new WireProjection({ root: tree.ref, load });
-          const resolution = await wireProjection.resolve(resolved.path, requestLocator.stableKey);
+          const projection = new ProtocolProjection({ root: tree.ref, load });
+          const resolution = await projection.resolve(resolved.path, requestLocator.stableKey);
           if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
           const logicalPath = resolution.path;
           if (requestLocator.stableKey && resolved.path !== logicalPath) {
@@ -759,9 +759,9 @@ export async function serveCanopy(options: {
           const logical = resolution.kind === "node" ? resolution.node : null;
           const canonicalPath = tree.canonicalPath!;
           if (collectionFileRow) {
-            const title = wireCollectionFileRowTitle(collectionFileRow.row);
+            const title = protocolCollectionFileRowTitle(collectionFileRow.row);
             if (request.headers.get("accept")?.includes("text/markdown")) {
-              return new Response(wireCollectionFileRowMarkdown(collectionFileRow.row), {
+              return new Response(protocolCollectionFileRowMarkdown(collectionFileRow.row), {
                 headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" },
               });
             }
@@ -801,7 +801,7 @@ export async function serveCanopy(options: {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
           const collectionFileDescriptor = logical.directory.childrenSource;
-          const collectionFile = await wireProjection.collectionFile(logical.directory);
+          const collectionFile = await projection.collectionFile(logical.directory);
           const physicalChildren = (await Promise.all(logical.directory.entries
             .filter((entry) => entry.name !== "_index.md"
               && entry.name !== collectionFileDescriptor?.source
@@ -820,7 +820,7 @@ export async function serveCanopy(options: {
               };
             }))).filter((child): child is PublicPageChild => child !== null);
           const collectionFileChildren: PublicPageChild[] = (collectionFile?.rows ?? []).map((row) => ({
-            name: wireCollectionFileRowTitle(row),
+            name: protocolCollectionFileRowTitle(row),
             href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, {
               stableKey: row.stableKey,
               applicationQuery: requestLocator.applicationQuery,
@@ -838,55 +838,55 @@ export async function serveCanopy(options: {
             children,
           }));
         }
-        return wireError("not-found", "Route not found", 404);
+        return protocolError("not-found", "Route not found", 404);
       } catch (error) {
         if (error instanceof RefConflictError) {
-          return wireError("conflict", "The tree ref changed before the mutation committed", 409, false, {
+          return protocolError("conflict", "The tree ref changed before the mutation committed", 409, false, {
             kind: "server-update",
             current: error.current,
           });
         }
-        if (error instanceof WireCollectionFileError && error.kind === "unsupported") {
-          return wireError("unsupported-operation", error.message, 422);
+        if (error instanceof ProtocolCollectionFileError && error.kind === "unsupported") {
+          return protocolError("unsupported-operation", error.message, 422);
         }
         if (error instanceof UpdateProtocolError) {
-          if (error.code === "unsupported-operation") return wireError(error.code, error.message, 422);
+          if (error.code === "unsupported-operation") return protocolError(error.code, error.message, 422);
           if (error.code === "base-not-retained") {
-            return wireError("resync-required", error.message, 409, true, { kind: "server-update" });
+            return protocolError("resync-required", error.message, 409, true, { kind: "server-update" });
           }
           if (error.code === "server-busy") {
-            return wireError("internal-error", error.message, 503, true);
+            return protocolError("internal-error", error.message, 503, true);
           }
-          return wireError("conflict", error.message, 409, false, { kind: "server-update" });
+          return protocolError("conflict", error.message, 409, false, { kind: "server-update" });
         }
         if (error instanceof AlreadyClaimedError) {
-          return wireError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
+          return protocolError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
         }
         if (error instanceof ReservedBoundaryConflictError) {
-          return wireError("conflict", "The update would change an independently versioned tree boundary", 409, false, {
+          return protocolError("conflict", "The update would change an independently versioned tree boundary", 409, false, {
             kind: "server-update",
           }, { path: error.path, tree: error.tree });
         }
         if (error instanceof MergeWorkerError) {
           return error.retryable
-            ? wireError("merge-failed", error.message, 503, true)
-            : wireError("merge-failed", error.message, 422);
+            ? protocolError("merge-failed", error.message, 503, true)
+            : protocolError("merge-failed", error.message, 422);
         }
         const message = error instanceof Error ? error.message : String(error);
-        if (error instanceof AuthenticationRequiredError) return wireError("unauthenticated", message, 401);
-        if (error instanceof PermissionDeniedError) return wireError("permission-denied", message, 403);
-        if (error instanceof NotFoundError) return wireError("not-found", message, 404);
+        if (error instanceof AuthenticationRequiredError) return protocolError("unauthenticated", message, 401);
+        if (error instanceof PermissionDeniedError) return protocolError("permission-denied", message, 403);
+        if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
         if (isServerFault(error)) {
           console.error(`canopyd fault on ${request.method} ${url.pathname}`, error);
-          return wireError("internal-error", "The server failed to complete the request", 500);
+          return protocolError("internal-error", "The server failed to complete the request", 500);
         }
         logRequestError({ method: request.method, path: url.pathname, status: 400, message });
-        return wireError("invalid-request", message, 400);
+        return protocolError("invalid-request", message, 400);
       }
       });
       if (execution && !canopy.execution.covered(execution)) {
         await response.body?.cancel().catch(() => {});
-        return wireError("permission-denied", "Execution authorization is unavailable", 403);
+        return protocolError("permission-denied", "Execution authorization is unavailable", 403);
       }
       return response;
     },

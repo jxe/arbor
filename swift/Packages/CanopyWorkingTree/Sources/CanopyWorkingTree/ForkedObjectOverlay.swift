@@ -25,7 +25,7 @@ final class ForkedObjectOverlay: ObjectOverlay, @unchecked Sendable {
         for (hash, bytes) in objects {
             _ = try verifyObject(bytes, hash: hash)
             if let existing = self.objects[hash] {
-                guard existing == bytes else { throw ObjectStoreError.hashMismatch(expected: hash, actual: WireObjectCodec.hash(existing)) }
+                guard existing == bytes else { throw ObjectStoreError.hashMismatch(expected: hash, actual: ProtocolObjectCodec.hash(existing)) }
             } else {
                 self.objects[hash] = bytes
             }

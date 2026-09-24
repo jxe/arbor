@@ -3,10 +3,10 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CanopyDaemon } from "@overstory/canopyd";
+import { HostDaemon } from "@overstory/canopyd";
 
 const root = await mkdtemp(join(tmpdir(), "arbor-canopy-queries-"));
-const canopy = await CanopyDaemon.open(root, {
+const canopy = await HostDaemon.open(root, {
   handle: "community",
   name: "Community",
   accounts: [{ handle: "owner", token: "test-token" }],

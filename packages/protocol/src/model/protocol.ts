@@ -37,7 +37,7 @@ export type QueryStreamEvent =
   | { type: "ready"; queries: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
   | { type: "reload"; reason: "source-changed" | "access-changed" };
 
-/** Server-side adapter shared by Local REST and tree-scoped Arbor Wire queries. */
+/** Server-side adapter shared by Local REST and tree-scoped Overstory protocol queries. */
 export interface QueryStreamRuntime {
   stream(
     request: QueryStreamRequest,
@@ -142,7 +142,7 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
 }
 
 /**
- * A tree as Arbor Sync holds it: the Wire descriptor plus what only a local
+ * A tree as Arbor Sync holds it: the protocol descriptor plus what only a local
  * daemon knows (placement on disk, display name, synchronization state).
  * `root` and `update` are the accepted Canopy base this placement derives
  * from and are absent until the first accepted state is installed.
@@ -162,7 +162,7 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   missing?: boolean;
 }
 
-/** A one-time device pairing offer; identical on the Wire and through Arbor Sync. */
+/** A one-time device pairing offer; identical on the protocol and through Arbor Sync. */
 export interface PairingOffer {
   id: string;
   secret: string;
@@ -197,9 +197,9 @@ export interface NodeResponse extends NodeSnapshot {
   enclosingTree?: LocalTreeDescriptor;
   /** Opaque local admission context returned unchanged by an editor save. */
   admissionBasis?: string;
-  /** Credential-scoped Wire request digest for this locally durable editor admission. */
+  /** Credential-scoped protocol request digest for this locally durable editor admission. */
   admissionRequestDigest?: Hash;
-  /** Authenticated Wire requests known to be incorporated by this observation. */
+  /** Authenticated protocol requests known to be incorporated by this observation. */
   acceptedRequestDigests?: Hash[];
 }
 
@@ -398,7 +398,7 @@ export interface WorkspaceChange {
   directoryRevision?: DirectoryRevision;
   origin: WorkspaceEventOrigin;
   mutationID?: string;
-  /** Authenticated Wire requests incorporated by this materialized sync transition. */
+  /** Authenticated protocol requests incorporated by this materialized sync transition. */
   acceptedRequestDigests?: Hash[];
 }
 
@@ -419,7 +419,7 @@ export type ArborErrorCode =
   | "already-claimed"
   | (string & {});
 
-/** The single error envelope shared by Arbor Wire and the local REST surface. */
+/** The single error envelope shared by the Overstory protocol and the local REST surface. */
 export interface ArborError<TDetails = unknown> {
   error: ArborErrorCode;
   message: string;

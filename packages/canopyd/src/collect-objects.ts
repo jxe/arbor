@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { ObjectStore } from "@overstory/object-store";
 import type { ObjectHash } from "@overstory/protocol";
 import { retainedObjects } from "./retention.ts";
-import { assertCurrentCanopySchema } from "./schema.ts";
+import { assertCurrentHostSchema } from "./schema.ts";
 
 /**
  * The object collector: deletes stored objects that nothing retained names
@@ -90,7 +90,7 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
   const db = new Database(join(root, "canopy.sqlite3"), { readonly: true });
   let retained: Awaited<ReturnType<typeof retainedObjects>>;
   try {
-    assertCurrentCanopySchema(db);
+    assertCurrentHostSchema(db);
     progress("walking retained history");
     retained = await retainedObjects(db, store);
   } finally {

@@ -27,28 +27,28 @@ struct LocalFolderPreviewTests {
         return root
     }
 
-    /// The same folder as the complete Wire snapshot its client would accept.
-    private func snapshot(of folder: URL) throws -> WireSnapshot {
-        var objects: [WireObjectEnvelope] = []
+    /// The same folder as the complete protocol snapshot its client would accept.
+    private func snapshot(of folder: URL) throws -> ProtocolSnapshot {
+        var objects: [ProtocolObjectEnvelope] = []
         func walk(_ directory: URL) throws -> String {
-            var entries: [WireDirectoryEntry] = []
+            var entries: [ProtocolDirectoryEntry] = []
             for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) {
                 let name = url.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
                 if try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
                     entries.append(.init(name: name, directory: try walk(url)))
                 } else {
-                    let object = try WireObjectCodec.object(.file(try Data(contentsOf: url)))
+                    let object = try ProtocolObjectCodec.object(.file(try Data(contentsOf: url)))
                     objects.append(object)
                     entries.append(.init(name: name, file: object.hash))
                 }
             }
-            let object = try WireObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
+            let object = try ProtocolObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
             objects.append(object)
             return object.hash
         }
         let root = try walk(folder)
-        return WireSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
+        return ProtocolSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
     }
 
     @Test("A preview presents the same pages, references and titles as the accepted tree")

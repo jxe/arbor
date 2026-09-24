@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { parseMarkdown, plainMarkdownTitle, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
+import { parseMarkdown, plainMarkdownTitle, decodeProtocolDirectory, type ObjectHash } from "@overstory/protocol";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
 /** A Canopy-local account handle, the name in `/~handle`. */
@@ -82,7 +82,7 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
  */
 export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
   const none: RootProfileFacts = { version: 3, type: null, members: [] };
-  const directory = decodeWireDirectory(await load(root));
+  const directory = decodeProtocolDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
   if (!index?.file) return none;
@@ -117,7 +117,7 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
       for (const part of parts.slice(0, -1)) {
         const entry = current.entries.find((candidate) => candidate.name === part);
         if (!entry?.directory) throw new Error("Avatar directory is missing");
-        current = decodeWireDirectory(await load(entry.directory));
+        current = decodeProtocolDirectory(await load(entry.directory));
       }
       const file = current.entries.find((entry) => entry.name === parts.at(-1))?.file;
       if (!file) throw new Error("Avatar file is missing");

@@ -46,8 +46,8 @@ Local Overstory also lacks the equivalent out-of-band handoff:
 - `remoteSnapshot()` canonicalizes the full input URL and gives it to
   `VisitedTreeStore`;
 - the visit store derives its key from and persists that locator; and
-- `fetchRemoteProjection()` constructs a bearer-only `WireClient`, then uses
-  `WireProjection` for object and boundary reads, so the link credential is not
+- `fetchRemoteProjection()` constructs a bearer-only `ProtocolClient`, then uses
+  `ProtocolProjection` for object and boundary reads, so the link credential is not
   available as `Arbor-Access-Link` anywhere along the current projection path.
 
 A link fragment must remain usable throughout an authorized recipient session
@@ -87,8 +87,8 @@ its `Can edit` choice stays absent until linked editing meets them too.
 6. Extend the local client/daemon remote-resolution boundary with an explicit
    ephemeral access-link input. Transport it in a request header or body, never
    inside the locator. Do not overload account bearer credentials.
-7. Pass that credential through `fetchRemoteProjection()` into its `WireClient`
-   and `WireProjection` object/boundary reads, using the normative
+7. Pass that credential through `fetchRemoteProjection()` into its `ProtocolClient`
+   and `ProtocolProjection` object/boundary reads, using the normative
    `Arbor-Access-Link` header for resolve, node, children, and object requests
    needed by the visit. Keep it in memory only for the active visit/session.
 8. Normalize and persist visit identity from the fragment-free locator.

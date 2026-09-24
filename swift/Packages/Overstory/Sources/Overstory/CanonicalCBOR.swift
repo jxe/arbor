@@ -65,8 +65,8 @@ enum CanonicalCBOR {
     static func decode(_ data: Data) throws -> CanonicalCBORValue {
         var decoder = Decoder(data: data)
         let value = try decoder.decode(depth: 0)
-        guard decoder.offset == data.count else { throw ArborWireValidationError.invalidCBOR("Trailing bytes") }
-        guard encode(value) == data else { throw ArborWireValidationError.invalidCBOR("Encoding is not canonical") }
+        guard decoder.offset == data.count else { throw ProtocolValidationError.invalidCBOR("Trailing bytes") }
+        guard encode(value) == data else { throw ProtocolValidationError.invalidCBOR("Encoding is not canonical") }
         return value
     }
 
@@ -100,7 +100,7 @@ enum CanonicalCBOR {
         var offset = 0
 
         mutating func decode(depth: Int) throws -> CanonicalCBORValue {
-            guard depth <= 64 else { throw ArborWireValidationError.invalidCBOR("Maximum nesting depth exceeded") }
+            guard depth <= 64 else { throw ProtocolValidationError.invalidCBOR("Maximum nesting depth exceeded") }
             let first = try byte()
             switch first {
             case 0xf4: return .bool(false)
@@ -111,14 +111,14 @@ enum CanonicalCBOR {
                 var bits: UInt64 = 0
                 for byte in bytes { bits = bits << 8 | UInt64(byte) }
                 let value = Double(bitPattern: bits)
-                guard value.isFinite else { throw ArborWireValidationError.invalidCBOR("Non-finite float") }
+                guard value.isFinite else { throw ProtocolValidationError.invalidCBOR("Non-finite float") }
                 return .float(value)
             default: break
             }
             let major = first >> 5
             let additional = first & 31
             guard major <= 5 else {
-                throw ArborWireValidationError.invalidCBOR("Unsupported CBOR major type")
+                throw ProtocolValidationError.invalidCBOR("Unsupported CBOR major type")
             }
             let length = try readLength(additional)
             switch major {
@@ -131,7 +131,7 @@ enum CanonicalCBOR {
             case 3:
                 let bytes = try take(length)
                 guard let value = String(data: bytes, encoding: .utf8) else {
-                    throw ArborWireValidationError.invalidCBOR("Invalid UTF-8 text")
+                    throw ProtocolValidationError.invalidCBOR("Invalid UTF-8 text")
                 }
                 return .text(value)
             case 4:
@@ -147,19 +147,19 @@ enum CanonicalCBOR {
                 for _ in 0..<length {
                     let keyStart = offset
                     guard case let .text(key) = try decode(depth: depth + 1) else {
-                        throw ArborWireValidationError.invalidCBOR("Map key is not text")
+                        throw ProtocolValidationError.invalidCBOR("Map key is not text")
                     }
                     let encodedKey = data.subdata(in: keyStart..<offset)
                     if let previousKey, CanonicalCBOR.compare(previousKey, encodedKey) >= 0 {
-                        throw ArborWireValidationError.invalidCBOR("Map keys are not in canonical order")
+                        throw ProtocolValidationError.invalidCBOR("Map keys are not in canonical order")
                     }
-                    guard keys.insert(key).inserted else { throw ArborWireValidationError.invalidCBOR("Duplicate map key") }
+                    guard keys.insert(key).inserted else { throw ProtocolValidationError.invalidCBOR("Duplicate map key") }
                     previousKey = encodedKey
                     values.append((key, try decode(depth: depth + 1)))
                 }
                 return .map(values)
             default:
-                throw ArborWireValidationError.invalidCBOR("Unsupported CBOR value")
+                throw ProtocolValidationError.invalidCBOR("Unsupported CBOR value")
             }
         }
 
@@ -171,28 +171,28 @@ enum CanonicalCBOR {
             case 25: byteCount = 2
             case 26: byteCount = 4
             case 27: byteCount = 8
-            default: throw ArborWireValidationError.invalidCBOR("Indefinite or reserved length")
+            default: throw ProtocolValidationError.invalidCBOR("Indefinite or reserved length")
             }
             let bytes = try take(byteCount)
             var value: UInt64 = 0
             for byte in bytes { value = value << 8 | UInt64(byte) }
             if (byteCount == 1 && value < 24) || (byteCount == 2 && value <= 0xff) ||
                 (byteCount == 4 && value <= 0xffff) || (byteCount == 8 && value <= UInt64(UInt32.max)) {
-                throw ArborWireValidationError.invalidCBOR("Non-minimal length")
+                throw ProtocolValidationError.invalidCBOR("Non-minimal length")
             }
-            guard value <= UInt64(Int.max) else { throw ArborWireValidationError.invalidCBOR("Length is too large") }
+            guard value <= UInt64(Int.max) else { throw ProtocolValidationError.invalidCBOR("Length is too large") }
             return Int(value)
         }
 
         mutating func byte() throws -> UInt8 {
-            guard offset < data.count else { throw ArborWireValidationError.invalidCBOR("Unexpected end of input") }
+            guard offset < data.count else { throw ProtocolValidationError.invalidCBOR("Unexpected end of input") }
             defer { offset += 1 }
             return data[offset]
         }
 
         mutating func take(_ count: Int) throws -> Data {
             guard count >= 0, offset <= data.count - count else {
-                throw ArborWireValidationError.invalidCBOR("Length exceeds input")
+                throw ProtocolValidationError.invalidCBOR("Length exceeds input")
             }
             defer { offset += count }
             return data.subdata(in: offset..<(offset + count))
@@ -201,7 +201,7 @@ enum CanonicalCBOR {
 }
 
 /// Exact canonical bytes signed when a self-certifying profile claims an account.
-public func accountChallengeSigningBytes(_ challenge: WireAccountChallenge) throws -> Data {
+public func accountChallengeSigningBytes(_ challenge: ProtocolAccountChallenge) throws -> Data {
     let value = try challenge.validated()
     return CanonicalCBOR.encode(.map([
         ("version", .unsigned(value.version)),

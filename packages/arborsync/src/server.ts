@@ -16,7 +16,7 @@ export interface ArborSyncServerOptions {
   instanceID?: string;
   runtimeKind?: "persistent" | "foreground" | "cloud";
   faultInjector?: (stage: string) => void | Promise<void>;
-  /** Fallback reconciliation interval; Wire watches normally drive synchronization. */
+  /** Fallback reconciliation interval; protocol watches normally drive synchronization. */
   syncIntervalMs?: number;
 }
 

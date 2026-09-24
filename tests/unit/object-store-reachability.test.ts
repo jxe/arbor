@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { ObjectStore } from "../../packages/object-store/src/index.ts";
-import { encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type ProtocolDirectoryEntry } from "@overstory/protocol";
 
 class ReadTrace extends ObjectStore {
   objects = new Map<string, Uint8Array>();
   reads: string[] = [];
   constructor() { super("/unused"); }
   put(bytes: Uint8Array) { const hash = hashObject(bytes); this.objects.set(hash, bytes); return hash; }
-  directory(entries: WireDirectoryEntry[]) { return this.put(encodeWireDirectory({type: "directory", entries})); }
+  directory(entries: ProtocolDirectoryEntry[]) { return this.put(encodeProtocolDirectory({type: "directory", entries})); }
   override async read(hash: string) {
     this.reads.push(hash);
     const bytes = this.objects.get(hash);

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
-import { stableJSONString, WireClient, WireHTTPError, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { stableJSONString, ProtocolClient, ProtocolHTTPError, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { EvaluationFailure } from "../../../packages/canopyd-merge/src/engine-contract.ts";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -11,28 +11,28 @@ import { recordedQuestion, sidecar } from "../../support/replay-check.ts";
 /** A cold rebuild longer than the sidecar's replay budget answers retryably
  * and keeps what it rebuilt, so retries finish it: a long chain after a
  * restart costs retries, never a stuck tree. */
-let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient, tree: string;
+let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, tree: string;
 const objects = new Map<string, Uint8Array>();
 const start = async () => {
-  running = await serveCanopy({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+  running = await serveHost({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
     accounts: [{ handle: "owner", token: "owner-token", communityWriter: true }] });
-  client = new WireClient(running.url, "owner-token");
+  client = new ProtocolClient(running.url, "owner-token");
 };
 const stop = async () => { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); };
 beforeAll(async () => { dir = await mkdtemp(`${tmpdir()}/arbor-replay-budget-`); await start(); tree = (await client.account()).account.community.id; });
 afterAll(async () => { delete process.env.ARBOR_MERGE_REPLAY_MS; await stop(); await rm(dir, { recursive: true, force: true }); });
 
 function snapshot(basis: string, files: Record<string, string>): CandidateUpdate {
-  const directory = decodeWireDirectory(objects.get(basis)!);
+  const directory = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, text] of Object.entries(files)) {
     const bytes = new TextEncoder().encode(text), file = hashObject(bytes); objects.set(file, bytes);
     directory.entries = [...directory.entries.filter((e) => e.name !== name), { name, file }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   }
-  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
+  const bytes = encodeProtocolDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
   return { change: crypto.randomUUID(), candidate: candidate as ObjectHash, trace: null, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 async function traced(basis: string, text: string): Promise<CandidateUpdate> {
-  const file = decodeWireDirectory(objects.get(basis)!).entries.find((e) => e.name === "note.md")!.file!;
+  const file = decodeProtocolDirectory(objects.get(basis)!).entries.find((e) => e.name === "note.md")!.file!;
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range: [0, 1] as [number, number] }, text }];
   const executed = await executeExactSourceEdits(basis, operations, async (hash) => objects.get(hash)!);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
@@ -75,8 +75,8 @@ test("a rebuild over the budget answers retryably, keeps its progress, and retri
   for (;;) {
     try { accepted = (await client.submitUpdates(tree, { base: base.id, updates: [stale] })).results[0]!.update; break; }
     catch (error) {
-      expect(error).toBeInstanceOf(WireHTTPError);
-      expect((error as WireHTTPError).status).toBe(503);
+      expect(error).toBeInstanceOf(ProtocolHTTPError);
+      expect((error as ProtocolHTTPError).status).toBe(503);
       expect(++failures).toBeLessThan(50);
     }
   }

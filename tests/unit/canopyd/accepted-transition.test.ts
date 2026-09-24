@@ -3,7 +3,7 @@ import { buildAcceptedTransitionPayload } from "@overstory/canopyd";
 import {
   applyObjectDelta,
   encodeTransitionPayloadJSON,
-  encodeWireDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type AcceptedTransitionPayload,
   type ObjectHash,
@@ -12,7 +12,7 @@ import {
 function graph(name: string, payload: Uint8Array) {
   const file = payload;
   const fileHash = hashObject(file);
-  const root = encodeWireDirectory({ type: "directory", entries: [{ name, file: fileHash }] });
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name, file: fileHash }] });
   const rootHash = hashObject(root);
   return { root: rootHash, file: fileHash, objects: new Map<ObjectHash, Uint8Array>([[fileHash, file], [rootHash, root]]) };
 }
@@ -71,7 +71,7 @@ describe("accepted transition derivation", () => {
     expect(encodedBytes(transition)).toBeLessThan(2_000);
     expect(reconstruct(transition, before.objects).get(after.file)).toEqual(after.objects.get(after.file));
 
-    const emptyRootBytes = encodeWireDirectory({ type: "directory", entries: [] });
+    const emptyRootBytes = encodeProtocolDirectory({ type: "directory", entries: [] });
     const emptyRoot = hashObject(emptyRootBytes);
     objects.set(emptyRoot, emptyRootBytes);
     const creation = await buildAcceptedTransitionPayload(emptyRoot, after.root, async (hash) => objects.get(hash)!);
@@ -84,8 +84,8 @@ describe("accepted transition derivation", () => {
     const shared = encoder.encode("# Page\n");
     const changed = encoder.encode("# Page\n\nChanged\n");
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const beforeRoot = encodeWireDirectory({ type: "directory", entries: names.map((name) => ({ name, file: hashObject(shared) })) });
-    const afterRoot = encodeWireDirectory({
+    const beforeRoot = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: hashObject(shared) })) });
+    const afterRoot = encodeProtocolDirectory({
       type: "directory",
       entries: names.map((name) => ({ name, file: hashObject(name === "page-0200.md" ? changed : shared) })),
     });

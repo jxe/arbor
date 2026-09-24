@@ -102,7 +102,7 @@ public actor WorkingTree {
                 throw WorkingTreeError.corruptState("Unsupported working tree state schema \(state.schema)")
             }
             guard state.tree == tree.rawValue else { throw WorkingTreeError.corruptState("Working tree ID changed") }
-            let snapshot = try WorkingTreeWireCodec.snapshot(for: state)
+            let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
             let control: WorkingTreeControl
             if store.hasControl {
                 control = try decode(WorkingTreeControl.self, from: try store.readControl())
@@ -122,7 +122,7 @@ public actor WorkingTree {
                 tree: tree.rawValue,
                 nodes: [WorkingTreeNode(path: "/", kind: .directory)]
             )
-            let snapshot = try WorkingTreeWireCodec.snapshot(for: state)
+            let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
             let control = WorkingTreeControl(
                 tree: tree.rawValue,
                 materializedRoot: snapshot.root,
@@ -172,7 +172,7 @@ public actor WorkingTree {
 
     public func currentSnapshot() throws -> WorkingTreeSnapshot {
         try requireOpen()
-        return try WorkingTreeWireCodec.snapshot(for: state)
+        return try WorkingTreeProtocolCodec.snapshot(for: state)
     }
 
     /// Local source views changed without changing the accepted projection.
@@ -212,16 +212,16 @@ public actor WorkingTree {
 
     /// The current graph with every object's bytes, fetching referenced file
     /// objects through the object store.
-    func completeSnapshot() async throws -> WireSnapshot {
+    func completeSnapshot() async throws -> ProtocolSnapshot {
         let sparse = try currentSnapshot()
-        var objects: [WireObjectEnvelope] = []
+        var objects: [ProtocolObjectEnvelope] = []
         objects.reserveCapacity(sparse.objects.count)
         for object in sparse.objects {
             let bytes: Data
             if let inline = object.bytes { bytes = inline } else { bytes = try await objectBytes(hash: object.hash) }
-            objects.append(WireObjectEnvelope(hash: object.hash, bytes: bytes))
+            objects.append(ProtocolObjectEnvelope(hash: object.hash, bytes: bytes))
         }
-        return WireSnapshot(root: sparse.root, objects: objects)
+        return ProtocolSnapshot(root: sparse.root, objects: objects)
     }
 
     /// The current graph as far as this tree's own bytes go: every object the
@@ -229,18 +229,18 @@ public actor WorkingTree {
     /// Platform-served files are omitted, so the result validates in
     /// `.sparseFiles`; nothing is fetched. Candidate bodies and durable heads
     /// are cut from this, never from the platform store.
-    public func localSnapshot() throws -> WireSnapshot {
+    public func localSnapshot() throws -> ProtocolSnapshot {
         let sparse = try currentSnapshot()
-        var objects: [WireObjectEnvelope] = []
+        var objects: [ProtocolObjectEnvelope] = []
         objects.reserveCapacity(sparse.objects.count)
         for object in sparse.objects {
             if let inline = object.bytes {
-                objects.append(WireObjectEnvelope(hash: object.hash, bytes: inline))
+                objects.append(ProtocolObjectEnvelope(hash: object.hash, bytes: inline))
             } else if let held = try overlay.storedBytes(object.hash) {
-                objects.append(WireObjectEnvelope(hash: object.hash, bytes: held))
+                objects.append(ProtocolObjectEnvelope(hash: object.hash, bytes: held))
             }
         }
-        return WireSnapshot(root: sparse.root, objects: objects)
+        return ProtocolSnapshot(root: sparse.root, objects: objects)
     }
 
     /// Whether the last read of `node`'s bytes found no store able to serve them.
@@ -302,7 +302,7 @@ public actor WorkingTree {
 
     private func replaceWithAccepted(_ replacement: WorkingTreeSystemReplacement, mutation: String) throws {
         let replacementState = try state(from: replacement)
-        let computed = try WorkingTreeWireCodec.snapshot(for: replacementState)
+        let computed = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
         guard computed.root == replacement.root else { throw WorkingTreeError.corruptState("System replacement root mismatch") }
         try transact(
             mutation: mutation,
@@ -402,7 +402,7 @@ public actor WorkingTree {
     /// platform store and is a materialization state, not corruption.
     public func diagnostics() throws -> [WorkingTreeDiagnostic] {
         try requireOpen()
-        let snapshot = try WorkingTreeWireCodec.snapshot(for: state)
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
         var result: [WorkingTreeDiagnostic] = []
         for object in snapshot.objects {
             guard overlay.contains(object.hash) else {
@@ -614,7 +614,7 @@ public actor WorkingTree {
         try WorkingTreeSemantics.validateName(asset.name)
         let parentNode = try resolve(parent)
         guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw WorkingTreeError.notDirectory(parent) }
-        let digest = String(WireObjectCodec.hash(asset.bytes).dropFirst("sha256:".count))
+        let digest = String(ProtocolObjectCodec.hash(asset.bytes).dropFirst("sha256:".count))
         let uniqueName = "\(digest.prefix(16))-\(asset.name)"
         let path = WorkingTreeSemantics.child(uniqueName, of: parentNode.path)
         if let existing = state.nodes.first(where: { $0.path == path }) {
@@ -639,7 +639,7 @@ public actor WorkingTree {
             return bytes
         case let .hash(hash, _, _)?:
             let object = try await objectBytes(hash: hash)
-            guard case let .file(payload) = try WireObjectCodec.decode(object, kind: .file) else {
+            guard case let .file(payload) = try ProtocolObjectCodec.decode(object, kind: .file) else {
                 throw WorkingTreeError.corruptState("File reference \(hash) is not a file object")
             }
             // This is derived metadata; it does not admit a new content generation.
@@ -756,14 +756,14 @@ public actor WorkingTree {
     /// Capture identity and graph in one actor turn for structural admission.
     func captureLocalTrash() throws -> WorkingTreeLocalTrash {
         let nodes = state.nodes.filter { $0.path == "/Trash" || $0.path.hasPrefix("/Trash/") }
-        var objects: [WireObjectEnvelope] = []
+        var objects: [ProtocolObjectEnvelope] = []
         for hash in Set(nodes.compactMap { $0.ref?.objectHash }).sorted() {
             if let bytes = try overlay.storedBytes(hash) { objects.append(.init(hash: hash, bytes: bytes)) }
         }
         return WorkingTreeLocalTrash(nodes: nodes, objects: objects)
     }
 
-    /// Local trash never enters the Wire projection. Candidate staging restores
+    /// Local trash never enters the protocol projection. Candidate staging restores
     /// it from the same durable record as the structural snapshot.
     func installLocalTrash(_ trash: WorkingTreeLocalTrash) throws {
         try trash.validate()
@@ -778,22 +778,22 @@ public actor WorkingTree {
         }
     }
 
-    func captureAcceptedGraph() throws -> (base: WireUpdateBase, graph: WireSnapshot) {
+    func captureAcceptedGraph() throws -> (base: ProtocolUpdateBase, graph: ProtocolSnapshot) {
         let graph = try localSnapshot()
         guard control.pendingRoot == nil, let root = control.acceptedRoot,
               let update = control.acceptedUpdate, root == graph.root else {
-            throw ArborWireValidationError.invalidValue("Legacy local work has no admission dependency")
+            throw ProtocolValidationError.invalidValue("Legacy local work has no admission dependency")
         }
-        return (WireUpdateBase(root: root, update: update), graph)
+        return (ProtocolUpdateBase(root: root, update: update), graph)
     }
 
     public func captureSourceBasis(_ reference: WorkspaceReference) throws -> CapturedSourceBasis {
         let node = try resolve(reference)
         guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
         let document = try documentSnapshot(reference), graph = try localSnapshot()
-        let accepted: WireUpdateBase?
+        let accepted: ProtocolUpdateBase?
         if control.pendingRoot == nil, let root = control.acceptedRoot, let update = control.acceptedUpdate, root == graph.root {
-            accepted = WireUpdateBase(root: root, update: update)
+            accepted = ProtocolUpdateBase(root: root, update: update)
         } else { accepted = nil }
         let sourcePath = node.kind == .markdown || node.directoryBodyPlacement == .siblingMarkdown
             ? node.path + ".md" : (node.path == "/" ? "/_index.md" : node.path + "/_index.md")
@@ -954,7 +954,7 @@ public actor WorkingTree {
 
     private func finish(_ intent: WorkingTreeMutationIntent, journalToken: String, injectFaults: Bool) throws {
         try Self.validate(intent.state, control: nil)
-        let snapshot = try WorkingTreeWireCodec.snapshot(for: intent.state)
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: intent.state)
         try overlay.store(snapshot.inlineObjectsByHash)
         if injectFaults { try faultInjector.reached(.afterObjects) }
         // Bytes the overlay now holds are referenced, not carried, from here on.
@@ -1088,7 +1088,7 @@ public actor WorkingTree {
         }
         if let control {
             guard control.schema == 1, control.tree == state.tree else { throw WorkingTreeError.corruptState("Replica control mismatch") }
-            let snapshot = try WorkingTreeWireCodec.snapshot(for: state)
+            let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
             guard snapshot.root == control.materializedRoot else { throw WorkingTreeError.corruptState("Materialized root does not match state") }
         }
         let paths = state.nodes.map(\.path)

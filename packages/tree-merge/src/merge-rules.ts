@@ -5,10 +5,10 @@ import {
 import { stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
 import {
   collectionChildSetHash,
-  decodeWireCollectionFile,
-  encodeWireCollectionFile,
-  WireCollectionFileError,
-  type WireCollectionFileRow,
+  decodeProtocolCollectionFile,
+  encodeProtocolCollectionFile,
+  ProtocolCollectionFileError,
+  type ProtocolCollectionFileRow,
 } from "@overstory/collection-schema";
 
 /**
@@ -256,7 +256,7 @@ export async function collectionFileRowsV1(
     const value = await context.file(hash);
     return value;
   };
-  const rowEqual = (left: WireCollectionFileRow | undefined, right: WireCollectionFileRow | undefined): boolean =>
+  const rowEqual = (left: ProtocolCollectionFileRow | undefined, right: ProtocolCollectionFileRow | undefined): boolean =>
     left === undefined ? right === undefined
       : right !== undefined && stableJSONString(left.properties) === stableJSONString(right.properties);
   const schemaState = (value: CollectionFileMergeInput) => stableJSONString({
@@ -279,7 +279,7 @@ export async function collectionFileRowsV1(
   }
   let mergedRows = 0;
   try {
-    const decode = async (value: CollectionFileMergeInput) => decodeWireCollectionFile(
+    const decode = async (value: CollectionFileMergeInput) => decodeProtocolCollectionFile(
       value.descriptor,
       await collectionFile(value.source),
       await collectionFile(value.schemaSource),
@@ -288,12 +288,12 @@ export async function collectionFileRowsV1(
     const baseRows = new Map(baseFile.rows.map((row) => [row.stableKey, row]));
     const candidateRows = new Map(candidateFile.rows.map((row) => [row.stableKey, row]));
     const currentRows = new Map(currentFile.rows.map((row) => [row.stableKey, row]));
-    const selected = new Map<string, WireCollectionFileRow>();
+    const selected = new Map<string, ProtocolCollectionFileRow>();
     for (const key of new Set([...baseRows.keys(), ...candidateRows.keys(), ...currentRows.keys()])) {
       const before = baseRows.get(key);
       const candidate = candidateRows.get(key);
       const current = currentRows.get(key);
-      let row: WireCollectionFileRow | undefined;
+      let row: ProtocolCollectionFileRow | undefined;
       if (rowEqual(candidate, current)) row = candidate;
       else if (rowEqual(candidate, before)) row = current;
       else if (rowEqual(current, before)) {
@@ -306,7 +306,7 @@ export async function collectionFileRowsV1(
       }
       if (row) selected.set(key, row);
     }
-    const ordered: WireCollectionFileRow[] = [];
+    const ordered: ProtocolCollectionFileRow[] = [];
     for (const row of [...currentFile.rows, ...candidateFile.rows]) {
       const selectedRow = selected.get(row.stableKey);
       if (selectedRow) {
@@ -316,7 +316,7 @@ export async function collectionFileRowsV1(
     }
     ordered.push(...[...selected.values()].sort((left, right) => left.stableKey < right.stableKey ? -1 : 1));
     const childSetHash = collectionChildSetHash(ordered.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
-    const source = context.store(encodeWireCollectionFile(current.descriptor.format, currentFile.schema, ordered));
+    const source = context.store(encodeProtocolCollectionFile(current.descriptor.format, currentFile.schema, ordered));
     return {
       descriptor: { ...current.descriptor, childSetHash },
       source,
@@ -324,7 +324,7 @@ export async function collectionFileRowsV1(
       mergedRows,
     };
   } catch (error) {
-    if (error instanceof WireCollectionFileError) {
+    if (error instanceof ProtocolCollectionFileError) {
       context.conflicts.push({ path, reason: error.kind === "schema" || error.kind === "unsupported" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
       return { ...candidate, mergedRows: 0 };
     }

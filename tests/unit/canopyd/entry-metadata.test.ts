@@ -2,17 +2,17 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
-import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { documentKey, entryChanges } from "../../../packages/canopyd/src/updates/entry-metadata.ts";
 
 const objects = new Map<ObjectHash, Uint8Array>();
 const file = (text: string) => { const bytes = new TextEncoder().encode(text), hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 const dir = (entries: Record<string, ObjectHash | { directory: ObjectHash }>) => {
-  const list: WireDirectoryEntry[] = Object.entries(entries).map(([name, value]) =>
+  const list: ProtocolDirectoryEntry[] = Object.entries(entries).map(([name, value]) =>
     typeof value === "string" ? { name, file: value } : { name, directory: value.directory });
   list.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
+  const bytes = encodeProtocolDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
   objects.set(hash, bytes); return hash;
 };
 const load = async (hash: ObjectHash) => objects.get(hash)!;
@@ -44,12 +44,12 @@ test("a file replaced in place is only set", async () => {
   expect(changes.removed).toEqual([]);
 });
 
-let data: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient;
+let data: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 const token = "entry-metadata-owner";
 beforeEach(async () => {
   data = await mkdtemp(`${tmpdir()}/arbor-entry-metadata-`);
-  running = await serveCanopy({ dataRoot: data, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new WireClient(running.url, token);
+  running = await serveHost({ dataRoot: data, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
+  client = new ProtocolClient(running.url, token);
 });
 afterEach(async () => { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); await rm(data, { recursive: true, force: true }); });
 
@@ -58,12 +58,12 @@ test("accepted updates keep entry times and document versions, served by the met
   let head = (await client.descriptor(tree)).tree;
   const initial = await client.snapshot(tree, head.root);
   for (const [hash, bytes] of initial.objects) objects.set(hash, bytes);
-  const existing = decodeWireDirectory(objects.get(initial.root)!).entries;
+  const existing = decodeProtocolDirectory(objects.get(initial.root)!).entries;
   // The community tree's own entries stay; the test adds its files beside them.
   const tree_ = (entries: Record<string, ObjectHash>) => {
-    const list: WireDirectoryEntry[] = [...existing, ...Object.entries(entries).map(([name, hash]) => ({ name, file: hash }))];
+    const list: ProtocolDirectoryEntry[] = [...existing, ...Object.entries(entries).map(([name, hash]) => ({ name, file: hash }))];
     list.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-    const bytes = encodeWireDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
+    const bytes = encodeProtocolDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
     objects.set(hash, bytes); return hash;
   };
   const submit = async (root: ObjectHash) => {

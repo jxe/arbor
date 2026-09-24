@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { ObjectHash } from "@overstory/protocol";
 import { AccessControl, type AccessHost } from "../../../packages/canopyd/src/access.ts";
-import type { CanopyAccount, CanopyTree } from "../../../packages/canopyd/src/model.ts";
+import type { HostAccount, HostTree } from "../../../packages/canopyd/src/model.ts";
 
 const ROOT = `sha256:${"a".repeat(64)}` as ObjectHash;
 
-function tree(id: string, canonicalPath: string): CanopyTree {
+function tree(id: string, canonicalPath: string): HostTree {
   return {
     id, canonicalPath, parentTree: null, kind: "ordinary", ref: ROOT, publicAccess: "none",
     policy: "ordinary", status: "active", accountID: null,
   };
 }
 
-const bob: CanopyAccount = { id: "ac_bob", handle: "bob", profileTree: "tr_bob", configTree: null, enabled: true };
+const bob: HostAccount = { id: "ac_bob", handle: "bob", profileTree: "tr_bob", configTree: null, enabled: true };
 
 /**
  * Three ACL subjects, each listing bob as a member: a group profile, a person

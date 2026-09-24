@@ -88,7 +88,7 @@ type LocatorResolution = {
 - Arbor Sync speaks the protocol vocabulary wherever the two overlap. `TreeDescriptor`,
   `LocatorResolution`, `PairingOffer`, `LocalAccountSummary`, and
   `ProfileIdentity` are single definitions in `@overstory/protocol` (Swift:
-  `Overstory` and the Mac app's daemon client share `WireCanonicalDescriptor`); a
+  `Overstory` and the Mac app's daemon client share `ProtocolCanonicalDescriptor`); a
   local descriptor adds only what a local daemon knows.
 - `GET /v1/trees` returns `LocalTreeDescriptor`s. Hosted ordinary trees have
   non-null canonical data and the private account-configuration tree has

@@ -13,20 +13,20 @@ struct AuthoredContractTests {
         for c in try #require(fixture["cases"] as? [[String: Any]]) {
             let bytes = try JSONSerialization.data(withJSONObject: #require(c["value"]))
             if c["valid"] as? Bool == true {
-                let value = try JSONDecoder().decode(WireAuthoredRequestIntent.self, from: bytes)
-                #expect(try JSONDecoder().decode(WireAuthoredRequestIntent.self, from: JSONEncoder().encode(value)) == value)
+                let value = try JSONDecoder().decode(ProtocolAuthoredRequestIntent.self, from: bytes)
+                #expect(try JSONDecoder().decode(ProtocolAuthoredRequestIntent.self, from: JSONEncoder().encode(value)) == value)
                 let expected = try #require(c["identities"] as? [[String: String]])
                 let updates = try #require(value.fields["updates"]?.items).map { raw in
-                    try WireAuthoredCandidate(intent: #require(raw.fields), payload: .init(objects: [], deltas: []))
+                    try ProtocolAuthoredCandidate(intent: #require(raw.fields), payload: .init(objects: [], deltas: []))
                 }
-                let actual = try WireAuthoredUpdateRequest(base: value.fields["base"]?.text, updates: updates).identities(tree: tree)
+                let actual = try ProtocolAuthoredUpdateRequest(base: value.fields["base"]?.text, updates: updates).identities(tree: tree)
                 #expect(actual.count == expected.count)
                 for (a, e) in zip(actual, expected) {
                     #expect(a.digest == e["digest"], "\(c["name"] ?? "case")")
                     #expect(a.bytes.base64EncodedString() == e["canonicalCBORBase64"])
                 }
             } else {
-                #expect(throws: (any Error).self, "\(c["name"] ?? "case")") { try JSONDecoder().decode(WireAuthoredRequestIntent.self, from: bytes) }
+                #expect(throws: (any Error).self, "\(c["name"] ?? "case")") { try JSONDecoder().decode(ProtocolAuthoredRequestIntent.self, from: bytes) }
             }
         }
     }

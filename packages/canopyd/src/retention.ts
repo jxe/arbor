@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { decodeLogEntry, OBJECT_HASH, type LogEntry } from "@overstory/merge-protocol";
 import type { ObjectStore } from "@overstory/object-store";
-import { decodeWireDirectory, wireEntryObject, type ObjectHash } from "@overstory/protocol";
+import { decodeProtocolDirectory, protocolEntryObject, type ObjectHash } from "@overstory/protocol";
 
 /**
  * The one definition of which stored objects canopyd keeps. The integrity
@@ -133,14 +133,14 @@ async function mark(objects: ObjectStore, root: Pin, required: boolean, live: Se
     walked.add(key);
     live.add(pin.hash);
     if (pin.kind === "file") continue;
-    let directory: ReturnType<typeof decodeWireDirectory>;
-    try { directory = decodeWireDirectory(bytes); }
+    let directory: ReturnType<typeof decodeProtocolDirectory>;
+    try { directory = decodeProtocolDirectory(bytes); }
     catch (error) {
       if (pin.kind === "directory") throw error;
       continue; // An unknown pin that is not a directory is a single object.
     }
     for (const entry of directory.entries) {
-      const target = wireEntryObject(entry);
+      const target = protocolEntryObject(entry);
       // Nested trees are retained by their own accepted rows.
       if (target) pending.push(target);
     }

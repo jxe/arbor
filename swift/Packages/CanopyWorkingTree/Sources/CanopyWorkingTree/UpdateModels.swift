@@ -11,7 +11,7 @@ func sortedKeysJSON<T: Encodable>(_ value: T) throws -> Data {
 }
 
 public enum UpdateError: Error, Equatable, Sendable {
-    case awaitingCanopyReconciliation
+    case awaitingHostReconciliation
     case replicaIsNotPlaced
     case returnedSnapshotMissing
     case returnedSnapshotMismatch
@@ -27,7 +27,7 @@ public enum UpdateError: Error, Equatable, Sendable {
 extension UpdateError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .awaitingCanopyReconciliation: "Editing can continue. Creating, moving and importing items will resume after Canopy reconciles pending changes."
+        case .awaitingHostReconciliation: "Editing can continue. Creating, moving and importing items will resume after Canopy reconciles pending changes."
         case .replicaIsNotPlaced: "This replica has no accepted synchronization base."
         case .returnedSnapshotMissing: "Canopy did not return the snapshot needed to finish synchronization."
         case .returnedSnapshotMismatch: "Canopy returned content that does not match its advertised root."
@@ -61,35 +61,35 @@ public struct NoUpdateFaults: UpdateFaultInjector {
 }
 
 public protocol UpdateTransport: Sendable {
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse
-    func descriptor(tree: String) async throws -> WireCurrentTree
-    func snapshot(tree: String, root: String) async throws -> WireSnapshot
-    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree
+    func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot
+    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> ProtocolDecisionPageContract
     /// One immutable object by hash, for directory walks that avoid a full snapshot.
     func object(tree: String, hash: String) async throws -> Data
 }
 
 extension UpdateTransport {
     public func object(tree: String, hash: String) async throws -> Data { throw UpdateError.returnedSnapshotMissing }
-    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> ProtocolDecisionPageContract {
         throw ConflictReviewError.unavailable
     }
 }
 
-public struct ArborWireReplicaTransport: UpdateTransport, Sendable {
-    public let client: ArborWireClient
+public struct ProtocolReplicaTransport: UpdateTransport, Sendable {
+    public let client: ProtocolClient
 
-    public init(client: ArborWireClient) { self.client = client }
-    public func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    public init(client: ProtocolClient) { self.client = client }
+    public func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         try await client.submitUpdateResponse(prepared)
     }
-    public func descriptor(tree: String) async throws -> WireCurrentTree {
+    public func descriptor(tree: String) async throws -> ProtocolCurrentTree {
         try await client.descriptor(tree: tree)
     }
-    public func snapshot(tree: String, root: String) async throws -> WireSnapshot {
+    public func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot {
         try await client.snapshot(tree: tree, root: root)
     }
-    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> ProtocolDecisionPageContract {
         try await client.conflicts(tree: tree, state: state, root: root, after: after)
     }
     public func object(tree: String, hash: String) async throws -> Data { try await client.object(tree: tree, hash: hash) }
@@ -100,7 +100,7 @@ public struct ArborWireReplicaTransport: UpdateTransport, Sendable {
 /// live object store, so overlay collection cannot change what is resent.
 struct UpdateAttempt: Codable, Equatable, Sendable {
     var tree: String
-    var base: WireUpdateBase
+    var base: ProtocolUpdateBase
     var candidate: String
     var generation: Int
     var body: Data

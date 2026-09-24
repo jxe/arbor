@@ -3,9 +3,9 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { ObjectStore } from "@overstory/object-store";
-import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { AcceptedUpdateStore } from "../../../../packages/canopyd/src/updates/store.ts";
 import { MergeHistory } from "../../../../packages/canopyd/src/updates/merge-history.ts";
 import { executeExactSourceEdits } from "../../../../tests/support/source-edits.ts";
@@ -14,7 +14,7 @@ import { migrateLogEntries, UnconvertibleHistoryError } from "./run.ts";
 import { rebuildCheck } from "./rebuild-check.ts";
 
 const token = "migration-018-owner";
-const serve = (root: string) => serveCanopy({ dataRoot: root, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
+const serve = (root: string) => serveHost({ dataRoot: root, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
 type Running = Awaited<ReturnType<typeof serve>>;
 const stop = async (running: Running) => { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); };
 const encoder = new TextEncoder();
@@ -26,24 +26,24 @@ const encoder = new TextEncoder();
 async function history(root: string) {
   const running = await serve(root);
   try {
-    const client = new WireClient(running.url, token);
+    const client = new ProtocolClient(running.url, token);
     const tree = (await client.account()).account.community.id;
     const head = (await client.descriptor(tree)).tree;
     const objects = new Map((await client.snapshot(tree, head.root)).objects);
     const withFiles = (basis: string, files: Record<string, string>) => {
-      const directory = decodeWireDirectory(objects.get(basis)!);
+      const directory = decodeProtocolDirectory(objects.get(basis)!);
       for (const [name, text] of Object.entries(files)) {
         const bytes = encoder.encode(text), file = hashObject(bytes); objects.set(file, bytes);
         directory.entries = [...directory.entries.filter((e) => e.name !== name), { name, file }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       }
-      const bytes = encodeWireDirectory(directory), hash = hashObject(bytes); objects.set(hash, bytes);
+      const bytes = encodeProtocolDirectory(directory), hash = hashObject(bytes); objects.set(hash, bytes);
       return hash;
     };
     const all = () => [...objects].map(([hash, bytes]) => ({ hash, bytes }));
     const snapshot = (basis: string, files: Record<string, string>): CandidateUpdate =>
       ({ change: crypto.randomUUID(), candidate: withFiles(basis, files) as ObjectHash, trace: null, resolves: [], objects: all(), deltas: [] });
     const traced = async (basis: string, text: string, range: [number, number]): Promise<CandidateUpdate> => {
-      const file = decodeWireDirectory(objects.get(basis)!).entries.find((e) => e.name === "note.md")!.file!;
+      const file = decodeProtocolDirectory(objects.get(basis)!).entries.find((e) => e.name === "note.md")!.file!;
       const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range }, text }];
       const executed = await executeExactSourceEdits(basis, operations, async (hash) => objects.get(hash)!);
       for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
@@ -155,17 +155,17 @@ test("every accepted update gets a chained log entry with the same public decisi
     // This build serves the same conflict pages, audits the history, and accepts the next update after the head.
     const running = await serve(root);
     try {
-      const client = new WireClient(running.url, token);
+      const client = new ProtocolClient(running.url, token);
       for (const [id, page] of pages) {
         const update = running.canopy.update(id)!;
         expect(await client.conflicts(tree, id, update.root)).toEqual(page as never);
       }
       await running.canopy.verifyIntegrity();
       const snapshot = await client.snapshot(tree, head.root);
-      const directory = decodeWireDirectory(snapshot.objects.get(head.root)!);
+      const directory = decodeProtocolDirectory(snapshot.objects.get(head.root)!);
       const bytes = encoder.encode("after\n"), file = hashObject(bytes);
       directory.entries = [...directory.entries, { name: "after.md", file }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-      const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded);
+      const encoded = encodeProtocolDirectory(directory), candidate = hashObject(encoded);
       const next = (await client.submitUpdates(tree, { base: head.id, updates: [{ change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
         objects: [...snapshot.objects, [file, bytes], [candidate, encoded]].map(([hash, bytes]) => ({ hash: hash as string, bytes: bytes as Uint8Array })) }] })).results[0]!.update;
       expect(next.id).toBe(String(report.nextOrdinal));

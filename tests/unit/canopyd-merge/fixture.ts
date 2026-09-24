@@ -1,10 +1,10 @@
 import {
   hashObject,
-  encodeWireDirectory,
-  decodeWireDirectory,
+  encodeProtocolDirectory,
+  decodeProtocolDirectory,
   type MaterialRef,
   type SourceOperation,
-  type WireDirectoryEntry,
+  type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 import { MergeRefusal } from "@overstory/merge-protocol";
 import { mergeIntent } from "@overstory/canopyd-merge";
@@ -46,7 +46,7 @@ export class Fixture {
   }
   tree(files: Record<string, string>): string {
     return this.put(
-      encodeWireDirectory({
+      encodeProtocolDirectory({
         type: "directory",
         entries: Object.entries(files)
           .sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
@@ -54,9 +54,9 @@ export class Fixture {
       }),
     );
   }
-  dir(entries: WireDirectoryEntry[]) {
+  dir(entries: ProtocolDirectoryEntry[]) {
     return this.put(
-      encodeWireDirectory({
+      encodeProtocolDirectory({
         type: "directory",
         entries: [...entries].sort((a, b) =>
           Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)),
@@ -150,7 +150,7 @@ export class Fixture {
     });
   }
   content(root: string, name: string) {
-    const entry = decodeWireDirectory(this.objects.get(root)!).entries.find(
+    const entry = decodeProtocolDirectory(this.objects.get(root)!).entries.find(
       (e) => e.name === name,
     )!;
     return new TextDecoder().decode(this.objects.get(entry.file!));

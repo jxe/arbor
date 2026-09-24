@@ -7,28 +7,28 @@
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
-import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject,
-  type CandidateUpdate, type ObjectHash, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+  type CandidateUpdate, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 
 const count = Number(process.env.FILES ?? 200);
 const dir = await mkdtemp(`${tmpdir()}/arbor-snapshot-cost-`);
-const running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token: "cost", communityWriter: true }],
+const running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token: "cost", communityWriter: true }],
   publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-const client = new WireClient(running.url, "cost");
+const client = new ProtocolClient(running.url, "cost");
 const objects = new Map<ObjectHash, Uint8Array>();
 const sent = new Set<ObjectHash>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 const file = (text: string) => put(new TextEncoder().encode(text));
-function change(basis: ObjectHash, entries: Record<string, Omit<WireDirectoryEntry, "name"> | null>): ObjectHash {
-  const value: WireDirectory = decodeWireDirectory(objects.get(basis)!);
+function change(basis: ObjectHash, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): ObjectHash {
+  const value: ProtocolDirectory = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
     value.entries = value.entries.filter((e) => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as WireDirectoryEntry);
+    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
   }
   value.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  return put(encodeWireDirectory(value));
+  return put(encodeProtocolDirectory(value));
 }
 function snapshot(candidate: ObjectHash): CandidateUpdate {
   const fresh = [...objects].filter(([hash]) => !sent.has(hash));
@@ -65,7 +65,7 @@ await time("snapshot concurrent pair", 20, async (index) => {
 });
 await time("traced fast-forward", 20, async (index) => {
   const path = `/page-${(index + 7) % count}.md`;
-  const source = decodeWireDirectory(objects.get(root)!).entries.find((e) => e.name === path.slice(1))!.file!;
+  const source = decodeProtocolDirectory(objects.get(root)!).entries.find((e) => e.name === path.slice(1))!.file!;
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: source }, range: [0, 1] as [number, number] }, text: "#" }];
   const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!);
   for (const [hash, bytes] of executed.generated) { objects.set(hash, bytes); sent.add(hash); }

@@ -15,7 +15,7 @@ function credentialLocation(reference: string): { service: string; name: string 
   return { service: reference.slice(0, separator), name: reference.slice(separator + 1) };
 }
 
-export interface CanopyAccountRecord {
+export interface HostAccountRecord {
   configurationTree: string;
   origin: string;
   account: string;
@@ -32,7 +32,7 @@ export interface CanopyAccountRecord {
 }
 
 /** Private connection metadata and credential lookup for one configuration TreeID. */
-export class CanopyAccountStore {
+export class HostAccountStore {
   constructor(readonly configurationTree: string) {
     if (!/^tr_[a-z2-7]+$/.test(configurationTree)) throw new Error("Account store requires a configuration TreeID");
   }
@@ -69,12 +69,12 @@ export class CanopyAccountStore {
     return Bun.secrets.get(this.credentialLocation()).catch(() => null);
   }
 
-  async set(accountToken: string, metadata: Omit<CanopyAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected">): Promise<CanopyAccountRecord> {
+  async set(accountToken: string, metadata: Omit<HostAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected">): Promise<HostAccountRecord> {
     await prepareArborDataRoot();
     if (!accountToken) throw new Error("Account credential must not be empty");
     const origin = new URL(metadata.origin).origin;
     const location = this.credentialLocation();
-    const record: CanopyAccountRecord = {
+    const record: HostAccountRecord = {
       ...metadata,
       origin,
       configurationTree: this.configurationTree,
@@ -89,12 +89,12 @@ export class CanopyAccountStore {
     return record;
   }
 
-  async safe(): Promise<CanopyAccountRecord | null> {
+  async safe(): Promise<HostAccountRecord | null> {
     try {
-      const decoded = JSON.parse(await readFile(this.path, "utf8")) as CanopyAccountRecord & { account?: string };
+      const decoded = JSON.parse(await readFile(this.path, "utf8")) as HostAccountRecord & { account?: string };
       // Removable compatibility adapter for early Interface 005 records.
       if (!decoded.account && !decoded.handle) return null;
-      const record: CanopyAccountRecord = decoded.account
+      const record: HostAccountRecord = decoded.account
         ? decoded
         : { ...decoded, account: `${decoded.origin}/~${decoded.handle!}` };
       if (
@@ -108,7 +108,7 @@ export class CanopyAccountStore {
     } catch { return null; }
   }
 
-  async get(): Promise<{ record: CanopyAccountRecord; accountToken: string } | null> {
+  async get(): Promise<{ record: HostAccountRecord; accountToken: string } | null> {
     const record = await this.safe();
     if (!record) return null;
     if (record.credential === "file:credential") {
@@ -128,11 +128,11 @@ export class CanopyAccountStore {
     await rm(this.path, { force: true });
   }
 
-  static async list(): Promise<CanopyAccountRecord[]> {
+  static async list(): Promise<HostAccountRecord[]> {
     let names: string[];
     try { names = await readdir(join(arborPrivateRoot(), "accounts")); }
     catch { return []; }
-    const records = await Promise.all(names.filter((name) => /^tr_[a-z2-7]+$/.test(name)).map((name) => new CanopyAccountStore(name).safe()));
-    return records.filter((record): record is CanopyAccountRecord => record !== null).sort((a, b) => a.configurationTree.localeCompare(b.configurationTree));
+    const records = await Promise.all(names.filter((name) => /^tr_[a-z2-7]+$/.test(name)).map((name) => new HostAccountStore(name).safe()));
+    return records.filter((record): record is HostAccountRecord => record !== null).sort((a, b) => a.configurationTree.localeCompare(b.configurationTree));
   }
 }

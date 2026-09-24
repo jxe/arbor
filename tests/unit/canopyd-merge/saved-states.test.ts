@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
-import { decodeWireDirectory, encodeWireDirectory } from "@overstory/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory } from "@overstory/protocol";
 import { Sidecar, type SavedStates } from "../../../packages/canopyd-merge/src/sidecar.ts";
 import { Fixture } from "./fixture.ts";
 
@@ -29,11 +29,11 @@ function sidecar(f: Fixture, saved?: SavedStates, publish = false) {
 
 /** `root` with `files` set. */
 function withFiles(f: Fixture, root: string, files: Record<string, string>) {
-  const directory = decodeWireDirectory(f.objects.get(root)!);
+  const directory = decodeProtocolDirectory(f.objects.get(root)!);
   directory.entries = [...directory.entries.filter((e) => !(e.name in files)),
     ...Object.entries(files).map(([name, text]) => ({ name, file: f.put(text) }))]
     .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  return f.put(encodeWireDirectory(directory));
+  return f.put(encodeProtocolDirectory(directory));
 }
 
 /** A tree's history recorded as canopyd records it: each answer becomes the

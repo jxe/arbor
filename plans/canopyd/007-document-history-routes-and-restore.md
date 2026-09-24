@@ -44,9 +44,9 @@ tool and never appears as History.
   tree's history to its head.
 - **Clients.** `WorkspaceDocumentSession.history()` / `recover(revision:)` is the
   UI seam. `WorkingTreeProvider` throws "Canopy history is not available yet", and
-  `ArborDocumentBinding.history()` flushes and delegates to it, so History
+  `CanopyDocumentBinding.history()` flushes and delegates to it, so History
   shows an empty state today (the editor recovery store that used to supply
-  local copies is gone). `ArborHistoryView` already says **History** and **Restore as New
+  local copies is gone). `CanopyHistoryView` already says **History** and **Restore as New
   Change**. Every editor is a direct Canopy client with its own credential, so
   history comes from canopyd directly: no Arbor Sync proxy, no local copy.
 
@@ -114,7 +114,7 @@ decision.
    unidentified moves, delete/recreate, duplicate IDs, merged updates,
    pagination and bounds, wrong tree, revoked credential, read-only/public/link
    denial.
-3. **Clients.** `ArborWireClient.history`/`historyVersion`;
+3. **Clients.** `ProtocolClient.history`/`historyVersion`;
    `WorkingTreeProvider` sessions return canopyd history. `recover` verifies
    tree, path and content hash, then appends the source to the change log as a
    new change. Cover

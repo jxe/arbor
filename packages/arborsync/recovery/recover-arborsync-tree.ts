@@ -1,19 +1,19 @@
 #!/usr/bin/env bun
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { accountWireClient } from "@overstory/client";
+import { accountProtocolClient } from "@overstory/client";
 import { decodeSnapshotBundle, encodeSnapshotBundle, type ObjectHash, type TreeSnapshot } from "@overstory/protocol";
 import {
   decodeAdmissionBasis,
-  assertUnchangedCanopy,
+  assertUnchangedHost,
   mergeRecoveryVariant,
   readRawSyncState,
-  replaceWireFile,
+  replaceProtocolFile,
   sha256Bytes,
   snapshotDisk,
   snapshotFromAdmission,
   snapshotFromTransition,
-  textAtWirePath,
+  textAtProtocolPath,
   type RecoveryVariant,
 } from "./arborsync-recovery.ts";
 
@@ -114,7 +114,7 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
   const acceptedUpdate = raw.state.pending?.base ?? placement.update;
   if (!acceptedUpdate) throw new Error("Cannot identify the accepted update for the local basis");
 
-  const wire = await accountWireClient({ configurationTree }, { required: true, timeoutMs: 30_000 });
+  const wire = await accountProtocolClient({ configurationTree }, { required: true, timeoutMs: 30_000 });
   const currentDescriptor = await wire.client.descriptor(tree);
   const [accepted, current, disk] = await Promise.all([
     // Older running daemons do not expose object reads. The journal still
@@ -153,13 +153,13 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
       current,
       sourcePath: "/_index.md",
     }));
-    const pendingSource = await textAtWirePath(pendingSnapshot, "/_index.md");
+    const pendingSource = await textAtProtocolPath(pendingSnapshot, "/_index.md");
     if (pendingSource !== null) {
       variants.push(await mergeRecoveryVariant({
         name: "disk-with-pending-index",
         base: accepted,
         basisUpdate: acceptedUpdate,
-        local: replaceWireFile(disk, "/_index.md", pendingSource),
+        local: replaceProtocolFile(disk, "/_index.md", pendingSource),
         current,
         sourcePath: "/_index.md",
       }));
@@ -193,7 +193,7 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
       name: `disk-with-admission-${suffix}`,
       base: accepted,
       basisUpdate: acceptedUpdate,
-      local: replaceWireFile(disk, basis.wirePath, admission.source),
+      local: replaceProtocolFile(disk, basis.wirePath, admission.source),
       current,
       sourcePath: basis.wirePath,
     }));
@@ -208,10 +208,10 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
   const sourceDirectory = join(output, "sources");
   await mkdir(sourceDirectory, { mode: 0o700 });
   const sourceEvidence: Array<[string, string | null]> = [
-    ["accepted-index.md", await textAtWirePath(accepted, "/_index.md")],
-    ["current-canopy-index.md", await textAtWirePath(current, "/_index.md")],
-    ["disk-index.md", await textAtWirePath(disk, "/_index.md")],
-    ["pending-index.md", pendingSnapshot ? await textAtWirePath(pendingSnapshot, "/_index.md") : null],
+    ["accepted-index.md", await textAtProtocolPath(accepted, "/_index.md")],
+    ["current-canopy-index.md", await textAtProtocolPath(current, "/_index.md")],
+    ["disk-index.md", await textAtProtocolPath(disk, "/_index.md")],
+    ["pending-index.md", pendingSnapshot ? await textAtProtocolPath(pendingSnapshot, "/_index.md") : null],
     ...raw.state.editorAdmissions.map((admission, index) => [
       `admission-${String(index + 1).padStart(3, "0")}-exact.md`,
       admission.source,
@@ -270,7 +270,7 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
     const bundle = encodeSnapshotBundle(variant.snapshot);
     await writePrivate(join(output, file), bundle);
     if (variant.source) {
-      const mergedSource = await textAtWirePath(variant.snapshot, variant.source.path);
+      const mergedSource = await textAtProtocolPath(variant.snapshot, variant.source.path);
       if (mergedSource !== null) await writePrivate(join(sourceDirectory, `${variant.name}-merged.md`), mergedSource);
     }
     manifest.variants.push({
@@ -326,9 +326,9 @@ async function submit(values: Map<string, string[]>): Promise<void> {
   const bundle = new Uint8Array(await readFile(candidatePath));
   if (sha256Bytes(bundle) !== candidate.sha256) throw new Error("Prepared candidate bundle changed after inspection");
   const snapshot = decodeSnapshotBundle(candidate.root, bundle);
-  const wire = await accountWireClient({ configurationTree: manifest.configurationTree }, { required: true, timeoutMs: 30_000 });
+  const wire = await accountProtocolClient({ configurationTree: manifest.configurationTree }, { required: true, timeoutMs: 30_000 });
   const before = await wire.client.descriptor(manifest.tree);
-  assertUnchangedCanopy(manifest.current, before.tree);
+  assertUnchangedHost(manifest.current, before.tree);
   const result = await wire.client.submitUpdate(manifest.tree, before.tree.update, snapshot, {
     ifCurrent: before.tree.update,
   });

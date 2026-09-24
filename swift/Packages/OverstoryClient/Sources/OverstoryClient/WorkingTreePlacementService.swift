@@ -8,7 +8,7 @@ import Foundation
 /// accepted base of a fresh working tree.
 public enum WorkingTreePlacementService {
     public static func place(
-        tree: WireTreeDescriptor,
+        tree: ProtocolTreeDescriptor,
         at replicaRoot: URL,
         transport: any UpdateTransport,
         platform: any ObjectStore = EmptyObjectStore()

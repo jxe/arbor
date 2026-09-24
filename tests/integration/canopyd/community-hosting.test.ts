@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { decodeWireDirectory, encodeWireDirectory, generateArborID, hashObject, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@overstory/protocol";
 import { stringify } from "yaml";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { ProfileIdentityStore } from "@overstory/arborsync/state";
 import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
@@ -19,8 +19,8 @@ const aliceProfileTree = generateArborID("tr");
 const bobIdentity = testProfileIdentity();
 const bobProfileTree = bobIdentity.profileTree;
 let sandbox: string;
-let running: Awaited<ReturnType<typeof serveCanopy>>;
-let owner: WireClient;
+let running: Awaited<ReturnType<typeof serveHost>>;
+let owner: ProtocolClient;
 
 type CommunityMember = string | { profile?: string; handle?: string };
 
@@ -43,7 +43,7 @@ async function profileFolder(name: string, kind: "person" | "group", members: Co
 
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-account-claim-"));
-  running = await serveCanopy({
+  running = await serveHost({
     dataRoot: join(sandbox, "canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -51,7 +51,7 @@ beforeAll(async () => {
     community: { handle: "garden", name: "Garden" },
     accounts: [{ handle: "owner", token: ownerToken, communityWriter: true }],
   });
-  owner = new WireClient(running.url, ownerToken);
+  owner = new ProtocolClient(running.url, ownerToken);
 
   const account = await owner.account();
   const community = await owner.descriptor(account.account.community.id);
@@ -81,7 +81,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
   });
 
   test("community-only challenges resolve the reservation without reading a profile", async () => {
-    const client = new WireClient(running.url);
+    const client = new ProtocolClient(running.url);
     const configurationTree = generateArborID("tr");
     const challenge = await client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree });
     expect(challenge.account).toBe(`${new URL(running.url).origin}/~bob`);
@@ -119,7 +119,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       },
       configuration,
     };
-    const client = new WireClient(running.url);
+    const client = new ProtocolClient(running.url);
     const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     const wrongProfileAllocation = snapshotAccountConfig({
@@ -127,7 +127,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       resources: { [generateArborID("tr")]: { canonical: `${origin}/~bob`, access: [] } },
       devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
     });
-    await expect(new WireClient(running.url).joinAccount({
+    await expect(new ProtocolClient(running.url).joinAccount({
       account: `${origin}/~bob`,
       ...request,
       ...identityProof,
@@ -138,7 +138,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       resources: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },
       devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
     });
-    await expect(new WireClient(running.url).joinAccount({
+    await expect(new ProtocolClient(running.url).joinAccount({
       account: `${origin}/~bob`,
       ...request,
       ...identityProof,
@@ -148,7 +148,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     expect(claimed.account).toMatchObject({ handle: "bob", profileTree });
     expect(running.canopy.get(profileTree)).toBeNull();
     expect(running.canopy.boundary("/~bob")).toBeNull();
-    const administrator = new WireClient(running.url, administratorCredential);
+    const administrator = new ProtocolClient(running.url, administratorCredential);
 
     const hostedProfile = await administrator.submitUpdate(profileTree, null, profile);
     expect(hostedProfile.outcome).toBe("accepted");
@@ -162,9 +162,9 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       label: "Bob's iPhone",
       credentialDigest: `sha256:${sha256(phoneCredential)}` as const,
     };
-    const firstClaim = await new WireClient(running.url).claimPairing(offer.id, offer.secret, phone);
+    const firstClaim = await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone);
     expect(firstClaim.device.id).toBe(phoneID);
-    expect(await new WireClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
+    expect(await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
 
     const acceptedConfiguration = await administrator.descriptor(configurationTree);
     const acceptedSnapshot = await administrator.snapshot(configurationTree, acceptedConfiguration.tree.root);
@@ -185,7 +185,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const profileTree = identity.profileTree;
     const configurationTree = generateArborID("tr");
     const origin = new URL(running.url).origin;
-    const client = new WireClient(running.url);
+    const client = new ProtocolClient(running.url);
     await expect(client.createAccountChallenge({ account: `${origin}/~mallory`, profileTree, configurationTree }))
       .rejects.toThrow("exact profile reservation");
     expect(running.canopy.get(configurationTree)).toBeNull();
@@ -219,26 +219,26 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       expect(running.canopy.isReservedHandle("orphan")).toBe(false);
 
       const bootstrap = new LocalAccountService({ trees: service.trees, events: service.events });
-      await expect(bootstrap.claimCanopyAccount(`${new URL(running.url).origin}/~unassigned`, profilePath))
+      await expect(bootstrap.claimHostAccount(`${new URL(running.url).origin}/~unassigned`, profilePath))
         .rejects.toThrow();
       expect(await bootstrap.pendingClaim()).toMatchObject({ canCancel: true });
       expect(await bootstrap.accountList()).toHaveLength(0);
       await bootstrap.cancelPendingClaim();
       expect(await bootstrap.pendingClaim()).toBeNull();
-      const originalJoin = WireClient.prototype.joinAccount;
-      const interrupted = spyOn(WireClient.prototype, "joinAccount").mockImplementationOnce(async function (this: WireClient, input) {
+      const originalJoin = ProtocolClient.prototype.joinAccount;
+      const interrupted = spyOn(ProtocolClient.prototype, "joinAccount").mockImplementationOnce(async function (this: ProtocolClient, input) {
         await originalJoin.call(this, input);
         throw new Error("Lost claim response");
       });
       try {
-        await expect(bootstrap.claimCanopyAccount(new URL(running.url).origin, profilePath, "Charlie"))
+        await expect(bootstrap.claimHostAccount(new URL(running.url).origin, profilePath, "Charlie"))
           .rejects.toThrow("Lost claim response");
       } finally { interrupted.mockRestore(); }
       expect(await bootstrap.pendingClaim()).toEqual({ account: `${new URL(running.url).origin}/~charlie`, path: await realpath(profilePath), canCancel: false });
       await expect(bootstrap.cancelPendingClaim()).rejects.toThrow("may already have reached");
       // A fresh service resumes the exact claim even though the reservation is now claimed.
       await new LocalAccountService({ trees: service.trees, events: service.events })
-        .claimCanopyAccount(new URL(running.url).origin, profilePath, "Charlie");
+        .claimHostAccount(new URL(running.url).origin, profilePath, "Charlie");
       expect(await bootstrap.pendingClaim()).toBeNull();
       const accounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
       expect(accounts).toHaveLength(1);
@@ -257,7 +257,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
 
       // A recovered profile still needs a new authorized device on a claimed account.
       const originalCredential = await bootstrap.credentialToken(configurationTree);
-      const offer = await new WireClient(running.url, originalCredential).createPairing();
+      const offer = await new ProtocolClient(running.url, originalCredential).createPairing();
       const backupPath = join(sandbox, "charlie-identity-backup.json");
       await new ProfileIdentityStore().backup(backupPath);
       const pairedHome = join(sandbox, "charlie-paired-home");
@@ -267,8 +267,8 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       const pairedDaemon = await ArborSyncDaemon.open(pairedProfile, {}, { autoSync: false });
       try {
         const paired = new LocalAccountService({ trees: pairedDaemon.trees, events: pairedDaemon.events });
-        const originalPair = WireClient.prototype.claimPairing;
-        const lostPair = spyOn(WireClient.prototype, "claimPairing").mockImplementationOnce(async function (this: WireClient, ...args) {
+        const originalPair = ProtocolClient.prototype.claimPairing;
+        const lostPair = spyOn(ProtocolClient.prototype, "claimPairing").mockImplementationOnce(async function (this: ProtocolClient, ...args) {
           await originalPair.apply(this, args);
           throw new Error("Lost pairing response");
         });
@@ -282,10 +282,10 @@ describe("client-generated profile and account-configuration bootstrap", () => {
         expect(await paired.accountList()).toMatchObject([{ configurationTree, profileTree: localProfileTree, credentialAvailable: true }]);
         const token = await paired.credentialToken(configurationTree);
         expect(token).not.toBe(originalCredential);
-        const pairedAccount = await new WireClient(running.url, token).account();
+        const pairedAccount = await new ProtocolClient(running.url, token).account();
         expect(pairedAccount.account.configuration.id).toBe(configurationTree);
         expect(pairedAccount.account.profileTree).toBe(localProfileTree);
-        await new CanopyAccountStore(configurationTree).remove();
+        await new HostAccountStore(configurationTree).remove();
       } finally {
         await pairedDaemon[Symbol.asyncDispose]();
         process.env.ARBOR_DATA_HOME = home;
@@ -303,13 +303,13 @@ describe("client-generated profile and account-configuration bootstrap", () => {
         .filter((tree) => tree.parentTree === communityAfterClaim.tree.id && tree.canonicalPath)
         .map((tree) => [join(secondSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
       await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
-      await expect(new WireClient(running.url).createAccountChallenge({
+      await expect(new ProtocolClient(running.url).createAccountChallenge({
         profileTree: localProfileTree, configurationTree: generateArborID("tr"),
       })).rejects.toThrow("Several reservations");
       const retainedPlacements = `${configurationTree}: {}\n`;
       await writeFile(join(home, "placements.yaml"), retainedPlacements);
 
-      await new LocalAccountService({ trees: service.trees, events: service.events }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
+      await new LocalAccountService({ trees: service.trees, events: service.events }).claimHostAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
       const pluralAccounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
       expect(pluralAccounts).toHaveLength(2);
       expect(new Set(pluralAccounts.map((account) => account.profileTree))).toEqual(new Set([localProfileTree]));
@@ -318,7 +318,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       expect(await readFile(join(home, "placements.yaml"), "utf8")).toBe(retainedPlacements);
     } finally {
       await service[Symbol.asyncDispose]();
-      await Promise.all(configurationTrees.map((configurationTree) => new CanopyAccountStore(configurationTree).remove()));
+      await Promise.all(configurationTrees.map((configurationTree) => new HostAccountStore(configurationTree).remove()));
       if (previous === undefined) delete process.env.ARBOR_DATA_HOME;
       else process.env.ARBOR_DATA_HOME = previous;
     }
@@ -363,7 +363,7 @@ describe("self-certifying profile account proof", () => {
   test("joins a Canopy without copying or locating the profile tree", async () => {
     const targetRoot = join(sandbox, "proof-target");
     const identity = testProfileIdentity();
-    const target = await serveCanopy({
+    const target = await serveHost({
       dataRoot: targetRoot,
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
@@ -372,7 +372,7 @@ describe("self-certifying profile account proof", () => {
       community: { handle: "target", name: "Target", firstWriter: { handle: "guest", profileTree: identity.profileTree } },
     });
     try {
-      const targetAdmin = new WireClient(target.url, "target-admin-token");
+      const targetAdmin = new ProtocolClient(target.url, "target-admin-token");
       const targetAdminAccount = await targetAdmin.account();
       const targetCommunity = await targetAdmin.descriptor(targetAdminAccount.account.community.id);
       const targetAccountLocator = `${new URL(target.url).origin}/~guest`;
@@ -394,7 +394,7 @@ describe("self-certifying profile account proof", () => {
         resources: {},
         devices: { [deviceID]: { id: deviceID, label: "Guest's Mac", administrator: true } },
       });
-      const anonymous = new WireClient(target.url);
+      const anonymous = new ProtocolClient(target.url);
       const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 
       const request = {
@@ -411,15 +411,15 @@ describe("self-certifying profile account proof", () => {
         },
         configuration,
       };
-      const joined = await new WireClient(target.url).joinAccount(request);
+      const joined = await new ProtocolClient(target.url).joinAccount(request);
       expect(joined.account).toMatchObject({ handle: "guest", profileTree, profileURL: null });
       expect(joined.configuration).toMatchObject({ id: configurationTree, kind: "account-configuration" });
       expect(target.canopy.get(profileTree)).toBeNull();
       expect(target.canopy.boundary("/~guest")).toBeNull();
-      expect(await new WireClient(target.url).joinAccount(request)).toEqual(joined);
-      expect((await new WireClient(target.url, credential).account()).account.configuration.id).toBe(configurationTree);
+      expect(await new ProtocolClient(target.url).joinAccount(request)).toEqual(joined);
+      expect((await new ProtocolClient(target.url, credential).account()).account.configuration.id).toBe(configurationTree);
 
-      await expect(new WireClient(target.url).joinAccount({
+      await expect(new ProtocolClient(target.url).joinAccount({
         ...request,
         signature: request.signature.replace(/^./, request.signature[0] === "A" ? "B" : "A"),
       })).rejects.toThrow("signature is invalid");
@@ -431,7 +431,7 @@ describe("self-certifying profile account proof", () => {
 });
 
 test("accepted resource policy enables and revokes anonymous executable authority", async () => {
-  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const accountResponse = await client.account();
   const configID = accountResponse.account.configuration.id;
   const current = await client.descriptor(configID);
@@ -452,7 +452,7 @@ test("accepted resource policy enables and revokes anonymous executable authorit
 });
 
 test("ordinary anonymous create permission works without via and does not grant overwrite", async () => {
-  const owner = new WireClient(running.url, "locally-generated-bob-credential");
+  const owner = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const configID = (await owner.account()).account.configuration.id;
   const configCurrent = await owner.descriptor(configID);
   const graph = readAccountConfigGraph(await owner.snapshot(configID, configCurrent.tree.root), configID);
@@ -463,22 +463,22 @@ test("ordinary anonymous create permission works without via and does not grant 
   await owner.submitUpdate(configID, configCurrent.tree.update, snapshotAccountConfig({ ...graph, resources }), { ifCurrent: configCurrent.tree.update });
   const current = await owner.descriptor(bobProfileTree);
   const snapshot = await owner.snapshot(bobProfileTree, current.tree.root);
-  const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@overstory/protocol");
+  const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
   const bytes = new TextEncoder().encode("created"), hash = hashObject(bytes);
-  const root = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
-  const rootBytes = encodeWireDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash }] });
+  const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+  const rootBytes = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash }] });
   const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hash, bytes], [hashObject(rootBytes), rootBytes]]) };
-  const anonymous = new WireClient(running.url);
+  const anonymous = new ProtocolClient(running.url);
   const accepted = await anonymous.submitUpdate(bobProfileTree, current.tree.update, candidate, { ifCurrent: current.tree.update });
   expect(accepted.outcome).toBe("accepted");
   await expect(anonymous.descriptor(bobProfileTree)).rejects.toThrow();
   const changed = new TextEncoder().encode("overwritten"), changedHash = hashObject(changed);
-  const changedRoot = encodeWireDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash }] });
+  const changedRoot = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash }] });
   await expect(anonymous.submitUpdate(bobProfileTree, accepted.update.id, { root: hashObject(changedRoot), objects: new Map([...candidate.objects, [changedHash, changed], [hashObject(changedRoot), changedRoot]]) }, { ifCurrent: accepted.update.id })).rejects.toThrow();
 });
 
 test("concurrent policy narrowing is accepted restrictively until exact administrator resolution", async () => {
-  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const config = (await client.account()).account.configuration.id;
   const head = await client.descriptor(config);
   const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
@@ -503,7 +503,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
   const origin = running.url;
   running.server.stop(true);
   await running.canopy[Symbol.asyncDispose]();
-  running = await serveCanopy({ dataRoot: join(sandbox, "canopy"), publicOrigin: origin,
+  running = await serveHost({ dataRoot: join(sandbox, "canopy"), publicOrigin: origin,
     hostname: "127.0.0.1", port: Number(new URL(origin).port) });
   expect((await client.descriptor(config)).tree).toMatchObject({ update: merged.update.id, root: merged.update.root, conflicted: true });
   expect(running.canopy.execution.resolve(token)).toBeUndefined();
@@ -518,7 +518,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
 });
 
 test("access metadata exposes only the caller account's redacted resource rules", async () => {
-  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const config = (await client.account()).account.configuration.id;
   const head = await client.descriptor(config);
   const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
@@ -532,12 +532,12 @@ test("access metadata exposes only the caller account's redacted resource rules"
   const bob = running.canopy.accountByHandle("bob")!;
   const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: bob.id, sponsor: bob.id, subject: "bob", expiresAt: Date.now() + 60000, active: () => true,
     grants: [{ account: bob.id, role: "user", tree: bobProfileTree, within: "/", allow: ["read"] }] });
-  await expect(new WireClient(running.url, token).access(bobProfileTree)).rejects.toThrow();
-  await expect(new WireClient(running.url, token).account()).rejects.toThrow();
+  await expect(new ProtocolClient(running.url, token).access(bobProfileTree)).rejects.toThrow();
+  await expect(new ProtocolClient(running.url, token).account()).rejects.toThrow();
 });
 
 test("deleting non-hosting policy wins a concurrent expansion and re-add needs resolution", async () => {
-  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const config = (await client.account()).account.configuration.id;
   const head = await client.descriptor(config);
   const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
@@ -563,7 +563,7 @@ test("deleting non-hosting policy wins a concurrent expansion and re-add needs r
 });
 
 test("a legacy-grammar trees.yaml is not a valid account configuration", async () => {
-  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const config = (await client.account()).account.configuration.id;
   const head = await client.descriptor(config);
   const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
@@ -571,9 +571,9 @@ test("a legacy-grammar trees.yaml is not a valid account configuration", async (
   const legacyTrees = new TextEncoder().encode(stringify(Object.fromEntries(Object.entries(graph.trees).map(([id, entry]) => [id, {
     canonical: entry.canonical, access: [{ subject: { kind: "everyone" }, access: "write" }],
   }]))));
-  const root = decodeWireDirectory(valid.objects.get(valid.root)!);
+  const root = decodeProtocolDirectory(valid.objects.get(valid.root)!);
   const entries = root.entries.map(entry => entry.name === "trees.yaml" ? { name: entry.name, file: hashObject(legacyTrees) } : entry);
-  const rootBytes = encodeWireDirectory({ type: "directory", entries });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries });
   const legacy = { root: hashObject(rootBytes), objects: new Map([...valid.objects, [hashObject(legacyTrees), legacyTrees], [hashObject(rootBytes), rootBytes]]) };
   await expect(client.submitUpdate(config, head.tree.update, legacy)).rejects.toThrow();
   expect((await client.descriptor(config)).tree.update).toBe(head.tree.update);
@@ -581,7 +581,7 @@ test("a legacy-grammar trees.yaml is not a valid account configuration", async (
 
 test("community writers may address a tree at an unclaimed /~name, which then cannot be reserved", async () => {
   const origin = new URL(running.url).origin;
-  const bob = new WireClient(running.url, "locally-generated-bob-credential");
+  const bob = new ProtocolClient(running.url, "locally-generated-bob-credential");
   const configID = (await bob.account()).account.configuration.id;
   const declare = async (canonical: string) => {
     const current = await bob.descriptor(configID);

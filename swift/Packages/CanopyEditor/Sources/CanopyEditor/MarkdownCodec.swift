@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 import Quagmire
 
-public struct ArborMarkdownAdmission: Sendable {
+public struct CanopyMarkdownAdmission: Sendable {
     public var source: String
     public var patch: WorkspaceDocumentPatch
 
@@ -21,7 +21,7 @@ struct SourceRecord: Sendable {
     var range: Range<Int>
 }
 
-struct ArborSourceLedger: Sendable {
+struct CanopySourceLedger: Sendable {
     var source: String
     var revision: String
     var envelope: String
@@ -29,12 +29,12 @@ struct ArborSourceLedger: Sendable {
     var records: [BlockID: SourceRecord]
 }
 
-public struct ArborMarkdownOpenedDocument: Sendable {
+public struct CanopyMarkdownOpenedDocument: Sendable {
     public var blocks: [Block]
-    var ledger: ArborSourceLedger
+    var ledger: CanopySourceLedger
 }
 
-public enum ArborMarkdownCodec {
+public enum CanopyMarkdownCodec {
     private static let childrenMarker = "<!-- arbor:children -->"
     static let projectedChildMetadataKey = "arbor.projected-child"
 
@@ -49,7 +49,7 @@ public enum ArborMarkdownCodec {
     }
 
     public static func serializeBlocks(_ blocks: [Block], newline: String = "\n") -> String {
-        let ledger = ArborSourceLedger(source: "", revision: "standalone", envelope: "", newline: newline, records: [:])
+        let ledger = CanopySourceLedger(source: "", revision: "standalone", envelope: "", newline: newline, records: [:])
         return admission(blocks: blocks, ledger: ledger).0.source
     }
 
@@ -98,7 +98,7 @@ public enum ArborMarkdownCodec {
 
         let generated = missing.map { child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
-                ArborDocumentReferenceCodec.encode(child.reference).rawValue
+                CanopyDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
                 buildCanonicalLink(
                     from: directory.path,
@@ -131,7 +131,7 @@ public enum ArborMarkdownCodec {
         source: String,
         revision: String,
         identitySeed: String
-    ) -> ArborMarkdownOpenedDocument {
+    ) -> CanopyMarkdownOpenedDocument {
         let newline = source.contains("\r\n") ? "\r\n" : "\n"
         let lines = sourceLines(source)
         var cursor = 0
@@ -233,13 +233,13 @@ public enum ArborMarkdownCodec {
                 range: offsets[block.id] ?? 0..<0
             )
         }
-        return ArborMarkdownOpenedDocument(
+        return CanopyMarkdownOpenedDocument(
             blocks: blocks,
-            ledger: ArborSourceLedger(source: source, revision: revision, envelope: envelope, newline: newline, records: records)
+            ledger: CanopySourceLedger(source: source, revision: revision, envelope: envelope, newline: newline, records: records)
         )
     }
 
-    static func admission(blocks: [Block], ledger: ArborSourceLedger, copies: [BlockID: BlockID] = [:], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (ArborMarkdownAdmission, ArborSourceLedger) {
+    static func admission(blocks: [Block], ledger: CanopySourceLedger, copies: [BlockID: BlockID] = [:], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (CanopyMarkdownAdmission, CanopySourceLedger) {
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
@@ -367,17 +367,17 @@ public enum ArborMarkdownCodec {
             baseContentRevision: ledger.revision,
             edits: edit.map { [$0] } ?? []
         )
-        let next = ArborSourceLedger(
+        let next = CanopySourceLedger(
             source: source,
             revision: ledger.revision,
             envelope: ledger.envelope,
             newline: ledger.newline,
             records: nextRecords
         )
-        return (ArborMarkdownAdmission(source: source, patch: patch), next)
+        return (CanopyMarkdownAdmission(source: source, patch: patch), next)
     }
 
-    static func rebased(_ opened: ArborMarkdownOpenedDocument, preserving current: [Block]) -> ArborMarkdownOpenedDocument {
+    static func rebased(_ opened: CanopyMarkdownOpenedDocument, preserving current: [Block]) -> CanopyMarkdownOpenedDocument {
         var oldBySignature: [String: [Block]] = [:]
         var preservedIDBySourceID: [BlockID: BlockID] = [:]
         var sourceIDByResultID: [BlockID: BlockID] = [:]

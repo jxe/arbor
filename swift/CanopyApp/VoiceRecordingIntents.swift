@@ -3,7 +3,7 @@ import QuagmireExtras
 
 /// Xcode extracts shortcut phrases only from an application-target provider.
 /// The reusable intent and launch handoff remain in QuagmireExtras.
-struct ArborAppShortcuts: AppShortcutsProvider {
+struct CanopyAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: StartVoiceRecordingIntent(),

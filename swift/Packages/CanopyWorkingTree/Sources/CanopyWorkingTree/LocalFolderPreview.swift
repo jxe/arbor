@@ -100,7 +100,7 @@ public enum LocalFolderPreview {
     /// unavailable instead of hashing every non-Markdown file at launch.
     static func standInHash(for url: URL, size: Int?, modified: Date?) -> String {
         let key = "preview\u{0}\(url.path)\u{0}\(size ?? -1)\u{0}\(modified?.timeIntervalSince1970 ?? 0)"
-        return WireObjectCodec.hash(Data(key.utf8))
+        return ProtocolObjectCodec.hash(Data(key.utf8))
     }
 }
 
@@ -108,7 +108,7 @@ extension WorkingTree {
     /// Seeds an empty tree with preview nodes, computing their root locally.
     func initializeFromPreview(_ nodes: [WorkingTreeSystemNode]) throws {
         let staged = WorkingTreeSystemReplacement(root: "", update: LocalFolderPreview.update, nodes: nodes)
-        let root = try WorkingTreeWireCodec.snapshot(for: try state(from: staged)).root
+        let root = try WorkingTreeProtocolCodec.snapshot(for: try state(from: staged)).root
         try initializeFromSystem(.init(root: root, update: LocalFolderPreview.update, nodes: nodes))
     }
 }

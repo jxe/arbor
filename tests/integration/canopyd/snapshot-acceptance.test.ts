@@ -3,32 +3,32 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
-import { WireClient, WireUnsupportedOperation, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject,
-  type CandidateUpdate, type Hash, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { ProtocolClient, ProtocolUnsupportedOperation, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+  type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { collectionChildSetHash } from "@overstory/collection-schema";
 
-let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient;
+let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
 const token = "snapshot-owner";
 async function start() {
-  running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
+  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new WireClient(running.url, token);
+  client = new ProtocolClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 function file(text: string) { const bytes = new TextEncoder().encode(text), hash = hashObject(bytes); objects.set(hash, bytes); return hash; }
-function directory(value: WireDirectory) {
+function directory(value: ProtocolDirectory) {
   value.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const bytes = encodeWireDirectory(value), hash = hashObject(bytes); objects.set(hash, bytes); return hash;
+  const bytes = encodeProtocolDirectory(value), hash = hashObject(bytes); objects.set(hash, bytes); return hash;
 }
-function change(basis: string, entries: Record<string, Omit<WireDirectoryEntry, "name"> | null>): string {
-  const value = decodeWireDirectory(objects.get(basis)!);
+function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): string {
+  const value = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
     value.entries = value.entries.filter(e => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as WireDirectoryEntry);
+    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
   }
   return directory(value);
 }
@@ -42,8 +42,8 @@ async function submit(update: CandidateUpdate, basis = base) {
 async function remember(acceptedRoot: string) {
   for (const [hash, bytes] of (await client.snapshot(tree, acceptedRoot)).objects) objects.set(hash, bytes);
 }
-function at(acceptedRoot: string, name: string) { return decodeWireDirectory(objects.get(acceptedRoot)!).entries.find(e => e.name === name); }
-function guard(state: string, decision: Awaited<ReturnType<WireClient["conflicts"]>>["decisions"][number]) {
+function at(acceptedRoot: string, name: string) { return decodeProtocolDirectory(objects.get(acceptedRoot)!).entries.find(e => e.name === name); }
+function guard(state: string, decision: Awaited<ReturnType<ProtocolClient["conflicts"]>>["decisions"][number]) {
   return { state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) };
 }
 beforeEach(async () => {
@@ -121,7 +121,7 @@ async function collection(basis: string, name: string) {
   try {
     const source = `overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, ${name}: tstr }\n`;
     await writeFile(`${local}/schema.cddl`, source); await writeFile(`${local}/_store.json`, "[]");
-    const value = decodeWireDirectory(objects.get(basis)!);
+    const value = decodeProtocolDirectory(objects.get(basis)!);
     value.entries = value.entries.filter(e => e.name === "_index.md");
     value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.cddl", file: file(source) });
     value.childrenSource = { version: 2, type: "collection-file", source: "_store.json", schemaSource: "schema.cddl",
@@ -151,7 +151,7 @@ test("root directory metadata has an inspectable whole-directory choice, continu
   const continued = await submit(snapshot(change(accepted.root, { "_index.md": { file: file(body) } })), accepted.id);
   expect(continued.conflicted).toBe(true); await remember(continued.root);
   expect(at(continued.root, "_index.md")?.file).toBe(file(body));
-  await expect(submit({ ...snapshot(right.candidate), resolves: [guard(accepted.id, decision)] }, continued.id)).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(submit({ ...snapshot(right.candidate), resolves: [guard(accepted.id, decision)] }, continued.id)).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const latest = (await client.conflicts(tree, continued.id, continued.root)).decisions[0]!;
   const resolved = await submit({ ...snapshot(right.candidate), resolves: [guard(continued.id, latest)] }, continued.id);
   expect(resolved.root).toBe(right.candidate); expect(resolved.conflicted).toBe(false);
@@ -194,7 +194,7 @@ test("a batch that changes root metadata beside an open file choice continues th
 test("an exact-state guard still rejects snapshot work without creating accepted history", async () => {
   const first = await submit(snapshot(change(root, { "asset.bin": { file: file("first") } })));
   const stale = { ...snapshot(change(root, { "asset.bin": { file: file("second") } })), ifCurrent: base };
-  await expect(submit(stale)).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(submit(stale)).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   expect((await client.descriptor(tree)).tree.update).toBe(first.id);
   expect((await client.conflicts(tree, first.id, first.root)).decisions).toEqual([]);
 });
@@ -224,12 +224,12 @@ test.each([false, true])("divergent snapshot renames remain a coupled choice (ne
 
 // A folder the tree merge cannot reconcile is one choice about that folder,
 // as it was before every snapshot recorded a merge state.
-function folderOf(entries: Record<string, string | WireDirectoryEntry>) {
+function folderOf(entries: Record<string, string | ProtocolDirectoryEntry>) {
   return directory({ type: "directory", entries: Object.entries(entries).map(([name, value]) =>
     typeof value === "string" ? { name, file: file(value) } : { ...value, name }) });
 }
 const movingPage = "---\nid: pg_moving\n---\nExact bytes\r\n";
-async function folderConflict(extra: { left?: Record<string, Omit<WireDirectoryEntry, "name"> | null>; right?: Record<string, Omit<WireDirectoryEntry, "name"> | null> } = {}) {
+async function folderConflict(extra: { left?: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>; right?: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null> } = {}) {
   const inner = (name: string) => folderOf({ [name]: movingPage });
   const outer = (name: string, x: string) => folderOf({ inner: { name: "inner", directory: inner(name) }, "x.txt": x });
   root = change(root, { outer: { directory: outer("before.md", "x") } });
@@ -255,7 +255,7 @@ test.each(["current", "incoming"])("a nested folder conflict is one choice about
   ]);
   expect(decision.selected).toBe(decision.alternatives[0]!.id);
   // Everything outside the folder merged: the incoming sibling edit and addition show.
-  const shown = decodeWireDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
+  const shown = decodeProtocolDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
   expect(shown.entries.map((e) => [e.name, e.file ?? e.directory])).toEqual([["inner", inner("left.md")], ["x.txt", file("x2")]]);
   expect(at(accepted.root, "b-only.txt")?.file).toBe(file("b"));
   const chosen = side === "current" ? accepted.root
@@ -299,7 +299,7 @@ test("an edit inside a conflicting folder continues its displayed version", asyn
   const { accepted, inner } = await folderConflict();
   const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
   const edited = folderOf({ "left.md": movingPage, "added.md": "Added\n" });
-  const outerNow = decodeWireDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
+  const outerNow = decodeProtocolDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
   const outer = directory({ ...outerNow, entries: outerNow.entries.map((e) => e.name === "inner" ? { name: "inner", directory: edited } : e) });
   const next = await submit(snapshot(change(accepted.root, { outer: { directory: outer } })), accepted.id);
   expect(next.conflicted).toBe(true);
@@ -322,8 +322,8 @@ test("a folder choice depends on the open choices inside its folder", async () =
   await remember(fileChoice.root);
   const shownFolder = at(fileChoice.root, "folder")!.directory!;
   const renamed = (name: string) => change(fileChoice.root, { folder: { directory: directory({
-    ...decodeWireDirectory(objects.get(shownFolder)!),
-    entries: decodeWireDirectory(objects.get(shownFolder)!).entries.map((e) => e.name === "before.md" ? { ...e, name } : e) }) } });
+    ...decodeProtocolDirectory(objects.get(shownFolder)!),
+    entries: decodeProtocolDirectory(objects.get(shownFolder)!).entries.map((e) => e.name === "before.md" ? { ...e, name } : e) }) } });
   await submit(snapshot(renamed("left.md")), fileChoice.id);
   const accepted = await submit(snapshot(renamed("right.md")), fileChoice.id);
   const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
@@ -332,7 +332,7 @@ test("a folder choice depends on the open choices inside its folder", async () =
   expect(decisions).toHaveLength(2);
   expect(folder.dependencies).toEqual([inside.id]);
   // Replacing the folder must also resolve the choice inside it.
-  await expect(submit({ ...snapshot(renamed("right.md")), resolves: [guard(accepted.id, folder)] }, accepted.id)).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(submit({ ...snapshot(renamed("right.md")), resolves: [guard(accepted.id, folder)] }, accepted.id)).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const resolved = await submit({ ...snapshot(renamed("right.md")), resolves: [guard(accepted.id, folder), guard(accepted.id, inside)] }, accepted.id);
   expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(renamed("right.md"));
   await running.canopy.verifyIntegrity();
@@ -370,7 +370,7 @@ test("every acceptance records a log entry after its predecessor's, and only acc
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   await submit(left); const accepted = await submit(right);
   const refused = { ...snapshot(change(root, { "asset.bin": { file: file("refused") } })), ifCurrent: base };
-  await expect(submit(refused)).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(submit(refused)).rejects.toBeInstanceOf(ProtocolUpdateConflict);
   const db = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
   try {
     // Bootstrap trees, their boundary attachments and every snapshot.
@@ -425,7 +425,7 @@ test("the host validates declarative collections itself and treats retired schem
     },
   });
   const rejected = submit(snapshot(change(root, { legacy: { directory: legacy } })));
-  await expect(rejected).rejects.toBeInstanceOf(WireUnsupportedOperation);
+  await expect(rejected).rejects.toBeInstanceOf(ProtocolUnsupportedOperation);
   await expect(rejected).rejects.toThrow("schema.cddl");
 
   const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }]) } })));
@@ -441,7 +441,7 @@ test("the host validates declarative collections itself and treats retired schem
   // A restarted host reads the same rows from the exact stored bytes, with no apps process.
   await stop(); await start();
   expect(await readPage()).toBe(before);
-  const stored = decodeWireDirectory(await client.object(tree, decodeWireDirectory(await client.object(tree, accepted.root)).entries.find(e => e.name === "people")!.directory!));
+  const stored = decodeProtocolDirectory(await client.object(tree, decodeProtocolDirectory(await client.object(tree, accepted.root)).entries.find(e => e.name === "people")!.directory!));
   const store = stored.entries.find(e => e.name === "_store.json")!.file!;
   expect(new TextDecoder().decode(await client.object(tree, store))).toBe('[{"id":"a","count":1}]\n');
 });

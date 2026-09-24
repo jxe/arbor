@@ -40,6 +40,20 @@ route removals were made on Linux without a Swift toolchain; none of these has r
 - [ ] From the Mac app against a disposable host, create a pairing offer (now made on the host
   with the account credential) and pair a second device with it.
 
+## Overstory identifier rename Mac gates
+
+The 2026-09-24 identifier and UI-copy rename (see
+[status](../../status.md#overstory-identifiers-and-ui-copy--2026-09-24)) renamed every Swift
+`Wire*`, host-meaning `Canopy*` and app/editor `Arbor*` type and 31 Swift files without a Swift
+toolchain; none of these has run.
+
+- [ ] Regenerate `swift/Canopy.xcodeproj` with xcodegen (the renamed `CanopyApp/*.swift`
+  references were hand-edited) and build the `Canopy` scheme for macOS and iOS.
+- [ ] Run every Swift package suite (`swift/scripts/test-canopy-editor-local.sh` for
+  `CanopyEditor`) and `bun run test:protocol` on a Mac.
+- [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Canopy is up
+  to date, and the camera, microphone and speech permission prompts.
+
 ## Server refinements
 
 Owner: canopyd [014](../soon/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.

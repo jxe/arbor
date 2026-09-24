@@ -5,7 +5,7 @@ import { decodeCBOR, encodeCanonicalCBOR } from "@overstory/protocol";
 import {
   decodeSnapshotBundle,
   encodeSnapshotBundle,
-  encodeWireDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type TreeSnapshot,
 } from "@overstory/protocol";
@@ -13,7 +13,7 @@ import {
 function fixture(): TreeSnapshot {
   const file = new TextEncoder().encode("snapshot\n");
   const fileHash = hashObject(file);
-  const root = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
   const rootHash = hashObject(root);
   return { root: rootHash, objects: new Map([[rootHash, root], [fileHash, file]]) };
 }

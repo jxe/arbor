@@ -8,18 +8,18 @@ struct ConflictReviewCompilerTests {
     struct Fixture {
         var objects: [String: Data] = [:]
         mutating func file(_ source: String) throws -> String { try store(.file(Data(source.utf8))) }
-        mutating func directory(_ entries: [WireDirectoryEntry]) throws -> String {
+        mutating func directory(_ entries: [ProtocolDirectoryEntry]) throws -> String {
             try store(.directory(entries.sorted { $0.name < $1.name }, childrenSource: nil))
         }
-        mutating func store(_ object: WireObject) throws -> String {
-            let bytes = try WireObjectCodec.encode(object), hash = WireObjectCodec.hash(bytes)
+        mutating func store(_ object: ProtocolObject) throws -> String {
+            let bytes = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(bytes)
             objects[hash] = bytes; return hash
         }
-        func snapshot(_ root: String) -> WireSnapshot {
+        func snapshot(_ root: String) -> ProtocolSnapshot {
             var reachable = Set<String>()
-            func visit(_ hash: String, kind: WireEntryKind) {
+            func visit(_ hash: String, kind: ProtocolEntryKind) {
                 guard reachable.insert(hash).inserted else { return }
-                if kind == .directory, case let .directory(entries, _) = try! WireObjectCodec.decode(objects[hash]!, kind: .directory) {
+                if kind == .directory, case let .directory(entries, _) = try! ProtocolObjectCodec.decode(objects[hash]!, kind: .directory) {
                     for entry in entries { if let hash = entry.hash, let kind = entry.kind { visit(hash, kind: kind) } }
                 }
             }
@@ -57,15 +57,15 @@ struct ConflictReviewCompilerTests {
         var proposal = draft(root, [a, b]); proposal.alternative = "a-1"
         let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
         let result = try #require(preview.changes.first { $0.path == "/page.md" }?.after?.file)
-        #expect(result == WireObjectCodec.hash(Data("éX bCCC\r\n".utf8)))
+        #expect(result == ProtocolObjectCodec.hash(Data("éX bCCC\r\n".utf8)))
         #expect(preview.operations?.map(\.kind) == ["copySource", "editSource"])
         proposal.source = "e\u{301}\r\n"
         let composed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
-        #expect(composed.changes.first { $0.path == "/page.md" }?.after?.file == WireObjectCodec.hash(Data("ée\u{301}\r\n bCCC\r\n".utf8)))
+        #expect(composed.changes.first { $0.path == "/page.md" }?.after?.file == ProtocolObjectCodec.hash(Data("ée\u{301}\r\n bCCC\r\n".utf8)))
         #expect(composed.operations?.map(\.kind) == ["editSource"])
         proposal.source = nil; proposal.remove = true
         let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
-        #expect(removed.changes.first { $0.path == "/page.md" }?.after?.file == WireObjectCodec.hash(Data("é bCCC\r\n".utf8)))
+        #expect(removed.changes.first { $0.path == "/page.md" }?.after?.file == ProtocolObjectCodec.hash(Data("é bCCC\r\n".utf8)))
     }
 
     @Test func rangesRejectInvalidBoundariesStaleFileIdentityAndOverlap() throws {
@@ -83,7 +83,7 @@ struct ConflictReviewCompilerTests {
     @Test func sourceChoiceInsideWholeFileChoiceResolvesWithTheFile() throws {
         var f = Fixture()
         // The range names an older basis the preview never fetches.
-        let older = WireObjectCodec.hash(Data("older page with a block\n".utf8))
+        let older = ProtocolObjectCodec.hash(Data("older page with a block\n".utf8))
         let current = try f.file("current page\n"), previous = try f.file("previous page\n")
         let removed = try f.file(""), block = try f.file("a block\n")
         let root = try f.directory([.init(name: "page.md", file: current)])
@@ -196,6 +196,6 @@ struct ConflictReviewCompilerTests {
         let reopened = try #require(files.loadReview().drafts.first)
         #expect(try reopened.fingerprint() == proposal.fingerprint())
         let preview = try ConflictReviewCompiler.compile(reopened, base: f.snapshot(root), material: f.objects)
-        #expect(preview.changes.first(where: { $0.path == "/b" })?.after?.file == WireObjectCodec.hash(Data("e\u{301}\r\n".utf8)))
+        #expect(preview.changes.first(where: { $0.path == "/b" })?.after?.file == ProtocolObjectCodec.hash(Data("e\u{301}\r\n".utf8)))
     }
 }

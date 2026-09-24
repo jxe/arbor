@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { holdsObject, ObjectStore } from "@overstory/object-store";
-import { encodeWireDirectory, hashObject } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject } from "@overstory/protocol";
 
 let directory: string;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "object-durability-")); });
@@ -160,7 +160,7 @@ test("storing an object that already exists freshens it for the object collector
 test("a verified walk freshens only stored objects, and freshening a vanished object throws", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const leaf = object("leaf"), proposed = object("proposed");
-  const bytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash }, { name: "b", file: proposed.hash }] });
+  const bytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash }, { name: "b", file: proposed.hash }] });
   const root = { hash: hashObject(bytes), bytes };
   await store.store([leaf, root]);
   for (const { hash } of [leaf, root]) await utimes(store.path(hash), twoDaysAgo(), twoDaysAgo());

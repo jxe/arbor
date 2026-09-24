@@ -14,7 +14,7 @@ import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type Inte
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
-import { mergeWireTrees } from "@overstory/tree-merge";
+import { mergeProtocolTrees } from "@overstory/tree-merge";
 import { decodeRetainedState, encodeRetainedState, lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
@@ -109,7 +109,7 @@ export class Sidecar {
     private readonly stores: SidecarStores,
     private readonly cacheBytes = 512 * 1024 * 1024,
     /** The snapshot tree merge; replaceable so a test can make it fail. */
-    private readonly treeMerge = mergeWireTrees,
+    private readonly treeMerge = mergeProtocolTrees,
     /** How long one question may spend replaying history (see `stateOf`). */
     private readonly replayMillis = REPLAY_MILLIS,
   ) {}

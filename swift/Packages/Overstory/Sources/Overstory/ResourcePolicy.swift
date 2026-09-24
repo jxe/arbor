@@ -1,11 +1,11 @@
 import Foundation
 
-public enum WireResourceOperation: String, Codable, Sendable, CaseIterable {
+public enum ProtocolResourceOperation: String, Codable, Sendable, CaseIterable {
     case read, write, createChild = "create-child", updateContent = "update-content"
     case updateProperties = "update-properties", delete
 }
 
-public enum WireResourceWho: Hashable, Sendable, Codable {
+public enum ProtocolResourceWho: Hashable, Sendable, Codable {
     case everyone, me, profile(String), link(String)
 
     public init(from decoder: Decoder) throws {
@@ -46,14 +46,14 @@ private struct ResourceKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
-public struct WireResourceAccessRule: Codable, Sendable, Hashable {
-    public let who: WireResourceWho
+public struct ProtocolResourceAccessRule: Codable, Sendable, Hashable {
+    public let who: ProtocolResourceWho
     public let via: String?
-    public let allow: [WireResourceOperation]
+    public let allow: [ProtocolResourceOperation]
     public let within: String?
     private enum CodingKeys: String, CodingKey { case who, via, allow, within }
 
-    public init(who: WireResourceWho, via: String? = nil, allow: [WireResourceOperation], within: String? = nil) throws {
+    public init(who: ProtocolResourceWho, via: String? = nil, allow: [ProtocolResourceOperation], within: String? = nil) throws {
         guard !allow.isEmpty, Set(allow).count == allow.count,
               via.map(validResourceTree) ?? true else { throw ResourcePolicyError.invalid }
         switch who {
@@ -77,20 +77,20 @@ public struct WireResourceAccessRule: Codable, Sendable, Hashable {
         for key in [CodingKeys.via, .within] {
             if values.contains(key), try values.decodeNil(forKey: key) { throw ResourcePolicyError.invalid }
         }
-        try self.init(who: values.decode(WireResourceWho.self, forKey: .who),
+        try self.init(who: values.decode(ProtocolResourceWho.self, forKey: .who),
                       via: values.decodeIfPresent(String.self, forKey: .via),
-                      allow: values.decode([WireResourceOperation].self, forKey: .allow),
+                      allow: values.decode([ProtocolResourceOperation].self, forKey: .allow),
                       within: values.decodeIfPresent(String.self, forKey: .within))
     }
 }
 
 /// Administrative policy projection; a link is redacted rather than a usable digest.
-public enum WireSafeResourceWho: Hashable, Sendable, Codable {
+public enum ProtocolSafeResourceWho: Hashable, Sendable, Codable {
     case everyone, me, profile(String), link
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()
         if let redacted = try? value.decode([String: Bool].self), redacted == ["link": true] { self = .link; return }
-        switch try WireResourceWho(from: decoder) {
+        switch try ProtocolResourceWho(from: decoder) {
         case .everyone: self = .everyone
         case .me: self = .me
         case .profile(let id): self = .profile(id)
@@ -99,23 +99,23 @@ public enum WireSafeResourceWho: Hashable, Sendable, Codable {
     }
     public func encode(to encoder: Encoder) throws {
         switch self {
-        case .everyone: try WireResourceWho.everyone.encode(to: encoder)
-        case .me: try WireResourceWho.me.encode(to: encoder)
-        case .profile(let id): try WireResourceWho.profile(id).encode(to: encoder)
+        case .everyone: try ProtocolResourceWho.everyone.encode(to: encoder)
+        case .me: try ProtocolResourceWho.me.encode(to: encoder)
+        case .profile(let id): try ProtocolResourceWho.profile(id).encode(to: encoder)
         case .link:
             var value = encoder.singleValueContainer()
             try value.encode(["link": true])
         }
     }
 }
-public struct WireSafeResourceAccessRule: Codable, Sendable, Hashable {
-    public var who: WireSafeResourceWho
+public struct ProtocolSafeResourceAccessRule: Codable, Sendable, Hashable {
+    public var who: ProtocolSafeResourceWho
     public var via: String?
-    public var allow: [WireResourceOperation]
+    public var allow: [ProtocolResourceOperation]
     public var within: String?
 }
-public struct WireTreeAccessSnapshot: Codable, Sendable {
-    public var snapshot: [WireAccessEntry]
-    public var policy: [WireSafeResourceAccessRule]?
+public struct ProtocolTreeAccessSnapshot: Codable, Sendable {
+    public var snapshot: [ProtocolAccessEntry]
+    public var policy: [ProtocolSafeResourceAccessRule]?
     public var observedThrough: String
 }

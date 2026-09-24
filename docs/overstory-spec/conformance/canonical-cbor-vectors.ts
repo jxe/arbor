@@ -2,10 +2,10 @@
 // Run from the repository root: bun run docs/overstory-spec/conformance/canonical-cbor-vectors.ts
 
 import { readFile, writeFile } from "node:fs/promises";
-import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeWireDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
+import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
+const emptyDirectory = encodeProtocolDirectory({ type: "directory", entries: [] });
 // Historical protocol-update-intent.json and protocol-operations.json retain the previous
 // encoding's exact bytes and digests. Do not rehash them through the active codec.
 for (const path of ["docs/overstory-spec/conformance/protocol-authored-updates.json", "docs/overstory-spec/conformance/protocol-authored-transport.json"]) {
@@ -48,7 +48,7 @@ for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/a
 const objectPath = "docs/overstory-spec/conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
 for (const vector of objectVectors.objects) {
-  const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeWireDirectory(vector.model);
+  const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeProtocolDirectory(vector.model);
   delete vector.canonicalCborBase64;
   vector.bytesBase64 = b64(bytes);
   vector.hash = hashObject(bytes);
@@ -103,7 +103,7 @@ const graphPayload = new TextEncoder().encode("raw payload\n");
 const graphLeaf = { hash: hashObject(graphPayload), bytes: graphPayload };
 const graphDirectory = { hash: hashObject(emptyDirectory), bytes: emptyDirectory };
 function graph(name: string, mode: string, entries: any[], members: typeof graphLeaf[], valid: boolean) {
-  const bytes = encodeWireDirectory({ type: "directory", entries });
+  const bytes = encodeProtocolDirectory({ type: "directory", entries });
   return { name, mode, valid, root: hashObject(bytes), objects: [ { hash: hashObject(bytes), bytesBase64: b64(bytes) }, ...members.map(member => ({ hash: member.hash, bytesBase64: b64(member.bytes) })) ] };
 }
 const graphVectors = [

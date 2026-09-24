@@ -6,24 +6,24 @@ import Foundation
 import Testing
 
 private actor ClosureTransport: UpdateTransport {
-    typealias Submit = @Sendable (PreparedWireUpdate, Int) async throws -> WireUpdateResponse
-    let initial: WireSnapshot
-    private(set) var current: WireSnapshot
-    private(set) var snapshots: [String: WireSnapshot]
+    typealias Submit = @Sendable (PreparedProtocolUpdate, Int) async throws -> ProtocolUpdateResponse
+    let initial: ProtocolSnapshot
+    private(set) var current: ProtocolSnapshot
+    private(set) var snapshots: [String: ProtocolSnapshot]
     private(set) var currentUpdate: String
     private(set) var currentObservedThrough: String
     let submitter: Submit
     /// Serve an accepted candidate as the current tree afterwards, the way Canopy does.
     let advancesCurrentOnAccept: Bool
-    private(set) var requests: [PreparedWireUpdate] = []
+    private(set) var requests: [PreparedProtocolUpdate] = []
     private(set) var descriptorRequests = 0
     private(set) var snapshotRequests = 0
     private(set) var requestedRoots: [String] = []
 
     init(
-        initial: WireSnapshot,
-        current: WireSnapshot? = nil,
-        additionalSnapshots: [WireSnapshot] = [],
+        initial: ProtocolSnapshot,
+        current: ProtocolSnapshot? = nil,
+        additionalSnapshots: [ProtocolSnapshot] = [],
         currentUpdate: String = "up_initial",
         currentObservedThrough: String? = nil,
         advancesCurrentOnAccept: Bool = false,
@@ -41,11 +41,11 @@ private actor ClosureTransport: UpdateTransport {
         self.submitter = submitter
     }
 
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         requests.append(prepared)
         let response = try await submitter(prepared, requests.count)
         if advancesCurrentOnAccept, let final = response.results.last {
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
             var known = current
             for update in request.updates {
                 known = try completeCandidate(update, retained: known)
@@ -63,22 +63,22 @@ private actor ClosureTransport: UpdateTransport {
         return response
     }
 
-    func descriptor(tree: String) async throws -> WireCurrentTree {
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree {
         descriptorRequests += 1
-        return WireCurrentTree(
-            tree: WireTreeDescriptor(
+        return ProtocolCurrentTree(
+            tree: ProtocolTreeDescriptor(
                 id: tree,
                 kind: "ordinary",
                 root: current.root,
                 access: "write",
-                canonical: WireCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://arbor.example"),
+                canonical: ProtocolCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://arbor.example"),
                 update: currentUpdate
             ),
             observedThrough: currentObservedThrough
         )
     }
 
-    func snapshot(tree _: String, root: String) async throws -> WireSnapshot {
+    func snapshot(tree _: String, root: String) async throws -> ProtocolSnapshot {
         snapshotRequests += 1
         requestedRoots.append(root)
         guard let snapshot = snapshots[root] else { throw UpdateError.returnedSnapshotMismatch }
@@ -157,7 +157,7 @@ struct UpdateCoordinatorTests {
     }
 
     @Test(
-        "Native materialization preserves exact Wire collection-file descriptors, including retired version 1",
+        "Native materialization preserves exact protocol collection-file descriptors, including retired version 1",
         arguments: [
             (2, "schema.cddl", "overstory-schema-version = 1\nrow = { id: tstr }\n"),
             (1, "schema.ts", "export const schema = value\n"),
@@ -165,9 +165,9 @@ struct UpdateCoordinatorTests {
     )
     func collectionFileDescriptorRoundTrip(version: Int, schemaName: String, schemaText: String) async throws {
         try await withTemporaryRoot { root in
-            let source = try WireObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
-            let schema = try WireObjectCodec.object(.file(Data(schemaText.utf8)))
-            let descriptor = WireCollectionFileDescriptor(
+            let source = try ProtocolObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
+            let schema = try ProtocolObjectCodec.object(.file(Data(schemaText.utf8)))
+            let descriptor = ProtocolCollectionFileDescriptor(
                 version: version,
                 format: "json",
                 source: "_store.json",
@@ -175,11 +175,11 @@ struct UpdateCoordinatorTests {
                 schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
                 childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
-            let directory = try WireObjectCodec.object(.directory([
+            let directory = try ProtocolObjectCodec.object(.directory([
                 .init(name: "_store.json", file: source.hash),
                 .init(name: schemaName, file: schema.hash),
             ], childrenSource: descriptor))
-            let snapshot = WireSnapshot(root: directory.hash, objects: [directory, schema, source])
+            let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
                 tree: TreeID(rawValue: "tr_collection"),
@@ -195,18 +195,18 @@ struct UpdateCoordinatorTests {
 
     @Test("A sparse spine with typed entries bridges to the same replacement as the complete snapshot")
     func sparseBridgeEqualsFullBridge() async throws {
-        let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n".utf8)))
-        let photo = try WireObjectCodec.object(.file(Data([0xff, 0xd8, 0xff, 0xe0])))
-        let clip = try WireObjectCodec.object(.file(Data("not really audio".utf8)))
-        let album = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", file: photo.hash)]))
-        let root = try WireObjectCodec.object(.directory([
+        let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n".utf8)))
+        let photo = try ProtocolObjectCodec.object(.file(Data([0xff, 0xd8, 0xff, 0xe0])))
+        let clip = try ProtocolObjectCodec.object(.file(Data("not really audio".utf8)))
+        let album = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: photo.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "album", directory: album.hash),
             .init(name: "clip.unknownext", file: clip.hash),
             .init(name: "note.md", file: note.hash),
         ]))
         let tree = TreeID(rawValue: "tr_sparsebridge")
-        let full = WireSnapshot(root: root.hash, objects: [root, album, note, photo, clip])
-        let spine = WireSnapshot(root: root.hash, objects: [root, album, note])
+        let full = ProtocolSnapshot(root: root.hash, objects: [root, album, note, photo, clip])
+        let spine = ProtocolSnapshot(root: root.hash, objects: [root, album, note])
         let complete = try SnapshotBridge.replacement(snapshot: full, tree: tree, update: "up_1")
         let sparse = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1", mode: .sparseFiles)
         #expect(sparse.root == complete.root)
@@ -238,17 +238,17 @@ struct UpdateCoordinatorTests {
         #expect(try await sparseTree.completeSnapshot().objects.map(\.hash).sorted() == full.objects.map(\.hash).sorted())
 
         // A missing directory must never become a lazy file.
-        let rootless = WireSnapshot(root: root.hash, objects: [root, note])
-        #expect(throws: ArborWireValidationError.self) {
+        let rootless = ProtocolSnapshot(root: root.hash, objects: [root, note])
+        #expect(throws: ProtocolValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: rootless, tree: tree, update: "up_1", mode: .sparseFiles)
         }
         // Markdown must be present in a sparse spine.
-        let noMarkdown = WireSnapshot(root: root.hash, objects: [root, album])
-        #expect(throws: ArborWireValidationError.self) {
+        let noMarkdown = ProtocolSnapshot(root: root.hash, objects: [root, album])
+        #expect(throws: ProtocolValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: noMarkdown, tree: tree, update: "up_1", mode: .sparseFiles)
         }
         // Complete mode requires the omitted file payloads too.
-        #expect(throws: ArborWireValidationError.self) {
+        #expect(throws: ProtocolValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1")
         }
     }
@@ -302,18 +302,18 @@ struct UpdateCoordinatorTests {
                 name: "renamed"
             )))
             var snapshot = try await workingTree.currentSnapshot()
-            #expect(try wireEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
+            #expect(try protocolEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
 
             let archive = try #require(try await provider.perform(.createDirectory(parent: rootReference, name: "archive")))
             let moved = try #require(try await provider.perform(.move(reference: renamed.reference, destination: archive.reference)))
             snapshot = try await workingTree.currentSnapshot()
-            let rootEntries = try wireDirectoryEntries(snapshot: snapshot, directory: snapshot.root)
+            let rootEntries = try protocolDirectoryEntries(snapshot: snapshot, directory: snapshot.root)
             let archiveHash = try #require(rootEntries.first { $0.name == "archive" }?.hash)
-            #expect(try wireEntryNames(snapshot: snapshot, directory: archiveHash).isSuperset(of: ["renamed", "renamed.md"]))
+            #expect(try protocolEntryNames(snapshot: snapshot, directory: archiveHash).isSuperset(of: ["renamed", "renamed.md"]))
 
             _ = try #require(try await provider.perform(.copy(reference: moved.reference, destination: rootReference)))
             snapshot = try await workingTree.currentSnapshot()
-            #expect(try wireEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
+            #expect(try protocolEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
 
             let beforeTrash = snapshot.root
             let trashed = try #require(try await provider.perform(.trash(reference: moved.reference)))
@@ -350,27 +350,27 @@ struct UpdateCoordinatorTests {
 
     @Test("Multiple sibling bodies fail before logical materialization")
     func ambiguousSiblingBodies() throws {
-        let markdown = try WireObjectCodec.object(.file(Data("# Markdown\n".utf8)))
-        let mdx = try WireObjectCodec.object(.file(Data("# MDX\n".utf8)))
-        let directory = try WireObjectCodec.object(.directory([]))
-        let root = try WireObjectCodec.object(.directory([
+        let markdown = try ProtocolObjectCodec.object(.file(Data("# Markdown\n".utf8)))
+        let mdx = try ProtocolObjectCodec.object(.file(Data("# MDX\n".utf8)))
+        let directory = try ProtocolObjectCodec.object(.directory([]))
+        let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "x", directory: directory.hash),
             .init(name: "x.md", file: markdown.hash),
             .init(name: "x.mdx", file: mdx.hash),
         ]))
-        let snapshot = WireSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
+        let snapshot = ProtocolSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
 
-        #expect(throws: ArborWireValidationError.self) {
+        #expect(throws: ProtocolValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: snapshot, tree: "tr_ambiguous", update: "up_initial")
         }
 
-        let plain = try WireObjectCodec.object(.file(Data("plain".utf8)))
-        let duplicateRoot = try WireObjectCodec.object(.directory([
+        let plain = try ProtocolObjectCodec.object(.file(Data("plain".utf8)))
+        let duplicateRoot = try ProtocolObjectCodec.object(.directory([
             .init(name: "same", file: plain.hash),
             .init(name: "same.md", file: markdown.hash),
         ]))
-        let duplicate = WireSnapshot(root: duplicateRoot.hash, objects: [duplicateRoot, plain, markdown])
-        #expect(throws: ArborWireValidationError.self) {
+        let duplicate = ProtocolSnapshot(root: duplicateRoot.hash, objects: [duplicateRoot, plain, markdown])
+        #expect(throws: ProtocolValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: duplicate, tree: "tr_duplicate", update: "up_initial")
         }
     }
@@ -421,7 +421,7 @@ struct UpdateCoordinatorTests {
                 edits: [WorkspaceSourceEdit(utf8Range: range, replacement: "Edited", expected: "Base")]
             ))
             _ = try await coordinator.syncOnce()
-            let first = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(await transport.requests.first).body)
+            let first = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.first).body)
             let element = try #require(first.updates.last)
             let delta = try #require(element.deltas.first { $0.instructions.contains(.insert(Data("Edited".utf8))) })
             #expect(delta.instructions.contains(where: { if case .copy = $0 { return true } else { return false } }))
@@ -434,10 +434,10 @@ struct UpdateCoordinatorTests {
                 edits: [WorkspaceSourceEdit(utf8Range: 0..<Data(large.source.utf8).count, replacement: fallbackSource, expected: large.source)]
             ))
             _ = try await coordinator.syncOnce()
-            let second = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(await transport.requests.last).body)
+            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.last).body)
             let replaced = try #require(second.updates.last)
             #expect(!replaced.deltas.contains { $0.instructions.contains(.insert(Data(fallbackSource.utf8))) })
-            #expect(replaced.objects.contains { $0.hash == (try? WireObjectCodec.object(.file(Data(fallbackSource.utf8))))?.hash })
+            #expect(replaced.objects.contains { $0.hash == (try? ProtocolObjectCodec.object(.file(Data(fallbackSource.utf8))))?.hash })
             #expect(await coordinator.syncState.kind == "current")
         }
     }
@@ -472,8 +472,8 @@ struct UpdateCoordinatorTests {
             }
             let requests = await transport.requests
             #expect(requests.count == 2)
-            let prefix = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            let successor = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            let prefix = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
+            let successor = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
             #expect(prefix.updates.count == 1)
             // One chain: the settled first change is repeated without its objects, then the successor once.
             #expect(successor.base == "up_initial")
@@ -530,7 +530,7 @@ struct UpdateCoordinatorTests {
             }
             let requests = await transport.requests
             #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first?.body))
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first?.body))
             // One element per authored change, in log order.
             #expect(request.updates.count == 15)
             #expect(request.updates.last?.candidate == (try await workingTree.heads().acceptedRoot))
@@ -564,8 +564,8 @@ struct UpdateCoordinatorTests {
             let reconnect = Task { await coordinator.setTransportAvailable(true) }
             try await waitUntil { await transport.requests.count == 2 }
             let requests = await transport.requests
-            let prefix = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            let resumed = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            let prefix = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
+            let resumed = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
             #expect(prefix.updates.count == 1)
             #expect(resumed.updates.count == 38)
             #expect(Array(resumed.updates.prefix(1)) == prefix.updates)
@@ -585,7 +585,7 @@ struct UpdateCoordinatorTests {
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("Placement must not submit")
+                throw ProtocolValidationError.invalidValue("Placement must not submit")
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -593,10 +593,10 @@ struct UpdateCoordinatorTests {
                 transport: bootstrap
             )
             let remoteTransport = ClosureTransport(initial: remote, currentUpdate: "up_remote") { _, _ in
-                throw ArborWireValidationError.invalidValue("A clean watch pull must not submit")
+                throw ProtocolValidationError.invalidValue("A clean watch pull must not submit")
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: remoteTransport, stateRoot: root)
-            let event = WireWatchEvent(
+            let event = ProtocolWatchEvent(
                 id: "up_remote",
                 tree: descriptor(tree: tree, snapshot: remote, update: "up_remote")
             )
@@ -617,7 +617,7 @@ struct UpdateCoordinatorTests {
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let transport = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("A clean watch transition must not submit")
+                throw ProtocolValidationError.invalidValue("A clean watch transition must not submit")
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -627,17 +627,17 @@ struct UpdateCoordinatorTests {
             let snapshotRequestsBefore = await transport.snapshotRequests
             let initialFile = try #require(initial.objects.first { $0.hash != initial.root })
             let remoteFile = try #require(remote.objects.first { $0.hash != remote.root })
-            let update = WireAcceptedUpdate(
+            let update = ProtocolAcceptedUpdate(
                 id: "up_remote",
                 tree: tree,
                 root: remote.root,
                 previous: .init(id: net ? "up_intermediate" : "up_initial", root: initial.root),
                 acceptedAt: 1_800_000_000_000
             )
-            let transition = WireAcceptedTransition(
+            let transition = ProtocolAcceptedTransition(
                 update: update,
                 objects: [try #require(remote.objects.first { $0.hash == remote.root })],
-                deltas: [WireObjectDelta(
+                deltas: [ProtocolObjectDelta(
                     base: initialFile.hash,
                     result: remoteFile.hash,
                     instructions: [.insert(remoteFile.bytes)]
@@ -645,7 +645,7 @@ struct UpdateCoordinatorTests {
                 from: net ? .init(id: "up_initial", root: initial.root) : nil
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            let result = try await coordinator.observe(WireWatchEvent(
+            let result = try await coordinator.observe(ProtocolWatchEvent(
                 id: update.id,
                 tree: descriptor(tree: tree, snapshot: remote, update: update.id),
                 transitions: [transition]
@@ -665,18 +665,18 @@ struct UpdateCoordinatorTests {
             let tree = "tr_metadataconflict"
             let initial = try snapshot(markdown: "# Existing projection\n")
             let transport = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("Metadata watch must not submit")
+                throw ProtocolValidationError.invalidValue("Metadata watch must not submit")
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
                 at: root.appending(path: "replica"), transport: transport
             )
-            let update = WireAcceptedUpdate(id: "up_conflicted", tree: tree, root: initial.root,
+            let update = ProtocolAcceptedUpdate(id: "up_conflicted", tree: tree, root: initial.root,
                 previous: .init(id: "up_initial", root: initial.root), acceptedAt: 1, conflicted: true)
             var remote = descriptor(tree: tree, snapshot: initial, update: update.id)
             remote.conflicted = true
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            let result = try await coordinator.observe(WireWatchEvent(id: "observation-metadata", tree: remote,
+            let result = try await coordinator.observe(ProtocolWatchEvent(id: "observation-metadata", tree: remote,
                 transitions: [.init(update: update, objects: [], deltas: [])]))
             #expect(result.state == .current)
             #expect(result.acceptedConflicted == true)
@@ -693,7 +693,7 @@ struct UpdateCoordinatorTests {
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("Placement must not submit")
+                throw ProtocolValidationError.invalidValue("Placement must not submit")
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -705,7 +705,7 @@ struct UpdateCoordinatorTests {
                 currentUpdate: "up_remote",
                 currentObservedThrough: "observation_after_remote"
             ) { _, _ in
-                throw ArborWireValidationError.invalidValue("Gap recovery must not submit")
+                throw ProtocolValidationError.invalidValue("Gap recovery must not submit")
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: remoteTransport, stateRoot: root)
 
@@ -728,7 +728,7 @@ struct UpdateCoordinatorTests {
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOld\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nCurrent\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("Placement must not submit")
+                throw ProtocolValidationError.invalidValue("Placement must not submit")
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -740,7 +740,7 @@ struct UpdateCoordinatorTests {
                 currentUpdate: "up_remote",
                 currentObservedThrough: "observation_after_remote"
             ) { _, _ in
-                throw ArborWireValidationError.invalidValue("A clean reconnect must not submit")
+                throw ProtocolValidationError.invalidValue("A clean reconnect must not submit")
             }
             let coordinator = try UpdateCoordinator(
                 workingTree: workingTree,
@@ -776,11 +776,11 @@ struct UpdateCoordinatorTests {
             _ = try await coordinator.syncOnce()
             #expect(await coordinator.syncState.kind == "offline")
             let frozen = try #require(await transport.requests.first)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: frozen.body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: frozen.body)
             let candidate = try #require(request.updates.last?.candidate)
-            let eventTree = WireTreeDescriptor(
+            let eventTree = ProtocolTreeDescriptor(
                 id: tree, kind: "ordinary", root: candidate, access: "write",
-                canonical: WireCanonicalDescriptor(path: "/~owner/watch-digest", endpoint: "https://example.test"),
+                canonical: ProtocolCanonicalDescriptor(path: "/~owner/watch-digest", endpoint: "https://example.test"),
                 update: net ? "up_net" : "up_1"
             )
             let result = try await coordinator.observe(.init(
@@ -822,8 +822,8 @@ struct UpdateCoordinatorTests {
             #expect((try await session.snapshot()).source.hasSuffix("Candidate\nTail\n"))
             let requests = await transport.requests
             #expect(requests.count == 2)
-            let first = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            let second = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            let first = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
+            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
             #expect(first.base == "up_initial" && second.base == "up_initial")
             #expect(second.updates.count == 2)
             #expect(try await workingTree.heads().acceptedRoot == second.updates.last?.candidate)
@@ -844,10 +844,10 @@ struct UpdateCoordinatorTests {
             )
             let current = accepted(id: "up_remote", tree: tree, root: remote.root, base: initial.root, candidate: remote.root)
             let rejecting = ClosureTransport(initial: initial, current: remote, currentUpdate: "up_remote") { prepared, _ in
-                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
-                throw WireUpdateConflictError(conflict: WireUpdateConflict(
+                let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+                throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(
                     message: "stale guard", current: current, base: initial.root,
-                    candidate: try #require(request.updates.last?.candidate), draft: WireConflictDraft(root: initial.root), conflicts: []))
+                    candidate: try #require(request.updates.last?.candidate), draft: ProtocolConflictDraft(root: initial.root), conflicts: []))
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: rejecting, stateRoot: root)
             let session = try await noteSession(workingTree, coordinator, tree: tree)
@@ -885,7 +885,7 @@ struct UpdateCoordinatorTests {
             let tree = "tr_unsupported"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let transport = ClosureTransport(initial: initial) { _, _ in
-                throw WireHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
+                throw ProtocolHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
             }
             let workingTree = try await placeWorkingTree(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -930,7 +930,7 @@ struct UpdateCoordinatorTests {
                 let resumed = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
                 #expect(try await resumed.syncOnce().state == .current, Comment(rawValue: point.rawValue))
                 let requests = await transport.requests
-                let frozen = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first).body)
+                let frozen = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first).body)
                 #expect(frozen.updates.flatMap(\.objects).count < (try await workingTree.currentSnapshot()).objects.count)
                 if requests.count > 1 {
                     #expect(Set(requests.map(\.requestDigest)).count == 1)
@@ -949,14 +949,14 @@ struct UpdateCoordinatorTests {
                 let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
                 let merged = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\nLocal\nRemote\n")
                 let transport = ClosureTransport(initial: initial, current: merged, currentUpdate: "up_merged") { prepared, _ in
-                    let update = WireAcceptedUpdate(
+                    let update = ProtocolAcceptedUpdate(
                         id: "up_merged",
                         tree: tree,
                         root: merged.root,
                         previous: .init(id: "up_initial", root: initial.root),
                         acceptedAt: 1_800_000_000_000
                     )
-                    return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigests.last!, reconciliation: WireTransitionPayload(objects: merged.objects), observedThrough: update.id)
+                    return ProtocolUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigests.last!, reconciliation: ProtocolTransitionPayload(objects: merged.objects), observedThrough: update.id)
                 }
                 let workingTree = try await placeWorkingTree(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -1018,7 +1018,7 @@ struct UpdateCoordinatorPhase3Tests {
             #expect(try await resumed.syncOnce().state == .current)
             let requests = await transport.requests
             #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first).body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first).body)
             #expect(request.updates == [change.update])
             #expect(try await workingTree.heads().acceptedRoot == change.candidate.root)
             let control = try UpdateControlFiles(root: root).load()
@@ -1067,7 +1067,7 @@ struct UpdateCoordinatorPhase3Tests {
             let tree = "tr_disk_failure"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let transport = ClosureTransport(initial: initial) { _, _ in
-                throw ArborWireValidationError.invalidValue("Offline test must not upload")
+                throw ProtocolValidationError.invalidValue("Offline test must not upload")
             }
             let workingTree = try await placeInMemory(tree: tree, transport: transport)
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
@@ -1095,14 +1095,14 @@ struct UpdateCoordinatorPhase3Tests {
     @Test("Change envelopes carry only new objects; platform-served files are never packed or fetched")
     func sparseCandidateFromOverlay() async throws {
         let tree = "tr_sparse"
-        let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
-        let photo = try WireObjectCodec.object(.file(Data(repeating: 0xab, count: 4_096)))
-        let rootDirectory = try WireObjectCodec.object(.directory([
+        let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
+        let photo = try ProtocolObjectCodec.object(.file(Data(repeating: 0xab, count: 4_096)))
+        let rootDirectory = try ProtocolObjectCodec.object(.directory([
             .init(name: "note.md", file: note.hash),
             .init(name: "photo.bin", file: photo.hash),
         ]))
-        let complete = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note, photo].sorted { $0.hash < $1.hash })
-        let spine = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
+        let complete = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note, photo].sorted { $0.hash < $1.hash })
+        let spine = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
         let platform = CountingObjectStore(objects: [photo.hash: photo.bytes])
         let workingTree = try await WorkingTree.open(store: InMemoryWorkingTreeStore(), overlay: InMemoryObjectOverlay(), platform: platform, tree: TreeID(rawValue: tree))
         try await workingTree.initializeFromSystem(try SnapshotBridge.replacement(
@@ -1117,7 +1117,7 @@ struct UpdateCoordinatorPhase3Tests {
             let session = try await noteSession(workingTree, coordinator, tree: tree)
             try await admitAppend(session, "Sparse\n")
             #expect(try await coordinator.syncOnce().state == .current)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(await transport.requests.first).body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.first).body)
             let sent = Set(request.updates.flatMap(\.objects).map(\.hash))
             #expect(!sent.isEmpty)
             #expect(!sent.contains(photo.hash))
@@ -1129,13 +1129,13 @@ struct UpdateCoordinatorPhase3Tests {
     @Test("A reconciliation delta fetches its base through the object store exactly once")
     func deltaBaseFetchedOnce() async throws {
         let tree = "tr_delta"
-        let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
-        let photo = try WireObjectCodec.object(.file(Data(repeating: 0x01, count: 2_048)))
-        let rootDirectory = try WireObjectCodec.object(.directory([
+        let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
+        let photo = try ProtocolObjectCodec.object(.file(Data(repeating: 0x01, count: 2_048)))
+        let rootDirectory = try ProtocolObjectCodec.object(.directory([
             .init(name: "note.md", file: note.hash),
             .init(name: "photo.bin", file: photo.hash),
         ]))
-        let spine = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
+        let spine = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
         let platform = CountingObjectStore(objects: [photo.hash: photo.bytes])
         let workingTree = try await WorkingTree.open(store: InMemoryWorkingTreeStore(), overlay: InMemoryObjectOverlay(), platform: platform, tree: TreeID(rawValue: tree))
         try await workingTree.initializeFromSystem(try SnapshotBridge.replacement(
@@ -1145,27 +1145,27 @@ struct UpdateCoordinatorPhase3Tests {
             mode: .sparseFiles
         ))
         // The remote side replaced the photo; Canopy expresses it as a delta against the retained base.
-        let photo2 = try WireObjectCodec.object(.file(Data(repeating: 0x02, count: 2_048)))
-        let delta = try WireObjectDelta(base: photo.hash, result: photo2.hash, instructions: [.insert(photo2.bytes)]).validated()
+        let photo2 = try ProtocolObjectCodec.object(.file(Data(repeating: 0x02, count: 2_048)))
+        let delta = try ProtocolObjectDelta(base: photo.hash, result: photo2.hash, instructions: [.insert(photo2.bytes)]).validated()
         let merged = MergedRootBox()
         let transport = ClosureTransport(initial: spine) { prepared, _ in
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
             let element = try #require(request.updates.last)
             // The element carries the new note and root, whole or as deltas; the photo is never sent.
             let localNote = try #require((element.objects.map(\.hash) + element.deltas.map(\.result)).first { $0 != element.candidate })
-            let mergedRoot = try WireObjectCodec.object(.directory([
+            let mergedRoot = try ProtocolObjectCodec.object(.directory([
                 .init(name: "note.md", file: localNote),
                 .init(name: "photo.bin", file: photo2.hash),
             ]))
             await merged.set(mergedRoot.hash)
-            let update = WireAcceptedUpdate(
+            let update = ProtocolAcceptedUpdate(
                 id: "up_merged", tree: tree, root: mergedRoot.hash, previous: .init(id: "up_initial", root: rootDirectory.hash),
                 acceptedAt: 1_800_000_000_000
             )
-            var result = WireUpdateResponse(
+            var result = ProtocolUpdateResponse(
                 result: .accepted(update),
                 requestDigest: prepared.requestDigests.last!,
-                reconciliation: WireTransitionPayload(objects: [mergedRoot], deltas: [delta]),
+                reconciliation: ProtocolTransitionPayload(objects: [mergedRoot], deltas: [delta]),
                 observedThrough: update.id
             )
             result.head = .init(update: update.id, root: mergedRoot.hash, conflicted: false, observedThrough: update.id)
@@ -1198,11 +1198,11 @@ struct UpdateCoordinatorPhase3Tests {
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
             let provider = WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator)
             _ = try await provider.importFile(name: "asset.bin", bytes: Data(repeating: 0x7f, count: 1_024), in: .init(tree: TreeID(rawValue: tree), path: "/"))
-            let assetHash = try WireObjectCodec.object(.file(Data(repeating: 0x7f, count: 1_024))).hash
+            let assetHash = try ProtocolObjectCodec.object(.file(Data(repeating: 0x7f, count: 1_024))).hash
             _ = try await coordinator.syncOnce()
             #expect(await coordinator.syncState.kind == "offline")
             let prepared = try #require(await transport.requests.first)
-            #expect(try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body).updates.flatMap(\.objects).contains { $0.hash == assetHash })
+            #expect(try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body).updates.flatMap(\.objects).contains { $0.hash == assetHash })
 
             // A collection that keeps nothing: the request in flight must not notice.
             try overlay.retain(reachableFrom: [])
@@ -1248,20 +1248,20 @@ private func waitUntil(_ condition: @Sendable () async throws -> Bool) async thr
 
 /// A transport that accepts every element as submitted, numbering accepted
 /// updates, and serves the accepted candidate as the host's current state.
-private func acceptingTransport(tree: String, initial: WireSnapshot, before: @escaping @Sendable (Int) async throws -> Void = { _ in }) -> ClosureTransport {
+private func acceptingTransport(tree: String, initial: ProtocolSnapshot, before: @escaping @Sendable (Int) async throws -> Void = { _ in }) -> ClosureTransport {
     let accepted = AcceptedCounter()
     return ClosureTransport(initial: initial, advancesCurrentOnAccept: true) { prepared, call in
         try await before(call)
-        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
         let number = await accepted.next()
         var previous = initial.root
         let results = request.updates.enumerated().map { index, element in
-            let update = WireAcceptedUpdate(id: index == request.updates.count - 1 ? "up_\(number)" : "up_\(number)_\(index)",
+            let update = ProtocolAcceptedUpdate(id: index == request.updates.count - 1 ? "up_\(number)" : "up_\(number)_\(index)",
                 tree: tree, root: element.candidate, previous: .init(id: "up_initial", root: previous), acceptedAt: 1_800_000_000_000)
             previous = element.candidate
-            return WireUpdateElementResult(result: .accepted(update), requestDigest: prepared.requestDigests[index])
+            return ProtocolUpdateElementResult(result: .accepted(update), requestDigest: prepared.requestDigests[index])
         }
-        return WireUpdateResponse(results: results, observedThrough: "up_\(number)")
+        return ProtocolUpdateResponse(results: results, observedThrough: "up_\(number)")
     }
 }
 
@@ -1299,17 +1299,17 @@ private actor CountingObjectStore: ObjectStore {
 /// Records what a live transport was asked to submit.
 private actor RecordingTransport: UpdateTransport {
     let inner: any UpdateTransport
-    private(set) var requests: [PreparedWireUpdate] = []
+    private(set) var requests: [PreparedProtocolUpdate] = []
 
     init(_ inner: any UpdateTransport) { self.inner = inner }
 
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         requests.append(prepared)
         return try await inner.submit(prepared)
     }
 
-    func descriptor(tree: String) async throws -> WireCurrentTree { try await inner.descriptor(tree: tree) }
-    func snapshot(tree: String, root: String) async throws -> WireSnapshot { try await inner.snapshot(tree: tree, root: root) }
+    func descriptor(tree: String) async throws -> ProtocolCurrentTree { try await inner.descriptor(tree: tree) }
+    func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot { try await inner.snapshot(tree: tree, root: root) }
 }
 
 private func placeInMemory(tree: String, transport: any UpdateTransport) async throws -> WorkingTree {
@@ -1334,9 +1334,9 @@ struct LiveNativePeerTests {
               let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"],
               let treeID = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TREE"] else { return }
         try await withTemporaryRoot { root in
-            let client = ArborWireClient(origin: origin, credential: token, retryDelay: { _ in })
+            let client = ProtocolClient(origin: origin, credential: token, retryDelay: { _ in })
             let tree = try await client.descriptor(tree: treeID).tree
-            let transport = RecordingTransport(ArborWireReplicaTransport(client: client))
+            let transport = RecordingTransport(ProtocolReplicaTransport(client: client))
             let mac = try await placeWorkingTree(
                 tree: tree,
                 at: root.appending(path: "mac"),
@@ -1370,7 +1370,7 @@ struct LiveNativePeerTests {
             // Every body is sparse: only objects the base does not retain travel.
             let total = (try await mac.currentSnapshot()).objects.count
             for prepared in await transport.requests {
-                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
                 #expect(request.updates.allSatisfy { $0.objects.count < total })
             }
             await macSync.close(); await tabletSync.close()
@@ -1378,108 +1378,108 @@ struct LiveNativePeerTests {
     }
 }
 
-private func snapshot(markdown: String) throws -> WireSnapshot {
-    let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
-    let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
-    return WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+private func snapshot(markdown: String) throws -> ProtocolSnapshot {
+    let file = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+    return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
 }
 
-private func snapshot(files: [String: String]) throws -> WireSnapshot {
-    var objects: [WireObjectEnvelope] = []
+private func snapshot(files: [String: String]) throws -> ProtocolSnapshot {
+    var objects: [ProtocolObjectEnvelope] = []
     let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
-        let file = try WireObjectCodec.object(.file(Data(files[name, default: ""].utf8)))
+        let file = try ProtocolObjectCodec.object(.file(Data(files[name, default: ""].utf8)))
         objects.append(file)
-        return WireDirectoryEntry(name: name, file: file.hash)
+        return ProtocolDirectoryEntry(name: name, file: file.hash)
     }
-    let root = try WireObjectCodec.object(.directory(entries))
+    let root = try ProtocolObjectCodec.object(.directory(entries))
     objects.append(root)
-    return WireSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
+    return ProtocolSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
 }
 
 private func directoryBodySnapshot(
     stem: String,
     siblingSource: String,
     indexSource: String? = nil
-) throws -> WireSnapshot {
-    let child = try WireObjectCodec.object(.file(Data("# Child\n".utf8)))
-    var directoryEntries = [WireDirectoryEntry(name: "child.md", file: child.hash)]
+) throws -> ProtocolSnapshot {
+    let child = try ProtocolObjectCodec.object(.file(Data("# Child\n".utf8)))
+    var directoryEntries = [ProtocolDirectoryEntry(name: "child.md", file: child.hash)]
     var objects = [child]
     if let indexSource {
-        let index = try WireObjectCodec.object(.file(Data(indexSource.utf8)))
+        let index = try ProtocolObjectCodec.object(.file(Data(indexSource.utf8)))
         directoryEntries.append(.init(name: "_index.md", file: index.hash))
         objects.append(index)
     }
     directoryEntries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
-    let directory = try WireObjectCodec.object(.directory(directoryEntries))
-    let sibling = try WireObjectCodec.object(.file(Data(siblingSource.utf8)))
-    let root = try WireObjectCodec.object(.directory([
+    let directory = try ProtocolObjectCodec.object(.directory(directoryEntries))
+    let sibling = try ProtocolObjectCodec.object(.file(Data(siblingSource.utf8)))
+    let root = try ProtocolObjectCodec.object(.directory([
         .init(name: stem, directory: directory.hash),
         .init(name: stem + ".md", file: sibling.hash),
     ]))
     objects.append(contentsOf: [directory, sibling, root])
-    return WireSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
+    return ProtocolSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
 }
 
-private func wireDirectoryEntries(snapshot: WireSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
+private func protocolDirectoryEntries(snapshot: ProtocolSnapshot, directory hash: String) throws -> [ProtocolDirectoryEntry] {
     let envelope = try #require(snapshot.objects.first { $0.hash == hash })
-    guard case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes, kind: .directory) else {
-        throw ArborWireValidationError.invalidValue("Expected directory object")
+    guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(envelope.bytes, kind: .directory) else {
+        throw ProtocolValidationError.invalidValue("Expected directory object")
     }
     return entries
 }
 
-private func wireEntryNames(snapshot: WireSnapshot, directory hash: String) throws -> Set<String> {
-    Set(try wireDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
+private func protocolEntryNames(snapshot: ProtocolSnapshot, directory hash: String) throws -> Set<String> {
+    Set(try protocolDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
 }
 
-private func wireDirectoryEntries(snapshot: WorkingTreeSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
+private func protocolDirectoryEntries(snapshot: WorkingTreeSnapshot, directory hash: String) throws -> [ProtocolDirectoryEntry] {
     let object = try #require(snapshot.objects.first { $0.hash == hash })
-    guard case let .directory(entries, _) = try WireObjectCodec.decode(try #require(object.bytes), kind: .directory) else {
-        throw ArborWireValidationError.invalidValue("Expected directory object")
+    guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(try #require(object.bytes), kind: .directory) else {
+        throw ProtocolValidationError.invalidValue("Expected directory object")
     }
     return entries
 }
 
-private func wireEntryNames(snapshot: WorkingTreeSnapshot, directory hash: String) throws -> Set<String> {
-    Set(try wireDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
+private func protocolEntryNames(snapshot: WorkingTreeSnapshot, directory hash: String) throws -> Set<String> {
+    Set(try protocolDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
 }
 
-private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnapshot) throws -> WireSnapshot {
+private func completeCandidate(_ request: ProtocolUpdateRequest, retained: ProtocolSnapshot) throws -> ProtocolSnapshot {
     try completeCandidate(request.updates[0], retained: retained)
 }
 
 /// Rebuild one element's complete candidate from what the host retains plus
 /// the element's objects and deltas.
-private func completeCandidate(_ element: WireCandidateUpdate, retained: WireSnapshot) throws -> WireSnapshot {
+private func completeCandidate(_ element: ProtocolCandidateUpdate, retained: ProtocolSnapshot) throws -> ProtocolSnapshot {
     var envelopes = Dictionary(uniqueKeysWithValues: retained.objects.map { ($0.hash, $0) })
     for object in element.objects { envelopes[object.hash] = object }
     for delta in element.deltas {
         let base = try #require(envelopes[delta.base])
-        envelopes[delta.result] = WireObjectEnvelope(hash: delta.result, bytes: try delta.apply(to: base.bytes))
+        envelopes[delta.result] = ProtocolObjectEnvelope(hash: delta.result, bytes: try delta.apply(to: base.bytes))
     }
-    var pending = [(element.candidate, WireEntryKind.directory)]
+    var pending = [(element.candidate, ProtocolEntryKind.directory)]
     var visited = Set<String>()
-    var objects: [WireObjectEnvelope] = []
+    var objects: [ProtocolObjectEnvelope] = []
     while let (hash, kind) = pending.popLast() {
         if !visited.insert(hash).inserted { continue }
         let envelope = try #require(envelopes[hash])
         objects.append(envelope)
-        if case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes, kind: kind) {
+        if case let .directory(entries, _) = try ProtocolObjectCodec.decode(envelope.bytes, kind: kind) {
             for entry in entries {
                 if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) }
             }
         }
     }
-    return WireSnapshot(root: element.candidate, objects: objects.sorted { $0.hash < $1.hash })
+    return ProtocolSnapshot(root: element.candidate, objects: objects.sorted { $0.hash < $1.hash })
 }
 
-private func descriptor(tree: String, snapshot: WireSnapshot, update: String) -> WireTreeDescriptor {
-    WireTreeDescriptor(
+private func descriptor(tree: String, snapshot: ProtocolSnapshot, update: String) -> ProtocolTreeDescriptor {
+    ProtocolTreeDescriptor(
         id: tree,
         kind: "ordinary",
         root: snapshot.root,
         access: "write",
-        canonical: WireCanonicalDescriptor(
+        canonical: ProtocolCanonicalDescriptor(
             path: "/~owner/\(tree)",
             endpoint: "https://arbor.example"
         ),
@@ -1487,8 +1487,8 @@ private func descriptor(tree: String, snapshot: WireSnapshot, update: String) ->
     )
 }
 
-private func accepted(id: String, tree: String, root: String, base: String, candidate: String) -> WireAcceptedUpdate {
-    WireAcceptedUpdate(
+private func accepted(id: String, tree: String, root: String, base: String, candidate: String) -> ProtocolAcceptedUpdate {
+    ProtocolAcceptedUpdate(
         id: id,
         tree: tree,
         root: root,
@@ -1501,7 +1501,7 @@ private func accepted(id: String, tree: String, root: String, base: String, cand
 /// the accepted base of a fresh durable working tree (what the app's
 /// `WorkingTreePlacementService` in `OverstoryClient` does).
 private func placeWorkingTree(
-    tree: WireTreeDescriptor,
+    tree: ProtocolTreeDescriptor,
     at root: URL,
     transport: any UpdateTransport,
     platform: any ObjectStore = EmptyObjectStore()
@@ -1527,25 +1527,25 @@ private func withTemporaryRoot(_ body: (URL) async throws -> Void) async throws 
 }
 
 private actor SourceModeTransport: UpdateTransport {
-    let initial: WireSnapshot
-    let peer: WireSnapshot
+    let initial: ProtocolSnapshot
+    let peer: ProtocolSnapshot
     let gate: FirstRequestGate?
-    var received: [PreparedWireUpdate] = []
-    var receipts: [String: WireUpdateElementResult] = [:]
-    var snapshots: [String: WireSnapshot]
-    var current: WireSnapshot
+    var received: [PreparedProtocolUpdate] = []
+    var receipts: [String: ProtocolUpdateElementResult] = [:]
+    var snapshots: [String: ProtocolSnapshot]
+    var current: ProtocolSnapshot
     var currentID = "up_peer"
-    init(initial: WireSnapshot, peer: WireSnapshot, gate: FirstRequestGate? = nil) {
+    init(initial: ProtocolSnapshot, peer: ProtocolSnapshot, gate: FirstRequestGate? = nil) {
         self.initial = initial; self.peer = peer; self.gate = gate; current = peer
         snapshots = [initial.root: initial]; snapshots[peer.root] = peer
     }
-    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+    func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         received.append(prepared)
         if received.count == 1, let gate { await gate.hold() }
-        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
         #expect(request.base == "up_initial")
         var candidate = initial
-        var results: [WireUpdateElementResult] = []
+        var results: [ProtocolUpdateElementResult] = []
         for (index, element) in request.updates.enumerated() {
             #expect(element.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
             // Like Canopy's immutable store, retain earlier authored candidates
@@ -1555,21 +1555,21 @@ private actor SourceModeTransport: UpdateTransport {
             let digest = prepared.requestDigests[index]
             if let receipt = receipts[digest] { results.append(receipt); continue }
             let selected = receipts.isEmpty ? peer : candidate
-            let update = WireAcceptedUpdate(id: "up_source_\(receipts.count)", tree: "tr_source_sessions", root: selected.root,
+            let update = ProtocolAcceptedUpdate(id: "up_source_\(receipts.count)", tree: "tr_source_sessions", root: selected.root,
                 previous: .init(id: currentID, root: current.root), acceptedAt: 1_800_000_000_000, conflicted: true)
-            let result = WireUpdateElementResult(result: .accepted(update), requestDigest: digest,
+            let result = ProtocolUpdateElementResult(result: .accepted(update), requestDigest: digest,
                 reconciliation: selected.root == candidate.root ? nil : .init(objects: selected.objects))
             receipts[digest] = result; results.append(result)
             current = selected; currentID = update.id
         }
-        return WireUpdateResponse(results: results, observedThrough: "cursor_\(currentID)")
+        return ProtocolUpdateResponse(results: results, observedThrough: "cursor_\(currentID)")
     }
-    func descriptor(tree: String) throws -> WireCurrentTree {
-        WireCurrentTree(tree: WireTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
+    func descriptor(tree: String) throws -> ProtocolCurrentTree {
+        ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
             canonical: nil, update: currentID, conflicted: !receipts.isEmpty), observedThrough: "cursor_\(currentID)")
     }
     func advanceIdentity() { currentID = "up_later" }
-    func snapshot(tree: String, root: String) throws -> WireSnapshot {
+    func snapshot(tree: String, root: String) throws -> ProtocolSnapshot {
         guard let value = snapshots[root] else { throw UpdateError.returnedSnapshotMissing }
         return value
     }
@@ -1578,7 +1578,7 @@ private actor SourceModeTransport: UpdateTransport {
 @Suite("Source session publication")
 struct SourceSessionPublicationTests {
     let treeID: TreeID = "tr_source_sessions"
-    func makeTree(_ snapshot: WireSnapshot, update: String) async throws -> WorkingTree {
+    func makeTree(_ snapshot: ProtocolSnapshot, update: String) async throws -> WorkingTree {
         let tree = try await WorkingTree.inMemory(tree: treeID)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot, tree: treeID, update: update))
         return tree
@@ -1616,7 +1616,7 @@ struct SourceSessionPublicationTests {
             let requests = await transport.received
             #expect(requests.count == 2)
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
-            let second = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
             #expect(second.updates.count == 2)
             #expect(second.updates[0].objects.isEmpty)
             #expect(second.updates[0].deltas.isEmpty)
@@ -1648,7 +1648,7 @@ struct SourceSessionPublicationTests {
             _ = try await publishing.value
             let requests = await transport.received
             #expect(requests.count == 2)
-            let batch = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            let batch = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
             #expect(batch.updates.count == 4)
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
             #expect(batch.updates.first?.objects.isEmpty == true)
@@ -1852,13 +1852,13 @@ extension SourceSessionPublicationTests {
             #expect(try await provider.children(of: parent).contains { $0.reference.path == created.reference.path })
             #expect(await provider.capabilities().structuralActions == false)
             #expect(await provider.capabilities().assets == false)
-            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+            await #expect(throws: UpdateError.awaitingHostReconciliation) {
                 try await provider.perform(.rename(reference: created.reference, name: "renamed"))
             }
-            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+            await #expect(throws: UpdateError.awaitingHostReconciliation) {
                 try await provider.importFile(name: "blocked.bin", bytes: Data([1]), in: parent)
             }
-            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+            await #expect(throws: UpdateError.awaitingHostReconciliation) {
                 try await provider.store(asset: .init(name: "blocked.bin", bytes: Data([1])), in: parent)
             }
             _ = try await replace("Still editable\n", session: old, basis: edited)

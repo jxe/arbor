@@ -13,7 +13,7 @@ tree's [update machine](../implementing-sync-services/update-machine.md)
 publishes the change log later; the editor never waits for the host.
 
 The reference implementation is `EditorSource` (`CanopyAppKit`, provider
-agnostic) with `ArborDocumentBinding` (`CanopyEditor`) as its Quagmire
+agnostic) with `CanopyDocumentBinding` (`CanopyEditor`) as its Quagmire
 plumbing. No TypeScript editor source exists yet; Web 025 adds one.
 
 ## 1. Two clocks

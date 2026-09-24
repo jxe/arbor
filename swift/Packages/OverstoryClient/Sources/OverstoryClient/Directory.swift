@@ -3,10 +3,10 @@ import Overstory
 
 public struct DirectoryPerson: Identifiable, Hashable, Sendable {
     public var origin: URL
-    public var entry: WireProfileDirectoryEntry
+    public var entry: ProtocolProfileDirectoryEntry
     public var id: String { entry.profile }
 
-    public init(origin: URL, entry: WireProfileDirectoryEntry) {
+    public init(origin: URL, entry: ProtocolProfileDirectoryEntry) {
         self.origin = origin
         self.entry = entry
     }
@@ -33,7 +33,7 @@ public struct DirectoryPerson: Identifiable, Hashable, Sendable {
         var result: [String: DirectoryPerson] = [:]
         for person in people {
             guard var current = result[person.id] else { result[person.id] = person; continue }
-            func richness(_ entry: WireProfileDirectoryEntry) -> Int {
+            func richness(_ entry: ProtocolProfileDirectoryEntry) -> Int {
                 [entry.displayName, entry.handle, entry.locator, entry.summary, entry.avatar?.path].compactMap { $0 }.count
             }
             let sources = Array(Set(current.entry.sources + person.entry.sources)).sorted()

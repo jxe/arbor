@@ -1,5 +1,5 @@
-import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, WireHTTPError, WireUnsupportedOperation, WireUpdateConflict,
-  type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type WireClient } from "@overstory/protocol";
+import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
+  type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@overstory/protocol";
 import { attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
@@ -20,7 +20,7 @@ export interface ChangeLogPort {
   discard(changes: ReadonlySet<string>): Promise<void>;
 }
 
-export type UpdateTransport = Pick<WireClient, "submitUpdates" | "descriptor"> & Partial<Pick<WireClient, "snapshot" | "object">>;
+export type UpdateTransport = Pick<ProtocolClient, "submitUpdates" | "descriptor"> & Partial<Pick<ProtocolClient, "snapshot" | "object">>;
 
 /**
  * Where an accepted state's objects come from: those the runner already holds
@@ -514,13 +514,13 @@ export class UpdateCoordinator {
   /** Classify a failure into the machine's taxonomy. */
   private async fail(error: unknown, id?: string): Promise<void> {
     this.failure = error instanceof Error ? error.message : String(error);
-    if (error instanceof WireHTTPError && (error.status === 401 || error.status === 403)) {
+    if (error instanceof ProtocolHTTPError && (error.status === 401 || error.status === 403)) {
       this.dispatch({ type: "authenticationFailed", reason: error.message });
-    } else if (error instanceof WireUnsupportedOperation && id) {
+    } else if (error instanceof ProtocolUnsupportedOperation && id) {
       await this.hold("unsupported", error.message, id);
-    } else if (error instanceof WireUpdateConflict && id) {
+    } else if (error instanceof ProtocolUpdateConflict && id) {
       await this.hold("rejected", "the change conflicts with a newer decision", id);
-    } else if (error instanceof WireHTTPError && refusal(error.status) && id) {
+    } else if (error instanceof ProtocolHTTPError && refusal(error.status) && id) {
       // Repeating a request the host refused cannot change the answer.
       await this.hold("rejected", error.message, id);
     } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError) {

@@ -13,7 +13,7 @@ dependency of it. The Swift twin is `swift/Packages/Overstory`.
 - `updates/`: the update request and accepted-state contracts, strict JSON and
   base64 transport encoding, the canonical semantic intent and its digest,
   object deltas, and applying accepted transitions.
-- `transport.ts`: the HTTP and SSE client (`WireClient`) a host speaks to.
+- `transport.ts`: the HTTP and SSE client (`ProtocolClient`) a host speaks to.
 - `documents/`: the Markdown and directory-document format (spec 02): parsing,
   child links, document icons, display titles, and document merge.
 - `config/`: `account.yaml`, `trees.yaml`, `devices.yaml`, and resource

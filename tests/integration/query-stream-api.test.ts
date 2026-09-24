@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@overstory/protocol";
 
 const request: QueryStreamRequest = {
@@ -58,12 +58,12 @@ function expectFrames(body: string) {
 }
 
 describe("stateless query stream HTTP contract", () => {
-  test("serves Arbor Wire with the authenticated profile context", async () => {
+  test("serves the Overstory protocol with the authenticated profile context", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-query-wire-"));
     const runtime = new FixtureRuntime();
     const mutations = new FixtureMutationRuntime();
     const token = "query-stream-owner-token";
-    const running = await serveCanopy({
+    const running = await serveHost({
       dataRoot: root,
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",

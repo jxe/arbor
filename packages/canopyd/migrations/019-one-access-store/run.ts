@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 import { ObjectStore } from "@overstory/object-store";
 import { readAccountConfigGraph, type ResourceAccessRule } from "@overstory/protocol";
-import { assertCurrentCanopySchema } from "../../../../packages/canopyd/src/schema.ts";
+import { assertCurrentHostSchema } from "../../../../packages/canopyd/src/schema.ts";
 
 /** Schema 19 → 20: one access store, and no unread columns.
  *
@@ -167,7 +167,7 @@ export async function migrateAccessStore(root: string, log: Log = () => {}): Pro
     })();
     db.run("PRAGMA foreign_keys = ON");
     ms.commit = Math.round(performance.now() - since);
-    assertCurrentCanopySchema(db);
+    assertCurrentHostSchema(db);
     ms.total = Math.round(performance.now() - started);
     return { migrated: true, from: stamp, trees: trees(), adopted, policyRewritten, accessRowsDeleted, accessDifferences, unownedAccess: unownedAccess(), ms };
   } finally {

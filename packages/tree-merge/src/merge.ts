@@ -1,11 +1,11 @@
 import {
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type ObjectHash,
   type UpdateConflict,
-  type WireDirectory,
-  type WireDirectoryEntry,
+  type ProtocolDirectory,
+  type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 import { collectionFileRowsV1, frontmatter, markdownAdditiveV1, type CollectionFileMergeInput, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";
@@ -27,24 +27,24 @@ export interface MergeResult {
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
-function entryEqual(left: WireDirectoryEntry | undefined, right: WireDirectoryEntry | undefined): boolean {
+function entryEqual(left: ProtocolDirectoryEntry | undefined, right: ProtocolDirectoryEntry | undefined): boolean {
   return left?.name === right?.name
     && left?.file === right?.file
     && left?.directory === right?.directory
     && left?.tree === right?.tree;
 }
 
-function sortedEntries(entries: WireDirectoryEntry[]): WireDirectoryEntry[] {
+function sortedEntries(entries: ProtocolDirectoryEntry[]): ProtocolDirectoryEntry[] {
   return entries.sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
 }
 
 /** Name a conflict by the shape of the node the two sides disagree on. */
 function conflictReason(
-  before: WireDirectoryEntry | undefined,
-  local: WireDirectoryEntry | undefined,
-  accepted: WireDirectoryEntry | undefined,
+  before: ProtocolDirectoryEntry | undefined,
+  local: ProtocolDirectoryEntry | undefined,
+  accepted: ProtocolDirectoryEntry | undefined,
 ): UpdateConflict["reason"] {
-  const present = [before, local, accepted].filter((entry): entry is WireDirectoryEntry => entry !== undefined);
+  const present = [before, local, accepted].filter((entry): entry is ProtocolDirectoryEntry => entry !== undefined);
   if (present.some((entry) => entry.tree)) return "nested-boundary-conflict";
   const kinds = new Set(present.map((entry) => entry.file ? "file" : entry.directory ? "directory" : "none"));
   if (kinds.size > 1) return "path-kind-conflict";
@@ -65,7 +65,7 @@ function childPath(path: string, name: string): string {
  * rule is resolved by that rule; every other conflict is reported and the
  * draft keeps the candidate's version.
  */
-export async function mergeWireTrees(
+export async function mergeProtocolTrees(
   base: ObjectHash,
   candidate: ObjectHash,
   current: ObjectHash,
@@ -90,17 +90,17 @@ export async function mergeWireTrees(
   let sawMarkdownRule = false;
   let sawCollectionFileRule = false;
 
-  const directoryObject = async (entry: WireDirectoryEntry | undefined): Promise<WireDirectory | null> => {
-    return entry?.directory ? decodeWireDirectory(await loadAny(entry.directory)) : null;
+  const directoryObject = async (entry: ProtocolDirectoryEntry | undefined): Promise<ProtocolDirectory | null> => {
+    return entry?.directory ? decodeProtocolDirectory(await loadAny(entry.directory)) : null;
   };
 
   /** Resolve one conflicting node with its representation's rule; undefined when it has none. */
   const applyRule = async (
     path: string,
-    before: WireDirectoryEntry | undefined,
-    local: WireDirectoryEntry,
-    accepted: WireDirectoryEntry,
-  ): Promise<WireDirectoryEntry | undefined> => {
+    before: ProtocolDirectoryEntry | undefined,
+    local: ProtocolDirectoryEntry,
+    accepted: ProtocolDirectoryEntry,
+  ): Promise<ProtocolDirectoryEntry | undefined> => {
     if (local.file && accepted.file && local.name.endsWith(".md") && (!before || before.file)) {
       const baseHash = before?.file ?? context.store(new Uint8Array());
       const merged = await markdownAdditiveV1(path, baseHash, local.file, accepted.file, context);
@@ -132,8 +132,8 @@ export async function mergeWireTrees(
   };
 
   /** Markdown pages keyed by a unique frontmatter id, so a rename and an edit on the other side still meet as one node. */
-  const pagesByID = async (directory: Map<string, WireDirectoryEntry>): Promise<Map<string, WireDirectoryEntry>> => {
-    const unique = new Map<string, WireDirectoryEntry>();
+  const pagesByID = async (directory: Map<string, ProtocolDirectoryEntry>): Promise<Map<string, ProtocolDirectoryEntry>> => {
+    const unique = new Map<string, ProtocolDirectoryEntry>();
     const duplicates = new Set<string>();
     for (const entry of directory.values()) {
       if (!entry.file || !entry.name.endsWith(".md")) continue;
@@ -153,10 +153,10 @@ export async function mergeWireTrees(
   const resolveNode = async (
     parentPath: string,
     name: string,
-    before: WireDirectoryEntry | undefined,
-    local: WireDirectoryEntry | undefined,
-    accepted: WireDirectoryEntry | undefined,
-  ): Promise<WireDirectoryEntry | null> => {
+    before: ProtocolDirectoryEntry | undefined,
+    local: ProtocolDirectoryEntry | undefined,
+    accepted: ProtocolDirectoryEntry | undefined,
+  ): Promise<ProtocolDirectoryEntry | null> => {
     const path = childPath(parentPath, name);
     const [localChildren, acceptedChildren] = await Promise.all([directoryObject(local), directoryObject(accepted)]);
     if (localChildren && acceptedChildren) {
@@ -176,19 +176,19 @@ export async function mergeWireTrees(
 
   const mergeDirectory = async (
     parentPath: string,
-    baseDirectory: WireDirectory,
-    candidateDirectory: WireDirectory,
-    currentDirectory: WireDirectory,
+    baseDirectory: ProtocolDirectory,
+    candidateDirectory: ProtocolDirectory,
+    currentDirectory: ProtocolDirectory,
   ): Promise<ObjectHash> => {
     const baseEntries = new Map(baseDirectory.entries.map((entry) => [entry.name, entry]));
     const candidateEntries = new Map(candidateDirectory.entries.map((entry) => [entry.name, entry]));
     const currentEntries = new Map(currentDirectory.entries.map((entry) => [entry.name, entry]));
-    const entries: WireDirectoryEntry[] = [];
+    const entries: ProtocolDirectoryEntry[] = [];
     const handled = new Set<string>();
-    const descriptorState = (directory: WireDirectory): string | null => directory.childrenSource
+    const descriptorState = (directory: ProtocolDirectory): string | null => directory.childrenSource
       ? JSON.stringify(directory.childrenSource)
       : null;
-    const collectionInput = (directory: WireDirectory): CollectionFileMergeInput | null => {
+    const collectionInput = (directory: ProtocolDirectory): CollectionFileMergeInput | null => {
       const descriptor = directory.childrenSource;
       if (!descriptor) return null;
       const source = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
@@ -273,15 +273,15 @@ export async function mergeWireTrees(
       const resolved = await resolveNode(parentPath, name, before, local, accepted);
       if (resolved) entries.push(resolved);
     }
-    return context.store(encodeWireDirectory({
+    return context.store(encodeProtocolDirectory({
       type: "directory",
       entries: sortedEntries(entries),
       ...(selectedCollection ? { childrenSource: selectedCollection.descriptor } : {}),
     }));
   };
 
-  const rootDirectory = async (hash: ObjectHash): Promise<WireDirectory> => {
-    const object = decodeWireDirectory(await loadAny(hash));
+  const rootDirectory = async (hash: ObjectHash): Promise<ProtocolDirectory> => {
+    const object = decodeProtocolDirectory(await loadAny(hash));
     if (object.type !== "directory") throw new Error("Tree root is not a directory object");
     return object;
   };

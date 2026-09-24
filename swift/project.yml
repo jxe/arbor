@@ -55,9 +55,9 @@ targets:
         CFBundleDisplayName: Canopy
         LSMultipleInstancesProhibited: true
         LSApplicationCategoryType: public.app-category.productivity
-        NSCameraUsageDescription: Scan one-time Arbor device-pairing QR codes.
-        NSMicrophoneUsageDescription: Record voice notes to add to Arbor pages.
-        NSSpeechRecognitionUsageDescription: Transcribe voice notes into Arbor pages.
+        NSCameraUsageDescription: Scan one-time Canopy device-pairing QR codes.
+        NSMicrophoneUsageDescription: Record voice notes to add to Overstory pages.
+        NSSpeechRecognitionUsageDescription: Transcribe voice notes into Overstory pages.
         UILaunchScreen: {}
     settings:
       base:

@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
-import { ProtocolError, CanopyAccountStore, WireHTTPError, WireTransportError } from "@overstory/protocol";
+import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimCanopyAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -18,30 +18,30 @@ export class LocalAccountService {
   async credentialToken(configurationTree?: string): Promise<string> {
     let token: string | undefined;
     if (configurationTree) {
-      let store: CanopyAccountStore;
-      try { store = new CanopyAccountStore(configurationTree); }
+      let store: HostAccountStore;
+      try { store = new HostAccountStore(configurationTree); }
       catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
       token = (await store.get())?.accountToken;
     } else {
-      const accounts = await CanopyAccountStore.list();
+      const accounts = await HostAccountStore.list();
       if (accounts.length > 1) {
         throw new ProtocolError("invalid-request", "credential requires an explicit configurationTree when several accounts are connected", 400);
       }
       token = accounts.length === 1
-        ? (await new CanopyAccountStore(accounts[0]!.configurationTree).get())?.accountToken
+        ? (await new HostAccountStore(accounts[0]!.configurationTree).get())?.accountToken
         : undefined;
     }
     if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
     return token;
   }
 
-  async claimCanopyAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
-    try { return await claimCanopyAccountBootstrap(this.deps, account, inputPath, displayName); }
+  async claimHostAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
+    try { return await claimHostAccountBootstrap(this.deps, account, inputPath, displayName); }
     catch (error) {
-      if (error instanceof WireHTTPError) {
+      if (error instanceof ProtocolHTTPError) {
         throw new ProtocolError(error.status === 409 ? "conflict" : "invalid-request", error.message, error.status);
       }
-      if (error instanceof WireTransportError) {
+      if (error instanceof ProtocolTransportError) {
         throw new ProtocolError("internal-error", "The community could not be reached. Your pending connection is retained; try again when online.", 503, { retryable: true });
       }
       throw error;

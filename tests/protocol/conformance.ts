@@ -4,8 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveCanopy } from "@overstory/canopyd";
-import { generateArborID, WireClient, decodeWireDirectory, type SourceOperation } from "@overstory/protocol";
+import { serveHost } from "@overstory/canopyd";
+import { generateArborID, ProtocolClient, decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
 import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
@@ -42,9 +42,9 @@ try {
 
   // One local Canopy with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the
-  // loopback services (bootstrap, credential, objects) and Wire directly.
+  // loopback services (bootstrap, credential, objects) and the protocol directly.
   const authorityToken = "swift-protocol-device-token";
-  const canopy = await serveCanopy({
+  const canopy = await serveHost({
     dataRoot: authorityState,
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -59,7 +59,7 @@ try {
     await writeFile(join(treeDir, "photo.bin"), new Uint8Array([1, 2, 3, 4, 5]));
     await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
 
-    const owner = new WireClient(canopy.url, authorityToken);
+    const owner = new ProtocolClient(canopy.url, authorityToken);
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
@@ -114,7 +114,7 @@ try {
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;
       const snapshot = await owner.snapshot(tree, basis.root);
-      const file = decodeWireDirectory(snapshot.objects.get(basis.root)!).entries.find(e => e.name === "page.md")!.file!;
+      const file = decodeProtocolDirectory(snapshot.objects.get(basis.root)!).entries.find(e => e.name === "page.md")!.file!;
       const objects = new Map(snapshot.objects);
       async function replacement(text: string) {
         const operations: SourceOperation[] = [{ key: "replace", kind: "editSource", source: { material: { kind: "basis", path: "/page.md", object: file } }, text }];
@@ -136,7 +136,7 @@ try {
       const inspection = await owner.conflicts(tree, continued.update, continued.root);
       if (!continued.conflicted || inspection.decisions.length !== 1 || inspection.decisions[0]!.alternatives.length !== 2) throw new Error("Filesystem sync lost accepted alternatives");
       const current = await owner.snapshot(tree, continued.root);
-      const currentFile = decodeWireDirectory(current.objects.get(continued.root)!).entries.find(e => e.name === "page.md")!.file!;
+      const currentFile = decodeProtocolDirectory(current.objects.get(continued.root)!).entries.find(e => e.name === "page.md")!.file!;
       if (new TextDecoder().decode(current.objects.get(currentFile)) !== "Filesystem continued after accepted ambiguity\n") throw new Error("Filesystem sync paused on accepted ambiguity");
 
     } finally {

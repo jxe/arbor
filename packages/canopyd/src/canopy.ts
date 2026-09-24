@@ -25,11 +25,11 @@ import {
   type AccessLevel,
 } from "@overstory/protocol";
 import { resourceRuleFromLegacy } from "@overstory/protocol";
-import { CollectionSchemaCache, decodeWireCollectionFile, unsupportedLegacyCollection } from "@overstory/collection-schema";
+import { CollectionSchemaCache, decodeProtocolCollectionFile, unsupportedLegacyCollection } from "@overstory/collection-schema";
 import {
   validateUpdateRequestIntent,
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   updateRequestDigests,
   type AcceptedTransition,
@@ -56,29 +56,29 @@ import { ObjectStore } from "@overstory/object-store";
 import { AccessControl, accessRule } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
 import { HANDLE, handleOfPath, leadingHandle, legacyMemberHandle, memberReservations, profileLocatorTree, recordProfileFacts, rootProfileFacts, storedProfileFacts, type RootProfileFacts } from "./profile.ts";
-import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
+import { isAccountConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
-import { assertCanopyData, openCanopyDatabase } from "./schema.ts";
+import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
-export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
+export type { HostAccessEntry, HostAccount, HostAuthentication, HostTree } from "./model.ts";
 
 export interface StoredUpdateResponse {
   status: number;
   result: UpdateResponse | UpdateConflictResult;
 }
 
-export interface CanopyBootstrapAccount {
+export interface HostBootstrapAccount {
   handle: string;
   token: string;
   name?: string;
   communityWriter?: boolean;
 }
 
-export interface CanopyBootstrap {
+export interface HostBootstrap {
   handle: string;
   name: string;
-  accounts: CanopyBootstrapAccount[];
+  accounts: HostBootstrapAccount[];
   firstWriter?: {
     handle: string;
     profileTree: string;
@@ -155,7 +155,7 @@ function graphAdministrators(graph: AccountConfigGraph): string[] {
 function directSnapshot(source: string): TreeSnapshot {
   const fileBytes = new TextEncoder().encode(source);
   const fileHash = hashObject(fileBytes);
-  const rootBytes = encodeWireDirectory({
+  const rootBytes = encodeProtocolDirectory({
     type: "directory",
     entries: [{ name: "_index.md", file: fileHash }],
   });
@@ -187,7 +187,7 @@ function profileSource(
   ].join("\n");
 }
 
-export { CANOPY_SCHEMA_VERSION, SchemaMismatchError, assertCanopyData, assertCanopySchemaVersion, assertCurrentCanopySchema } from "./schema.ts";
+export { CANOPY_SCHEMA_VERSION, SchemaMismatchError, assertHostData, assertHostSchemaVersion, assertCurrentHostSchema } from "./schema.ts";
 
 /** The basis a batch element was authored on: an accepted log entry, and the
  * earlier candidates of the batch authored on it that no entry records as
@@ -230,9 +230,9 @@ interface UpdatePolicy {
   /** Validate the complete candidate graph once, before reconciliation. */
   validateCandidate(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void>;
   /** Validate the root about to be accepted against the tree as it is now. */
-  validateAccepted(remoteTree: CanopyTree, root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void>;
+  validateAccepted(remoteTree: HostTree, root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void>;
   /** Durable side effects for the accepted update; runs after every candidate object is stored. */
-  prepareCommit(remoteTree: CanopyTree, root: ObjectHash, at: number): Promise<{
+  prepareCommit(remoteTree: HostTree, root: ObjectHash, at: number): Promise<{
     withinTransaction?: () => void;
     afterCommit?: (accepted: AcceptedUpdate) => void;
   }>;
@@ -266,7 +266,7 @@ export class ReservedBoundaryConflictError extends Error {
   }
 }
 
-export class CanopyDaemon implements AsyncDisposable {
+export class HostDaemon implements AsyncDisposable {
   private readonly wireSchemas = new CollectionSchemaCache();
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
   /** Parsed profile facts by immutable root hash (`rootProfile`). */
@@ -310,11 +310,11 @@ export class CanopyDaemon implements AsyncDisposable {
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
   }
 
-  static async open(dataRoot: string, bootstrap?: CanopyBootstrap, mergeTool?: MergeToolOptions): Promise<CanopyDaemon> {
+  static async open(dataRoot: string, bootstrap?: HostBootstrap, mergeTool?: MergeToolOptions): Promise<HostDaemon> {
     await mkdir(join(dataRoot, "objects"), { recursive: true });
     const databasePath = join(dataRoot, "canopy.sqlite3");
-    const db = openCanopyDatabase(databasePath);
-    const canopy = new CanopyDaemon(dataRoot, db, mergeTool);
+    const db = openHostDatabase(databasePath);
+    const canopy = new HostDaemon(dataRoot, db, mergeTool);
     await canopy.mergeTool.clearStaleJobs();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -333,7 +333,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return canopy;
   }
 
-  private async bootstrap(config: CanopyBootstrap): Promise<void> {
+  private async bootstrap(config: HostBootstrap): Promise<void> {
     if (!HANDLE.test(config.handle)) throw new Error(`Invalid community handle: ${config.handle}`);
     if (config.firstWriter && !HANDLE.test(config.firstWriter.handle)) {
       throw new Error(`Invalid first-writer handle: ${config.firstWriter.handle}`);
@@ -383,7 +383,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private treeRow(value: unknown): CanopyTree | null {
+  private treeRow(value: unknown): HostTree | null {
     if (!value) return null;
     const row = value as {
       id: string;
@@ -391,8 +391,8 @@ export class CanopyDaemon implements AsyncDisposable {
       path: string | null;
       parent_tree: string | null;
       public_access: AccessLevel | null;
-      policy: CanopyTree["policy"];
-      status: CanopyTree["status"];
+      policy: HostTree["policy"];
+      status: HostTree["status"];
       account_id: string | null;
     };
     return {
@@ -408,16 +408,16 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
-  private treeSelect(where: string, value?: string): CanopyTree | null {
+  private treeSelect(where: string, value?: string): HostTree | null {
     const sql = `${TREE_SELECT} ${where}`;
     return this.treeRow(value === undefined ? this.db.query(sql).get() : this.db.query(sql).get(value));
   }
 
-  list(): CanopyTree[] {
+  list(): HostTree[] {
     return this.db.query(`${TREE_SELECT} ORDER BY b.path IS NULL, b.path`).all().map((row) => this.treeRow(row)!);
   }
 
-  get(id: string): CanopyTree | null {
+  get(id: string): HostTree | null {
     return this.treeSelect("WHERE t.id = ?", id);
   }
 
@@ -508,12 +508,12 @@ export class CanopyDaemon implements AsyncDisposable {
     return { update: current.id, entries };
   }
 
-  boundary(path: string): CanopyTree | null {
+  boundary(path: string): HostTree | null {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
 
   /** The tree whose canonical boundary most closely encloses `path`, and the path within it. */
-  resolve(path: string): { tree: CanopyTree; path: string } | null {
+  resolve(path: string): { tree: HostTree; path: string } | null {
     const canonical = normalizeBoundaryPath(path);
     // Only the path itself and its ancestors can enclose it; the longest wins.
     const segments = canonical.split("/").filter(Boolean);
@@ -528,25 +528,25 @@ export class CanopyDaemon implements AsyncDisposable {
     return { tree, path: remainder || "/" };
   }
 
-  account(id: string): CanopyAccount | null {
+  account(id: string): HostAccount | null {
     return this.accounts.account(id);
   }
 
-  authenticateToken(token: string | undefined): CanopyAuthentication | null {
+  authenticateToken(token: string | undefined): HostAuthentication | null {
     return this.accounts.authenticateToken(token);
   }
 
-  authenticationIsActive(authentication: CanopyAuthentication): boolean {
+  authenticationIsActive(authentication: HostAuthentication): boolean {
     if (!authentication.device) return false;
     const device = this.accounts.device(authentication.device);
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
   }
 
-  devices(account: CanopyAccount): ServerDevice[] {
+  devices(account: HostAccount): ServerDevice[] {
     return this.accounts.devices(account);
   }
 
-  createPairing(account: CanopyAccount): PairingOffer {
+  createPairing(account: HostAccount): PairingOffer {
     return this.accounts.createPairing(account);
   }
 
@@ -679,15 +679,15 @@ export class CanopyDaemon implements AsyncDisposable {
     return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
   }
 
-  accountByHandle(handle: string): CanopyAccount | null {
+  accountByHandle(handle: string): HostAccount | null {
     return this.accounts.accountByHandle(handle);
   }
 
-  resetAccountToken(handle: string, token: string): CanopyAccount {
+  resetAccountToken(handle: string, token: string): HostAccount {
     return this.accounts.resetAccountToken(handle, token);
   }
 
-  community(): CanopyTree {
+  community(): HostTree {
     const community = this.boundary("/");
     if (!community) throw new ServerFaultError("Community profile is missing");
     return community;
@@ -726,7 +726,7 @@ export class CanopyDaemon implements AsyncDisposable {
     this.accounts.setCommunityHost(host, allowTestPortChange);
   }
 
-  writableProfiles(account: CanopyAccount): CanopyTree[] {
+  writableProfiles(account: HostAccount): HostTree[] {
     return this.list().filter((tree) =>
       tree.status === "active"
       && tree.canonicalPath !== null
@@ -874,7 +874,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (reserved.changes !== 1) throw new Error(`TreeID is reserved by another account: ${id}`);
   }
 
-  private async accountConfigGraph(account: CanopyAccount): Promise<AccountConfigGraph> {
+  private async accountConfigGraph(account: HostAccount): Promise<AccountConfigGraph> {
     if (!account.configTree) throw new Error("Account configuration tree is missing");
     const tree = this.get(account.configTree);
     if (!tree) throw new Error("Account configuration tree is missing");
@@ -883,12 +883,12 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private async activateTree(
-    authentication: CanopyAuthentication,
+    authentication: HostAuthentication,
     treeID: string,
     snapshot: TreeSnapshot,
     requestDigest?: ObjectHash,
     change?: string,
-  ): Promise<CanopyTree> {
+  ): Promise<HostTree> {
     if (!isGeneratedArborID(treeID, "tr") && !isPersonProfileTreeID(treeID)) {
       throw new Error("New tree activation requires a generated TreeID");
     }
@@ -927,15 +927,15 @@ export class CanopyDaemon implements AsyncDisposable {
     return activated;
   }
 
-  scopedCaller(account: CanopyAccount | null, tree: string, subject: string, active: () => boolean, linkDigest?: string) {
+  scopedCaller(account: HostAccount | null, tree: string, subject: string, active: () => boolean, linkDigest?: string) {
     return this.access.directExecution(account, tree, subject, active, linkDigest);
   }
 
-  resourcePolicy(account: CanopyAccount, tree: string) {
+  resourcePolicy(account: HostAccount, tree: string) {
     return this.execution.current ? undefined : this.access.safePolicy(account.id, tree);
   }
 
-  accessEntries(tree: string): CanopyAccessEntry[] {
+  accessEntries(tree: string): HostAccessEntry[] {
     return this.access.entries(tree);
   }
 
@@ -954,15 +954,15 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
-  canRead(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+  canRead(account: HostAccount | null, tree: string | HostTree, linkDigest?: string): boolean {
     return this.execution.current ? this.execution.allows(idOf(tree), "/", "read") : this.access.canRead(account, tree, linkDigest);
   }
 
-  canWrite(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+  canWrite(account: HostAccount | null, tree: string | HostTree, linkDigest?: string): boolean {
     return this.execution.current ? this.execution.allows(idOf(tree), "/", "write") : this.access.canWrite(account, tree, linkDigest);
   }
 
-  canAdminister(account: CanopyAccount, tree: string | CanopyTree): boolean {
+  canAdminister(account: HostAccount, tree: string | HostTree): boolean {
     return !this.execution.current && this.access.canAdminister(account, tree);
   }
 
@@ -984,7 +984,7 @@ export class CanopyDaemon implements AsyncDisposable {
     deviceLabel: string;
     credentialDigest: string;
     configurationSnapshot: TreeSnapshot;
-  }): Promise<{ account: CanopyAccount; configuration: CanopyTree }> {
+  }): Promise<{ account: HostAccount; configuration: HostTree }> {
     const proof = this.verifyAccountIdentityProof(input);
     const claimDigest = sha256(stableJSONString({
       handle: input.handle,
@@ -1024,7 +1024,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
     const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
-    this.validateCurrentCanopyAccountPaths(input.handle, config);
+    this.validateCurrentHostAccountPaths(input.handle, config);
     if (config.account.canopy !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the target server");
     if (config.account.profile !== input.profileTree) {
       throw new Error("account.yaml profile does not match the proven account identity");
@@ -1098,10 +1098,10 @@ export class CanopyDaemon implements AsyncDisposable {
   async submitUpdate(
     treeID: string,
     request: UpdateRequest,
-    account: CanopyAccount | null = null,
+    account: HostAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
-    authentication?: CanopyAuthentication,
+    authentication?: HostAuthentication,
   ): Promise<StoredUpdateResponse> {
     const previous = this.updateLocks.get(treeID) ?? Promise.resolve();
     let release!: () => void;
@@ -1128,10 +1128,10 @@ export class CanopyDaemon implements AsyncDisposable {
   private async submitUpdatesLocked(
     treeID: string,
     request: UpdateRequest,
-    account: CanopyAccount | null = null,
+    account: HostAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
-    authentication?: CanopyAuthentication
+    authentication?: HostAuthentication
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
@@ -1362,7 +1362,7 @@ export class CanopyDaemon implements AsyncDisposable {
     requestDigest: ObjectHash,
     proposed: Map<ObjectHash, Uint8Array>,
     basis: AuthoredBasis,
-    account: CanopyAccount | null = null,
+    account: HostAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
     provenAcceptedPrefix = false,
@@ -1440,7 +1440,7 @@ export class CanopyDaemon implements AsyncDisposable {
    * here first and the sidecar asked only to carry its decisions forward.
    */
   private async submitSemanticCandidate(
-    tree: CanopyTree,
+    tree: HostTree,
     baseRoot: ObjectHash,
     request: CandidateUpdate,
     requestDigest: ObjectHash,
@@ -1620,7 +1620,7 @@ export class CanopyDaemon implements AsyncDisposable {
     treeID: string,
     request: CandidateUpdate,
     requestDigest: ObjectHash,
-    authentication: CanopyAuthentication | undefined,
+    authentication: HostAuthentication | undefined,
     provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
     if (!authentication) throw new AuthenticationRequiredError("Account authentication is required to activate a tree");
@@ -1643,25 +1643,25 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** The subject an update to `tree` is recorded and replayed under. */
-  private subjectFor(tree: CanopyTree, account: CanopyAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
+  private subjectFor(tree: HostTree, account: HostAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
     if (isAccountConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
     const execution = this.execution.current;
     return execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
   }
 
   /** Only a device of the owning account may update its configuration tree. */
-  private configurationCaller(tree: CanopyTree, account: CanopyAccount | null, credentialSubject: string | undefined): { account: CanopyAccount; subject: string } {
+  private configurationCaller(tree: HostTree, account: HostAccount | null, credentialSubject: string | undefined): { account: HostAccount; subject: string } {
     if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
       throw new PermissionDeniedError("An active account device is required for configuration updates");
     }
     return { account, subject: credentialSubject };
   }
 
-  /** Ordinary trees: graph and boundary validation, the Wire three-way merge, and community reconciliation. */
+  /** Ordinary trees: graph and boundary validation, the protocol three-way merge, and community reconciliation. */
   private ordinaryPolicy(
-    tree: CanopyTree,
+    tree: HostTree,
     request: CandidateUpdate,
-    account: CanopyAccount | null,
+    account: HostAccount | null,
     linkDigest: string | undefined,
     credentialSubject: string | undefined,
   ): UpdatePolicy {
@@ -1704,10 +1704,10 @@ export class CanopyDaemon implements AsyncDisposable {
    * and canonical-boundary state committed with the accepted update.
    */
   private accountConfigPolicy(
-    tree: CanopyTree,
+    tree: HostTree,
     request: CandidateUpdate,
     baseRoot: ObjectHash,
-    caller: CanopyAccount | null,
+    caller: HostAccount | null,
     credential: string | undefined,
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
@@ -1729,7 +1729,7 @@ export class CanopyDaemon implements AsyncDisposable {
       rejection: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
-        this.validateCurrentCanopyAccountPaths(account.handle, candidateGraph, account);
+        this.validateCurrentHostAccountPaths(account.handle, candidateGraph, account);
         baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new ServerFaultError("Account configuration has no accepted update");
@@ -1743,11 +1743,11 @@ export class CanopyDaemon implements AsyncDisposable {
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);
-        this.validateCurrentCanopyAccountPaths(account.handle, nextGraph, account);
+        this.validateCurrentHostAccountPaths(account.handle, nextGraph, account);
         authorize(currentGraph, nextGraph, currentGraph);
       },
       prepareCommit: async (_remoteTree, _root, now) => {
-        const rewrites: Array<Awaited<ReturnType<CanopyDaemon["prepareParentAdvance"]>>> = [];
+        const rewrites: Array<Awaited<ReturnType<HostDaemon["prepareParentAdvance"]>>> = [];
         for (const rewrite of await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph))
           rewrites.push(await this.prepareParentAdvance(rewrite));
         const boundaryUpdates: AcceptedUpdate[] = [];
@@ -1818,7 +1818,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private integrityRun: Promise<void> | null = null;
 
-  /** Verify SQLite, the row invariants `assertCanopyData` names, and every
+  /** Verify SQLite, the row invariants `assertHostData` names, and every
    * object reachable from retained accepted history.
    * This walks all retained history, so concurrent callers share one run. */
   verifyIntegrity(): Promise<void> {
@@ -1828,7 +1828,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private async auditIntegrity(): Promise<void> {
     this.verifyDatabase();
-    assertCanopyData(this.db);
+    assertHostData(this.db);
     // The same closure the object collector keeps: every object it names is
     // present and hash-consistent.
     await retainedObjects(this.db, this.objects);
@@ -1858,7 +1858,7 @@ export class CanopyDaemon implements AsyncDisposable {
    * content-addressed and shared across trees, so a caller who can read any
    * tree may fetch any retained object whose hash they know; the route does not
    * prove reachability from that tree's roots or alternatives. */
-  isReadableObject(treeID: string, account: CanopyAccount | null, linkDigest?: string): boolean {
+  isReadableObject(treeID: string, account: HostAccount | null, linkDigest?: string): boolean {
     const tree = this.get(treeID);
     return tree !== null && this.canRead(account, tree, linkDigest);
   }
@@ -1880,7 +1880,7 @@ export class CanopyDaemon implements AsyncDisposable {
     accountID?: string,
     requestDigest?: ObjectHash,
     change?: string,
-  ): Promise<CanopyTree> {
+  ): Promise<HostTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
     await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
@@ -1960,7 +1960,7 @@ export class CanopyDaemon implements AsyncDisposable {
   /** Everything a server-side rewrite of a canonical parent's boundaries needs
    * before its transaction: the stored objects, the entry changes, and a log
    * entry after the parent's current update. */
-  private async prepareParentAdvance(rewrite: { parent: CanopyTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
+  private async prepareParentAdvance(rewrite: { parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
     const staged = new Map(rewrite.generated);
@@ -1972,7 +1972,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   /** Advance a canonical parent inside the caller's transaction, only from the
    * update its log entry follows. */
-  private advanceParent(prepared: Awaited<ReturnType<CanopyDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
+  private advanceParent(prepared: Awaited<ReturnType<HostDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
     const { expectedUpdate, profile, ...input } = prepared;
     const accepted = this.acceptedStore.current(input.tree)?.id === expectedUpdate
       ? this.acceptedStore.advance({ ...input, acceptedAt, subject })
@@ -1988,7 +1988,7 @@ export class CanopyDaemon implements AsyncDisposable {
     removals: BoundaryEdit[],
     additions: BoundaryEdit[],
     options: BoundaryRewriteOptions = {},
-  ): Promise<{ parent: CanopyTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
+  ): Promise<{ parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
     const parent = this.get(parentTreeID);
     if (!parent?.canonicalPath) throw new Error(`Unknown or noncanonical parent tree: ${parentTreeID}`);
     const rewrite = await rewriteBoundaries(
@@ -2035,7 +2035,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private async validateReservedBoundaries(
-    parent: CanopyTree,
+    parent: HostTree,
     root: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
   ): Promise<void> {
@@ -2048,7 +2048,7 @@ export class CanopyDaemon implements AsyncDisposable {
       let hash = root;
       let valid = true;
       for (const [index, segment] of segments.entries()) {
-        const object = decodeWireDirectory(await this.objects.load(hash, proposed));
+        const object = decodeProtocolDirectory(await this.objects.load(hash, proposed));
         if (object.type !== "directory") {
           valid = false;
           break;
@@ -2145,7 +2145,7 @@ export class CanopyDaemon implements AsyncDisposable {
    * declare paths below any /~name that no person has reserved or claimed,
    * so top-level names can address groups or any other tree.
    */
-  private validateCurrentCanopyAccountPaths(handle: string, graph: AccountConfigGraph, existingAccount?: CanopyAccount): void {
+  private validateCurrentHostAccountPaths(handle: string, graph: AccountConfigGraph, existingAccount?: HostAccount): void {
     const root = `/~${handle}`;
     const administersCommunity = !!existingAccount && this.canWrite(existingAccount, this.community().id);
     for (const [treeID, declaration] of Object.entries(graph.trees)) {
@@ -2212,24 +2212,24 @@ export class CanopyDaemon implements AsyncDisposable {
     // acceptedBasis comes from the server's current tree, never from worker or
     // client assertions. A staged proof is only inherited once that root has
     // actually become accepted (and therefore durable).
-    const decode = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+    const decode = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
       const source = directory.childrenSource!;
       const loadFile = async (name: string) => {
         const target = directory.entries.find(entry => entry.name === name)?.file;
         if (!target) throw Error(`Missing collection-file entry: ${name}`);
         return load(target);
       };
-      decodeWireCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
+      decodeProtocolCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
     };
     // Retired version-1 (schema.ts) collections are never interpreted
     // (spec 06 §2.5). A candidate containing one is an unsupported operation;
     // one left in the accepted basis stays unproven, so an update is accepted
     // only when its candidate replaces every such collection.
-    const collection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+    const collection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
       if (directory.childrenSource!.version !== 2) throw new UpdateProtocolError("unsupported-operation", unsupportedLegacyCollection().message);
       await decode(directory, load);
     };
-    const basisCollection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+    const basisCollection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
       if (directory.childrenSource!.version !== 2) return "unproven" as const;
       await decode(directory, load);
     };
@@ -2265,7 +2265,7 @@ function deviceTokenDigest(credentialDigest: string): string {
   return credentialDigest.slice("sha256:".length);
 }
 
-function idOf(tree: string | CanopyTree): string {
+function idOf(tree: string | HostTree): string {
   return typeof tree === "string" ? tree : tree.id;
 }
 

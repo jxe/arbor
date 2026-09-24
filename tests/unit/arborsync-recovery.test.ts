@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { encodeObjectEnvelopes, encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
+import { encodeObjectEnvelopes, encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
 import {
   decodeAdmissionBasis,
   decodeRawSyncState,
-  assertUnchangedCanopy,
-  replaceWireFile,
+  assertUnchangedHost,
+  replaceProtocolFile,
   snapshotFromTransition,
-  textAtWirePath,
+  textAtProtocolPath,
 } from "../../packages/arborsync/recovery/arborsync-recovery.ts";
 
 function file(source: string): [string, Uint8Array] {
@@ -17,7 +17,7 @@ function file(source: string): [string, Uint8Array] {
 function snapshot(source: string, extra = "one"): TreeSnapshot {
   const [indexHash, indexBytes] = file(source);
   const [extraHash, extraBytes] = file(extra);
-  const rootBytes = encodeWireDirectory({
+  const rootBytes = encodeProtocolDirectory({
     type: "directory",
     entries: [
       { name: "_index.md", file: indexHash },
@@ -76,22 +76,22 @@ describe("ArborSync recovery evidence", () => {
       objects: encodeObjectEnvelopes([changedIndex, [changed.root, changed.objects.get(changed.root)!]]),
       deltas: [],
     });
-    expect(await textAtWirePath(transition, "/_index.md")).toBe("pending");
+    expect(await textAtProtocolPath(transition, "/_index.md")).toBe("pending");
     expect(transition.objects.size).toBe(3);
   });
 
   test("overlays a recorded exact document source without losing disk-only structure", async () => {
     const disk = snapshot("disk", "disk-only");
-    const replaced = replaceWireFile(disk, "/_index.md", "recorded");
-    expect(await textAtWirePath(replaced, "/_index.md")).toBe("recorded");
+    const replaced = replaceProtocolFile(disk, "/_index.md", "recorded");
+    expect(await textAtProtocolPath(replaced, "/_index.md")).toBe("recorded");
     expect(replaced.root).not.toBe(disk.root);
     expect([...replaced.objects.values()].some((bytes) => new TextDecoder().decode(bytes).includes("disk-only"))).toBe(true);
   });
 
   test("refuses submission after either the Canopy update or root drifts", () => {
     const root = `sha256:${"1".repeat(64)}`;
-    expect(() => assertUnchangedCanopy({ update: "10", root }, { update: "10", root })).not.toThrow();
-    expect(() => assertUnchangedCanopy({ update: "10", root }, { update: "11", root })).toThrow("Canopy drifted");
-    expect(() => assertUnchangedCanopy({ update: "10", root }, { update: "10", root: `sha256:${"2".repeat(64)}` })).toThrow("Canopy drifted");
+    expect(() => assertUnchangedHost({ update: "10", root }, { update: "10", root })).not.toThrow();
+    expect(() => assertUnchangedHost({ update: "10", root }, { update: "11", root })).toThrow("Canopy drifted");
+    expect(() => assertUnchangedHost({ update: "10", root }, { update: "10", root: `sha256:${"2".repeat(64)}` })).toThrow("Canopy drifted");
   });
 });

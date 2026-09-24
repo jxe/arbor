@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ObjectStore } from "@overstory/object-store";
 import { decodeLogEntry, LOG_ENTRY_FORMAT } from "@overstory/merge-protocol";
-import { encodeWireDirectory, hashObject } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject } from "@overstory/protocol";
 import { MergeHistory } from "../../../packages/canopyd/src/updates/merge-history.ts";
 import type { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
 
@@ -16,7 +16,7 @@ test("an entry and the objects it names are published durably together", async (
   const objects = new ObjectStore(join(directory, "objects"));
   const history = new MergeHistory({} as AcceptedUpdateStore, objects);
   const leaf = new TextEncoder().encode("leaf");
-  const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(leaf) }] });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(leaf) }] });
   const named = [{ hash: hashObject(leaf), bytes: leaf }, { hash: hashObject(rootBytes), bytes: rootBytes }];
   const { hash, conflicted } = await history.write({
     format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root: named[1]!.hash, change: "first",

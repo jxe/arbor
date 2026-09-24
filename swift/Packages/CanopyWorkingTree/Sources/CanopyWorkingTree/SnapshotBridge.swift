@@ -7,16 +7,16 @@ public enum SnapshotBridge {
     /// Directory references must be present in all modes; sparse file references
     /// may omit payloads, except Markdown source which must remain inline.
     public static func replacement(
-        snapshot: WireSnapshot,
+        snapshot: ProtocolSnapshot,
         tree: TreeID,
         update: String,
         cursor: String? = nil,
-        mode: WireObjectGraph.ValidationMode = .complete,
+        mode: ProtocolObjectGraph.ValidationMode = .complete,
         entryMetadata: [String: EntryMetadata] = [:],
         acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode == .sparseFiles
-        let objects = try WireObjectGraph.validate(snapshot, mode: mode)
+        let objects = try ProtocolObjectGraph.validate(snapshot, mode: mode)
         var nodes: [WorkingTreeSystemNode] = []
         var logicalPaths = Set<String>()
 
@@ -26,7 +26,7 @@ public enum SnapshotBridge {
 
         func fileBytes(_ hash: String) throws -> Data {
             guard case let .file(bytes)? = objects[hash] else {
-                throw ArborWireValidationError.incompleteGraph(hash)
+                throw ProtocolValidationError.incompleteGraph(hash)
             }
             return bytes
         }
@@ -34,14 +34,14 @@ public enum SnapshotBridge {
         func markdownSource(_ hash: String) throws -> String {
             let bytes = try fileBytes(hash)
             guard let decoded = String(data: bytes, encoding: .utf8) else {
-                throw ArborWireValidationError.invalidValue("Markdown is not UTF-8")
+                throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
             }
             return decoded
         }
 
         func appendNode(_ node: WorkingTreeSystemNode) throws {
             guard logicalPaths.insert(node.path).inserted else {
-                throw ArborWireValidationError.invalidValue("Duplicate logical path \(node.path)")
+                throw ProtocolValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
             var node = node
             if let entry = node.bodyEntryPath, let metadata = entryMetadata[entry] { node.metadata = metadata }
@@ -50,7 +50,7 @@ public enum SnapshotBridge {
 
         func visitDirectory(_ hash: String, path: String, siblingMarkdownSource: String? = nil) throws {
             guard case let .directory(entries, childrenSource)? = objects[hash] else {
-                throw ArborWireValidationError.incompleteGraph(hash)
+                throw ProtocolValidationError.incompleteGraph(hash)
             }
             let directoryNames = Set(entries.compactMap { entry -> String? in
                 guard let hash = entry.hash, case .directory? = objects[hash] else { return nil }
@@ -64,7 +64,7 @@ public enum SnapshotBridge {
                 return nil
             }, by: { $0.stem })
             for (stem, bodies) in siblingBodies where directoryNames.contains(stem) && bodies.count > 1 {
-                throw ArborWireValidationError.invalidValue(
+                throw ProtocolValidationError.invalidValue(
                     "Duplicate body representation for \(childPath(stem, parent: path))"
                 )
             }
@@ -89,12 +89,12 @@ public enum SnapshotBridge {
                     continue
                 }
                 guard let childHash = entry.hash else {
-                    throw ArborWireValidationError.incompleteGraph(entry.name)
+                    throw ProtocolValidationError.incompleteGraph(entry.name)
                 }
                 guard let object = objects[childHash] else {
-                    guard sparse else { throw ArborWireValidationError.incompleteGraph(childHash) }
+                    guard sparse else { throw ProtocolValidationError.incompleteGraph(childHash) }
                     guard !entry.name.hasSuffix(".md") else {
-                        throw ArborWireValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
+                        throw ProtocolValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
                     }
                     try appendNode(WorkingTreeSystemNode(
                         path: destination,
@@ -123,7 +123,7 @@ public enum SnapshotBridge {
                         let logicalName = String(entry.name.dropLast(3))
                         if directoryNames.contains(logicalName) { continue }
                         guard let decoded = String(data: bytes, encoding: .utf8) else {
-                            throw ArborWireValidationError.invalidValue("Markdown is not UTF-8")
+                            throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
                         }
                         try appendNode(WorkingTreeSystemNode(
                             path: childPath(logicalName, parent: path),

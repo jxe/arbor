@@ -2,11 +2,11 @@ import { test, expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import {
-  WireClient,
-  decodeWireDirectory,
-  encodeWireDirectory,
+  ProtocolClient,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type TreeSnapshot,
 } from "@overstory/protocol";
@@ -14,8 +14,8 @@ import {
 function add(snapshot: TreeSnapshot, name: string, text: string): TreeSnapshot {
   const bytes = new TextEncoder().encode(text),
     hash = hashObject(bytes);
-  const dir = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
-  const next = encodeWireDirectory({
+  const dir = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+  const next = encodeProtocolDirectory({
     ...dir,
     entries: [
       ...dir.entries.filter((e) => e.name !== name),
@@ -31,7 +31,7 @@ function add(snapshot: TreeSnapshot, name: string, text: string): TreeSnapshot {
 
 test("execution bearer tokens enforce create-only effects, guards, replay and revocation over HTTP", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "arbor-execution-"));
-  const running = await serveCanopy({
+  const running = await serveHost({
     dataRoot,
     publicOrigin: "http://127.0.0.1:0",
     port: 0,
@@ -39,7 +39,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
     accounts: [{ handle: "owner", token: "owner", communityWriter: true }],
   });
   try {
-    const owner = new WireClient(running.url, "owner");
+    const owner = new ProtocolClient(running.url, "owner");
     const account = running.canopy.accountByHandle("owner")!;
     const tree = account.profileTree!;
     const current = await owner.descriptor(tree);
@@ -63,7 +63,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
         },
       ],
     });
-    const code = new WireClient(running.url, token);
+    const code = new ProtocolClient(running.url, token);
     const candidate = add(snapshot, "note.txt", "hello");
     await expect(
       code.submitUpdate(tree, current.tree.update, candidate)
@@ -131,7 +131,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
 
 test("authority invalidation stream and whole-tree watch stop on execution revocation", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "arbor-execution-watch-"));
-  const running = await serveCanopy({
+  const running = await serveHost({
     dataRoot,
     publicOrigin: "http://127.0.0.1:0",
     port: 0,

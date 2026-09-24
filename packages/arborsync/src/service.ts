@@ -10,7 +10,7 @@ import type {
   LocatorResolution,
   SnapshotEnvelope,
 } from "@overstory/protocol";
-import { canonicalNodePath, WireClient, hashObject, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { canonicalNodePath, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
@@ -30,7 +30,7 @@ export type BootstrapTreeDescriptor = Pick<
 export interface TreeBootstrap {
   /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
   tree: BootstrapTreeDescriptor;
-  /** The daemon's accepted base; `cursor` is the Wire watch cursor, which is independent of the accepted update id. */
+  /** The daemon's accepted base; `cursor` is the protocol watch cursor, which is independent of the accepted update id. */
   accepted: { root: Hash; update: string; cursor: string | null };
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
@@ -42,7 +42,7 @@ export interface ArborSyncDaemonOptions {
   autoSync?: boolean;
   /**
    * The update machine's poll interval: a freshness check for a clean tree
-   * and a retry for a transport failure. Live Wire watches and folder scans
+   * and a retry for a transport failure. Live protocol watches and folder scans
    * drive synchronization; polling only covers a disconnected watch.
    */
   syncIntervalMs?: number;
@@ -68,7 +68,7 @@ async function sparseSpine(
     if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
     if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
     spine.set(hash, bytes);
-    for (const entry of decodeWireDirectory(bytes).entries) {
+    for (const entry of decodeProtocolDirectory(bytes).entries) {
       if (entry.directory) await visit(entry.directory);
       else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
         const child = spine.get(entry.file) ?? await readObject(entry.file);
@@ -129,7 +129,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       clientFor: async (tree, origin) => {
         const placement = trees.placementFor(tree);
         if (placement) return this.accountClient(placement);
-        return origin ? new WireClient(origin, undefined, { timeoutMs: WIRE_SYNC_TIMEOUT_MS }) : undefined;
+        return origin ? new ProtocolClient(origin, undefined, { timeoutMs: WIRE_SYNC_TIMEOUT_MS }) : undefined;
       },
     });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
@@ -192,8 +192,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
    * The multiplexer: every Canopy pass-through picks the claimed account
    * whose address contains the target and forwards with that credential.
    */
-  private async accountClient(placement: SharedTreePlacement): Promise<WireClient> {
-    return (await this.connections.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint })).client;
+  private async accountClient(placement: SharedTreePlacement): Promise<ProtocolClient> {
+    return (await this.connections.accountClientFor({ configurationTree: placement.configurationTree, origin: placement.endpoint })).client;
   }
 
   static async open(
@@ -260,12 +260,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
       : parsed.origin;
     const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
-    const resolution = await (await this.connections.wireFor({ origin })).client.resolve(path || "/");
+    const resolution = await (await this.connections.accountClientFor({ origin })).client.resolve(path || "/");
     const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
   }
 
-  /** One tree's local write/snapshot/materialization boundary; Wire requests must remain outside. */
+  /** One tree's local write/snapshot/materialization boundary; protocol requests must remain outside. */
   private async withWorkspaceIO<T>(workspace: Workspace, run: () => Promise<T>): Promise<T> {
     const key = workspace.tree;
     const previous = this.workspaceIOTails.get(key) ?? Promise.resolve();
@@ -468,7 +468,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       workspace.root,
       this.canonicalBoundariesFor(workspace, remoteTrees),
       this.trees.excludedMountsWithin(workspace.root),
-      (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
+      (directory, sourceName) => workspace.describeProtocolCollectionFile(directory, sourceName),
       workspace.objectIndex(),
     );
   }

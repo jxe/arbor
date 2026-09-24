@@ -1,4 +1,4 @@
-/** Complete consolidated requests used by Wire clients and Canopy.
+/** Complete consolidated requests used by protocol clients and Canopy.
  * This module does not send requests or translate the deployed request encoding.
  */
 import { authoredRequestIdentities, decodeAuthoredRequestIntent, decodeAuthoredCandidateIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";

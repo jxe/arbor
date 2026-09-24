@@ -1,17 +1,17 @@
 import { stringify } from "yaml";
 import {
-  decodeWireDirectory,
-  encodeWireDirectory,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type ObjectHash,
   type TreeSnapshot,
-  type WireDirectory,
+  type ProtocolDirectory,
 } from "../index.ts";
 import {
   parseAccountDevicesConfiguration,
-  parseCanopyAccountConfiguration,
+  parseAccountConfiguration,
   type AccountDeviceConfiguration,
-  type CanopyAccountConfiguration,
+  type AccountConfiguration,
   type HostedTreesConfiguration,
 } from "./account-config.ts";
 import { hostedProjection, parseResourceConfiguration, type ResourceConfiguration } from "./resource-configuration.ts";
@@ -19,7 +19,7 @@ import { hostedProjection, parseResourceConfiguration, type ResourceConfiguratio
 /** One account-configuration tree: `account.yaml`, `trees.yaml` and
  * `devices.yaml`, parsed, with their authored sources. */
 export interface AccountConfigGraph {
-  account: CanopyAccountConfiguration;
+  account: AccountConfiguration;
   trees: HostedTreesConfiguration;
   /** `trees.yaml`; `trees` is its hosted-tree projection. */
   resources: ResourceConfiguration;
@@ -39,7 +39,7 @@ function object(snapshot: TreeSnapshot, hash: ObjectHash, path: string) {
 }
 
 export function readAccountConfigGraph(snapshot: TreeSnapshot, configurationTree?: string): AccountConfigGraph {
-  const root = decodeWireDirectory(object(snapshot, snapshot.root, "/"));
+  const root = decodeProtocolDirectory(object(snapshot, snapshot.root, "/"));
   if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
   const allowed = new Set(["account.yaml", "trees.yaml", "devices.yaml"]);
   for (const entry of root.entries) {
@@ -57,7 +57,7 @@ export function readAccountConfigGraph(snapshot: TreeSnapshot, configurationTree
     "trees.yaml": sourceAt("trees.yaml"),
     "devices.yaml": sourceAt("devices.yaml"),
   };
-  const account = parseCanopyAccountConfiguration(sources["account.yaml"]);
+  const account = parseAccountConfiguration(sources["account.yaml"]);
   const resources = parseResourceConfiguration(sources["trees.yaml"], account);
   const devices = parseAccountDevicesConfiguration(sources["devices.yaml"]);
   if (configurationTree && resources[configurationTree]) throw new Error("The account-configuration tree must not declare itself");
@@ -94,11 +94,11 @@ export function snapshotAccountConfig(graph: AccountConfigValues): TreeSnapshot 
     return hash;
   };
   const sources = accountConfigSources(graph);
-  const rootBytes = encodeWireDirectory({ type: "directory", entries: [
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [
     { name: "account.yaml", file: file(sources["account.yaml"]) },
     { name: "devices.yaml", file: file(sources["devices.yaml"]) },
     { name: "trees.yaml", file: file(sources["trees.yaml"]) },
-  ] } satisfies WireDirectory);
+  ] } satisfies ProtocolDirectory);
   const root = hashObject(rootBytes);
   objects.set(root, rootBytes);
   return { root, objects };

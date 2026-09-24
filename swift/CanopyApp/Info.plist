@@ -25,11 +25,11 @@
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan one-time Arbor device-pairing QR codes.</string>
+	<string>Scan one-time Canopy device-pairing QR codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record voice notes to add to Arbor pages.</string>
+	<string>Record voice notes to add to Overstory pages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Transcribe voice notes into Arbor pages.</string>
+	<string>Transcribe voice notes into Overstory pages.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

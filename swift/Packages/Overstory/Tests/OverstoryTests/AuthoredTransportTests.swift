@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import Overstory
 
-extension WireAuthoredUpdateRequest {
+extension ProtocolAuthoredUpdateRequest {
     /// The request identities as the production submission path computes them.
     func identities(tree: String) throws -> [(bytes: Data, digest: String)] {
-        updateRequestIdentities(tree: tree, base: base, updates: try updates.map(WireCandidateUpdate.init))
+        updateRequestIdentities(tree: tree, base: base, updates: try updates.map(ProtocolCandidateUpdate.init))
     }
 }
 
@@ -19,11 +19,11 @@ struct AuthoredTransportTests {
     private func check(_ c: [String: Any], tree: String) throws {
         let data = try JSONSerialization.data(withJSONObject: #require(c["value"]))
         if c["valid"] as? Bool != true {
-            #expect(throws: (any Error).self, "\(c["name"] ?? "case")") { try JSONDecoder().decode(WireAuthoredUpdateRequest.self, from: data) }
+            #expect(throws: (any Error).self, "\(c["name"] ?? "case")") { try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self, from: data) }
             return
         }
-        let request = try JSONDecoder().decode(WireAuthoredUpdateRequest.self, from: data)
-        #expect(try JSONDecoder().decode(WireAuthoredUpdateRequest.self, from: JSONEncoder().encode(request)) == request)
+        let request = try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self, from: data)
+        #expect(try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self, from: JSONEncoder().encode(request)) == request)
         let expected = try #require(c["identities"] as? [[String: String]])
         let actual = try request.identities(tree: tree)
         #expect(actual.count == expected.count)
@@ -56,12 +56,12 @@ struct AuthoredTransportTests {
         let f = try fixture("protocol-authored-transport.json")
         let tree = try #require(f["tree"] as? String)
         let cases = try #require(f["cases"] as? [[String: Any]])
-        func request(_ index: Int) throws -> WireAuthoredUpdateRequest {
-            try JSONDecoder().decode(WireAuthoredUpdateRequest.self,from: JSONSerialization.data(withJSONObject: #require(cases[index]["value"])))
+        func request(_ index: Int) throws -> ProtocolAuthoredUpdateRequest {
+            try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self,from: JSONSerialization.data(withJSONObject: #require(cases[index]["value"])))
         }
         let complete = try request(0), sparse = try request(1)
         let basis = try #require(f["basis"] as? [String: Any])
-        let objects = try JSONDecoder().decode([WireObjectEnvelope].self,from:JSONSerialization.data(withJSONObject: #require(basis["objects"])))
+        let objects = try JSONDecoder().decode([ProtocolObjectEnvelope].self,from:JSONSerialization.data(withJSONObject: #require(basis["objects"])))
         for delta in sparse.updates[0].payload.deltas {
             let base = try #require(objects.first { $0.hash == delta.base })
             let result = try #require(complete.updates[0].payload.objects.first { $0.hash == delta.result })
@@ -69,17 +69,17 @@ struct AuthoredTransportTests {
         }
         #expect(try complete.identities(tree: tree)[0].digest == sparse.identities(tree: tree)[0].digest)
         let full = try request(5)
-        let prefix = try WireAuthoredUpdateRequest(base: full.base,updates: [full.updates[0]])
+        let prefix = try ProtocolAuthoredUpdateRequest(base: full.base,updates: [full.updates[0]])
         let directory = FileManager.default.temporaryDirectory.appending(path: "arbor-authored-request-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appending(path: "pending.json")
         try JSONEncoder().encode(prefix).write(to:path,options:.atomic)
-        let restored = try JSONDecoder().decode(WireAuthoredUpdateRequest.self,from:Data(contentsOf:path))
-        let appended = try WireAuthoredUpdateRequest(base:restored.base,updates:restored.updates+[full.updates[1]])
+        let restored = try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self,from:Data(contentsOf:path))
+        let appended = try ProtocolAuthoredUpdateRequest(base:restored.base,updates:restored.updates+[full.updates[1]])
         #expect(appended.updates[0] == prefix.updates[0])
         #expect(try appended.identities(tree:tree)[0].digest == prefix.identities(tree:tree)[0].digest)
         try JSONEncoder().encode(appended).write(to:path,options:.atomic)
-        #expect(try JSONDecoder().decode(WireAuthoredUpdateRequest.self,from:Data(contentsOf:path)) == full)
+        #expect(try JSONDecoder().decode(ProtocolAuthoredUpdateRequest.self,from:Data(contentsOf:path)) == full)
     }
 }

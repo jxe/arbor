@@ -1,5 +1,5 @@
 import type { LocalAccountSummary } from "@overstory/protocol";
-import { loadCanopyAccountConfigurations, CanopyAccountStore } from "@overstory/protocol";
+import { loadAccountConfigurations, HostAccountStore } from "@overstory/protocol";
 
 export type { LocalAccountSummary } from "@overstory/protocol";
 
@@ -10,9 +10,9 @@ export type { LocalAccountSummary } from "@overstory/protocol";
  * directly because it touches nothing the daemon owns in memory or watches.
  */
 export async function listLocalAccounts(): Promise<LocalAccountSummary[]> {
-  const configurations = await loadCanopyAccountConfigurations();
+  const configurations = await loadAccountConfigurations();
   return Promise.all(configurations.map(async (configuration) => {
-    const store = new CanopyAccountStore(configuration.configurationTree);
+    const store = new HostAccountStore(configuration.configurationTree);
     const stored = await store.safe();
     return {
       configurationTree: configuration.configurationTree,

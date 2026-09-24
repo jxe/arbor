@@ -7,7 +7,7 @@ import { writeAtomic } from "../model/file-ops.ts";
 import { isAlias, isMap, isSeq, parseDocument, type Document, type Node } from "yaml";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
-export interface CanopyAccountConfiguration {
+export interface AccountConfiguration {
   canopy: string;
   profile: TreeID;
 }
@@ -25,10 +25,10 @@ export interface AccountDeviceConfiguration {
   administrator: boolean;
 }
 
-export interface CanopyAccountConfigurationSnapshot {
+export interface AccountConfigurationSnapshot {
   configurationTree: TreeID;
   path: string;
-  account?: CanopyAccountConfiguration;
+  account?: AccountConfiguration;
   trees?: HostedTreesConfiguration;
   resources?: ResourceConfiguration;
   devices?: Record<string, AccountDeviceConfiguration>;
@@ -85,7 +85,7 @@ function deviceID(value: unknown, label: string): string {
   return value;
 }
 
-function canopyOrigin(value: unknown, label: string): string {
+function hostOrigin(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`${label} must be an HTTPS origin`);
   const parsed = new URL(value);
   const loopback = parsed.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
@@ -95,17 +95,17 @@ function canopyOrigin(value: unknown, label: string): string {
   return value;
 }
 
-export function parseCanopyAccountConfiguration(source: string): CanopyAccountConfiguration {
+export function parseAccountConfiguration(source: string): AccountConfiguration {
   const value = record(parseStrict(source), "account.yaml");
   exactFields(value, ["canopy", "profile"], "account.yaml");
   return {
-    canopy: canopyOrigin(value.canopy, "account.yaml canopy"),
+    canopy: hostOrigin(value.canopy, "account.yaml canopy"),
     profile: configurationTreeID(value.profile, "account.yaml profile"),
   };
 }
 
 /** The hosted-tree projection of a resource-policy `trees.yaml`. */
-export function parseHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
+export function parseHostedTreesConfiguration(source: string, account: AccountConfiguration): HostedTreesConfiguration {
   return hostedProjection(parseResourceConfiguration(source, account));
 }
 
@@ -138,7 +138,7 @@ export function accountCheckoutPath(configurationTree: string): string {
 /**
  * Edit one file of an account-configuration checkout on disk.
  *
- * Contract (shared with the Mac app's Swift twin, `ArborAccountConfigurationYAML`):
+ * Contract (shared with the Mac app's Swift twin, `AccountConfigurationYAML`):
  * - The file lives at `accountCheckoutPath(configurationTree)/<filename>` and is
  *   read as strict UTF-8.
  * - It is parsed as a single YAML document with unique keys and source tokens
@@ -202,7 +202,7 @@ export async function saveCurrentAccountDeviceID(configurationTree: string, idVa
   }
 }
 
-export async function loadCanopyAccountConfiguration(configurationTreeInput: string): Promise<CanopyAccountConfigurationSnapshot> {
+export async function loadAccountConfiguration(configurationTreeInput: string): Promise<AccountConfigurationSnapshot> {
   await prepareArborDataRoot();
   const configurationTree = configurationTreeID(configurationTreeInput);
   const path = accountCheckoutPath(configurationTree);
@@ -221,11 +221,11 @@ export async function loadCanopyAccountConfiguration(configurationTreeInput: str
     try { sources[name] = await readFile(join(path, name), "utf8"); }
     catch (error) { diagnostics.push(issue(`invalid-${name.replace(".yaml", "")}-yaml`, error instanceof Error ? error.message : String(error), join(path, name))); }
   }
-  let account: CanopyAccountConfiguration | undefined;
+  let account: AccountConfiguration | undefined;
   let trees: HostedTreesConfiguration | undefined;
   let resources: ResourceConfiguration | undefined;
   let devices: Record<string, AccountDeviceConfiguration> | undefined;
-  try { if (sources["account.yaml"] !== undefined) account = parseCanopyAccountConfiguration(sources["account.yaml"]); }
+  try { if (sources["account.yaml"] !== undefined) account = parseAccountConfiguration(sources["account.yaml"]); }
   catch (error) { diagnostics.push(issue("invalid-account-yaml", error instanceof Error ? error.message : String(error), join(path, "account.yaml"))); }
   try { if (account && sources["trees.yaml"] !== undefined) {
     resources = parseResourceConfiguration(sources["trees.yaml"], account);
@@ -250,7 +250,7 @@ export async function loadCanopyAccountConfiguration(configurationTreeInput: str
   };
 }
 
-export async function loadCanopyAccountConfigurations(): Promise<CanopyAccountConfigurationSnapshot[]> {
+export async function loadAccountConfigurations(): Promise<AccountConfigurationSnapshot[]> {
   await prepareArborDataRoot();
   let names: string[];
   try { names = await readdir(accountsRoot()); }
@@ -263,10 +263,10 @@ export async function loadCanopyAccountConfigurations(): Promise<CanopyAccountCo
     try { valid.push(configurationTreeID(name, `accounts/${name}`)); }
     catch { /* Invalid entries surface through the root layout validator later. */ }
   }
-  return Promise.all(valid.sort().map(loadCanopyAccountConfiguration));
+  return Promise.all(valid.sort().map(loadAccountConfiguration));
 }
 
-export async function watchCanopyAccountConfigurations(onChange: () => void): Promise<() => void> {
+export async function watchAccountConfigurations(onChange: () => void): Promise<() => void> {
   await mkdir(accountsRoot(), { recursive: true, mode: 0o700 });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
@@ -276,7 +276,7 @@ export async function watchCanopyAccountConfigurations(onChange: () => void): Pr
     timer = setTimeout(onChange, 80);
   };
   const refreshAccountWatchers = async () => {
-    const accounts = await loadCanopyAccountConfigurations();
+    const accounts = await loadAccountConfigurations();
     const paths = new Set(accounts.map((account) => account.path));
     for (const [path, watcher] of accountWatchers) {
       if (paths.has(path)) continue;

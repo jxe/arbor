@@ -104,7 +104,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
-- [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](soon/006-overstory-identifiers.md) — **SOON · READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
 
 ## Product Completion
 
@@ -138,7 +137,7 @@ before promoting one; an old audit finding is not proof of a current implementat
 
 - **Further reliability hardening**
   - **Explicit web-editor unload drain** — **WAITING on Web 025.** App-controlled navigation already awaits the admission machine's flush; browser `beforeunload`/`pagehide` has no bounded drain and no visible pending state, which Reliability 005 left as a documented limitation. Add one or surface the limitation in the UI.
-  - **Commit native control text before flush** — **REVERIFY.** Confirm that Quagmire can still hold text outside `ArborDocumentBinding` at background, navigation, and close boundaries; if so, add commit-then-flush lifecycle behavior and visible checkpoint-pending state.
+  - **Commit native control text before flush** — **REVERIFY.** Confirm that Quagmire can still hold text outside `CanopyDocumentBinding` at background, navigation, and close boundaries; if so, add commit-then-flush lifecycle behavior and visible checkpoint-pending state.
   - **Per-key frontmatter conflict semantics** — **REVERIFY.** Preserve independent external and local changes, detect same-key conflicts and deletions, and test them beside block three-way merge.
   - **Malformed and partial legacy-state recovery** — **OWNED by Cleanups 001 and 002.** Reject unsupported or ambiguous retained state without overwriting it, and retain focused failure-path tests through each cutoff.
   - **Provider-specific materialization controls** — **NEEDS DESIGN.** Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan.

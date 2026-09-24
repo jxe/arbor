@@ -16,8 +16,8 @@ struct ConflictReviewTests {
         let data = try JSONSerialization.data(withJSONObject: ["tree": "tr_review", "state": state, "root": root, "conflicted": true,
             "decisions": [["id": "decision", "kind": "entry", "affected": [parent], "selected": "alternative-0",
                            "alternatives": alternatives, "dependencies": dependencies, "actions": ["resolveConflict"]]], "next": NSNull()])
-        // Apply the Wire validator before consuming its extensible read contract.
-        let page = try JSONDecoder().decode(WireDecisionPageContract.self, from: data)
+        // Apply the protocol validator before consuming its extensible read contract.
+        let page = try JSONDecoder().decode(ProtocolDecisionPageContract.self, from: data)
         guard case let .array(decisions) = page.fields["decisions"] else { throw ConflictReviewError.unavailable }
         return .init(tree: "tr_review", state: state, root: root, decisions: try decisions.map {
             try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONEncoder().encode($0))

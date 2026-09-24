@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@overstory/object-store";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type MergeQuestion } from "@overstory/merge-protocol";
-import { encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
-import { mergeWireTrees } from "@overstory/tree-merge";
+import { mergeProtocolTrees } from "@overstory/tree-merge";
 import { snapshotAccountConfig } from "@overstory/protocol";
-import fixtures from "../../fixtures/canopy/wire-merge.json";
+import fixtures from "../../fixtures/canopy/merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "arbor-merge-tool-")); store = new ObjectStore(join(directory, "objects")); tool = new MergeTool(directory); });
@@ -25,7 +25,7 @@ async function expectNoStaging() {
 const encoded = (s: string) => new TextEncoder().encode(s);
 function snapshot(source: string, name = "note.md"): TreeSnapshot {
   const bytes = encoded(source), file = hashObject(bytes);
-  const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name, file }] });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name, file }] });
   const root = hashObject(rootBytes);
   return { root, objects: new Map([[file, bytes], [root, rootBytes]]) };
 }
@@ -52,7 +52,7 @@ async function prepare(base: TreeSnapshot, current: TreeSnapshot, incoming: Tree
 test.each(fixtures.markdownCases)("a snapshot question keeps the tree merge's output: $name", async fixture => {
   const base = snapshot(fixture.base), current = snapshot(fixture.remote), incoming = snapshot(fixture.candidate);
   const { question, inputs } = await prepare(base, current, incoming);
-  const expected = await mergeWireTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
+  const expected = await mergeProtocolTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
   const { answer, objects } = await tool.ask(question, inputs);
   if (expected.conflicts.length) {
     // A conflict shows the current material and keeps the candidate as a choice.
@@ -94,7 +94,7 @@ test("collection row rules merge through the process, and a row conflict is a ch
   const current = await collection([{ id: "a", title: "A" }, { id: "b", title: "B" }]);
   for (const rows of [[{ id: "a", title: "changed" }], [{ id: "b", title: "different B" }]]) {
     const incoming = await collection(rows), { question, inputs } = await prepare(base, current, incoming);
-    const expected = await mergeWireTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
+    const expected = await mergeProtocolTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
     const { answer } = await tool.ask(question, inputs);
     if (!expected.conflicts.length && !expected.unresolvedDirectories?.length) {
       expect(answer.root).toBe(expected.root);
@@ -186,7 +186,7 @@ test("collection rule process runs outside the checkout with a minimal environme
   child.stdin.write(JSON.stringify(question) + "\n"); child.stdin.end();
   const [out, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(errors.split("\n").filter(line => line && !line.startsWith('{"timings"'))).toEqual([]); expect(code).toBe(0);
-  const expected = await mergeWireTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
+  const expected = await mergeProtocolTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
   expect(JSON.parse(out).root).toBe(expected.root);
 });
 

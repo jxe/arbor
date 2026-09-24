@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { accountCheckoutPath, parseAccountDevicesConfiguration, parseCanopyAccountConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID } from "@overstory/protocol";
+import { accountCheckoutPath, parseAccountDevicesConfiguration, parseAccountConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID } from "@overstory/protocol";
 import { clearRehomeTransaction, loadTreeRegistry, parseLocalPlacements, saveRehomeTransaction } from "@overstory/arborsync/state";
 
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -16,18 +16,18 @@ describe("account configuration v2", () => {
       invalid: Array<{ name: string; path: string; source: string }>;
     };
     for (const candidate of registry.valid) {
-      const account = parseCanopyAccountConfiguration(candidate.files["account.yaml"]);
+      const account = parseAccountConfiguration(candidate.files["account.yaml"]);
       expect(() => parseHostedTreesConfiguration(candidate.files["trees.yaml"], account), candidate.configurationTree).not.toThrow();
       expect(() => parseAccountDevicesConfiguration(candidate.files["devices.yaml"]), candidate.configurationTree).not.toThrow();
     }
-    const account = parseCanopyAccountConfiguration(registry.valid[0]!.files["account.yaml"]);
+    const account = parseAccountConfiguration(registry.valid[0]!.files["account.yaml"]);
     for (const candidate of registry.invalid.filter(item => item.path === "trees.yaml")) {
       expect(() => parseHostedTreesConfiguration(candidate.source, account), candidate.name).toThrow();
     }
   });
 
   test("parses the three flat authored maps and local placements", () => {
-    const account = parseCanopyAccountConfiguration(`canopy: https://canopy.example\nprofile: ${profile}\n`);
+    const account = parseAccountConfiguration(`canopy: https://canopy.example\nprofile: ${profile}\n`);
     expect(account).toEqual({ canopy: "https://canopy.example", profile });
     expect(parseHostedTreesConfiguration([
       `${tree}:`,
@@ -50,11 +50,11 @@ describe("account configuration v2", () => {
   });
 
   test("rejects old wrappers, version keys, aliases, and foreign canonical origins", () => {
-    expect(() => parseCanopyAccountConfiguration(`version: 2\ncanopy: https://canopy.example\nprofile: ${profile}\n`)).toThrow("unknown fields");
-    expect(() => parseCanopyAccountConfiguration(`canopy: https://canopy.example\nhandle: joe\nprofile: ${profile}\n`)).toThrow("unknown fields");
-    expect(() => parseCanopyAccountConfiguration(`community: https://canopy.example\nprofile: { tree: ${profile}, handle: joe }\nadmins: []\n`)).toThrow("unknown fields");
+    expect(() => parseAccountConfiguration(`version: 2\ncanopy: https://canopy.example\nprofile: ${profile}\n`)).toThrow("unknown fields");
+    expect(() => parseAccountConfiguration(`canopy: https://canopy.example\nhandle: joe\nprofile: ${profile}\n`)).toThrow("unknown fields");
+    expect(() => parseAccountConfiguration(`community: https://canopy.example\nprofile: { tree: ${profile}, handle: joe }\nadmins: []\n`)).toThrow("unknown fields");
     expect(() => parseAccountDevicesConfiguration(`devices: &d {}\ncopy: *d\n`)).toThrow("aliases");
-    const account = parseCanopyAccountConfiguration(`canopy: https://canopy.example\nprofile: ${profile}\n`);
+    const account = parseAccountConfiguration(`canopy: https://canopy.example\nprofile: ${profile}\n`);
     expect(() => parseHostedTreesConfiguration(`${tree}:\n  canonical: https://elsewhere.example/~joe/notes\n  access: []\n`, account)).toThrow("account Canopy origin");
     expect(() => parseLocalPlacements(`${profile}:\n  relative: ${tree}\n`)).toThrow("canonical and absolute");
     expect(() => parseLocalPlacements([

@@ -1,4 +1,4 @@
-import { stableJSONString, type WireDirectoryEntry } from "@overstory/protocol";
+import { stableJSONString, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import type { LogDecision } from "@overstory/merge-protocol";
 import { entryAt, entryValue, withEntry, type TreeIO } from "./trees.ts";
 
@@ -59,7 +59,7 @@ export async function snapshotDecisions(
     for (;;) {
       if (path === "/") return whole;
       const [mine, theirs] = await Promise.all([current.root, candidate].map((root) => entryAt(io, root, namesOf(path))));
-      const file = (entry: WireDirectoryEntry | null | undefined) => !entry || !!entry.file;
+      const file = (entry: ProtocolDirectoryEntry | null | undefined) => !entry || !!entry.file;
       if ((mine || theirs) && file(mine) && file(theirs)) break;
       if (mine?.directory && theirs?.directory) break;
       path = parentOf(path);
@@ -94,7 +94,7 @@ export async function snapshotDecisions(
         const value = values[index];
         const object = index === continued ? candidate
           : index === prior.selected ? current.root
-          : await withEntry(io, current.root, names, value ? { name: names.at(-1)!, ...value } as WireDirectoryEntry : null);
+          : await withEntry(io, current.root, names, value ? { name: names.at(-1)!, ...value } as ProtocolDirectoryEntry : null);
         if (!object) break;
         alternatives.push({ object, contributions: index === continued ? [...alternative.contributions, ...own] : alternative.contributions });
       }

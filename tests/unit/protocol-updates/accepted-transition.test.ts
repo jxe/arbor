@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeTransitionPayloadJSON,
   encodeTransitionPayloadJSON,
-  encodeWireDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type AcceptedTransitionPayload,
 } from "@overstory/protocol";
@@ -11,7 +11,7 @@ describe("accepted transition wire encoding", () => {
   test("round-trips complete objects and object deltas", () => {
     const base = new TextEncoder().encode("base");
     const result = new TextEncoder().encode("best");
-    const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result) }] });
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result) }] });
     const payload: AcceptedTransitionPayload = {
       objects: [{ hash: hashObject(directory), bytes: directory }],
       deltas: [{

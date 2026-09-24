@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CanopyAccountStore, saveCurrentAccountDeviceID, parseCanopyAccountConfiguration, parseHostedTreesConfiguration, parseAccountDevicesConfiguration } from "@overstory/protocol";
+import { HostAccountStore, saveCurrentAccountDeviceID, parseAccountConfiguration, parseHostedTreesConfiguration, parseAccountDevicesConfiguration } from "@overstory/protocol";
 import { loadTreeRegistry, parseLocalPlacements } from "@overstory/arborsync/state";
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
@@ -21,7 +21,7 @@ async function writeConfiguration(home: string, placementPath: string) {
   await writeFile(join(checkout, "devices.yaml"), JSON.stringify({ [device]: { label: "Mac", administrator: true } }));
   await writeFile(join(home, "placements.yaml"), JSON.stringify({ [cfg]: { [placementPath]: shared } }));
   await saveCurrentAccountDeviceID(cfg, device);
-  await new CanopyAccountStore(cfg).set("fixture-token", { origin: account.canopy, account: `${account.canopy}/~joe`, accountID: "joe", profileTree: profile, deviceID: device });
+  await new HostAccountStore(cfg).set("fixture-token", { origin: account.canopy, account: `${account.canopy}/~joe`, accountID: "joe", profileTree: profile, deviceID: device });
 }
 afterEach(async () => {
   if (previousCredentialStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE;
@@ -48,7 +48,7 @@ test("uses an explicit local placement and separate account checkout", async () 
 test("strict YAML rejects duplicates, aliases, unknown fields, stored none and relative local paths", () => {
   expect(() => parseHostedTreesConfiguration(`${shared}: {}\n${shared}: {}\n`, account)).toThrow();
   expect(() => parseHostedTreesConfiguration("a: &x {}\nb: *x\n", account)).toThrow();
-  expect(() => parseCanopyAccountConfiguration(JSON.stringify({ ...account, status: "syncing" }))).toThrow();
+  expect(() => parseAccountConfiguration(JSON.stringify({ ...account, status: "syncing" }))).toThrow();
   expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { canonical: `${account.canopy}/~joe/shared`, access: [{ who: "everyone", allow: ["none"] }] } }), account)).toThrow();
   expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { kind: "person-profile", canonical: `${account.canopy}/~joe/shared`, access: [] } }), account)).toThrow();
   expect(() => parseLocalPlacements(JSON.stringify({ [cfg]: { "relative/path": shared } }))).toThrow("canonical and absolute");

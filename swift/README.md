@@ -52,6 +52,10 @@ and runs `CanopyAppTests` through xcodebuild.
 Package names before 2026-09-20: `ArborWire` (now `Overstory`),
 `ArborObjectStore` (`OverstoryObjectStore`), `CanopyClient`
 (`OverstoryClient`), `ArborWorkingTree` (`CanopyWorkingTree`), `ArborKit`
-(`CanopyAppKit`), `ArborQuagmire` (`CanopyEditor`). Type names inside the
-packages (`ArborWireClient`, `WireModels`, and so on) were not renamed; that
-is a listed cleanup.
+(`CanopyAppKit`), `ArborQuagmire` (`CanopyEditor`). Type names followed on
+2026-09-24: `Wire*` and `ArborWire*` protocol types became `Protocol*`
+(`ArborWireClient` is `ProtocolClient`, `WireModels.swift` is
+`ProtocolModels.swift`), host-meaning `Canopy*` types became `Host*`
+(`HostObjectStore`, `HostWatchRunner`), and the app's and editor's `Arbor*`
+types and files became `Canopy*`. `Arbor*` names that remain belong to the
+local tools: Arbor Sync, `arbor://` locators, and the `.arbor` data home.

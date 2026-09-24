@@ -2,17 +2,17 @@ import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 import { ObjectStore } from "@overstory/object-store";
 import {
-  compareWireNames,
-  decodeWireDirectory,
-  encodeWireDirectory,
+  compareProtocolNames,
+  decodeProtocolDirectory,
+  encodeProtocolDirectory,
   hashObject,
   type InspectedDecision,
   type ObjectHash,
-  type WireDirectoryEntry,
+  type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogDecision, type LogEntry } from "@overstory/merge-protocol";
 import { AcceptedUpdateStore } from "../../../../packages/canopyd/src/updates/store.ts";
-import { assertCurrentCanopySchema } from "../../../../packages/canopyd/src/schema.ts";
+import { assertCurrentHostSchema } from "../../../../packages/canopyd/src/schema.ts";
 
 /** Schema 18 → 19: accepted history as log entries (canopyd 016).
  *
@@ -112,15 +112,15 @@ export async function migrateLogEntries(root: string, log: Log = () => {}): Prom
     const at = async (root: ObjectHash, names: readonly string[]) => {
       let object = root;
       for (const [index, name] of names.entries()) {
-        const entry = decodeWireDirectory(await read(object)).entries.find((e) => e.name === name);
+        const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === name);
         if (!entry || index === names.length - 1) return entry ?? null;
         if (!entry.directory) return null;
         object = entry.directory;
       }
       return null;
     };
-    const withEntry = async (root: ObjectHash, names: readonly string[], entry: WireDirectoryEntry | null): Promise<ObjectHash> => {
-      const directory = decodeWireDirectory(await read(root));
+    const withEntry = async (root: ObjectHash, names: readonly string[], entry: ProtocolDirectoryEntry | null): Promise<ObjectHash> => {
+      const directory = decodeProtocolDirectory(await read(root));
       const [name, ...rest] = names as [string, ...string[]];
       const prior = directory.entries.find((e) => e.name === name);
       let next = entry;
@@ -129,8 +129,8 @@ export async function migrateLogEntries(root: string, log: Log = () => {}): Prom
         next = { ...prior, directory: await withEntry(prior.directory, rest, entry) };
       }
       directory.entries = [...directory.entries.filter((e) => e.name !== name), ...(next ? [next] : [])]
-        .sort((a, b) => compareWireNames(a.name, b.name));
-      const bytes = encodeWireDirectory(directory), hash = hashObject(bytes);
+        .sort((a, b) => compareProtocolNames(a.name, b.name));
+      const bytes = encodeProtocolDirectory(directory), hash = hashObject(bytes);
       staged.set(hash, bytes);
       return hash;
     };
@@ -153,7 +153,7 @@ export async function migrateLogEntries(root: string, log: Log = () => {}): Prom
         for (const a of inspection.alternatives) {
           const value = "file" in a.value ? { name, file: a.value.file } : "directory" in a.value ? { name, directory: a.value.directory } : "absent" in a.value ? null
             : (() => { throw new UnconvertibleHistoryError(`Entry decision ${key} has an unknown value`); })();
-          alternatives.push({ object: await withEntry(rowRoot, path, value as WireDirectoryEntry | null), contributions: a.contributions });
+          alternatives.push({ object: await withEntry(rowRoot, path, value as ProtocolDirectoryEntry | null), contributions: a.contributions });
         }
         return { ...common, path, alternatives };
       }
@@ -223,7 +223,7 @@ export async function migrateLogEntries(root: string, log: Log = () => {}): Prom
     })();
     db.run("PRAGMA foreign_keys = ON");
     phase("commit", since);
-    assertCurrentCanopySchema(db);
+    assertCurrentHostSchema(db);
     ms.total = Math.round(performance.now() - started);
     const trees = heads(true);
     return {

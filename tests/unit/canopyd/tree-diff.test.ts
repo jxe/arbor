@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { TreeReader, walkTreeDiff } from "../../../packages/canopyd/src/updates/tree-diff.ts";
 import { buildAcceptedTransitionPayload } from "../../../packages/canopyd/src/updates/transition.ts";
 import { entryChanges } from "../../../packages/canopyd/src/updates/entry-metadata.ts";
@@ -8,7 +8,7 @@ function store() {
   const objects = new Map<ObjectHash, Uint8Array>();
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes) as ObjectHash; objects.set(hash, bytes); return hash; };
   const file = (text: string) => put(new TextEncoder().encode(text));
-  const dir = (entries: WireDirectoryEntry[]) => put(encodeWireDirectory({ type: "directory", entries: [...entries].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) }));
+  const dir = (entries: ProtocolDirectoryEntry[]) => put(encodeProtocolDirectory({ type: "directory", entries: [...entries].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) }));
   const reads = new Map<ObjectHash, number>();
   const load = async (hash: ObjectHash) => { reads.set(hash, (reads.get(hash) ?? 0) + 1); return objects.get(hash)!; };
   return { file, dir, load, reads, objects };

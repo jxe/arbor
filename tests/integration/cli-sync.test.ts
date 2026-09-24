@@ -1,4 +1,4 @@
-import { CanopyAccountStore, loadCanopyAccountConfigurations, generateArborID } from "@overstory/protocol";
+import { HostAccountStore, loadAccountConfigurations, generateArborID } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveCanopy } from "@overstory/canopyd";
+import { serveHost } from "@overstory/canopyd";
 import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import { parseDocument } from "yaml";
@@ -16,8 +16,8 @@ const cliEntry = process.env.ARBOR_TEST_CLI_ENTRY ?? join(import.meta.dir, "../.
 let sandbox: string;
 let state: string;
 let profile: string;
-let firstCanopy: Awaited<ReturnType<typeof serveCanopy>>;
-let secondCanopy: Awaited<ReturnType<typeof serveCanopy>>;
+let firstHost: Awaited<ReturnType<typeof serveHost>>;
+let secondHost: Awaited<ReturnType<typeof serveHost>>;
 let previousCloudHome: string | undefined;
 
 async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -80,7 +80,7 @@ async function arborFailure(args: string[]): Promise<string> {
   return stderr;
 }
 
-async function canopyFailure(args: string[], env: Record<string, string>): Promise<string> {
+async function hostFailure(args: string[], env: Record<string, string>): Promise<string> {
   const process = Bun.spawn(["bun", "packages/canopyd/src/cli.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
     env: { ...Bun.env, ...env },
@@ -108,14 +108,14 @@ beforeAll(async () => {
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
   process.env.ARBOR_DATA_HOME = state;
   const identity = await new ProfileIdentityStore().create(profile);
-  firstCanopy = await serveCanopy({
+  firstHost = await serveHost({
     dataRoot: join(sandbox, "first-canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
     community: { handle: "first", name: "First", firstWriter: { handle: "alice", profileTree: identity.profileTree } },
   });
-  secondCanopy = await serveCanopy({
+  secondHost = await serveHost({
     dataRoot: join(sandbox, "second-canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -124,8 +124,8 @@ beforeAll(async () => {
   });
   const daemon = await ArborSyncDaemon.open(profile);
   try {
-    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimCanopyAccount(`${firstCanopy.url}/~alice`, profile, "Alice");
-    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimCanopyAccount(`${secondCanopy.url}/~joe`, profile, "Joe");
+    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${firstHost.url}/~alice`, profile, "Alice");
+    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${secondHost.url}/~joe`, profile, "Joe");
   } finally {
     await daemon[Symbol.asyncDispose]();
   }
@@ -133,11 +133,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   process.env.ARBOR_DATA_HOME = state;
-  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
-  firstCanopy.server.stop(true);
-  secondCanopy.server.stop(true);
-  await firstCanopy.canopy[Symbol.asyncDispose]();
-  await secondCanopy.canopy[Symbol.asyncDispose]();
+  for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
+  firstHost.server.stop(true);
+  secondHost.server.stop(true);
+  await firstHost.canopy[Symbol.asyncDispose]();
+  await secondHost.canopy[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
   if (previousCloudHome === undefined) delete process.env.ARBOR_CLOUD_HOME;
   else process.env.ARBOR_CLOUD_HOME = previousCloudHome;
@@ -146,7 +146,7 @@ afterAll(async () => {
 describe("plural-account CLI place", () => {
   test("reuses and revokes a cloud bundle across complete start and finish sessions", async () => {
     const original = await source("cloud-source", "# From the creator\n");
-    const canonical = `${firstCanopy.url}/~alice/cloud-source`;
+    const canonical = `${firstHost.url}/~alice/cloud-source`;
     await arbor(["place", original, canonical]);
     const created = await arborOutput([
       "cloud", "bundle", "create", "--name", "Integration cloud bundle",
@@ -200,20 +200,20 @@ describe("plural-account CLI place", () => {
   test("selects the account that owns each canonical namespace", async () => {
     const firstSource = await source("first-source", "# First\n");
     const secondSource = await source("second-source", "# Second\n");
-    const firstCanonical = `${firstCanopy.url}/~alice/notes`;
-    const secondCanonical = `${secondCanopy.url}/~joe/notes`;
+    const firstCanonical = `${firstHost.url}/~alice/notes`;
+    const secondCanonical = `${secondHost.url}/~joe/notes`;
 
     expect(await arbor(["place", "--access", "public=read", firstSource, firstCanonical])).toContain(firstCanonical);
     expect(await arbor(["place", "--access", "public=read", secondSource, secondCanonical])).toContain(secondCanonical);
 
-    const accounts = await loadCanopyAccountConfigurations();
+    const accounts = await loadAccountConfigurations();
     const placements = (await loadLocalPlacements()).placements;
-    const firstAccount = accounts.find((account) => account.account?.canopy === firstCanopy.url)!;
-    const secondAccount = accounts.find((account) => account.account?.canopy === secondCanopy.url)!;
+    const firstAccount = accounts.find((account) => account.account?.canopy === firstHost.url)!;
+    const secondAccount = accounts.find((account) => account.account?.canopy === secondHost.url)!;
     expect(placements.find((placement) => placement.path === firstSource)?.configurationTree).toBe(firstAccount.configurationTree);
     expect(placements.find((placement) => placement.path === secondSource)?.configurationTree).toBe(secondAccount.configurationTree);
-    expect(firstCanopy.canopy.canRead(null, firstCanopy.canopy.boundary("/~alice/notes")!.id)).toBe(true);
-    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/notes")!.id)).toBe(true);
+    expect(firstHost.canopy.canRead(null, firstHost.canopy.boundary("/~alice/notes")!.id)).toBe(true);
+    expect(secondHost.canopy.canRead(null, secondHost.canopy.boundary("/~joe/notes")!.id)).toBe(true);
 
     // A root-shaped placement on another Canopy cannot become this tree's
     // canonical parent merely because its URL path is a lexical prefix.
@@ -221,7 +221,7 @@ describe("plural-account CLI place", () => {
     const firstTreesPath = join(firstAccount.path, "trees.yaml");
     const firstTreesSource = await readFile(firstTreesPath, "utf8");
     const firstDocument = parseDocument(firstTreesSource, { uniqueKeys: true, keepSourceTokens: true });
-    firstDocument.setIn([firstTree, "canonical"], firstCanopy.url);
+    firstDocument.setIn([firstTree, "canonical"], firstHost.url);
     await writeFile(firstTreesPath, firstDocument.toString({ lineWidth: 0 }));
     const manager = new TreeManager(new EventBus());
     try {
@@ -237,17 +237,17 @@ describe("plural-account CLI place", () => {
 
   test("creates private trees by default and updates existing access", async () => {
     const privateSource = await source("private-source", "# Private\n");
-    const canonical = `${secondCanopy.url}/~joe/private-notes`;
+    const canonical = `${secondHost.url}/~joe/private-notes`;
 
     const created = await arborOutput(["place", privateSource, canonical]);
     expect(created.stderr).toContain("private access");
-    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(false);
+    expect(secondHost.canopy.canRead(null, secondHost.canopy.boundary("/~joe/private-notes")!.id)).toBe(false);
 
     await arbor(["place", "--access", "public=read", privateSource, canonical]);
-    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
+    expect(secondHost.canopy.canRead(null, secondHost.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
     const repeated = await arborOutput(["place", privateSource, canonical]);
     expect(repeated.stderr).toBe("");
-    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
+    expect(secondHost.canopy.canRead(null, secondHost.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
   });
 
   test("reopens an unplaced session after an offline identity rebind", async () => {
@@ -272,18 +272,18 @@ describe("plural-account CLI place", () => {
 
   test("refuses canonical paths outside every claimed account allocation", async () => {
     const misplaced = await source("misplaced-source");
-    const error = await arborFailure(["place", misplaced, `${secondCanopy.url}/~someone-else/notes`]);
+    const error = await arborFailure(["place", misplaced, `${secondHost.url}/~someone-else/notes`]);
     expect(error).toContain("No claimed Canopy account contains");
   });
 
   test("places an existing private tree through its matching account", async () => {
     const original = await source("remote-source", "# Private remote\n");
     const destination = join(sandbox, "remote-destination");
-    const canonical = `${secondCanopy.url}/~joe/private-remote`;
+    const canonical = `${secondHost.url}/~joe/private-remote`;
     await arbor(["place", original, canonical]);
 
-    const accounts = await loadCanopyAccountConfigurations();
-    const account = accounts.find((candidate) => candidate.account?.canopy === secondCanopy.url)!;
+    const accounts = await loadAccountConfigurations();
+    const account = accounts.find((candidate) => candidate.account?.canopy === secondHost.url)!;
     const tree = Object.entries(account.trees!).find(([, declaration]) => declaration.canonical === canonical)![0];
     const placementsPath = join(state, "placements.yaml");
     const document = parseDocument(await readFile(placementsPath, "utf8"), { uniqueKeys: true, keepSourceTokens: true });
@@ -305,30 +305,30 @@ describe("plural-account CLI place", () => {
 
   test("rejects malformed access assignments before changing configuration", async () => {
     const invalidSource = await source("invalid-source");
-    const canonical = `${firstCanopy.url}/~alice/invalid-access`;
+    const canonical = `${firstHost.url}/~alice/invalid-access`;
     const error = await arborFailure(["place", "--access", "public=reader,~editors", invalidSource, canonical]);
     expect(error).toContain("Expected subject=read|write|none");
-    expect(firstCanopy.canopy.boundary("/~alice/invalid-access")).toBeNull();
+    expect(firstHost.canopy.boundary("/~alice/invalid-access")).toBeNull();
   });
 
   test("does not let an offline account block placement through a healthy account", async () => {
-    firstCanopy.server.stop(true);
+    firstHost.server.stop(true);
     const healthySource = await source("healthy-while-first-offline", "# Healthy account\n");
-    const canonical = `${secondCanopy.url}/~joe/healthy`;
+    const canonical = `${secondHost.url}/~joe/healthy`;
     expect(await arbor(["place", healthySource, canonical])).toContain(canonical);
-    expect(secondCanopy.canopy.boundary("/~joe/healthy")?.id).toBeDefined();
+    expect(secondHost.canopy.boundary("/~joe/healthy")?.id).toBeDefined();
 
-    const moved = `${secondCanopy.url}/~joe/healthy-moved`;
+    const moved = `${secondHost.url}/~joe/healthy-moved`;
     expect(await arbor(["mv", canonical, moved])).toContain(`to ${moved}`);
-    expect(secondCanopy.canopy.boundary("/~joe/healthy")).toBeNull();
-    expect(secondCanopy.canopy.boundary("/~joe/healthy-moved")?.id).toBeDefined();
+    expect(secondHost.canopy.boundary("/~joe/healthy")).toBeNull();
+    expect(secondHost.canopy.boundary("/~joe/healthy-moved")?.id).toBeDefined();
   });
 
   test("places through a stopped Canopy by editing trees.yaml on disk, then pushes on reconnect", async () => {
-    // firstCanopy was stopped by the previous test and stays stopped here.
+    // firstHost was stopped by the previous test and stays stopped here.
     const offlineSource = await source("placed-while-first-offline", "# Placed offline\n");
-    const canonical = `${firstCanopy.url}/~alice/offline-placed`;
-    const account = (await loadCanopyAccountConfigurations()).find((candidate) => candidate.account?.canopy === firstCanopy.url)!;
+    const canonical = `${firstHost.url}/~alice/offline-placed`;
+    const account = (await loadAccountConfigurations()).find((candidate) => candidate.account?.canopy === firstHost.url)!;
     const before = await readFile(join(account.path, "trees.yaml"), "utf8");
 
     const daemon = await serveArborSyncControl({ port: 0 });
@@ -357,16 +357,16 @@ describe("plural-account CLI place", () => {
       );
       expect((await configurationDescriptor())?.sync).toBe("offline");
 
-      firstCanopy = await serveCanopy({
+      firstHost = await serveHost({
         dataRoot: join(sandbox, "first-canopy"),
-        publicOrigin: firstCanopy.url,
+        publicOrigin: firstHost.url,
         hostname: "127.0.0.1",
-        port: Number(new URL(firstCanopy.url).port),
+        port: Number(new URL(firstHost.url).port),
         community: { handle: "first", name: "First" },
       });
       await client.synchronizeNow(account.configurationTree);
       expect((await configurationDescriptor())?.sync).toBe("idle");
-      expect(firstCanopy.canopy.boundary("/~alice/offline-placed")?.id).toBe(tree);
+      expect(firstHost.canopy.boundary("/~alice/offline-placed")?.id).toBe(tree);
     } finally {
       daemon.server.stop(true);
       await daemon.service[Symbol.asyncDispose]();
@@ -376,7 +376,7 @@ describe("plural-account CLI place", () => {
 
 describe("Canopy deployment guards", () => {
   test("refuses an ephemeral or unnamed Railway Canopy", async () => {
-    const noDomain = await canopyFailure([], {
+    const noDomain = await hostFailure([], {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "",
       RAILWAY_VOLUME_MOUNT_PATH: "",
@@ -384,7 +384,7 @@ describe("Canopy deployment guards", () => {
     });
     expect(noDomain).toContain("needs a public domain");
 
-    const noVolume = await canopyFailure([], {
+    const noVolume = await hostFailure([], {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "garden.up.railway.app",
       RAILWAY_VOLUME_MOUNT_PATH: "",
@@ -401,15 +401,15 @@ describe("Canopy deployment guards", () => {
       ARBOR_ACCOUNT_TOKEN: "",
       ARBOR_ACCOUNTS_JSON: "",
     };
-    const missingCommunity = await canopyFailure([join(sandbox, "unattended-no-community")], { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "" });
+    const missingCommunity = await hostFailure([join(sandbox, "unattended-no-community")], { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "" });
     expect(missingCommunity).toContain("No community at");
     expect(missingCommunity).toContain("canopyd init <community> --founder <handle>=<TreeID>");
-    const missingFirstWriter = await canopyFailure(
+    const missingFirstWriter = await hostFailure(
       [join(sandbox, "unattended-no-writer")],
       { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "garden", ARBOR_FIRST_WRITER_HANDLE: "", ARBOR_FIRST_WRITER_PROFILE: "" },
     );
     expect(missingFirstWriter).toContain("requires ARBOR_FIRST_WRITER_HANDLE and ARBOR_FIRST_WRITER_PROFILE");
-    const badFounder = await canopyFailure(["init", "lab", "--founder", "joe", "--data", join(sandbox, "init-bad-founder")], bootstrapEnv);
+    const badFounder = await hostFailure(["init", "lab", "--founder", "joe", "--data", join(sandbox, "init-bad-founder")], bootstrapEnv);
     expect(badFounder).toContain("--founder must be <handle>=<TreeID>");
   });
 });
@@ -417,10 +417,10 @@ describe("Canopy deployment guards", () => {
 test("CLI sharing edits preserve unrelated granular and executable resource grants", async () => {
   const { resourceRuleFromLegacy } = await import("@overstory/protocol");
   const path = await source("resource-policy-cli", "# Resource policy\n");
-  const canonical = `${firstCanopy.url}/~alice/resource-policy-cli`;
+  const canonical = `${firstHost.url}/~alice/resource-policy-cli`;
   await arbor(["place", path, canonical]);
-  const account = (await loadCanopyAccountConfigurations()).find(a => a.account?.canopy === firstCanopy.url)!;
-  const tree = firstCanopy.canopy.boundary("/~alice/resource-policy-cli")!.id;
+  const account = (await loadAccountConfigurations()).find(a => a.account?.canopy === firstHost.url)!;
+  const tree = firstHost.canopy.boundary("/~alice/resource-policy-cli")!.id;
   const document = parseDocument(account.sources["trees.yaml"]!);
   for (const [id, declaration] of Object.entries(account.trees!)) {
     document.setIn([id, "access"], declaration.access.map(resourceRuleFromLegacy));
@@ -433,6 +433,6 @@ test("CLI sharing edits preserve unrelated granular and executable resource gran
   document.setIn([tree, "access"], grants);
   await writeFile(join(account.path, "trees.yaml"), document.toString());
   await arbor(["place", "--access", "public=read", path, canonical]);
-  const changed = (await loadCanopyAccountConfigurations()).find(a => a.configurationTree === account.configurationTree)!;
+  const changed = (await loadAccountConfigurations()).find(a => a.configurationTree === account.configurationTree)!;
   expect<unknown>(changed.resources![tree]!.access).toEqual([...grants, { who: "everyone", allow: ["read"] }]);
 });

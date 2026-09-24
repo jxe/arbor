@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, CanopyAccountStore, arborDataRoot, loadCanopyAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type CanopyAccountConfigurationSnapshot, WireClient } from "@overstory/protocol";
+import { resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type AccountConfigurationSnapshot, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
@@ -285,18 +285,18 @@ function sameOrDescendantPath(path: string, root: string): boolean {
   return path === (normalizedRoot || "/") || path.startsWith(`${normalizedRoot}/`);
 }
 
-interface SelectedCanopyAccount {
-  configuration: CanopyAccountConfigurationSnapshot & Required<Pick<CanopyAccountConfigurationSnapshot, "account" | "trees" | "currentDevice">>;
-  connection: NonNullable<Awaited<ReturnType<CanopyAccountStore["get"]>>>;
+interface SelectedHostAccount {
+  configuration: AccountConfigurationSnapshot & Required<Pick<AccountConfigurationSnapshot, "account" | "trees" | "currentDevice">>;
+  connection: NonNullable<Awaited<ReturnType<HostAccountStore["get"]>>>;
 }
 
 async function accountForCanonicalTarget(
   target: CanonicalTarget,
   options: { administrator: boolean },
-): Promise<SelectedCanopyAccount> {
+): Promise<SelectedHostAccount> {
   const [configurations, records] = await Promise.all([
-    loadCanopyAccountConfigurations(),
-    CanopyAccountStore.list(),
+    loadAccountConfigurations(),
+    HostAccountStore.list(),
   ]);
   const candidates = records.filter((record) =>
     record.origin === target.endpoint
@@ -322,10 +322,10 @@ async function accountForCanonicalTarget(
   if (options.administrator && !configuration.currentDevice.administrator) {
     throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
   }
-  const connection = await new CanopyAccountStore(record.configurationTree).get();
+  const connection = await new HostAccountStore(record.configurationTree).get();
   if (!connection) throw new Error(`Account credential is unavailable for ${record.configurationTree}`);
   return {
-    configuration: configuration as SelectedCanopyAccount["configuration"],
+    configuration: configuration as SelectedHostAccount["configuration"],
     connection,
   };
 }
@@ -448,7 +448,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       if (!localDescriptor || localDescriptor.sync !== "idle" || localDescriptor.missing) {
         throw new Error(`Source tree must be present and idle before a canonical move; current state is ${localDescriptor?.sync ?? "unavailable"}`);
       }
-      const wire = new WireClient(selectedDestination.connection.record.origin, selectedDestination.connection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
+      const wire = new ProtocolClient(selectedDestination.connection.record.origin, selectedDestination.connection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
       const sourceRemote = (await wire.descriptor(sourceTree)).tree;
       console.log(`${dryRun ? "Would move" : "Moving"} ${sourceTree}`);
       console.log(`  from ${sourceCanonical}`);
@@ -483,7 +483,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   });
 }
 
-async function accessRulesFor(client: WireClient, audience: ShareAudience): Promise<import("@overstory/protocol").AccessRule[]> {
+async function accessRulesFor(client: ProtocolClient, audience: ShareAudience): Promise<import("@overstory/protocol").AccessRule[]> {
   const raw = audience.kind === "private" ? [] : audience.kind === "everyone"
     ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
     : audience.kind === "profile"
@@ -529,7 +529,7 @@ async function placeLocal(
     await synchronizeOrDefer(client, service, selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: true });
     const config = selected.configuration;
-    const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+    const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
     const local = await loadLocalPlacements();
     if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
     const existing = local.placements.find((placement) => placement.path === path);
@@ -608,7 +608,7 @@ async function placeCommand(args: string[]): Promise<void> {
     let selected = await accountForCanonicalTarget(target, { administrator: false });
     await service.synchronizeNow(selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: false });
-    const remote = await new WireClient(target.endpoint, selected.connection.accountToken).resolve(target.canonicalPath);
+    const remote = await new ProtocolClient(target.endpoint, selected.connection.accountToken).resolve(target.canonicalPath);
     const descriptor = remote.enclosingTree;
     if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
     const declaration = selected.configuration.trees[descriptor.id];
@@ -696,7 +696,7 @@ function cloudBundleCreateArguments(args: string[]): CloudBundleCreateArguments 
 async function createCloudBundle(args: string[]): Promise<void> {
   const requested = cloudBundleCreateArguments(args);
   await withArborSync(process.cwd(), async (client, service) => {
-    let selected: SelectedCanopyAccount | undefined;
+    let selected: SelectedHostAccount | undefined;
     const placements: CloudBundlePlacement[] = [];
     for (const requestedPlacement of requested.placements) {
       const target = canonicalTarget(requestedPlacement.canonicalURL);
@@ -710,7 +710,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       if (target.endpoint !== selected.connection.record.origin) {
         throw new Error("A cloud bundle may target only one Canopy");
       }
-      const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+      const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
       const resolution = await wire.resolve(target.canonicalPath);
       const descriptor = resolution.enclosingTree;
       if (!descriptor || resolution.ref.tree !== descriptor.id || resolution.ref.path !== "/") {
@@ -751,9 +751,9 @@ async function createCloudBundle(args: string[]): Promise<void> {
       placements,
     };
     const encoded = encodeCloudBundle(payload);
-    const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+    const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
     const pairing = await wire.createPairing();
-    await new WireClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
+    await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
       id: deviceID,
       label,
       credentialDigest: `sha256:${sha256(credential)}`,
@@ -796,7 +796,7 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
   }
   await withArborSync(process.cwd(), async (client, service) => {
     await service.synchronizeNow(record.configurationTree);
-    const configuration = (await loadCanopyAccountConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
+    const configuration = (await loadAccountConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
     if (!configuration?.account || !configuration.devices || !configuration.currentDevice) {
       throw new Error(`Account ${record.configurationTree} is unavailable or invalid`);
     }
@@ -856,7 +856,7 @@ async function directoryIsEmpty(path: string): Promise<boolean> {
 
 async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudSessionRecord): Promise<void> {
   await withEnvironment({ ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" }, async () => {
-    const wire = new WireClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+    const wire = new ProtocolClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
     const account = await wire.account();
     if (
       account.account.id !== payload.accountID
@@ -872,7 +872,7 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
       if (!bytes) throw new Error(`Account configuration snapshot is missing ${hash}`);
       return Promise.resolve(bytes);
     });
-    await new CanopyAccountStore(payload.configurationTree).set(payload.credential, {
+    await new HostAccountStore(payload.configurationTree).set(payload.credential, {
       origin: payload.origin,
       account: payload.account,
       accountID: payload.accountID,
@@ -941,7 +941,7 @@ async function cloudPlacementsReady(
   if (!session.origin) return { ready: false, reason: "Arbor Sync has no recorded origin" };
   const client = new ArborSyncRESTClient({ baseURL: session.origin });
   const local = (await client.trees()).snapshot;
-  const wire = new WireClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+  const wire = new ProtocolClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
   for (const target of session.placements) {
     const descriptor = local.find((candidate) =>
       candidate.id === target.treeID
@@ -1110,7 +1110,7 @@ async function finishCloud(args: string[]): Promise<void> {
     const deadline = Date.now() + options.timeoutMs;
     const connection = await withEnvironment(
       { ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
-      () => new CanopyAccountStore(session!.configurationTree).get(),
+      () => new HostAccountStore(session!.configurationTree).get(),
     );
     if (!connection) throw new Error("Cloud session credential is unavailable");
     const payload = {

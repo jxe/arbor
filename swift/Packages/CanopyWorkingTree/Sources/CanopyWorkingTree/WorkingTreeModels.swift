@@ -101,7 +101,7 @@ public enum ContentRef: Codable, Equatable, Sendable {
     /// The wire object hash: computed for inline bytes, carried for a hash ref.
     public var objectHash: String {
         switch self {
-        case let .inline(bytes): WireObjectCodec.hash(bytes)
+        case let .inline(bytes): ProtocolObjectCodec.hash(bytes)
         case let .hash(hash, _, _): hash
         }
     }
@@ -197,12 +197,12 @@ public struct EntryMetadata: Codable, Equatable, Sendable {
 }
 
 public struct WorkingTreeSystemNode: Sendable, Equatable {
-    /// Excluded from the Wire snapshot.
+    /// Excluded from the protocol snapshot.
     public var metadata: EntryMetadata
     public var path: String
     public var pageID: String?
     public var content: WorkingTreeSystemNodeContent
-    public var childrenSource: WireCollectionFileDescriptor?
+    public var childrenSource: ProtocolCollectionFileDescriptor?
     public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     public var shadowedSiblingMarkdownSource: String?
 
@@ -211,7 +211,7 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         metadata: EntryMetadata = EntryMetadata(),
         pageID: String? = nil,
         content: WorkingTreeSystemNodeContent,
-        childrenSource: WireCollectionFileDescriptor? = nil,
+        childrenSource: ProtocolCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
@@ -288,7 +288,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
-    var childrenSource: WireCollectionFileDescriptor?
+    var childrenSource: ProtocolCollectionFileDescriptor?
     // `nil` preserves the original encoding: a directory source is `_index.md`.
     // Contentless legacy directory records also decode unchanged.
     var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
@@ -329,7 +329,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        childrenSource: WireCollectionFileDescriptor? = nil,
+        childrenSource: ProtocolCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
         metadata: EntryMetadata? = nil

@@ -156,5 +156,5 @@ mark it Keep Downloaded in Finder.
 Records contain the requested hash, tree or local path where available, and
 safe error codes/HTTP status. They omit exception messages, response bodies,
 request URLs and credentials. This is local diagnostic evidence, not a change
-to the REST or canopyd Overstory response contract. `WireHTTPError.status` lets local
+to the REST or canopyd Overstory response contract. `ProtocolHTTPError.status` lets local
 callers classify HTTP failures without parsing the human-readable message.

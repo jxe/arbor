@@ -141,32 +141,32 @@ export function collectionChildSetHash(rows: ReadonlyArray<{ key: string | null;
     .map((row) => ({ key: row.key, name: row.name, properties: row.properties }))) as Hash;
 }
 
-export interface WireCollectionFileRow {
+export interface ProtocolCollectionFileRow {
   stableKey: string;
   path: string;
   properties: Record<string, JSONValue>;
 }
 
-export interface DecodedWireCollectionFile {
+export interface DecodedProtocolCollectionFile {
   format: CollectionFileDescriptor["format"];
   schema: CollectionSchema;
-  rows: WireCollectionFileRow[];
+  rows: ProtocolCollectionFileRow[];
   childSetHash: Hash;
 }
 
-export class WireCollectionFileError extends Error {
+export class ProtocolCollectionFileError extends Error {
   constructor(
     readonly kind: "schema" | "constraint" | "source" | "unsupported",
     message: string,
   ) {
     super(message);
-    this.name = "WireCollectionFileError";
+    this.name = "ProtocolCollectionFileError";
   }
 }
 
 /** Retired version-1 descriptors select an executable schema.ts; nothing interprets them. */
-export function unsupportedLegacyCollection(): WireCollectionFileError {
-  return new WireCollectionFileError(
+export function unsupportedLegacyCollection(): ProtocolCollectionFileError {
+  return new ProtocolCollectionFileError(
     "unsupported",
     "This collection uses a retired version-1 schema.ts descriptor; convert it to schema.cddl before it can be read or updated",
   );
@@ -176,77 +176,77 @@ export function unsupportedLegacyCollection(): WireCollectionFileError {
  * Validate a version-2 collection-file directory exactly as spec 06 §2.1
  * orders it, and return its logical rows. Never executes authored code.
  */
-export function decodeWireCollectionFile(
+export function decodeProtocolCollectionFile(
   descriptor: CollectionFileDescriptor,
   sourceBytes: Uint8Array,
   schemaBytes: Uint8Array,
   schemas: CollectionSchemaCache = sharedCollectionSchemaCache,
-): DecodedWireCollectionFile {
+): DecodedProtocolCollectionFile {
   if (descriptor.version !== 2) throw unsupportedLegacyCollection();
   if (sourceBytes.byteLength > 16 * 1024 * 1024) {
-    throw new WireCollectionFileError("source", "Collection file exceeds the 16 MiB validation limit");
+    throw new ProtocolCollectionFileError("source", "Collection file exceeds the 16 MiB validation limit");
   }
   let schema: CollectionSchema;
   try {
     schema = schemas.compile(schemaBytes);
   } catch (error) {
-    if (error instanceof CollectionSchemaError) throw new WireCollectionFileError("schema", `Invalid schema.cddl: ${error.message}`);
+    if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.cddl: ${error.message}`);
     throw error;
   }
   if (schema.revision !== descriptor.schemaFingerprint) {
-    throw new WireCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.cddl");
+    throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.cddl");
   }
   if (!schema.primaryKey) {
-    throw new WireCollectionFileError("constraint", "A synchronized collection file requires overstory-primary-key");
+    throw new ProtocolCollectionFileError("constraint", "A synchronized collection file requires overstory-primary-key");
   }
   let source: string;
   try {
     source = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes);
   } catch {
-    throw new WireCollectionFileError("source", "Collection file must be UTF-8");
+    throw new ProtocolCollectionFileError("source", "Collection file must be UTF-8");
   }
   const decoded = decodeCollectionFileSource(descriptor.format, source, `wire:_store.${descriptor.format}`, schema);
   const fileDiagnostic = decoded.diagnostics[0];
   if (fileDiagnostic) {
-    throw new WireCollectionFileError(fileDiagnostic.code.startsWith("csv-") ? "constraint" : "source", fileDiagnostic.message);
+    throw new ProtocolCollectionFileError(fileDiagnostic.code.startsWith("csv-") ? "constraint" : "source", fileDiagnostic.message);
   }
-  if (decoded.rows.length > 100_000) throw new WireCollectionFileError("source", "Collection file exceeds the 100,000 row limit");
-  const rows: WireCollectionFileRow[] = [];
+  if (decoded.rows.length > 100_000) throw new ProtocolCollectionFileError("source", "Collection file exceeds the 100,000 row limit");
+  const rows: ProtocolCollectionFileRow[] = [];
   const keys = new Set<string>();
   const names = new Set<string>();
   for (const [index, raw] of decoded.rows.entries()) {
     const diagnostic = raw.diagnostics[0];
     if (diagnostic) {
       const kind = diagnostic.code === "invalid-json-row" || diagnostic.code === "invalid-jsonl" ? "source" : "constraint";
-      throw new WireCollectionFileError(kind, `Collection-file row ${index + 1} does not satisfy schema.cddl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
+      throw new ProtocolCollectionFileError(kind, `Collection-file row ${index + 1} does not satisfy schema.cddl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
     }
     const properties = raw.values as Record<string, JSONValue>;
     const stableKey = stableKeyFromProperties(schema.primaryKey, properties);
-    if (!stableKey) throw new WireCollectionFileError("constraint", `Collection-file row ${index + 1} has no valid stable key`);
-    if (keys.has(stableKey)) throw new WireCollectionFileError("constraint", `Collection-file stable key is duplicated: ${stableKey}`);
+    if (!stableKey) throw new ProtocolCollectionFileError("constraint", `Collection-file row ${index + 1} has no valid stable key`);
+    if (keys.has(stableKey)) throw new ProtocolCollectionFileError("constraint", `Collection-file stable key is duplicated: ${stableKey}`);
     keys.add(stableKey);
     let path: string;
     try {
       path = logicalChildName(schema, properties, stableKey);
     } catch (error) {
-      throw new WireCollectionFileError("constraint", error instanceof Error ? error.message : String(error));
+      throw new ProtocolCollectionFileError("constraint", error instanceof Error ? error.message : String(error));
     }
-    if (names.has(path)) throw new WireCollectionFileError("constraint", `Collection-file child name is duplicated: ${path}`);
+    if (names.has(path)) throw new ProtocolCollectionFileError("constraint", `Collection-file child name is duplicated: ${path}`);
     names.add(path);
     rows.push({ stableKey, path, properties });
   }
   const childSetHash = collectionChildSetHash(rows.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
   if (childSetHash !== descriptor.childSetHash) {
-    throw new WireCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
+    throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
   }
   return { format: descriptor.format, schema, rows, childSetHash };
 }
 
 /** Encode rows for a collection file; CSV rejects any value its cells cannot reproduce. */
-export function encodeWireCollectionFile(
+export function encodeProtocolCollectionFile(
   format: CollectionFileDescriptor["format"],
   schema: CollectionSchema,
-  rows: readonly WireCollectionFileRow[],
+  rows: readonly ProtocolCollectionFileRow[],
 ): Uint8Array {
   let source: string;
   if (format === "json") {
@@ -257,7 +257,7 @@ export function encodeWireCollectionFile(
     try {
       source = encodeCsvRows(schema, rows.map((row) => row.properties));
     } catch (error) {
-      if (error instanceof CsvEncodeError) throw new WireCollectionFileError("constraint", error.message);
+      if (error instanceof CsvEncodeError) throw new ProtocolCollectionFileError("constraint", error.message);
       throw error;
     }
   }

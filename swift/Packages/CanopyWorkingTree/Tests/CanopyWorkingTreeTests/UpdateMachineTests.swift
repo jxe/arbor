@@ -76,7 +76,7 @@ struct UpdateMachineTests {
         var digests: [[String]] = []
         for row in cases.prefix(3) {
             let body = try JSONSerialization.data(withJSONObject: #require(row["value"]))
-            let request = try JSONDecoder().decode(WireUpdateRequest.self,from:body)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self,from:body)
             digests.append(updateRequestDigests(tree:tree,base:request.base,updates:request.updates))
         }
         #expect(digests[0] == digests[1])
