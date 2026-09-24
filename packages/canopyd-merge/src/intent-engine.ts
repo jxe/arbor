@@ -397,35 +397,38 @@ class Engine {
    * `within`; `copy`, `copyEntry` and `selection` read the subtree). Older
    * records carry the whole tree; readers accept both. */
   subtree(view: View, id: string): View {
-    const childrenByParent = new Map<string, Node[]>();
-    for (const node of Object.values(view.nodes)) if (node.active && node.parent !== null) {
-      const siblings = childrenByParent.get(node.parent);
-      if (siblings) siblings.push(node); else childrenByParent.set(node.parent, [node]);
-    }
+    const index = this.childIndex(view);
     const nodes: Record<string, Node> = {};
     const visit = (node: Node) => {
       nodes[node.id] = clone(node);
-      for (const child of childrenByParent.get(node.id) ?? []) visit(child);
+      for (const child of this.children(view, node.id, index)) visit(child);
     };
     visit(view.nodes[id]!);
     return { root: id, nodes };
   }
-  children(view: View, id: string): Node[] {
-    return Object.values(view.nodes).filter((n) => n.active && n.parent === id);
+  /** Every node under each parent, active or not, in node order. A walk
+   * builds one and passes it down: nodes are edited in place, so an index
+   * kept across edits could name a stale parent. */
+  childIndex(view: View): Map<string, Node[]> {
+    const index = new Map<string, Node[]>();
+    for (const node of Object.values(view.nodes)) if (node.parent !== null) {
+      const siblings = index.get(node.parent);
+      if (siblings) siblings.push(node); else index.set(node.parent, [node]);
+    }
+    return index;
+  }
+  /** The active children of `id`, from `index` when the caller walks many. */
+  children(view: View, id: string, index?: Map<string, Node[]>): Node[] {
+    return index
+      ? (index.get(id) ?? []).filter((n) => n.active)
+      : Object.values(view.nodes).filter((n) => n.active && n.parent === id);
   }
   async project(
     view: View,
     root = view.root,
     visiting = new Set<string>(),
-    childrenByParent?: Map<string, Node[]>
+    index = this.childIndex(view)
   ): Promise<string> {
-    if (!childrenByParent) {
-      childrenByParent = new Map();
-      for (const node of Object.values(view.nodes)) if (node.active && node.parent !== null) {
-        const children = childrenByParent.get(node.parent) ?? [];
-        children.push(node); childrenByParent.set(node.parent, children);
-      }
-    }
     this.checkBudget();
     const node = view.nodes[root];
     if (!node?.active) return fail("Projection root is absent");
@@ -447,12 +450,12 @@ class Engine {
       if (node.kind === "tree") return node.object;
       const entries = [];
       const names = new Set<string>();
-      for (const child of (childrenByParent.get(root) ?? []).sort((a, b) =>
+      for (const child of this.children(view, root, index).sort((a, b) =>
         Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
       )) {
         if (names.has(child.name)) return fail("Duplicate directory placement");
         names.add(child.name);
-        const object = await this.project(view, child.id, visiting, childrenByParent);
+        const object = await this.project(view, child.id, visiting, index);
         entries.push(
           child.kind === "file"
             ? { name: child.name, file: object }
@@ -681,12 +684,22 @@ class Engine {
     }
     return node?.id ?? fail("Missing material occurrence");
   }
+  /** `realm` memoized per id, for a loop that changes no parent link. */
+  realms(view: View): (id: string) => string {
+    const known = new Map<string, string>();
+    return (id) => {
+      let realm = known.get(id);
+      if (realm === undefined) known.set(id, (realm = this.realm(view, id)));
+      return realm;
+    };
+  }
   importContext(
     state: IntentState,
     context: IntentState,
     prefix: string
   ): { root: string; ids: Map<string, string> } {
-    const ids = new Map<string, string>();
+    const ids = new Map<string, string>(),
+      index = this.childIndex(context);
     const visit = (id: string, parent: string | null): string => {
       const prior = context.nodes[id]!,
         next = `${prefix}/${encodeURIComponent(id)}`;
@@ -694,7 +707,7 @@ class Engine {
       if (state.nodes[next])
         return fail("Alternative occurrence identity reused");
       state.nodes[next] = { ...clone(prior), id: next, parent };
-      for (const child of this.children(context, id)) visit(child.id, next);
+      for (const child of this.children(context, id, index)) visit(child.id, next);
       return next;
     };
     return { root: visit(context.root, null), ids };
@@ -731,9 +744,10 @@ class Engine {
     node.parent = parent;
     node.name = name;
   }
-  remove(state: IntentState, id: string, contribution?: string) {
-    for (const child of this.children(state, id))
-      this.remove(state, child.id, contribution);
+  /** Removing changes no parent, so one index serves the whole subtree. */
+  remove(state: IntentState, id: string, contribution?: string, index = this.childIndex(state)) {
+    for (const child of this.children(state, id, index))
+      this.remove(state, child.id, contribution, index);
     if (contribution)
       state.nodes[id]!.deletions = [
         ...new Set([...(state.nodes[id]!.deletions ?? []), contribution]),
@@ -746,7 +760,8 @@ class Engine {
     id: string,
     prefix: string,
     parent: string | null,
-    name: string
+    name: string,
+    index = this.childIndex(view)
   ): string {
     const before = view.nodes[id]!;
     const newID = `${prefix}/${encodeURIComponent(id)}`;
@@ -763,8 +778,9 @@ class Engine {
         start: 0,
       }));
     state.nodes[newID] = node;
-    for (const child of this.children(view, id))
-      this.copy(state, view, child.id, prefix, newID, child.name);
+    // Copies are placed under fresh identities, never under a node of `view`.
+    for (const child of this.children(view, id, index))
+      this.copy(state, view, child.id, prefix, newID, child.name, index);
     return newID;
   }
   copyDecisions(
@@ -851,10 +867,11 @@ class Engine {
       const source = await this.selection(operation.source, basis, state);
       let node = state.nodes[source.node];
       if (source.selected.length && node?.parent !== null) {
+        const realm = this.realms(state);
         const matches = Object.values(state.nodes).filter(
           (n) =>
             n.active &&
-            this.realm(state, n.id) === this.realm(state, source.node) &&
+            realm(n.id) === realm(source.node) &&
             n.kind === "file" &&
             n.pieces?.some((p) => source.selected.some((q) => intersect(p, q)))
         );
@@ -1083,9 +1100,11 @@ class Engine {
             return fail("Invalid replacement material");
           if (other.id !== node.id && other.parent !== null)
             return fail("Replacement would alias placed identity; use copy");
-          if (other.id !== node.id)
-            for (const child of this.children(state, node.id))
-              this.remove(state, child.id);
+          if (other.id !== node.id) {
+            const index = this.childIndex(state);
+            for (const child of this.children(state, node.id, index))
+              this.remove(state, child.id, undefined, index);
+          }
           node.kind = other.kind;
           node.object = other.object;
           node.pieces = other.pieces ? clone(other.pieces) : undefined;
@@ -1093,8 +1112,9 @@ class Engine {
           for (const child of this.children(state, other.id))
             child.parent = node.id;
         } else {
-          for (const child of this.children(state, node.id))
-            this.remove(state, child.id);
+          const index = this.childIndex(state);
+          for (const child of this.children(state, node.id, index))
+            this.remove(state, child.id, undefined, index);
           const object = "file" in value ? value.file : value.directory;
           node.kind = "file" in value ? "file" : "directory";
           node.object = object;
@@ -1124,8 +1144,9 @@ class Engine {
               node.name
             );
             node.directory = temporary.nodes[key]!.directory;
-            for (const child of this.children(temporary, key))
-              this.copy(state, temporary, child.id, key, node.id, child.name);
+            const imported = this.childIndex(temporary);
+            for (const child of this.children(temporary, key, imported))
+              this.copy(state, temporary, child.id, key, node.id, child.name, imported);
           }
         }
         result = { node: node.id, view: this.subtree(state, node.id) };
@@ -1189,6 +1210,7 @@ class Engine {
    * `kept` names, per node, pieces a new choice selected: a deletion that
    * choice retains as its other alternative must not cut into them. */
   enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects, kept: ReadonlyMap<string, Piece[]> = new Map()) {
+    const realm = this.realms(state);
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
       for (const [id, edits] of Object.entries(effectEdits(effect))) {
@@ -1198,7 +1220,7 @@ class Engine {
             if (
               node.active &&
               node.pieces &&
-              this.realm(state, node.id) === this.realm(state, id)
+              realm(node.id) === realm(id)
             ) {
               const removed = subtractPieces(edit.removed, kept.get(node.id) ?? []);
               node.pieces = normalize(subtractPieces(node.pieces, removed));
@@ -2547,6 +2569,8 @@ class Engine {
         }
       }
     }
+    // Resolution moves placements, never nodes.
+    const realm = this.realms(resultState);
     for (const key of resolved) {
       const enclosing = resultState.decisions.find((d) => d.key === key);
       if (!enclosing) continue;
@@ -2560,7 +2584,7 @@ class Engine {
           if (
             !node.active ||
             !node.pieces ||
-            this.realm(resultState, node.id) !== resultState.root
+            realm(node.id) !== resultState.root
           )
             continue;
           try {
@@ -2601,11 +2625,7 @@ class Engine {
   /** Recover projected file hashes from accepted directory metadata, without
    * rereading file bodies or re-proving the host-validated state/root relation. */
   private async trustedProjection(state: IntentState, object: string): Promise<ValidatedMaterial> {
-    const children = new Map<string, Node[]>();
-    for (const node of Object.values(state.nodes)) if (node.active && node.parent !== null) {
-      const list = children.get(node.parent) ?? [];
-      list.push(node); children.set(node.parent, list);
-    }
+    const index = this.childIndex(state);
     const material: ValidatedMaterial = new Map();
     const visit = async (id: string, hash: string, depth: number): Promise<void> => {
       this.checkBudget();
@@ -2614,7 +2634,7 @@ class Engine {
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
       const entries = new Map(decodeWireDirectory(await this.read(hash)).entries.map(e => [e.name, e]));
-      for (const child of children.get(id) ?? []) {
+      for (const child of this.children(state, id, index)) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
           : child.kind === "directory" && "directory" in entry ? entry.directory
@@ -2799,6 +2819,8 @@ export async function checkpointIntent(
   for (const node of Object.values(previous.nodes))
     if (node.active && node.kind === "file")
       oldObjects.set(node.id, await engine.project(previous, node.id));
+  const freshChildren = engine.childIndex(fresh),
+    previousChildren = engine.childIndex(previous);
   const rebind = (
     id: string,
     parent: string | null,
@@ -2825,9 +2847,9 @@ export async function checkpointIntent(
         ...p,
         origin: `snapshot:${request.change}:${p.origin}`,
       }));
-    for (const child of engine.children(fresh, id)) {
+    for (const child of engine.children(fresh, id, freshChildren)) {
       const prior = old
-        ? engine.children(previous, old.id).find((n) => n.name === child.name)
+        ? engine.children(previous, old.id, previousChildren).find((n) => n.name === child.name)
         : undefined;
       rebind(child.id, next, prior?.id);
     }
