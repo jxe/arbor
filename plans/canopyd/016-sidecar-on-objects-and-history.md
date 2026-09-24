@@ -8,12 +8,13 @@
   data model (a migration), though not the wire protocol clients speak.
 - **State:** PLANNED, 2026-09-24. Joe agreed the direction: two canopyd-managed
   APIs (objects and history), one merge question, sidecar state as a cache.
-- **Depends on:** [canopyd 015](015-squash-history-and-one-merge-state-model.md)'s
-  migration 016 having run, so every tree's history starts at a squashed head;
-  and the merge-boundary work (`@overstory/merge-protocol`, canopyd no longer
-  reading or validating sidecar state; [status](../../status.md#merge-boundary--2026-09-24)).
-- **Supersedes:** the "merge state on every accepted row" model of canopyd 015
-  stage 1. Rows keep their decisions; they stop carrying sidecar state.
+- **Depends on:** migration 016's history squash, which ran on 2026-09-24
+  ([status](../../status.md#one-merge-state-model-and-history-squash--2026-09-24)),
+  so every tree's history starts at its head then; and the merge-boundary work
+  (`@overstory/merge-protocol`, canopyd no longer reading or validating sidecar
+  state; [status](../../status.md#merge-boundary--2026-09-24)).
+- **Supersedes:** the "merge state on every accepted row" model that canopyd
+  015 introduced. Rows keep their decisions; they stop carrying sidecar state.
 
 ## Why
 

@@ -2,12 +2,12 @@
 
 One cutover from the live schema 17, which [migration 015](../README.md#schema-history)
 deployed on 2026-09-23. It is stage 2 of
-[canopyd 015](../../../../plans/canopyd/015-squash-history-and-one-merge-state-model.md).
+canopyd 015 (in git history; evidence in [status.md](../../../../status.md)).
 Stage 1 (every acceptance records a merge state) ships in the same deploy; this
 migration makes the code that served rows written before it unreachable, and that code
 is deleted.
 
-**Status: rehearsed green on the 2026-09-24 backup, not run.**
+**Status: run live on 2026-09-24 (build `3d3ebc98`); schema 18.**
 
 ## What changes
 
@@ -185,8 +185,7 @@ this migration's specifics.
     `nextOrdinal`.
 11. **iPhone last.** Open Canopy. Its placements are at the heads, so it only resumes.
 12. **Close out** (standard step 11). Record the cut date in `status.md` and delete
-    [canopyd 015](../../../../plans/canopyd/015-squash-history-and-one-merge-state-model.md)
-    after recording its evidence there.
+    canopyd 015 after recording its evidence there.
 
 Rollback before step 9 is `restore-canopy` from the archive onto the volume and a
 redeploy of the previous `main` (schema 17). After step 9 it also means restoring
@@ -240,3 +239,14 @@ the volume.
   ok with no failures; entry metadata served at each head; `/` and `/~joe` pages
   byte-identical to live. Entry metadata and document versions (in rowid order) are
   identical between `before` and `migrated`.
+
+**2026-09-24, live.** Quiesced: `arbor daemon stop`, :4317 closed, `~/.arbor` re-copied
+while stopped (`dot-arbor.before`; the copy taken while running is
+`dot-arbor.while-running`), authored manifest unchanged. Pushed `main` at `3d3ebc98`
+(this branch plus plan documents); the build came up in maintenance mode. `run.ts /data`:
+`migrated: true` from 17, report identical to the rehearsal apart from timings
+(`states` 1,218 ms, total 1,557 ms). `railway redeploy --from-source -y` served within a
+minute. The Mac resumed at 2654, 4328 and 3499 without re-placing; `verify.ts` against
+`https://arb.nxhx.org` with `--sync` ok; authored-manifest diff empty. Round trip in
+`/~joe/todos`: a new file accepted as 4329 (predecessor 4328, document version recorded),
+its deletion as 4330, root back to `cbd7c8a1…`. iPhone not yet reopened.
