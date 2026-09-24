@@ -6,7 +6,7 @@ Historical identifier: **Reliability 008 / Sync 008**. Status: PARTIAL; prioriti
 
 This plan covers command capture in the Native editor and its Quagmire bridge.
 canopyd and the merge tool already execute the supported operation kinds; their
-reconciliation policies remain in [canopyd 009](../canopyd/009-canopy-provenance-merges.md).
+reconciliation policies remain in [canopyd 014](../canopyd/014-merge-moved-text.md).
 
 When you move a paragraph, copy blocks to another page or undo an earlier command, Overstory can
 send canopyd both the resulting text and a record of what you did. That gives canopyd evidence
@@ -58,7 +58,7 @@ undo stack after restart is separate from retaining already-authored undo reques
 - Do not retarget an old action to a newer basis, infer identity from equal bytes or silently
   discard captured operations. Preserve local work and expose a problem if it cannot be encoded.
 - canopyd executes and reconciles the operations. Its existing support must cover every emitted
-  form before client release. Server policy belongs to [canopyd 009](../canopyd/009-canopy-provenance-merges.md);
+  form before client release. Server policy belongs to [canopyd 014](../canopyd/014-merge-moved-text.md);
   conflict review belongs to [Native 010](010-client-conflict-review.md).
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.

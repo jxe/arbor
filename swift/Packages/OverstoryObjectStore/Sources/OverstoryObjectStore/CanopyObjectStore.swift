@@ -13,7 +13,8 @@ public struct CanopyObjectStore: ObjectStore {
 
     public func bytes(_ hash: String) async throws -> Data {
         do {
-            return try verifyObject(try await client.object(tree: tree, hash: hash), hash: hash)
+            // `ArborWireClient.object` verifies the bytes against `hash`.
+            return try await client.object(tree: tree, hash: hash)
         } catch let error as WireHTTPError where error.status == 404 {
             throw ObjectStoreError.missing(hash)
         } catch let error as ArborWireValidationError {

@@ -47,8 +47,6 @@ export interface TreeBootstrap {
   accepted: { root: Hash; update: string; cursor: string | null };
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
-  /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
-  modifiedAtByPath: Record<string, number>;
   observedThrough: string;
 }
 
@@ -66,50 +64,28 @@ const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
 async function sparseSpine(
-  root: string,
   snapshotRoot: ObjectHash,
   readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
-): Promise<{ spine: string; modifiedAtByPath: Record<string, number> }> {
+): Promise<string> {
   const spine = new Map<ObjectHash, Uint8Array>();
-  const bodies: Array<{ path: string; logicalPath: string; index: boolean }> = [];
-  const indexedDirectories = new Set<string>();
-  const visit = async (hash: ObjectHash, path: string): Promise<void> => {
+  const visit = async (hash: ObjectHash): Promise<void> => {
     const bytes = spine.get(hash) ?? await readObject(hash);
     if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
     if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
     spine.set(hash, bytes);
     for (const entry of decodeWireDirectory(bytes).entries) {
-      const childPath = `${path === "/" ? "" : path}/${entry.name}`;
-      if (entry.directory) await visit(entry.directory, childPath);
+      if (entry.directory) await visit(entry.directory);
       else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
         const child = spine.get(entry.file) ?? await readObject(entry.file);
         if (!child) throw new Error(`Accepted snapshot is missing Markdown ${entry.file}`);
         if (hashObject(child) !== entry.file) throw new Error(`Accepted Markdown does not match ${entry.file}`);
         spine.set(entry.file, child);
-        const index = entry.name === "_index.md";
-        if (index) indexedDirectories.add(path);
-        bodies.push({ path: childPath, logicalPath: index ? path : childPath.slice(0, -3), index });
       }
     }
   };
-  await visit(snapshotRoot, "/");
+  await visit(snapshotRoot);
   verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
-  const modifiedAtByPath: Record<string, number> = {};
-  for (const body of bodies) {
-    // An _index.md body shadows sibling Markdown. Never use the folder's
-    // own mtime, which changes when children are added or removed.
-    if (!body.index && indexedDirectories.has(body.logicalPath)) continue;
-    const file = join(root, body.path.slice(1));
-    try {
-      // This is deliberately local replica metadata, not a timestamp attached
-      // to the accepted object. stat reads cloud-placeholder metadata without
-      // materializing every page merely to sort the sidebar by recency.
-      modifiedAtByPath[body.logicalPath] = (await stat(file)).mtimeMs;
-    } catch {
-      // Recency is optional and must never prevent the accepted snapshot from opening.
-    }
-  }
-  return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64"), modifiedAtByPath };
+  return Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64");
 }
 
 /**
@@ -182,8 +158,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const descriptor = (await this.trees.descriptors()).find((item) => item.id === tree);
     if (!descriptor) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
 
-    const { spine, modifiedAtByPath } = await sparseSpine(
-      workspace.root,
+    const spine = await sparseSpine(
       placement.ref as ObjectHash,
       (hash) => this.objectCache.bytes(tree, hash),
     );
@@ -201,7 +176,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
       tree: bootstrapDescriptor,
       accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.cursor ?? null },
       spine,
-      modifiedAtByPath,
       observedThrough: this.events.currentCursor(),
     };
   }

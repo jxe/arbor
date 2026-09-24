@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { PermissionDeniedError } from "./errors.ts";
 import { randomBytes } from "node:crypto";
 import {
   operationAllowed,
@@ -79,7 +80,7 @@ export class ExecutionAuthority {
       !context.subject ||
       !context.sponsor
     )
-      throw new Error("Execution permission is not allowed");
+      throw new PermissionDeniedError("Execution permission is not allowed");
     const copy = {
       ...context,
       grants: context.grants.map((g) => ({ ...g, allow: [...g.allow] })),
@@ -102,7 +103,7 @@ export class ExecutionAuthority {
         !grant.allow.length ||
         grant.allow.some((op) => !this.permits(copy, grant, grant.within, op))
       )
-        throw new Error("Execution permission is not allowed");
+        throw new PermissionDeniedError("Execution permission is not allowed");
       Object.freeze(grant.allow);
       Object.freeze(grant);
     }

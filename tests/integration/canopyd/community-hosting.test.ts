@@ -573,3 +573,46 @@ test("clearing every rule does not let a legacy writer restore privileges", asyn
   legacy.trees[bobProfileTree]!.access = [{ subject: { kind: "everyone" }, access: "write" }];
   await expect(client.submitUpdate(config, cleared.update.id, snapshotAccountConfigV2(legacy))).rejects.toThrow(/Legacy policy writes/);
 });
+
+test("community writers may address a tree at an unclaimed /~name, which then cannot be reserved", async () => {
+  const origin = new URL(running.url).origin;
+  const bob = new WireClient(running.url, "locally-generated-bob-credential");
+  const configID = (await bob.account()).account.configuration.id;
+  const declare = async (canonical: string) => {
+    const current = await bob.descriptor(configID);
+    const graph = readAccountConfigGraphV2(await bob.snapshot(configID, current.tree.root), configID);
+    const tree = generateArborID("tr");
+    const resources = graph.resources && { ...graph.resources, [tree]: { canonical, access: [] } };
+    return bob.submitUpdate(configID, current.tree.update, snapshotAccountConfigV2({
+      ...graph,
+      trees: { ...graph.trees, [tree]: { canonical, access: [] } },
+      ...(resources ? { resources } : {}),
+    }), { ifCurrent: current.tree.update });
+  };
+  await expect(declare(`${origin}/~garden-club`)).rejects.toThrow("outside this Canopy account allocation");
+
+  const community = running.canopy.community();
+  const bobAccount = running.canopy.accountByHandle("bob")!;
+  const access = (running.canopy as unknown as { access: { set(tree: string, kind: string, subject: string, access: string): void } }).access;
+  access.set(community.id, "profile", bobAccount.profileTree!, "write");
+  try {
+    expect((await declare(`${origin}/~garden-club`)).outcome).toBe("accepted");
+    await expect(declare(`${origin}/~alice/garden`)).rejects.toThrow("reserved for a person");
+
+    const ownerAccount = running.canopy.accountByHandle("owner")!;
+    const source = await profileFolder("community-reserving-a-tree-name", "group", [
+      { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
+      { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
+      { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
+      { profile: `arbor://${testProfileIdentity().profileTree}/`, handle: "garden-club" },
+    ]);
+    const nested = new Map(running.canopy.list()
+      .filter((candidate) => candidate.parentTree === community.id && candidate.canonicalPath)
+      .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
+    const current = await owner.descriptor(community.id);
+    await expect(owner.submitUpdate(community.id, current.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested))))
+      .rejects.toThrow("~garden-club is already the address of a tree");
+  } finally {
+    access.set(community.id, "profile", bobAccount.profileTree!, "none");
+  }
+});

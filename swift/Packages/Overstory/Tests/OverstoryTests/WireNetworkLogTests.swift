@@ -48,6 +48,8 @@ struct WireNetworkLogTests {
         }
         #expect(log.entries().count == 3)
         #expect(log.entries().map(\.durationMs) == [2, 3, 4])
+        log.flush()
+        #expect(log.fileURL.lastPathComponent == "network-\(Date().formatted(.iso8601.year().month().day())).jsonl")
         let text = try String(contentsOf: log.fileURL, encoding: .utf8)
         #expect(text.split(separator: "\n").count == 5)
         #expect(!text.contains("credential"))

@@ -1,4 +1,5 @@
-import { decodeWireDirectory, encodeWireDirectory, hashObject, type ObjectHash, type CandidateUpdate, type WireDirectoryEntry } from "@overstory/protocol";
+import { decodeWireDirectory, encodeWireDirectory, hashObject, type ObjectHash, type CandidateUpdate, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { walkTreeDiff, type Load, type TreeReader } from "./tree-diff.ts";
 import { decisionPath } from "./conflict-store.ts";
 import type { ConflictState, EntryAlternative, EntryValue } from "./conflict-store.ts";
 
@@ -197,18 +198,18 @@ export async function reconcileEntryAmbiguity(input: {
 
 /** Physical changes in accepted snapshots are evidence of a change, never of an
  * editor operation. Directory/tree kind changes stay at the enclosing entry. */
-export async function changedEntryPaths(before: string, after: string, load: (hash: string) => Promise<Uint8Array>, parent = ""): Promise<string[]> {
-  if (before === after) return [];
-  const [left, right] = await Promise.all([before, after].map(async hash => decodeWireDirectory(await load(hash))));
-  if (!left || !right) throw new Error("Missing accepted directory");
-  const { entries: _leftEntries, ...leftMetadata } = left;
-  const { entries: _rightEntries, ...rightMetadata } = right;
-  const paths: string[] = JSON.stringify(leftMetadata) === JSON.stringify(rightMetadata) ? [] : [parent || "/"];
-  for (const name of new Set([...left.entries, ...right.entries].map(e => e.name))) {
-    const a = left.entries.find(e => e.name === name), b = right.entries.find(e => e.name === name), path = `${parent}/${name}`;
-    if (a?.directory && b?.directory) paths.push(...await changedEntryPaths(a.directory, b.directory, load, path));
-    else if (!same(entryValue(a), entryValue(b))) paths.push(path);
-  }
+export async function changedEntryPaths(before: string, after: string, load: Load | TreeReader): Promise<string[]> {
+  const paths: string[] = [];
+  const metadata = ({ entries: _entries, ...rest }: WireDirectory) => JSON.stringify(rest);
+  await walkTreeDiff(before as ObjectHash, after as ObjectHash, load, {
+    directory: ({ path, before: old, after: next }) => {
+      if (old && next && metadata(old.directory) !== metadata(next.directory)) paths.push(path);
+    },
+    entry: ({ path, before: a, after: b }) => {
+      if (a?.directory && b?.directory) return true;
+      if (!same(entryValue(a), entryValue(b))) paths.push(path);
+    },
+  });
   return paths;
 }
 

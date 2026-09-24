@@ -8,29 +8,27 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "16";
+export const CANOPY_SCHEMA_VERSION = "17";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
 export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree"],
-  reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
-    "id", "tree_id", "root", "previous_root", "previous_id", "conflicted", "kind", "accepted_at", "subject",
+    "ordinal", "id", "tree_id", "root", "previous_root", "previous_id", "conflicted", "kind", "accepted_at", "subject",
     "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json", "change_id",
   ],
   accepted_conflicts: ["accepted_id", "state_json"],
   accepted_merge_states: ["accepted_id", "record_json"],
-  authored_changes: ["tree_id", "change_id", "accepted_id", "basis_root", "candidate_root", "trace_json", "evidence_json"],
-  accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
+  authored_changes: ["accepted_id", "trace_json", "evidence_json"],
+  accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
   resource_policy: ["account_id", "tree_id", "rules_json"],
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
   tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
-  observations: ["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"],
   entry_metadata: ["tree_id", "path", "modified_at", "update_id", "data_json"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   meta: ["key", "value"],
@@ -55,14 +53,6 @@ export function createCanopySchema(db: Database): void {
       parent_tree TEXT
     )
   `);
-  db.run(`
-    CREATE TABLE reflog (
-      tree_id TEXT NOT NULL,
-      ref TEXT NOT NULL,
-      previous_ref TEXT,
-      changed_at INTEGER NOT NULL
-    )
-  `);
   AcceptedUpdateStore.createSchema(db);
   db.run(`
     CREATE TABLE accounts (
@@ -70,7 +60,6 @@ export function createCanopySchema(db: Database): void {
       handle TEXT NOT NULL UNIQUE,
       profile_tree TEXT,
       config_tree TEXT,
-      token_digest TEXT NOT NULL UNIQUE,
       enabled INTEGER NOT NULL DEFAULT 1,
       claim_digest TEXT
     )
@@ -160,7 +149,7 @@ export function assertCurrentCanopySchema(db: Database): void {
       issues.push(`${table} columns`);
     }
   }
-  for (const index of ["accepted_updates_request", "accepted_updates_change", "observations_tree_order", "document_versions_key"]) {
+  for (const index of ["accepted_updates_request", "accepted_updates_change", "accepted_updates_tree", "accepted_updates_root", "document_versions_key"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }
@@ -183,12 +172,6 @@ export function assertCurrentCanopySchema(db: Database): void {
   }
 }
 
-/** Additive read indexes do not change authority data or require a cutover. */
-export function ensureCanopyReadIndexes(db: Database): void {
-  db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
-  db.run("CREATE INDEX IF NOT EXISTS observations_update ON observations(update_id, ordinal)");
-}
-
 /** Open (creating and stamping if new, otherwise asserting) the Canopy SQLite database at `path`. */
 export function openCanopyDatabase(path: string): Database {
   const databaseExists = existsSync(path);
@@ -196,7 +179,6 @@ export function openCanopyDatabase(path: string): Database {
   try {
     if (databaseExists) assertCurrentCanopySchema(db);
     else db.transaction(() => createCanopySchema(db))();
-    db.transaction(() => ensureCanopyReadIndexes(db))();
   } catch (error) {
     db.close();
     throw error;

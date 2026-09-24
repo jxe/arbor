@@ -88,8 +88,9 @@ fifteen minutes; the rehearsal is where the time should go.
    ```
 5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Canopy is not
    running on the iPhone.
-6. **Deploy once.** `railway up --detach -y`, then poll `railway deployment
-   list` until the build succeeds (a few minutes). The new server finds the
+6. **Deploy once.** The service builds from GitHub `main`: push the verified
+   revision, then poll `railway deployment list` until the build succeeds (a few
+   minutes). `railway up` uploads are not configured for this service and fail. The new server finds the
    old schema stamp and serves maintenance mode by itself: health reports
    `maintenance`, every other route is 503, and ssh keeps working. No
    environment variable is involved.
@@ -101,8 +102,10 @@ fifteen minutes; the rehearsal is where the time should go.
 
    The report must match the rehearsal's roots exactly. The CLI prefixes its
    own notices to the output; `verify.ts` skips anything before the first `{`.
-   Then `railway redeploy -y` and poll health until it is `ok`, about a
-   minute.
+   Then `railway redeploy --from-source -y` (a plain `redeploy` rebuilds the
+   latest deployment, which may be a failed one) and poll `/` or a tree route
+   until it serves, about a minute. Never poll `/.arbor/health`: it is a full
+   audit and repeated calls exhaust the server's memory.
 8. **Bring the Mac back.** `bun run arbor daemon start`. If the migration
    changed any root, the daemon's private-state stamp makes it discard
    rebuildable state and re-place every tree from a snapshot; if roots are
@@ -165,6 +168,7 @@ than it understands. The stamps that have shipped:
 | 14 | Operation frames: authored changes carry `trace` frames (migration 012). |
 | 15 | Compact merge evidence and v3 merge states (migration 013). |
 | 16 | `entry_metadata` (per file entry: last accepted change) and `document_versions` (per Markdown document: accepted content versions), both written inside the accepted transaction and backfilled by replaying accepted history (migration 014). No wire change is required of clients; the new `entry-metadata` read is additive. |
+| 17 | One accepted history (migration 015): `observations` folds into `accepted_updates.ordinal` (the `INTEGER PRIMARY KEY AUTOINCREMENT` cursor; every accepted update keeps its old cursor, legacy status cursors resync); `reflog` is dropped; `authored_changes` keeps only the trace and evidence beside its `accepted_id`; `accepted_updates_tree` and `accepted_updates_root` are schema indexes; the unread `accounts.token_digest` is dropped (authentication reads device digests only). No wire change. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local
@@ -172,7 +176,7 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent migration directory (today `014-entry-metadata/`) as the template: a `README.md` with the
+Copy the most recent migration directory (today `015-compact-history/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
 a `migrate.test.ts` runnable with

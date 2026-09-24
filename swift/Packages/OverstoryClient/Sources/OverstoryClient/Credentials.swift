@@ -1,3 +1,4 @@
+import CanopyAppKit
 import Overstory
 import CryptoKit
 import Foundation
@@ -80,11 +81,7 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
 
     public func save(_ credential: String, origin: URL) throws {
         guard !credential.isEmpty else { throw ArborWireValidationError.invalidValue("Credential is empty") }
-        try forget(origin: origin)
-        var query = baseQuery(origin: origin)
-        query[kSecValueData as String] = Data(credential.utf8)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw OSStatusError(status) }
+        try store(Data(credential.utf8), query: baseQuery(origin: origin))
     }
 
     public func forget(origin: URL) throws {
@@ -164,15 +161,16 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
     private func accountKey(_ configurationTree: String) -> String { "account:\(configurationTree)" }
 
     private func pendingKey(origin: URL, pairingID: String) -> String {
-        let digest = SHA256.hash(data: Data("\(origin.absoluteString)\u{0}\(pairingID)".utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        return "pending:\(digest)"
+        "pending:\(hexDigest("\(origin.absoluteString)\u{0}\(pairingID)"))"
     }
 
     private func pendingAccountKey(_ account: URL) -> String {
-        let digest = SHA256.hash(data: Data(account.absoluteString.utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        return "pending-account:\(digest)"
+        "pending-account:\(hexDigest(account.absoluteString))"
+    }
+
+    /// Lowercase SHA-256 hex of `text`, without the `sha256:` prefix of an object hash.
+    private func hexDigest(_ text: String) -> String {
+        String(WireObjectCodec.hash(Data(text.utf8)).dropFirst("sha256:".count))
     }
 
     private func loadValue(account: String, service: String? = nil) throws -> String? {
@@ -189,10 +187,21 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
     }
 
     private func saveValue(_ value: String, account: String, service: String? = nil) throws {
-        try forgetValue(account: account, service: service)
-        var query = baseQuery(account: account, service: service)
-        query[kSecValueData as String] = Data(value.utf8)
-        let status = SecItemAdd(query as CFDictionary, nil)
+        try store(Data(value.utf8), query: baseQuery(account: account, service: service))
+    }
+
+    /// Add the item, or replace an existing item's data in place, so a failed
+    /// write never leaves the previous value deleted.
+    private func store(_ data: Data, query: [String: Any]) throws {
+        var item = query
+        item[kSecValueData as String] = data
+        var status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            var match = query
+            var attributes: [String: Any] = [kSecValueData as String: data]
+            attributes[kSecAttrAccessible as String] = match.removeValue(forKey: kSecAttrAccessible as String)
+            status = SecItemUpdate(match as CFDictionary, attributes as CFDictionary)
+        }
         guard status == errSecSuccess else { throw OSStatusError(status) }
     }
 
@@ -372,18 +381,35 @@ public actor StoredDeviceCredentialProvider: WireCredentialProvider {
     }
 
     public func credential() async throws -> String? { try await store.load(origin: origin) }
+    public func invalidate() {}
 }
 
+/// Reads the account credential from the store once and reuses it until Canopy
+/// rejects it, rather than querying the Keychain for every request.
 public actor AccountStoredCredentialProvider: WireCredentialProvider {
     private let configurationTree: String
     private let store: any AccountCredentialStore
+    private var cached: String?
+    private var generation = 0
 
     public init(configurationTree: String, store: any AccountCredentialStore) {
         self.configurationTree = configurationTree
         self.store = store
     }
 
-    public func credential() async throws -> String? { try await store.load(configurationTree: configurationTree) }
+    public func credential() async throws -> String? {
+        if let cached { return cached }
+        let loadedGeneration = generation
+        let value = try await store.load(configurationTree: configurationTree)
+        // A rejection while the store was being read makes this value suspect.
+        if generation == loadedGeneration { cached = value }
+        return value
+    }
+
+    public func invalidate() {
+        cached = nil
+        generation += 1
+    }
 }
 
 /// Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix
@@ -434,9 +460,7 @@ public actor NativeAccountService {
         credentials: any AccountCredentialStore = KeychainDeviceCredentialStore(),
         legacyCredentials: (any DeviceCredentialStore)? = KeychainDeviceCredentialStore(),
         session: URLSession = .shared,
-        retryDelay: @escaping ArborWireClient.RetryDelay = { attempt in
-            try await Task.sleep(for: .milliseconds(attempt == 1 ? 100 : 500))
-        }
+        retryDelay: @escaping ArborWireClient.RetryDelay = ArborWireClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.configurationTree = configurationTree
@@ -466,7 +490,7 @@ public actor NativeAccountService {
                 deviceID: try generatedDeviceID(),
                 deviceLabel: cleanLabel,
                 credential: credential,
-                credentialDigest: "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined(),
+                credentialDigest: WireObjectCodec.hash(Data(credential.utf8)),
                 stage: .prepared
             )
             try await credentials.savePending(pending)
@@ -540,7 +564,7 @@ public actor NativeAccountService {
             let configurationTree = try generatedID(prefix: "tr")
             let deviceID = try generatedID(prefix: "dv")
             let credential = try randomSecret()
-            let credentialDigest = "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
+            let credentialDigest = WireObjectCodec.hash(Data(credential.utf8))
             let configuration = try initialAccountConfiguration(
                 profileTree: identity.profileTree,
                 configurationTree: configurationTree,
@@ -583,8 +607,9 @@ public actor NativeAccountService {
         let result: WireAccountClaimResult
         do {
             result = try await wire.joinAccount(request(pending))
-        } catch {
-            guard String(describing: error).localizedCaseInsensitiveContains("challenge is expired") else { throw error }
+        } catch let error as WireHTTPError
+            // canopyd reports an expired challenge only as an invalid request with this message.
+            where error.code == "invalid-request" && error.message?.localizedCaseInsensitiveContains("challenge is expired") == true {
             let challenge = try await wire.createAccountChallenge(
                 account: account.absoluteString,
                 profileTree: pending.profileTree,
@@ -719,32 +744,13 @@ public actor NativeAccountService {
         let prepared = try await wire.prepareUpdate(
             tree: configuration.id,
             base: WireUpdateBase(root: configuration.root, update: configuration.update),
-            snapshot: candidate
+            snapshot: candidate,
+            ifCurrent: configuration.update
         )
         _ = try await wire.submitUpdate(prepared)
         return try await self.access(tree: tree)
     }
 
-    public func createAccessLink(tree: String, access: String) async throws -> NativeAccessLink {
-        guard access == "read" || access == "write" else {
-            throw ArborWireValidationError.invalidValue("An access link must allow viewing or editing")
-        }
-        let secret = try randomSecret()
-        let digest = "sha256:" + SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
-        let updated = try await setAccess(
-            tree: tree,
-            target: .existing(.link(digest: digest)),
-            access: access
-        )
-        guard var components = URLComponents(string: updated.canonical) else {
-            throw ArborWireValidationError.invalidValue("The tree has no valid canonical URL")
-        }
-        components.fragment = "arbor-access=\(secret)"
-        guard let url = components.url else {
-            throw ArborWireValidationError.invalidValue("The access-link URL could not be created")
-        }
-        return NativeAccessLink(url: url)
-    }
     public func configurationID() -> String? { configurationTree }
     public func forget() async throws {
         if let configurationTree {
@@ -781,10 +787,7 @@ public actor NativeAccountService {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
             throw ArborWireValidationError.invalidValue("Could not generate device credential")
         }
-        return Data(bytes).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        return Data(bytes).base64URLEncodedString()
     }
 
     private func generatedDeviceID() throws -> String { try generatedID(prefix: "dv") }
@@ -798,7 +801,7 @@ public actor NativeAccountService {
 
     private func resolveProfile(_ input: String, using client: ArborWireClient) async throws -> String {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil { return value }
+        if TreeID.isWellFormed(value) { return value }
         let path: String
         if value.hasPrefix("~") {
             path = "/\(value)"

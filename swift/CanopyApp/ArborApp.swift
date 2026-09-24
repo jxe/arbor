@@ -76,18 +76,7 @@ private struct ArborNavigationCommands: Commands {
             Button("Reveal Page in Finder") { commands?.revealPageInFinder() }
                 .disabled(commands?.canRevealPageInFinder != true)
             Divider()
-            Button("Back") { commands?.goBack() }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(commands?.canGoBack != true)
-            Button("Forward") { commands?.goForward() }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(commands?.canGoForward != true)
-            Button("Go to Parent") { commands?.goParent() }
-                .keyboardShortcut(.upArrow, modifiers: .command)
-                .disabled(commands?.canGoParent != true)
-            Button("Home") { commands?.goHome() }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
-                .disabled(commands?.canGoHome != true)
+            historyNavigationItems
             Divider()
             Button("Restore Page") { commands?.restorePage() }
                 .disabled(commands?.canRestorePage != true)
@@ -155,18 +144,7 @@ private struct ArborNavigationCommands: Commands {
             Divider()
 #endif
 #if os(iOS)
-            Button("Back") { commands?.goBack() }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(commands?.canGoBack != true)
-            Button("Forward") { commands?.goForward() }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(commands?.canGoForward != true)
-            Button("Go to Parent") { commands?.goParent() }
-                .keyboardShortcut(.upArrow, modifiers: .command)
-                .disabled(commands?.canGoParent != true)
-            Button("Home") { commands?.goHome() }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
-                .disabled(commands?.canGoHome != true)
+            historyNavigationItems
 #endif
             Button("Source and Properties…") { commands?.showSource() }
                 .keyboardShortcut("i", modifiers: .command)
@@ -215,6 +193,22 @@ private struct ArborNavigationCommands: Commands {
             ArborEditorFormatMenuItems()
         }
 #endif
+    }
+
+    /// Back, Forward, Go to Parent, and Home: under File on macOS and View on iOS.
+    @ViewBuilder private var historyNavigationItems: some View {
+        Button("Back") { commands?.goBack() }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(commands?.canGoBack != true)
+        Button("Forward") { commands?.goForward() }
+            .keyboardShortcut("]", modifiers: .command)
+            .disabled(commands?.canGoForward != true)
+        Button("Go to Parent") { commands?.goParent() }
+            .keyboardShortcut(.upArrow, modifiers: .command)
+            .disabled(commands?.canGoParent != true)
+        Button("Home") { commands?.goHome() }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .disabled(commands?.canGoHome != true)
     }
 
 #if os(macOS)

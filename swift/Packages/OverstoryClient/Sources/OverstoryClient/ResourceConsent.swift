@@ -1,3 +1,4 @@
+import CanopyAppKit
 import Foundation
 import Overstory
 import Yams
@@ -48,7 +49,7 @@ public extension ArborAccountConfigurationYAML {
         // No implicit conversion while the coordinated migration is pending.
         try validatePolicyYAML(source)
         var resources = try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source)
-        guard tree.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil,
+        guard TreeID.isWellFormed(tree),
               tree != configurationTree else { throw ResourcePolicyError.invalid }
         let wasEmpty = resources.isEmpty
         let existed = resources[tree] != nil

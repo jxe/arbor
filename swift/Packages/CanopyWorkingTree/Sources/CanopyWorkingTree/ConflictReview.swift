@@ -70,13 +70,19 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     }
     public var title: String {
         guard let path, path != "/" else { return "Tree contents" }
-        let name = path.split(separator: "/").last.map(String.init) ?? path
-        return name == "_index.md" ? "Page contents" : name
+        var parts = path.split(separator: "/").map(String.init)
+        guard let name = parts.popLast() else { return path }
+        // A folder's page is named by its folder; the tree's own page is Home.
+        if name == "_index.md" || name == "_index.mdx" { return parts.last ?? "Home" }
+        for suffix in [".md", ".mdx"] where name.hasSuffix(suffix) { return String(name.dropLast(suffix.count)) }
+        return name
     }
     public var summary: String {
-        if alternatives.contains(where: { $0.value.absent == true }) { return "Deleted versus changed" }
-        if Set(alternatives.compactMap { $0.placement?.path }).count > 1 { return "Different locations" }
-        return "\(alternatives.count) alternatives"
+        if alternatives.contains(where: { $0.value.absent == true }) { return "Deleted in one version, kept in another" }
+        if Set(alternatives.compactMap { $0.placement?.path }).count > 1 { return "Moved to different places" }
+        if sourceRange != nil { return "Edited in two places" }
+        if alternatives.contains(where: { $0.value.directory != nil }) { return "Folder changed in two ways" }
+        return "\(alternatives.count) versions of this file"
     }
     public var sourceRange: Range<Int>? {
         guard kind == "content", affected.count == 1, let range = affected[0].range,
@@ -85,11 +91,12 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
               affected[0].path != nil else { return nil }
         return range[0]..<range[1]
     }
+    /// What resolving this decision replaces, in the person's terms.
     public var scope: String {
-        if let range = sourceRange { return "Resolves source bytes \(range.lowerBound)–\(range.upperBound) in \(path ?? "this page"); surrounding source stays intact" }
-        if path == "/" { return "Resolves a choice affecting the whole tree" }
-        if alternatives.contains(where: { $0.value.directory != nil }) { return "Resolves this directory choice" }
-        return "Resolves this whole-page choice"
+        if sourceRange != nil { return "Part of \(title)" }
+        if path == "/" { return "The whole tree" }
+        if alternatives.contains(where: { $0.value.directory != nil }) { return "The folder \(title)" }
+        return "The whole file \(path ?? title)"
     }
     /// Whether this decision can be resolved without other declarations.
     /// Group compilation separately checks every structural and material obligation.
@@ -178,8 +185,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         return issues
     }
     public func fingerprint() throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return WireObjectCodec.hash(try encoder.encode(self))
+        WireObjectCodec.hash(try sortedKeysJSON(self))
     }
     /// The same draft pinned to `current`, when the accepted state moved but
     /// the draft's group and every decision in it (alternatives, hashes,
@@ -254,9 +260,8 @@ extension UpdateControlFiles {
         return journal
     }
     func writeReview(_ journal: ConflictReviewJournal) throws {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var next = journal; next.schema = 2
-        try atomicWrite(encoder.encode(next), to: directory.appending(path: "conflict-review.json"))
+        try atomicWrite(sortedKeysJSON(next), to: directory.appending(path: "conflict-review.json"))
     }
 }
 

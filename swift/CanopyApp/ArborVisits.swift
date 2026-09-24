@@ -235,8 +235,8 @@ struct ArborVisitFollower: Sendable {
             } catch {
                 reconnectAttempt += 1
             }
-            let backoff = Duration.milliseconds(250 * (1 << min(reconnectAttempt, 5)))
-            do { try await Task.sleep(for: min(backoff, maximumReconnectDelay)) } catch { return }
+            let backoff = observationReconnectDelay(afterFailures: reconnectAttempt, maximum: maximumReconnectDelay)
+            do { try await Task.sleep(for: backoff) } catch { return }
         }
     }
 

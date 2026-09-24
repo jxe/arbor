@@ -16,6 +16,10 @@ import OSLog
 /// platform-served file. Resubmission reads envelopes only from the persisted
 /// attempt, never from a live object store.
 public actor UpdateCoordinator {
+    private static let syncLog = Logger(subsystem: "org.arbor.native", category: "Sync")
+    private static let admissionLog = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
+    private static let publicationLog = Logger(subsystem: "org.arbor.native", category: "SourcePublication")
+
     private let workingTree: WorkingTree
     private let transport: any UpdateTransport
     private let sourceObjectStore: (any ObjectStore)?
@@ -41,6 +45,12 @@ public actor UpdateCoordinator {
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
     private var localView: (key: LocalViewKey, tree: WorkingTree)?
+    /// The conflict-review journal as last read or written by this coordinator,
+    /// its only writer; nil until first read or after an uncertain write.
+    private var reviewJournal: ConflictReviewJournal?
+    /// The latest base walked by `retainedObjectHashes`. A root names an
+    /// immutable graph, so its hash set never goes stale.
+    private var retainedByBase: (root: String, hashes: Set<String>)?
 
     public init(
         workingTree: WorkingTree,
@@ -140,14 +150,12 @@ public actor UpdateCoordinator {
     ) throws -> UpdateAttempt {
         guard let last = request.updates.last else { throw UpdateError.requestEmpty }
         let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
         return UpdateAttempt(
             tree: tree,
             base: base,
             candidate: last.candidate,
             generation: generation,
-            body: try encoder.encode(request),
+            body: try sortedKeysJSON(request),
             requestDigests: digests,
             digest: digests.last!
         )
@@ -191,7 +199,8 @@ public actor UpdateCoordinator {
             let admission = latestAdmission
             Task { [weak self] in
                 guard let self else { return }
-                _ = try? await self.synchronize(admission: admission, extendExistingAttempt: extend)
+                do { _ = try await self.synchronize(admission: admission, extendExistingAttempt: extend) }
+                catch { Self.syncLog.error("scheduled publication failed: \(String(describing: error), privacy: .public)") }
             }
         case .submit, .apply, .catchUp, .stop:
             // Submission, materialization, and catch-up are performed inline by
@@ -241,7 +250,7 @@ public actor UpdateCoordinator {
     public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         let heads = try await workingTree.heads()
-        let reviewPending = try files.loadReview().attempt != nil
+        let reviewPending = try loadReview().attempt != nil
         if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
@@ -264,17 +273,16 @@ public actor UpdateCoordinator {
             try await recordObservedCursor(event)
             return presentation
         }
-        if let requestDigest = event.requestDigest, control.attempt == nil,
+        if event.requestDigest != nil, control.attempt == nil,
            control.sourceAcceptedChanges != nil || heads.acceptedUpdate != nil,
            event.tree.update.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8),
            event.tree.root == heads.acceptedRoot {
             // Our own accepted update, already installed from its response: only
             // the observation cursor is new, so a reconnect need not replay it.
-            _ = requestDigest
             try await recordObservedCursor(event)
             return try await presentation()
         }
-        let reviewPending = try files.loadReview().attempt != nil
+        let reviewPending = try loadReview().attempt != nil
         if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
@@ -328,7 +336,8 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: final.update.id,
                 cursor: event.id,
-                mode: .sparseFiles
+                mode: .sparseFiles,
+                acceptedAt: Date(timeIntervalSince1970: final.update.acceptedAt / 1_000)
             )
             try await workingTree.replaceFromSystem(replacement)
         }
@@ -472,29 +481,35 @@ public actor UpdateCoordinator {
     }
 
     private func persistHead() async throws {
-        let heads = try await workingTree.heads()
-        guard heads.pendingRoot != nil else { return }
-        let base = try currentBase(heads: heads)
-        let candidate = try await candidateObjects(base: base.root)
-        // Another page can advance the shared tree while its objects are read.
-        // Persist the latest complete generation rather than acknowledging an
-        // older callback without retaining either generation.
-        guard candidate.root == heads.materializedRoot,
-              try await workingTree.heads().generation == heads.generation,
-              try currentBase(heads: heads) == base else {
-            try await persistHead()
-            return
+        var heads = try await workingTree.heads()
+        var base: WireUpdateBase
+        var candidate: (root: String, objects: [WireObjectEnvelope])
+        while true {
+            guard heads.pendingRoot != nil else { return }
+            base = try currentBase(heads: heads)
+            candidate = try await candidateObjects(base: base.root)
+            // Another page can advance the shared tree while its objects are read.
+            // Persist the latest complete generation rather than acknowledging an
+            // older callback without retaining either generation.
+            let latest = try await workingTree.heads()
+            if candidate.root == heads.materializedRoot, latest.generation == heads.generation,
+               try currentBase(heads: heads) == base { break }
+            heads = latest
         }
         let root = candidate.root
         var envelopes = candidate.objects
         guard control.head?.root != root || control.head?.base != base else { return }
+        // Spill the largest objects beside the control file until the rest fit inline.
         var spilled: [String] = []
-        if envelopes.reduce(0, { $0 + $1.bytes.count }) > UpdateHead.inlineByteCap {
-            for envelope in envelopes.sorted(by: { $0.bytes.count > $1.bytes.count }) {
+        var inlineBytes = envelopes.reduce(0) { $0 + $1.bytes.count }
+        if inlineBytes > UpdateHead.inlineByteCap {
+            for envelope in envelopes.sorted(by: { $0.bytes.count > $1.bytes.count }) where inlineBytes > UpdateHead.inlineByteCap {
                 try files.writeObject(envelope)
                 spilled.append(envelope.hash)
+                inlineBytes -= envelope.bytes.count
             }
-            envelopes.removeAll { spilled.contains($0.hash) }
+            let spilledHashes = Set(spilled)
+            envelopes.removeAll { spilledHashes.contains($0.hash) }
         }
         var retained = control
         retained.head = UpdateHead(
@@ -525,7 +540,12 @@ public actor UpdateCoordinator {
     private func candidateObjects(base: String) async throws -> (root: String, objects: [WireObjectEnvelope]) {
         let local = try await workingTree.localSnapshot()
         _ = try WireObjectGraph.validate(local, mode: .sparseFiles)
-        let retained = (try? await retainedObjectHashes(root: base)) ?? []
+        let retained: Set<String>
+        do { retained = try await retainedObjectHashes(root: base) } catch {
+            // Sending objects the base already retains is redundant, not wrong.
+            Self.syncLog.error("base walk failed; sending the whole local graph: \(String(describing: error), privacy: .public)")
+            retained = []
+        }
         return (local.root, local.objects.filter { !retained.contains($0.hash) })
     }
 
@@ -554,17 +574,22 @@ public actor UpdateCoordinator {
                 _ = try await submit(attempt)
             } catch {
                 // The durable prefix and latest replica head remain retryable.
+                Self.syncLog.error("reconnection resend failed: \(String(describing: error), privacy: .public)")
             }
             return
         }
-        let heads = try? await workingTree.heads()
-        if ((try? await hasSourceWork()) ?? false) || control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
-            _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
-        } else {
-            // A clean offline replica can still be behind Canopy. Reconnection
-            // is an authoritative catch-up boundary even when there is no local
-            // candidate to submit and no watch failure to trigger gap recovery.
-            _ = try? await recoverWatchGap()
+        do {
+            let heads = try await workingTree.heads()
+            if try await hasSourceWork() || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+                _ = try await synchronize(admission: nil, extendExistingAttempt: true)
+            } else {
+                // A clean offline replica can still be behind Canopy. Reconnection
+                // is an authoritative catch-up boundary even when there is no local
+                // candidate to submit and no watch failure to trigger gap recovery.
+                _ = try await recoverWatchGap()
+            }
+        } catch {
+            Self.syncLog.error("reconnection sync failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -607,7 +632,7 @@ public actor UpdateCoordinator {
         admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
-        if let review = try files.loadReview().attempt { return try await syncReviewAttempt(review) }
+        if let review = try loadReview().attempt { return try await syncReviewAttempt(review) }
         let sourcePending = try await hasSourceWork()
         if sourceOperationEmission, control.sourceAttemptChange != nil || (control.attempt == nil && sourcePending) {
             return try await syncSourcePass()
@@ -787,9 +812,8 @@ public actor UpdateCoordinator {
 
     /// Express the just-admitted Markdown edit as an object delta when the
     /// accepted base file is retained locally and the delta is smaller than the
-    /// complete result object. Deltas address canonical object bytes, so the
-    /// result's header (which carries the new payload length) is inserted and
-    /// unchanged payload ranges are copied at their base offsets.
+    /// complete result object. A file object is its payload, so unchanged
+    /// payload ranges are copied at their base offsets.
     private func immediateDelta(
         _ admission: WorkingTreePatchAdmission?,
         heads: WorkingTreeHeads,
@@ -797,10 +821,9 @@ public actor UpdateCoordinator {
         candidate: (root: String, objects: [WireObjectEnvelope])
     ) async throws -> WireObjectDelta? {
         func skip(_ reason: String) -> WireObjectDelta? {
-            var entry = WireNetworkLogEntry(kind: .note, name: "delta-skipped", tree: base.root.isEmpty ? nil : nil)
+            var entry = WireNetworkLogEntry(kind: .note, name: "delta-skipped")
             entry.error = reason
             entry.bytesOut = candidate.objects.reduce(0) { $0 + $1.bytes.count }
-            entry.bytesIn = candidate.objects.count
             WireNetworkLog.current?.record(entry)
             return nil
         }
@@ -828,28 +851,10 @@ public actor UpdateCoordinator {
         let reconstructed = try WireObjectCodec.encode(.file(resultPayload))
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
               reconstructed == resultEnvelope.bytes else { return skip("patched result does not match the candidate file") }
-
-        var instructions: [WireObjectDeltaInstruction] = []
-        var cursor = 0
-        for edit in admission.patch.edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
-            let lower = edit.utf8Range.lowerBound
-            guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return skip("patch edits overlap or exceed the base") }
-            if lower > cursor { instructions.append(.copy(offset: cursor, length: lower - cursor)) }
-            let replacement = Data(edit.replacement.utf8)
-            if !replacement.isEmpty { instructions.append(.insert(replacement)) }
-            cursor = edit.utf8Range.upperBound
+        guard let delta = SourceAdmissionRecord.delta(baseHash: admission.baseFile, base: basePayload,
+                                                      edits: admission.patch.edits, result: resultEnvelope) else {
+            return skip("delta is invalid, does not reproduce the result, or is not smaller than the file")
         }
-        if cursor < basePayload.count {
-            instructions.append(.copy(offset: cursor, length: basePayload.count - cursor))
-        }
-        let delta: WireObjectDelta
-        do {
-            delta = try WireObjectDelta(base: admission.baseFile, result: admission.resultFile, instructions: instructions).validated()
-            guard try delta.apply(to: baseBytes) == reconstructed else { return skip("delta does not reproduce the result") }
-        } catch { return skip("delta is invalid: \(error)") }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard try encoder.encode(delta).count < encoder.encode(resultEnvelope).count else { return skip("delta is not smaller than the file") }
         return delta
     }
 
@@ -967,7 +972,8 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: accepted.id,
                 cursor: nil,
-                mode: .sparseFiles
+                mode: .sparseFiles,
+                acceptedAt: Date(timeIntervalSince1970: accepted.acceptedAt / 1_000)
             )
             if heads.pendingRoot == nil {
                 try await workingTree.replaceFromSystem(replacement)
@@ -991,6 +997,7 @@ public actor UpdateCoordinator {
     /// hashes are collected from directory entries without fetching file bytes;
     /// directories are always materialized locally, so this never fetches.
     private func retainedObjectHashes(root: String) async throws -> Set<String> {
+        if let retainedByBase, retainedByBase.root == root { return retainedByBase.hashes }
         var pending = [(hash: root, isDirectory: true)]
         var visited = Set<String>()
         while let next = pending.popLast() {
@@ -998,13 +1005,12 @@ public actor UpdateCoordinator {
             guard next.isDirectory else { continue }
             let bytes = try await workingTree.objectBytes(hash: next.hash)
             guard case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else { continue }
-            // An entry's kind is unknown until its object is seen; peek the
-            // overlay-held prefix rather than fetching a file to learn it is one.
             for entry in entries {
                 guard let hash = entry.hash else { continue }
                 pending.append((hash, entry.directory != nil))
             }
         }
+        retainedByBase = (root, visited)
         return visited
     }
 
@@ -1030,19 +1036,24 @@ public actor UpdateCoordinator {
     func admitStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        return try await afterEarlierAdmissions { try await self.retainStructure(admission) }.value
+    }
+
+    /// Run `admission` after every earlier local admission settles, and make
+    /// later admissions wait for this one, whatever its outcome.
+    private func afterEarlierAdmissions<T: Sendable>(_ admission: @escaping @Sendable () async throws -> T) -> Task<T, any Error> {
         let previous = admissionTail
         let task = Task {
             await previous?.value
-            return try await self.retainStructure(admission)
+            return try await admission()
         }
         admissionTail = Task { _ = try? await task.value }
-        return try await task.value
+        return task
     }
 
     private func retainStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
         try requireOpen()
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let key = try encoder.encode(admission)
+        let key = try sortedKeysJSON(admission)
         guard try await sourceStructuralActionsAvailable() else { throw UpdateError.awaitingCanopyReconciliation }
         let prepared: (record: SourceAdmissionRecord, node: WorkspaceNode)
         if let previous = preparedStructures[key] { prepared = previous }
@@ -1106,7 +1117,7 @@ public actor UpdateCoordinator {
                     }
                 }
                 var creation: SourcePageCreation?
-                if case let .pageCreation(_, _, _, transaction, document) = admission {
+                if case let .pageCreation(_, _, _, _, document) = admission {
                     // Remove the first branch introduced by creation. A promoted
                     // Markdown parent's sibling body stays exactly where it was.
                     let parts = (node.reference.path + ".md").dropFirst().split(separator: "/").map(String.init)
@@ -1119,7 +1130,6 @@ public actor UpdateCoordinator {
                         guard let next = entry.directory else { throw ArborWireValidationError.invalidValue("Creation overwrote an existing entry") }
                         hash = next
                     }
-                    _ = transaction
                     creation = .init(document: document, removals: ["/" + prefix.joined(separator: "/")])
                 }
                 var record = try SourceAdmissionRecord(tree: await workingTree.treeID().rawValue, basis: basis,
@@ -1293,32 +1303,33 @@ public actor UpdateCoordinator {
             catch { await tree.close(); throw error }
             await tree.close()
         }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var document = captured.document
-        document.contentRevision = "source-candidate:" + (try encoder.encode(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()
+        document.contentRevision = "source-candidate:" + (try sortedKeysJSON(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()
         return CapturedSourceAdmissionBasis(document: document, graph: record.candidate, accepted: nil, sourcePath: captured.sourcePath)
     }
 
     public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        if let latest = try await pendingSourceRecords().last(where: { $0.document == nil || $0.document?.reference.identity == reference.identity }) {
-            let view = try await localSourceView(latest, reference: reference)
-            sourceViews[view.document.contentRevision] = view
-            return view.document
-        }
+        if let pending = try await pendingSourceSnapshot(reference) { return pending }
         let captured = try await workingTree.captureSourceAdmissionBasis(reference)
-        if let latest = try await pendingSourceRecords().last(where: { $0.document == nil || $0.document?.reference.identity == reference.identity }) {
-            let view = try await localSourceView(latest, reference: reference)
-            sourceViews[view.document.contentRevision] = view
-            return view.document
-        }
+        // An admission can be retained while the accepted basis is captured.
+        if let pending = try await pendingSourceSnapshot(reference) { return pending }
         guard let accepted = captured.accepted else { throw ArborWireValidationError.invalidValue("Legacy local work has no source admission dependency") }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let token = "source-accepted:" + (try encoder.encode(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
+        let token = "source-accepted:" + (try sortedKeysJSON(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
         var document = captured.document; document.contentRevision = token
         sourceViews[token] = CapturedSourceAdmissionBasis(document: document, graph: captured.graph, accepted: accepted, sourcePath: captured.sourcePath)
         return document
+    }
+
+    /// The hidden candidate view of `reference` when retained source work touches it.
+    private func pendingSourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot? {
+        guard let latest = try await pendingSourceRecords().last(where: {
+            $0.document == nil || $0.document?.reference.identity == reference.identity
+        }) else { return nil }
+        let view = try await localSourceView(latest, reference: reference)
+        sourceViews[view.document.contentRevision] = view
+        return view.document
     }
 
     private func localPredecessor(_ revision: String) throws -> String? {
@@ -1361,18 +1372,12 @@ public actor UpdateCoordinator {
     public func admitSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        let previous = admissionTail
-        let task = Task {
-            await previous?.value
-            return try await self.retainSourceIntent(intent)
-        }
-        admissionTail = Task { _ = try? await task.value }
-        let log = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
+        let task = afterEarlierAdmissions { try await self.retainSourceIntent(intent) }
+        let log = Self.admissionLog
         log.notice("retain begin edits=\(intent.patch.edits.count) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
         // it beside the network events so it can be weighed against them.
         var note = WireNetworkLogEntry(kind: .note, name: "admission-retain")
-        note.bytesIn = intent.patch.edits.count
         do {
             let result = try await task.value
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
@@ -1396,8 +1401,7 @@ public actor UpdateCoordinator {
         try requireOpen()
         try intent.validate()
         let queue = try await admissions()
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let intentBytes = try encoder.encode(intent)
+        let intentBytes = try sortedKeysJSON(intent)
         // Exact retries reuse the retained identity: the record remembers a
         // digest of the captured intent rather than the intent's sources.
         let digest = SourceAdmissionRecord.intentDigest(intent)
@@ -1442,13 +1446,12 @@ public actor UpdateCoordinator {
                 control.sourceAttemptChange = pending.change
                 try files.write(control)
                 try faultInjector.reached(.afterRequestPersistence)
-                notePersisted(attempt)
             }
             notePersisted(attempt)
             if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
             dispatch(.submitStarted(id: attempt.digest))
             try faultInjector.reached(.duringUpload)
-            let publicationLog = Logger(subsystem: "org.arbor.native", category: "SourcePublication")
+            let publicationLog = Self.publicationLog
             let started = Date()
             publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.allRequestDigests.count) bytes=\(attempt.body.count)")
             let response: WireUpdateResponse
@@ -1575,25 +1578,38 @@ extension UpdateCoordinator {
         return snapshot
     }
 
-    public func reviewDrafts() throws -> [ConflictReviewDraft] { try files.loadReview().drafts }
-    public func reviewSubmissionPending() throws -> Bool { try files.loadReview().attempt != nil }
+    private func loadReview() throws -> ConflictReviewJournal {
+        if let reviewJournal { return reviewJournal }
+        let journal = try files.loadReview()
+        reviewJournal = journal
+        return journal
+    }
+
+    private func writeReview(_ journal: ConflictReviewJournal) throws {
+        reviewJournal = nil
+        try files.writeReview(journal)
+        reviewJournal = journal
+    }
+
+    public func reviewDrafts() throws -> [ConflictReviewDraft] { try loadReview().drafts }
+    public func reviewSubmissionPending() throws -> Bool { try loadReview().attempt != nil }
 
     public func retainReviewDraft(_ draft: ConflictReviewDraft) async throws {
         guard draft.snapshot.tree.utf8.elementsEqual((await workingTree.treeID().rawValue).utf8) else { throw ConflictReviewError.unavailable }
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.drafts.removeAll { $0.id == draft.id }
         journal.drafts.append(draft)
-        try files.writeReview(journal)
+        try writeReview(journal)
     }
 
     public func discardReviewDraft(_ id: String) throws {
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         guard journal.attempt?.draft.id != id else { throw ConflictReviewError.publicationPending }
         journal.drafts.removeAll { $0.id == id }
-        try files.writeReview(journal)
+        try writeReview(journal)
     }
 
-    public func reviewContent(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> Data? {
+    public func reviewContent(_ alternative: ConflictReviewAlternative) async throws -> Data? {
         if let text = alternative.value.text { return Data(text.utf8) }
         guard let hash = alternative.value.file else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
@@ -1601,7 +1617,7 @@ extension UpdateCoordinator {
         return bytes
     }
 
-    public func reviewDirectory(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> [WireDirectoryEntry]? {
+    public func reviewDirectory(_ alternative: ConflictReviewAlternative) async throws -> [WireDirectoryEntry]? {
         guard let hash = alternative.value.directory else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
         guard WireObjectCodec.hash(bytes) == hash,
@@ -1618,13 +1634,13 @@ extension UpdateCoordinator {
         try requireOpen()
         try await retainReviewDraft(draft)
         guard sourceOperationEmission, !syncActive, control.attempt == nil,
-              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+              try loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
         let fresh = try await inspectChoices()
         guard draft.isCurrent(in: fresh) else { throw ConflictReviewError.changed }
         let preview = try await prepareReviewPreview(draft, current: fresh)
         // New editor admissions can arrive during material loading.
         guard !(try await hasSourceWork()), !syncActive, control.attempt == nil,
-              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+              try loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
         let chosen = preview.operations ?? []
         let update = WireCandidateUpdate(candidate: preview.candidate.root,
             trace: chosen.isEmpty ? nil : [WireTraceFrame(before: fresh.root, after: preview.candidate.root, operations: chosen)],
@@ -1633,9 +1649,9 @@ extension UpdateCoordinator {
         let base = WireUpdateBase(root: fresh.root, update: fresh.state)
         let request = WireUpdateRequest(base: base.update, updates: [update])
         let attempt = try Self.attempt(tree: fresh.tree, base: base, generation: 0, request: request)
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.attempt = .init(draft: draft, request: attempt)
-        try files.writeReview(journal)
+        try writeReview(journal)
         _ = try await synchronize(admission: nil)
     }
 
@@ -1690,16 +1706,19 @@ extension UpdateCoordinator {
             throw ArborWireValidationError.invalidValue("Retained review request does not match its evidence")
         }
         // Reestablish durability if an earlier atomic write returned an uncertain error.
-        try files.writeReview(files.loadReview())
+        try writeReview(loadReview())
         let response: WireUpdateResponse
         do {
             response = try await transport.submit(.init(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
         } catch is WireUpdateConflictError {
             // A definite rejection cannot have applied. Preserve the authored
             // draft, retire only this request, and let ordinary publication run.
-            var journal = try files.loadReview(); journal.attempt = nil
-            try files.writeReview(journal)
-            Task { [weak self] in _ = try? await self?.syncOnce() }
+            var journal = try loadReview(); journal.attempt = nil
+            try writeReview(journal)
+            Task { [weak self] in
+                do { _ = try await self?.syncOnce() }
+                catch { Self.syncLog.error("publication after review rejection failed: \(String(describing: error), privacy: .public)") }
+            }
             throw ConflictReviewError.changed
         }
         guard response.results.map(\.requestDigest) == attempt.allRequestDigests else {
@@ -1715,12 +1734,12 @@ extension UpdateCoordinator {
         let heads = try await workingTree.heads()
         _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
         await workingTree.invalidateDocumentViews()
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.attempt = nil
         // A later edited draft is never retired by an earlier submission.
         let submittedFingerprint = try retained.draft.fingerprint()
         journal.drafts = try journal.drafts.filter { try $0.fingerprint() != submittedFingerprint }
-        try files.writeReview(journal)
+        try writeReview(journal)
         syncAgain = try await hasSourceWork()
         return try await presentation()
     }

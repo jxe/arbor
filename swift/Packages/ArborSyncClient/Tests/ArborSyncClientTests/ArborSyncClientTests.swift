@@ -33,8 +33,8 @@ final class ArborSyncClientTests: XCTestCase {
 
     func testSharedFixturesDecodeWithoutAppDependencies() throws {
         let status = try decode(ArborSyncStatus.self, "status.json")
-        let error = try decode(ArborSyncErrorEnvelope.self, "error.json")
-        let errors = try decode([ArborSyncErrorEnvelope].self, "errors.json")
+        let error = try decode(ArborSyncErrorValue.self, "error.json")
+        let errors = try decode([ArborSyncErrorValue].self, "errors.json")
         let conflict = try decode(ArborSyncConflictWorkspace.self, "conflict-workspace.json")
         let credential = try decode(TreeCredential.self, "credential.json")
         let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
@@ -49,8 +49,8 @@ final class ArborSyncClientTests: XCTestCase {
 
         XCTAssertEqual(status.instanceID, "instance-fixture-01")
         XCTAssertEqual(status.runtimeKind, "cloud")
-        XCTAssertEqual(error.error, "future-error-code")
-        XCTAssertEqual(errors.last?.error, "future-error-code")
+        XCTAssertEqual(error.code, "future-error-code")
+        XCTAssertEqual(errors.last?.code, "future-error-code")
         XCTAssertEqual(conflict.items.first?.draft.text, "both\n")
         XCTAssertEqual(conflict.items.first?.offersBoth, true)
         XCTAssertFalse(credential.token.isEmpty)
@@ -201,12 +201,36 @@ final class ArborSyncClientTests: XCTestCase {
 
         let resolved = try await client.resolve("arbor://example.test/~alice/notes/today")
 
-        XCTAssertEqual(resolved.ref.stableKey, pageIDStableKey("abc123"))
+        XCTAssertEqual(resolved.ref.stableKey, markdownStableKey("abc123"))
         XCTAssertEqual(resolved.ref.tree, "tr_notes7f3q2ab7c")
         let captured = await URLProtocolStub.state.snapshot()
         let request = try XCTUnwrap(captured.requests.first)
         XCTAssertEqual(request.path, "/v1/resolve")
         XCTAssertEqual(request.query, "locator=arbor://example.test/~alice/notes/today")
+    }
+
+    func testObservationStreamWaitsBeforeReconnectingAfterACleanClose() async throws {
+        let source = try Data(contentsOf: fixtures.appending(path: "events.sse"))
+        await URLProtocolStub.state.install { request, _ in
+            request.url?.path == "/v1/events" ? (200, source) : (404, Data(#"{"error":"not-found"}"#.utf8))
+        }
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "http://127.0.0.1:4317")!,
+            session: stubSession()
+        )
+
+        // Dropping the stream at the end of this scope cancels its reconnect loop.
+        let snapshot = try await {
+            var observations = await client.observations(after: "start").makeAsyncIterator()
+            let event = try await observations.next()
+            XCTAssertEqual(event?.cursor, "11111111-1111-1111-1111-111111111111:5")
+            try await Task.sleep(for: .milliseconds(600))
+            return await URLProtocolStub.state.snapshot()
+        }()
+        XCTAssertGreaterThanOrEqual(snapshot.count, 2)
+        XCTAssertLessThanOrEqual(snapshot.count, 4)
+        XCTAssertEqual(snapshot.requests.first?.query, "after=start")
+        XCTAssertEqual(snapshot.requests.last?.query, "after=11111111-1111-1111-1111-111111111111:5")
     }
 
     private func stubSession() -> URLSession {

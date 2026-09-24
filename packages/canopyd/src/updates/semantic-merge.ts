@@ -277,8 +277,7 @@ export class SemanticMerge {
     if (state.tree !== tree) throw new Error("Merge state tree mismatch");
     const legacy = new Map(
       (state.decisions.length ? new ConflictStore(this.db)
-        .all()
-        .filter((row) => this.updates.get(row.accepted)?.tree === tree)
+        .forTree(tree)
         .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
     );
     const decisionID = (key: string) =>
@@ -335,14 +334,16 @@ export class SemanticMerge {
           id([tree, "alternative", d.key, index]),
         revision: id([a.object, a.state, a.contributions]),
         value:
-          d.kind === "content" ? { file: a.object } : { directory: a.object },
+          d.kind === "existence"
+            ? a.node ? { file: a.object } : { absent: true as const }
+            : d.kind === "content" ? { file: a.object } : { directory: a.object },
         contributions: [
           ...new Map(
             a.contributions.map((c) => [stableJSONString(c), c])
           ).values(),
         ],
       }));
-      const entry = d.kind === "content" && d.placement && !d.subject?.range;
+      const entry = (d.kind === "content" && d.placement && !d.subject?.range) || d.kind === "existence";
       const logical = entry
         ? d.subject?.material.kind === "basis"
           ? d.subject.material.path
@@ -362,7 +363,7 @@ export class SemanticMerge {
         affected: entry ? [parent] : affected,
         selected: alternatives[d.selected]!.id,
         alternatives: entry
-          ? alternatives.map((a) => ({ ...a, placement: { parent, name } }))
+          ? alternatives.map((a) => "absent" in a.value ? a : { ...a, placement: { parent, name } })
           : alternatives,
         dependencies: d.dependencies.map(decisionID),
         actions: ["resolveConflict"],

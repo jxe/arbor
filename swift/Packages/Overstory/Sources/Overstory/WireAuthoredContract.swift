@@ -15,22 +15,6 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
         var c = encoder.singleValueContainer()
         try c.encode(fields)
     }
-    public func identities(tree: String) throws -> [(bytes: Data, digest: String)] {
-        try Self.token(.string(tree))
-        var base = fields["base"]!.cbor
-        return fields["updates"]!.items!.map { raw in
-            let u = raw.fields!
-            let bytes = CanonicalCBOR.encode(.map([
-                ("domain", .text("arbor-update/2")), ("tree", .text(tree)), ("base", base),
-                ("change", u["change"]!.cbor), ("candidate", u["candidate"]!.cbor),
-                ("trace", u["trace"]!.cbor), ("resolves", u["resolves"]!.cbor),
-                ("ifCurrent", u["ifCurrent"]?.cbor ?? .null)
-            ]))
-            let digest = WireObjectCodec.hash(bytes)
-            base = .map([("requestDigest", .text(digest)), ("candidate", u["candidate"]!.cbor)])
-            return (bytes, digest)
-        }
-    }
     static func validateMaterialReference(_ value: WireSemanticValue, entry: Bool = false) throws {
         try reference(value, entry: entry)
     }

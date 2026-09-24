@@ -13,7 +13,7 @@
  *
  *   bun swift/scripts/hosted-smoke.ts [extra xcodebuild arguments]
  *
- * The Xcode project must already be generated (`cd native && xcodegen
+ * The Xcode project must already be generated (`cd swift && xcodegen
  * generate`). Nothing here touches the user's real `~/.arbor` or Application
  * Support: the data home is the scheme's disposable one and the app's support
  * state for the test tree lives under the test host's own container.
@@ -93,7 +93,7 @@ try {
       TEST_RUNNER_ARBOR_DATA_HOME: dataHome,
       TEST_RUNNER_ARBOR_TEST_BUNDLED_HELPER: "1",
     },
-    join(repository, "native"),
+    join(repository, "swift"),
   );
 } finally {
   canopy.server.stop(true);

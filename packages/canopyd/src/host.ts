@@ -1,4 +1,5 @@
 import { IntentError } from "../../canopyd-merge/src/intent-model.ts";
+import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
@@ -184,7 +185,7 @@ function bodySnapshot(body: unknown): TreeSnapshot {
 
 function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
   const account = accountFor(request, canopy);
-  if (!account) throw new Error("Account authentication is required");
+  if (!account) throw new AuthenticationRequiredError("Account authentication is required");
   return account;
 }
 
@@ -868,11 +869,9 @@ export async function serveCanopy(options: {
             : wireError("merge-failed", error.message, 422);
         }
         const message = error instanceof Error ? error.message : String(error);
-        if (/authentication is required/i.test(message)) return wireError("unauthenticated", message, 401);
-        if (/not allowed|only an administrator|may not edit|not active|active account device|permission/i.test(message)) {
-          return wireError("permission-denied", message, 403);
-        }
-        if (/unknown tree|not found/i.test(message)) return wireError("not-found", message, 404);
+        if (error instanceof AuthenticationRequiredError) return wireError("unauthenticated", message, 401);
+        if (error instanceof PermissionDeniedError) return wireError("permission-denied", message, 403);
+        if (error instanceof NotFoundError) return wireError("not-found", message, 404);
         return wireError("invalid-request", message, 400);
       }
       });

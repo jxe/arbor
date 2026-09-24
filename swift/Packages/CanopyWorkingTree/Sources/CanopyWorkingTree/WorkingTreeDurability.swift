@@ -25,7 +25,7 @@ public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
         indexesDirectory = root.appending(path: "indexes", directoryHint: .isDirectory)
         controlDirectory = root.appending(path: "control", directoryHint: .isDirectory)
         for directory in [root, materializedDirectory, journalsDirectory, indexesDirectory, controlDirectory] {
-            try createPrivateDirectory(directory)
+            try DurableFile.createPrivateDirectory(directory)
         }
     }
 
@@ -48,13 +48,13 @@ public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
         if FileManager.default.fileExists(atPath: indexesDirectory.path) {
             try FileManager.default.removeItem(at: indexesDirectory)
         }
-        try createPrivateDirectory(indexesDirectory)
-        try syncDirectory(root)
+        try DurableFile.createPrivateDirectory(indexesDirectory)
+        try DurableFile.syncDirectory(root)
     }
 
     public func writeJournal(pageKey: String, id: String, _ data: Data) throws -> String {
         let directory = journalsDirectory.appending(path: safeKey(pageKey), directoryHint: .isDirectory)
-        try createPrivateDirectory(directory)
+        try DurableFile.createPrivateDirectory(directory)
         let url = directory.appending(path: "\(safeKey(id)).json")
         try atomicWrite(data, to: url)
         return url.path
@@ -77,17 +77,45 @@ public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
     private func remove(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
-        try syncDirectory(url.deletingLastPathComponent())
+        try DurableFile.syncDirectory(url.deletingLastPathComponent())
     }
 
     private func atomicWrite(_ data: Data, to destination: URL) throws {
-        try createPrivateDirectory(destination.deletingLastPathComponent())
-        let temporary = destination.deletingLastPathComponent().appending(path: ".\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(
-            atPath: temporary.path,
-            contents: nil,
-            attributes: [.posixPermissions: 0o600]
-        ) else { throw WorkingTreeError.corruptState("Could not create durable temporary file") }
+        try DurableFile.createPrivateDirectory(destination.deletingLastPathComponent())
+        try DurableFile.atomicWrite(data, to: destination)
+    }
+
+    private func safeKey(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// Private directories and fsynced atomic replacement, shared by the working
+/// tree's files and the sync directory.
+enum DurableFile {
+    static func createPrivateDirectory(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+    }
+
+    static func syncDirectory(_ url: URL) throws {
+        let descriptor = Darwin.open(url.path, O_RDONLY)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    }
+
+    /// Write a private temporary sibling of `destination`, fsync it, rename it
+    /// into place, then fsync the directory so the rename is durable too.
+    static func atomicWrite(_ data: Data, to destination: URL) throws {
+        let directory = destination.deletingLastPathComponent()
+        let temporary = directory.appending(path: ".\(UUID().uuidString).tmp")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         do {
             let handle = try FileHandle(forWritingTo: temporary)
             try handle.write(contentsOf: data)
@@ -96,29 +124,10 @@ public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
             if Darwin.rename(temporary.path, destination.path) != 0 {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
-            try syncDirectory(destination.deletingLastPathComponent())
+            try syncDirectory(directory)
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error
         }
-    }
-
-    private func createPrivateDirectory(_ url: URL) throws {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-    }
-
-    private func syncDirectory(_ url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_RDONLY)
-        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { Darwin.close(descriptor) }
-        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    }
-
-    private func safeKey(_ value: String) -> String {
-        Data(value.utf8).base64EncodedString()
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "=", with: "")
     }
 }

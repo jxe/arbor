@@ -199,7 +199,6 @@ public actor ArborSyncRESTClient {
             tree: envelope.tree,
             accepted: envelope.accepted,
             spine: spine,
-            modifiedAtByPath: envelope.modifiedAtByPath ?? [:],
             observedThrough: envelope.observedThrough
         )
     }
@@ -257,47 +256,16 @@ public actor ArborSyncRESTClient {
                         if status >= 400 {
                             var data = Data()
                             for try await byte in bytes { data.append(byte) }
-                            let envelope = try decoder.decode(ArborSyncErrorEnvelope.self, from: data)
-                            throw ArborSyncServerError(status: status, value: envelope.value)
+                            throw ArborSyncServerError(status: status, value: try decoder.decode(ArborSyncErrorValue.self, from: data))
                         }
                         reconnectAttempt = 0
-                        var frame = Data()
+                        var parser = ArborSSEParser()
                         for try await byte in bytes {
-                            frame.append(byte)
-                            let boundaryLength: Int
-                            if frame.count >= 2 && frame.suffix(2).elementsEqual([10, 10]) {
-                                boundaryLength = 2
-                            } else if frame.count >= 4 && frame.suffix(4).elementsEqual([13, 10, 13, 10]) {
-                                boundaryLength = 4
-                            } else {
-                                continue
-                            }
-                            frame.removeLast(boundaryLength)
-                            let text = String(decoding: frame, as: UTF8.self)
-                                .replacingOccurrences(of: "\r\n", with: "\n")
-                            frame.removeAll(keepingCapacity: true)
-                            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-                            let eventID = lines.first(where: { $0.hasPrefix("id:") }).map {
-                                String($0.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                            }
-                            let eventKind = lines.first(where: { $0.hasPrefix("event:") }).map {
-                                String($0.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                            }
-                            let dataLines = lines
-                                .filter { $0.hasPrefix("data:") }
-                                .map { line in
-                                    String(line.dropFirst(5))
-                                        .replacingOccurrences(
-                                            of: #"^[ \t]"#,
-                                            with: "",
-                                            options: .regularExpression
-                                        )
-                                }
-                            if !dataLines.isEmpty {
-                                let data = Data(dataLines.joined(separator: "\n").utf8)
-                                if eventKind == "resync-required" {
+                            for frame in try parser.append(Data([byte])) {
+                                let data = Data(frame.data.utf8)
+                                if frame.event == "resync-required" {
                                     let event = try decoder.decode(LocalResyncObservation.self, from: data)
-                                    guard eventID == event.cursor, event.kind == eventKind else {
+                                    guard frame.id == event.cursor, event.kind == frame.event else {
                                         throw URLError(.cannotParseResponse)
                                     }
                                     throw ArborSyncServerError(
@@ -313,13 +281,14 @@ public actor ArborSyncRESTClient {
                                     )
                                 }
                                 let event = try decoder.decode(WorkspaceEvent.self, from: data)
-                                guard eventID == event.cursor, eventKind == event.kind else {
+                                guard frame.id == event.cursor, frame.event == event.kind else {
                                     throw URLError(.cannotParseResponse)
                                 }
                                 cursor = event.cursor
                                 continuation.yield(event)
                             }
                         }
+                        _ = try parser.finish()
                     } catch let error as ArborSyncServerError {
                         continuation.finish(throwing: error)
                         return
@@ -328,7 +297,12 @@ public actor ArborSyncRESTClient {
                         return
                     } catch {
                         reconnectAttempt += 1
-                        try await Task.sleep(for: .milliseconds(min(5_000, 250 * (1 << min(reconnectAttempt - 1, 5)))))
+                    }
+                    // A cleanly closed stream reconnects too, but never without a delay.
+                    do {
+                        try await Task.sleep(for: observationReconnectDelay(afterFailures: reconnectAttempt))
+                    } catch {
+                        break
                     }
                 }
                 continuation.finish()
@@ -355,13 +329,13 @@ public actor ArborSyncRESTClient {
 
     private func validate(data: Data, status: Int) throws {
         guard status >= 400 else { return }
-        let envelope = (try? decoder.decode(ArborSyncErrorEnvelope.self, from: data))
-            ?? ArborSyncErrorEnvelope(
-                error: "internal-error",
+        let value = (try? decoder.decode(ArborSyncErrorValue.self, from: data))
+            ?? ArborSyncErrorValue(
+                code: "internal-error",
                 message: HTTPURLResponse.localizedString(forStatusCode: status),
                 retryable: false
             )
-        throw ArborSyncServerError(status: status, value: envelope.value)
+        throw ArborSyncServerError(status: status, value: value)
     }
 
     private func statusCode(_ response: URLResponse) throws -> Int {
@@ -382,6 +356,5 @@ private struct TreeBootstrapEnvelope: Decodable {
     var tree: TreeBootstrapDescriptor
     var accepted: TreeBootstrapAccepted
     var spine: String
-    var modifiedAtByPath: [String: Double]?
     var observedThrough: String
 }

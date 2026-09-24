@@ -26,10 +26,14 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
         let configurationTree = self.configurationTree
         let task = Task { try await client.credential(configurationTree: configurationTree) }
         inFlight = task
-        defer { inFlight = nil }
-        let value = try await task.value
-        cached = value
-        return value
+        let result = await task.result
+        // An `invalidate()` during the fetch may have started a newer one; this
+        // older result must neither clear that fetch nor be cached over it.
+        if inFlight == task {
+            inFlight = nil
+            if case let .success(value) = result { cached = value }
+        }
+        return try result.get()
     }
 
     /// Forget the cached token so the next `credential()` asks the daemon again.
@@ -45,8 +49,8 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
 
 /// The daemon's `/v1/objects` route as a platform `ObjectStore`.
 ///
-/// The daemon already verifies every body it serves; this store verifies again on
-/// the client side so a corrupted loopback hop can never hand out wrong bytes.
+/// The daemon already verifies every body it serves; `ArborSyncRESTClient.object`
+/// verifies again on the client side so a corrupted loopback hop can never hand out wrong bytes.
 /// A `404` becomes `ObjectStoreError.missing` so a layered store can fall through.
 public struct DaemonObjectStore: ObjectStore {
     public let client: ArborSyncRESTClient
@@ -62,7 +66,7 @@ public struct DaemonObjectStore: ObjectStore {
 
     public func bytes(_ hash: String) async throws -> Data {
         do {
-            return try verifyObject(try await client.object(tree: tree, hash: hash, origin: origin), hash: hash)
+            return try await client.object(tree: tree, hash: hash, origin: origin)
         } catch let error as ArborSyncServerError where error.status == 404 {
             throw ObjectStoreError.missing(hash)
         } catch let error as ArborWireValidationError {

@@ -70,9 +70,8 @@ public struct CanopyWatchRunner: Sendable {
             } catch {
                 reconnectAttempt += 1
             }
-            let backoff = Duration.milliseconds(250 * (1 << min(reconnectAttempt, 5)))
             do {
-                try await Task.sleep(for: min(backoff, maximumReconnectDelay))
+                try await Task.sleep(for: observationReconnectDelay(afterFailures: reconnectAttempt, maximum: maximumReconnectDelay))
             } catch {
                 return
             }

@@ -74,6 +74,11 @@ another, so there are no base chains to protect when pruning.
   group whose live share falls below a threshold is rewritten with its live
   objects and the old file removed after the index moves. Nothing else
   references a group, so this is local.
+- **Pinning before any deletion** (from canopyd 009). Pruning or collection must
+  first pin every accepted and authored semantic root, all transitive hidden
+  and undo dependencies, staged inputs, and results awaiting commit. The
+  retention audit's closure is the pin set; an object outside it is the only
+  candidate. Coordinate with [fragment storage](002-composable-conflict-fragments.md).
 - **Audit.** `verifyIntegrity` reads through the same `ObjectStore`, so it walks
   groups sequentially instead of 35k files.
 

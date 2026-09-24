@@ -52,8 +52,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
 
     /// Digest of a captured intent, for exact-retry recognition without sources.
     public static func intentDigest(_ intent: WorkspaceDocumentIntent) -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return WireObjectCodec.hash((try? encoder.encode(intent)) ?? Data())
+        WireObjectCodec.hash((try? sortedKeysJSON(intent)) ?? Data())
     }
 
     /// The wire allows this many frames per element and this many operations
@@ -105,7 +104,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             }
         }
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
-              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }),
+              parts.allSatisfy(WireGraph.isPathComponent),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
         var decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
@@ -155,7 +154,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
             }
             let parts = document.path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard document.path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw Self.invalid("Invalid copy path") }
+            guard document.path.hasPrefix("/"), parts.allSatisfy(WireGraph.isPathComponent) else { throw Self.invalid("Invalid copy path") }
             // Other documents are untouched by this record, so their basis
             // object is the same in every frame's `before` tree.
             var hash = graph.root
@@ -237,15 +236,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             previousRoot = root; previousSource = generation.source
         }
         let root = previousRoot
-        var reachable = Set<String>()
-        func visit(_ hash: String, _ kind: WireEntryKind) throws {
-            guard reachable.insert(hash).inserted, let value = bytes[hash] else { return }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(value, kind: kind) {
-                for entry in entries { if let child = entry.hash, let kind = entry.kind { try visit(child, kind) } }
-            }
-        }
-        try visit(root, .directory)
-        let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
+        let candidate = try WireGraph.reachable(from: root, in: bytes)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
         if evidence, compact {
             // A compacted frame is proven against the generation sources it
@@ -269,7 +260,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             if let file = basisFile,
                let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
-               let delta = Self.delta(baseHash: file, baseSource: intent.basis.source, edits: intent.patch.edits, result: result) {
+               let delta = Self.delta(baseHash: file, base: Data(intent.basis.source.utf8), edits: intent.patch.edits, result: result) {
                 deltas.append(delta)
             }
             // Directories along the path change hash on every edit but differ
@@ -371,15 +362,14 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         if suffix > 0 { instructions.append(.copy(offset: base.count - suffix, length: suffix)) }
         guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
               (try? delta.apply(to: base)) == target else { return nil }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        guard let encodedDelta = try? encoder.encode(delta), let encodedResult = try? encoder.encode(result), encodedDelta.count < encodedResult.count else { return nil }
+        guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
     }
 
-    /// Copy/insert instructions from ordered, non-overlapping patch edits, only
-    /// when the delta reproduces the exact result bytes and is smaller than them.
-    static func delta(baseHash: String, baseSource: String, edits: [WorkspaceSourceEdit], result: WireObjectEnvelope) -> WireObjectDelta? {
-        let base = Data(baseSource.utf8)
+    /// Copy/insert instructions from ordered, non-overlapping patch edits over
+    /// the file payload `base`, only when the delta reproduces the exact result
+    /// bytes and is smaller than them.
+    static func delta(baseHash: String, base: Data, edits: [WorkspaceSourceEdit], result: WireObjectEnvelope) -> WireObjectDelta? {
         var instructions: [WireObjectDeltaInstruction] = []
         var cursor = 0
         for edit in edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
@@ -394,8 +384,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
               let baseObject = try? WireObjectCodec.encode(.file(base)),
               (try? delta.apply(to: baseObject)) == result.bytes else { return nil }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        guard let encodedDelta = try? encoder.encode(delta), let encodedResult = try? encoder.encode(result), encodedDelta.count < encodedResult.count else { return nil }
+        guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
     }
 
@@ -635,14 +624,19 @@ public actor SourceAdmissionQueue {
                     files.unlockSourceAdmissions(descriptor)
                     continue
                 }
-                var next = records
+                var added: [SourceAdmissionRecord] = []
+                var known = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
                 for record in batch {
-                    if let prior = next.first(where: { $0.change == record.change }) {
+                    if let prior = known[record.change] {
                         guard prior == record else { throw ArborWireValidationError.invalidValue("Authored identity was reused") }
-                    } else { next.append(record) }
+                    } else {
+                        added.append(record)
+                        known[record.change] = record
+                    }
                 }
-                try Self.validate(next, tree: tree)
-                try persist(next)
+                // Retained records were validated when they were loaded or retained.
+                try Self.validate(added, tree: tree, after: records)
+                try persist(records + added)
                 files.unlockSourceAdmissions(descriptor)
                 return
             } catch {
@@ -857,8 +851,9 @@ public actor SourceAdmissionQueue {
         )
     }
 
-    private static func validate(_ records: [SourceAdmissionRecord], tree: String) throws {
-        var prior: [String: SourceAdmissionRecord] = [:]
+    /// Validate `records` in order as successors of the already valid `retained`.
+    private static func validate(_ records: [SourceAdmissionRecord], tree: String, after retained: [SourceAdmissionRecord] = []) throws {
+        var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
             try record.validate()
             guard record.tree == tree, prior[record.change] == nil else { throw ArborWireValidationError.invalidValue("Invalid queue scope or duplicate identity") }

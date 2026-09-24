@@ -37,18 +37,23 @@ struct WireObjectTests {
     func replacingRootFile() throws {
         let first = try WireObjectCodec.object(.file(Data("before".utf8)))
         let second = try WireObjectCodec.object(.file(Data("untouched".utf8)))
+        let inner = try WireObjectCodec.object(.file(Data("nested".utf8)))
+        let nested = try WireObjectCodec.object(.directory([WireDirectoryEntry(name: "inner.txt", file: inner.hash)]))
         let root = try WireObjectCodec.object(.directory([
             WireDirectoryEntry(name: "first.txt", file: first.hash),
+            WireDirectoryEntry(name: "nested", directory: nested.hash),
             WireDirectoryEntry(name: "second.txt", file: second.hash),
         ]))
-        let snapshot = WireSnapshot(root: root.hash, objects: [first, second, root].sorted { $0.hash < $1.hash })
+        let snapshot = WireSnapshot(root: root.hash, objects: [first, second, inner, nested, root].sorted { $0.hash < $1.hash })
 
         let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8))
 
         #expect(try String(data: changed.rootFile(named: "first.txt"), encoding: .utf8) == "after")
         #expect(try String(data: changed.rootFile(named: "second.txt"), encoding: .utf8) == "untouched")
+        #expect(throws: ArborWireValidationError.incompleteGraph("nested")) { try changed.rootFile(named: "nested") }
         #expect(changed.root != snapshot.root)
-        #expect(try WireObjectGraph.validate(changed).count == 3)
+        #expect(try WireObjectGraph.validate(changed).count == 5)
+        #expect(!changed.objects.contains { $0.hash == first.hash || $0.hash == root.hash })
     }
 
     @Test("Swift reproduces every shared object byte and hash")
@@ -310,13 +315,21 @@ struct UpdateProtocolTests {
             let expected = try #require(Data(base64Encoded: entry["canonicalCBORBase64"] as! String), "\(name)")
             let encoded = CanonicalCBOR.encode(try cborValue(entry["value"] ?? NSNull()))
             #expect(encoded == expected, "\(name)")
-            #expect(canonicalCBORHash(encoded) == entry["hash"] as? String, "\(name)")
+            #expect(WireObjectCodec.hash(encoded) == entry["hash"] as? String, "\(name)")
             #expect(CanonicalCBOR.encode(try CanonicalCBOR.decode(expected)) == expected, "\(name)")
         }
         for entry in try #require(fixture["invalid"] as? [[String: Any]]) {
             let name = entry["name"] as? String ?? "?"
             let bytes = try #require(Data(base64Encoded: entry["canonicalCBORBase64"] as! String), "\(name)")
             #expect(throws: (any Error).self, "\(name)") { try CanonicalCBOR.decode(bytes) }
+        }
+    }
+
+    @Test("A declared collection length larger than the input is rejected without preallocating it")
+    func oversizedCollectionHeaders() {
+        let maximum: [UInt8] = [0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
+        for major: UInt8 in [0x9b, 0xbb, 0x5b, 0x7b] {
+            #expect(throws: ArborWireValidationError.self) { try CanonicalCBOR.decode(Data([major] + maximum + [0xf6])) }
         }
     }
 
@@ -569,6 +582,49 @@ struct UpdateProtocolTests {
         #expect(!captured.bodies[0].isEmpty)
         #expect(captured.bodies[0] == captured.bodies[1])
         #expect(captured.idempotencyKeys == [nil, nil])
+    }
+
+    @Test("A response that fails validation is not retried")
+    func invalidResponseIsNotRetried() async throws {
+        let file = try WireObjectCodec.object(.file(Data("mismatch".utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let baseHash = "sha256:" + String(repeating: "0", count: 64)
+        let otherDigest = "sha256:" + String(repeating: "2", count: 64)
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
+            credential: "device-token",
+            session: wireStubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_retry",
+            base: .init(root: baseHash, update: "up_base"),
+            snapshot: WireSnapshot(root: root.hash, objects: [file, root])
+        )
+        let response = Data("""
+        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        """.utf8)
+        await WireURLProtocolStub.state.install { _, _ in (201, response) }
+        await #expect(throws: ArborWireValidationError.invalidValue("Server response update-string identity mismatch")) {
+            _ = try await client.submitUpdate(prepared)
+        }
+        #expect(await WireURLProtocolStub.state.snapshot().count == 1)
+    }
+
+    @Test("A rejected credential is invalidated so the next request reads it again")
+    func unauthorizedInvalidatesCredential() async throws {
+        actor CountingProvider: WireCredentialProvider {
+            var invalidations = 0
+            func credential() -> String? { "device-token" }
+            func invalidate() { invalidations += 1 }
+        }
+        let provider = CountingProvider()
+        await WireURLProtocolStub.state.install { _, _ in
+            (401, Data(#"{"error":"unauthenticated","message":"Authentication is required","retryable":false}"#.utf8))
+        }
+        let client = ArborWireClient(origin: URL(string: "https://canopy.test")!, credentialProvider: provider, session: wireStubSession())
+        await #expect(throws: WireHTTPError.self) { _ = try await client.trees() }
+        #expect(await provider.invalidations == 1)
     }
 
     @Test("A conflict decodes completely and is not retried")

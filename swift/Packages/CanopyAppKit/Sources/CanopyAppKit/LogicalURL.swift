@@ -24,9 +24,11 @@ public enum ArborAuthority: Sendable, Equatable {
 }
 
 private let schemeExpression = try! NSRegularExpression(pattern: "^([a-zA-Z][a-zA-Z0-9+.-]*):")
+/// An inline Markdown link, capturing its destination. The `(?<!!)` guard keeps
+/// `![alt](/Page)` from counting as a link to `/Page`.
+private let markdownLinkExpression = try! NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#)
 private let parameterMarker = ";arbor-"
 private let revisionPattern = #"^sha256:[a-f0-9]{64}$"#
-private let treeIDAuthorityPattern = #"^tr_[a-z2-7]+$"#
 private let markdownKeyPrefix = "arbor-key="
 
 private func splitOnce(_ value: String, separator: Character) -> (String, String?) {
@@ -62,35 +64,33 @@ private func canonicalStableKeyJSON(_ value: String) -> Bool {
     return canonicalString == value
 }
 
+/// Serialize `[field, value]` pairs with the same writer `canonicalStableKeyJSON` re-serializes
+/// with, so a key this writes is canonical by construction rather than by a second encoder agreeing.
+func stableKeyJSON(_ pairs: [[Any]]) throws -> String {
+    String(decoding: try JSONSerialization.data(withJSONObject: pairs, options: [.withoutEscapingSlashes]), as: UTF8.self)
+}
+
 public func canonicalStableKey(_ pairs: [(String, JSONValue)]) throws -> String {
     guard !pairs.isEmpty else { throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key must be nonempty")) }
-    let encoder = JSONEncoder()
-    var encoded: [String] = []
+    var elements: [[Any]] = []
     for (property, value) in pairs {
         guard !property.isEmpty else {
             throw EncodingError.invalidValue(property, .init(codingPath: [], debugDescription: "stable-key property must be nonempty"))
         }
         switch value {
-        case .string, .bool, .number:
-            break
+        case let .string(string): elements.append([property, string])
+        case let .bool(bool): elements.append([property, bool])
+        case let .number(number) where number.isFinite: elements.append([property, number])
         default:
             throw EncodingError.invalidValue(value, .init(codingPath: [], debugDescription: "stable-key value must be a non-null scalar"))
         }
-        let propertyJSON = String(decoding: try encoder.encode(property), as: UTF8.self)
-        let valueJSON = String(decoding: try encoder.encode(value), as: UTF8.self)
-        encoded.append("[\(propertyJSON),\(valueJSON)]")
     }
-    let result = "[\(encoded.joined(separator: ","))]"
+    let result = try stableKeyJSON(elements)
     guard canonicalStableKeyJSON(result) else {
         throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key is not canonical JSON"))
     }
     return result
 }
-
-public func pageIDStableKey(_ pageID: String) -> String {
-    try! canonicalStableKey([("id", .string(pageID))])
-}
-
 
 public func encodeStableKey(_ value: String) -> String? {
     guard canonicalStableKeyJSON(value) else { return nil }
@@ -214,11 +214,18 @@ private func parseArborURL(_ href: String) -> ResolvedLink? {
     guard let authorityPart = parts.first, !authorityPart.isEmpty else { return nil }
     parts.removeFirst()
     // `_` cannot occur in a DNS label, so a `tr_` authority is a TreeID and nothing else.
-    let isTreeID = authorityPart.range(of: treeIDAuthorityPattern, options: .regularExpression) != nil
+    let isTreeID = TreeID.isWellFormed(authorityPart)
     if authorityPart.hasPrefix("tr_"), !isTreeID { return nil }
     let authority: ArborAuthority = isTreeID ? .treeID(authorityPart) : .dns(authorityPart)
     guard let path = resolveTreePath(base: "/", rawDestination: parts.joined(separator: "/")) else { return nil }
     return .arbor(authority: authority, path: path, locator: parsed.locator)
+}
+
+/// The destination range of every inline Markdown link in `source`, in order. Images are not links.
+public func markdownLinkHrefRanges(in source: String) -> [Range<String.Index>] {
+    markdownLinkExpression.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
+        Range(match.range(at: 1), in: source)
+    }
 }
 
 public func resolveLogicalURL(base baseDocumentPath: String, href: String) -> ResolvedLink? {

@@ -46,4 +46,11 @@ export class ConflictStore {
   all(): Array<{ accepted: string; state: ConflictState }> {
     return (this.db.query("SELECT * FROM accepted_conflicts").all() as Array<{ accepted_id: string; state_json: string }>).map(row => ({ accepted: row.accepted_id, state: JSON.parse(row.state_json) }));
   }
+  /** Every retained state of one tree, found through its accepted updates' tree index. */
+  forTree(tree: string): Array<{ accepted: string; state: ConflictState }> {
+    return (this.db.query(`
+      SELECT c.accepted_id, c.state_json FROM accepted_updates u JOIN accepted_conflicts c ON c.accepted_id = u.id
+      WHERE u.tree_id = ? ORDER BY u.ordinal
+    `).all(tree) as Array<{ accepted_id: string; state_json: string }>).map(row => ({ accepted: row.accepted_id, state: JSON.parse(row.state_json) }));
+  }
 }

@@ -1,4 +1,4 @@
-import {MergeStateStore,type MergeStateRecord} from "./merge-state-store.ts";
+import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, type ConflictState } from "./conflict-store.ts";
 import type { MergeSummary } from "./reconcile.ts";
 import { Database } from "bun:sqlite";
@@ -11,7 +11,6 @@ import {
   type UpdateResult,
 } from "@overstory/protocol";
 import { SourceIntentStore, type SourceIntent } from "./source-intent-store.ts";
-import { ObservationLog } from "./observations.ts";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
 
 export interface StoredAcceptedResponse {
@@ -37,30 +36,36 @@ export interface AcceptedUpdateInput {
   change?: string;
   sourceIntent?: SourceIntent;
   conflicts?: ConflictState;
-  mergeState?:MergeStateRecord;
+  mergeState?: MergeStateRecord;
   /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
    * computed before the transaction because object reads are async. */
   entryChanges: EntryChanges;
 }
 
 interface AcceptedCommitInput extends AcceptedUpdateInput {
-  expectedRoot: ObjectHash;
   expectedUpdate: string;
 }
 
 const UPDATE_COLUMNS = "id, tree_id, root, previous_root, previous_id, conflicted, accepted_at, subject";
 
+/**
+ * Each tree's accepted history. `ordinal` is the row's server-wide position and
+ * its observation cursor (see `ObservationLog`); `id` is its wire identity,
+ * `String(ordinal)` for every update accepted since the observation log was
+ * folded in. `trees.ref` is the materialized head, moved only together with
+ * a new row here. `previous_root` is kept although `previous_id` names the
+ * predecessor, because a retained successor still names the root of a pruned
+ * predecessor.
+ */
 export class AcceptedUpdateStore {
-  private readonly observations: ObservationLog;
+  constructor(private readonly db: Database) {}
 
-  constructor(private readonly db: Database) {
-    this.observations = new ObservationLog(db);
-  }
-
-  static createSchema(db: Database): void {
+  /** The table alone, under another name while an offline migration rebuilds it. */
+  static createTable(db: Database, name = "accepted_updates"): void {
     db.run(`
-      CREATE TABLE IF NOT EXISTS accepted_updates (
-        id TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS ${name} (
+        ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
         tree_id TEXT NOT NULL REFERENCES trees(id),
         root TEXT NOT NULL,
         previous_root TEXT,
@@ -78,13 +83,19 @@ export class AcceptedUpdateStore {
         change_id TEXT
       )
     `);
+  }
+
+  static createSchema(db: Database): void {
+    AcceptedUpdateStore.createTable(db);
     db.run(`
       CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_request
       ON accepted_updates(tree_id, subject, request_digest)
       WHERE request_digest IS NOT NULL
     `);
     db.run("CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_change ON accepted_updates(tree_id, change_id) WHERE change_id IS NOT NULL");
-    ObservationLog.createSchema(db);
+    // Both indexes end in the rowid, so `(tree_id, ordinal)` order is free.
+    db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
+    db.run("CREATE INDEX IF NOT EXISTS accepted_updates_root ON accepted_updates(tree_id, root)");
     SourceIntentStore.createSchema(db);
     ConflictStore.createSchema(db);
     MergeStateStore.createSchema(db);
@@ -118,7 +129,7 @@ export class AcceptedUpdateStore {
 
   current(tree: string): AcceptedUpdate | null {
     return this.row(this.db.query(
-      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY rowid DESC LIMIT 1`,
+      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY ordinal DESC LIMIT 1`,
     ).get(tree));
   }
 
@@ -128,14 +139,14 @@ export class AcceptedUpdateStore {
 
   list(tree: string): AcceptedUpdate[] {
     return (this.db.query(
-      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY rowid`,
+      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY ordinal`,
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
   /** Distinct roots of the tree's retained accepted updates, most recently accepted first. */
   roots(tree: string): ObjectHash[] {
     return (this.db.query(
-      "SELECT root FROM accepted_updates WHERE tree_id = ? GROUP BY root ORDER BY MAX(rowid) DESC",
+      "SELECT root FROM accepted_updates WHERE tree_id = ? GROUP BY root ORDER BY MAX(ordinal) DESC",
     ).all(tree) as Array<{ root: ObjectHash }>).map(({ root }) => root);
   }
 
@@ -206,12 +217,12 @@ export class AcceptedUpdateStore {
     return row?.transition_json ? decodeTransitionPayloadJSON(JSON.parse(row.transition_json)) : null;
   }
 
-  /** Record one accepted update and its `tree.update` observation atomically. */
+  /** Record an accepted update without moving `trees.ref`: a tree's first update, whose `trees` row the caller inserted at this root. */
   insert(input: AcceptedUpdateInput): AcceptedUpdate {
     return this.db.transaction(() => this.insertWithinTransaction(input))();
   }
 
-  /** The accepted update's id is the ordinal of the `tree.update` observation that records it. */
+  /** The accepted update's id is the decimal ordinal its row takes. */
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
     const prior = this.current(input.tree);
     if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
@@ -219,13 +230,16 @@ export class AcceptedUpdateStore {
     const priorState = prior ? conflicts.get(prior.id) : null;
     if (!input.mergeState && !input.conflicts && priorState?.decisions.length && input.root !== prior!.root) throw new Error("Conflict attribution is required before changing the projection");
     const state = input.conflicts ?? (priorState ? { decisions: priorState.decisions, resolutions: [] } : null);
-    const observation = this.observations.appendAccepted({ tree: input.tree, createdAt: input.acceptedAt });
-    const id = observation.cursor;
+    // AUTOINCREMENT never reuses an ordinal, even after the newest row is pruned.
+    const sequence = this.db.query("SELECT seq FROM sqlite_sequence WHERE name = 'accepted_updates'").get() as { seq: number } | null;
+    const ordinal = (sequence?.seq ?? 0) + 1;
+    const id = String(ordinal);
     this.db.run(`
       INSERT INTO accepted_updates
-        (id, tree_id, root, previous_root, previous_id, conflicted, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json, change_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ordinal, id, tree_id, root, previous_root, previous_id, conflicted, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json, change_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      ordinal,
       id,
       input.tree,
       input.root,
@@ -243,38 +257,41 @@ export class AcceptedUpdateStore {
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
       input.change ?? input.sourceIntent?.change ?? null,
     ]);
-    this.observations.bindUpdate(id, id);
     new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
     if (state && !input.mergeState) conflicts.insert(id, state);
-    if(input.mergeState)new MergeStateStore(this.db).insert(id,input.mergeState);
+    if (input.mergeState) new MergeStateStore(this.db).insert(id, input.mergeState);
     if (input.sourceIntent) {
       if (!input.baseRoot || !input.candidateRoot) throw new Error("Source intent requires authored basis and candidate roots");
-      new SourceIntentStore(this.db).insert({ ...input.sourceIntent, tree: input.tree,
-        acceptedUpdate: id, basisRoot: input.baseRoot, candidateRoot: input.candidateRoot });
+      new SourceIntentStore(this.db).insert({ ...input.sourceIntent, acceptedUpdate: id });
     }
     return this.get(id)!;
   }
 
+  /**
+   * Move the tree's ref from `previousRoot` to `root` and record the accepted
+   * update, inside the caller's transaction. Null when the ref has moved.
+   */
+  advance(input: AcceptedUpdateInput): AcceptedUpdate | null {
+    if (!this.db.inTransaction) throw new Error("Advancing a ref requires a transaction");
+    const moved = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
+      input.root,
+      input.acceptedAt,
+      input.tree,
+      input.previousRoot,
+    ]);
+    return moved.changes === 1 ? this.insertWithinTransaction(input) : null;
+  }
+
+  /** Advance only if `expectedUpdate` is still the tree's current accepted update. */
   commit(input: AcceptedCommitInput, withinTransaction?: () => void): AcceptedUpdate | null {
-    let accepted: AcceptedUpdate | null = null;
-    this.db.transaction(() => {
-      if (this.current(input.tree)?.id !== input.expectedUpdate) return;
-      const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-        input.root,
-        input.acceptedAt,
-        input.tree,
-        input.expectedRoot,
-      ]);
-      if (result.changes !== 1) return;
-      this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
-        input.tree,
-        input.root,
-        input.expectedRoot,
-        input.acceptedAt,
-      ]);
+    return this.db.transaction(() => {
+      const current = this.current(input.tree);
+      if (current?.id !== input.expectedUpdate || current.root !== input.previousRoot) return null;
       withinTransaction?.();
-      accepted = this.insertWithinTransaction(input);
+      const accepted = this.advance(input);
+      // The ref is the current row's root; disagreement is corruption, not a race.
+      if (!accepted) throw new Error("Tree ref does not match its current accepted update");
+      return accepted;
     })();
-    return accepted;
   }
 }

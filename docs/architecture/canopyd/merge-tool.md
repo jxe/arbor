@@ -217,7 +217,13 @@ branch context, then advance the affected fragment using source provenance.
 When a transformation scatters a choice so it cannot remain a contiguous range,
 an edit confined to one file retains a file-scoped enclosure and its child
 choices; it does not escalate to the root directory. A newly authored enclosure
-is not itself evidence of a concurrent conflict.
+is not itself evidence of a concurrent conflict. A selected deletion has no
+pieces to follow: its anchor moves with later edits, and only an edit spanning
+the anchor encloses it. A choice already retained in its own context is not
+re-evaluated against later edits to the live file. A file deleted on one side
+and changed on the other is an existence choice about that file alone: its
+kept alternative is the file, the deleted alternative names no node, and every
+other concurrent change still merges into the projection.
 
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
 retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations

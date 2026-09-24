@@ -1,3 +1,4 @@
+import CanopyAppKit
 import Foundation
 import Overstory
 import OverstoryClient
@@ -18,9 +19,7 @@ actor DirectoryStore {
     init(url: URL = ArborSupportDirectories.directory) { self.url = url }
 
     nonisolated static func load(at url: URL = ArborSupportDirectories.directory) throws -> [DirectoryPerson] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        let document = try JSONDecoder.directory.decode(DirectoryCacheDocument.self, from: Data(contentsOf: url))
-        guard document.version == 1 else { throw ArborWireValidationError.invalidValue("Unsupported directory cache") }
+        let document = try Self.document(at: url)
         let people = document.origins.reduce(into: [DirectoryPerson]()) { result, pair in
             guard let origin = URL(string: pair.key) else { return }
             result.append(contentsOf: pair.value.entries.map { DirectoryPerson(origin: origin, entry: $0) })
@@ -42,6 +41,10 @@ actor DirectoryStore {
     func fetchedAt(origin: URL) throws -> Date? { try loadDocument().origins[origin.absoluteString]?.fetchedAt }
 
     private func loadDocument() throws -> DirectoryCacheDocument {
+        try Self.document(at: url)
+    }
+
+    private nonisolated static func document(at url: URL) throws -> DirectoryCacheDocument {
         guard FileManager.default.fileExists(atPath: url.path) else { return DirectoryCacheDocument(origins: [:]) }
         let document = try JSONDecoder.directory.decode(DirectoryCacheDocument.self, from: Data(contentsOf: url))
         guard document.version == 1 else { throw ArborWireValidationError.invalidValue("Unsupported directory cache") }
@@ -51,6 +54,7 @@ actor DirectoryStore {
 
 actor AvatarCache {
     static let maximumBytes = 2 * 1024 * 1024
+    static let maximumSizeDescription = "\(maximumBytes / (1024 * 1024)) MB"
     private let directory: URL
 
     init(directory: URL = ArborSupportDirectories.avatars) { self.directory = directory }
@@ -66,7 +70,7 @@ actor AvatarCache {
         let url = directory.appending(path: try Self.fileName(for: avatar.hash))
         if let data = try? Data(contentsOf: url), data.count <= Self.maximumBytes { return data }
         let data = try await fetch()
-        guard data.count <= Self.maximumBytes else { throw ArborWireValidationError.invalidValue("Avatar is larger than 2 MB") }
+        guard data.count <= Self.maximumBytes else { throw ArborWireValidationError.invalidValue("Avatar is larger than \(Self.maximumSizeDescription)") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
         return data
@@ -95,6 +99,20 @@ private extension JSONDecoder {
 struct ArborProfileDocument: Equatable {
     enum Kind: String, Equatable { case person, group }
 
+    /// One `members` entry in authored order: a structured `profile:` entry
+    /// or a legacy scalar locator.
+    struct Member: Equatable, Identifiable {
+        let profile: String
+        let handle: String?
+        var id: String { profile }
+
+        /// The Profile TreeID a structured `arbor://<TreeID>/` locator names.
+        var treeID: String? {
+            guard profile.range(of: #"^arbor://tr_[a-z2-7]+/?$"#, options: .regularExpression) != nil else { return nil }
+            return String(profile.dropFirst("arbor://".count).prefix { $0 != "/" })
+        }
+    }
+
     let kind: Kind
     let displayName: String?
     let description: String?
@@ -102,6 +120,12 @@ struct ArborProfileDocument: Equatable {
     let memberProfiles: Set<String>
     let memberHandles: Set<String>
     let memberHandlesByProfile: [String: String]
+    let members: [Member]
+
+    /// Whether a person has filled out any of their profile.
+    var hasPersonalDetails: Bool {
+        displayName?.isEmpty == false || description?.isEmpty == false || avatarPath != nil
+    }
 
     static func parse(_ source: String) -> ArborProfileDocument? {
         guard let envelope = Frontmatter(source) else { return nil }
@@ -138,8 +162,58 @@ struct ArborProfileDocument: Equatable {
             avatarPath: scalar(named: "avatar", in: lines).flatMap(validAvatarPath),
             memberProfiles: members,
             memberHandles: handles,
-            memberHandlesByProfile: handlesByProfile
+            memberHandlesByProfile: handlesByProfile,
+            members: envelope.memberEntries()?.entries.map(\.member) ?? []
         )
+    }
+
+    /// The root Markdown of a new group profile tree.
+    static func newGroupSource(displayName: String, description: String, memberTrees: [String]) throws -> String {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.unicodeScalars.count <= 80, !name.contains(where: \.isNewline) else {
+            throw ArborWireValidationError.invalidValue("A group name must be 1 to 80 characters on one line")
+        }
+        guard detail.unicodeScalars.count <= 500 else {
+            throw ArborWireValidationError.invalidValue("A group description must be at most 500 characters")
+        }
+        var lines = ["---", "type: group", "displayName: \(try Frontmatter.quoted(name))"]
+        if !detail.isEmpty { lines.append("description: \(try Frontmatter.quoted(detail))") }
+        var seen = Set<String>()
+        let trees = memberTrees.filter { seen.insert($0).inserted }
+        for tree in trees where !TreeID.isWellFormed(tree) {
+            throw ArborWireValidationError.invalidValue("\(tree) is not a Profile TreeID")
+        }
+        if trees.isEmpty {
+            lines.append("members: []")
+        } else {
+            lines.append("members:")
+            for tree in trees { lines.append(contentsOf: try Frontmatter.memberLines(profile: "arbor://\(tree)/", handle: nil)) }
+        }
+        lines += ["---", "", "# \(name)", ""]
+        return lines.joined(separator: "\n")
+    }
+
+    /// Remove the one `members` entry naming `profile` (an authored locator),
+    /// leaving every other line as written.
+    static func removingMember(profile: String, from source: String) throws -> String {
+        guard let document = parse(source), document.kind == .group else {
+            throw ArborWireValidationError.invalidValue("This document is not a group profile")
+        }
+        var envelope = try requiredFrontmatter(source)
+        guard let block = envelope.memberEntries() else {
+            throw ArborWireValidationError.invalidValue("This group has no members")
+        }
+        let matches = block.entries.filter { $0.member.profile == profile }
+        guard let entry = matches.first else {
+            throw ArborWireValidationError.invalidValue("\(profile) is not a member")
+        }
+        guard matches.count == 1 else {
+            throw ArborWireValidationError.invalidValue("\(profile) is listed more than once; edit the members by hand")
+        }
+        envelope.lines.removeSubrange(entry.lines)
+        if block.entries.count == 1 { envelope.lines[block.header] = "members: []" }
+        return envelope.source
     }
 
     static func updatingPerson(
@@ -194,7 +268,7 @@ struct ArborProfileDocument: Equatable {
         let tree = profileTree.trimmingCharacters(in: .whitespacesAndNewlines)
         var localHandle = handle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if localHandle.hasPrefix("~") { localHandle.removeFirst() }
-        guard tree.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil else {
+        guard TreeID.isWellFormed(tree) else {
             throw ArborWireValidationError.invalidValue("Enter a TreeID such as tr_abc234")
         }
         if reservesCanopyHandle,
@@ -279,13 +353,59 @@ struct ArborProfileDocument: Equatable {
             guard matches.count <= 1 else {
                 throw ArborWireValidationError.invalidValue("The profile contains more than one \(name) field")
             }
-            if let index = matches.first {
-                if let value { lines[index] = "\(name): \(Self.quoted(value))" }
-                else { lines.remove(at: index) }
-            } else if let value {
-                let insertion = (lines.firstIndex { $0.hasPrefix("type:") } ?? -1) + 1
-                lines.insert("\(name): \(Self.quoted(value))", at: insertion)
+            var line: String?
+            if let value {
+                let quotedValue = try Self.quoted(value)
+                line = "\(name): \(quotedValue)"
             }
+            if let index = matches.first {
+                if let line { lines[index] = line }
+                else { lines.remove(at: index) }
+            } else if let line {
+                let insertion = (lines.firstIndex { $0.hasPrefix("type:") } ?? -1) + 1
+                lines.insert(line, at: insertion)
+            }
+        }
+
+        /// The top-level `members:` line and each indented entry beneath it,
+        /// with the lines it spans. Nil without exactly one block list.
+        func memberEntries() -> (header: Int, entries: [(lines: Range<Int>, member: Member)])? {
+            let headers = lines.indices.filter { !(lines[$0].first?.isWhitespace ?? false) && lines[$0].hasPrefix("members:") }
+            guard headers.count == 1, let header = headers.first else { return nil }
+            var end = header + 1
+            while end < lines.count, lines[end].isEmpty || lines[end].first?.isWhitespace == true { end += 1 }
+            var starts: [Int] = []
+            var dashIndent: Int?
+            for index in (header + 1)..<end {
+                let line = lines[index]
+                let indent = line.prefix(while: \.isWhitespace).count
+                let trimmed = line.dropFirst(indent)
+                guard trimmed == "-" || trimmed.hasPrefix("- ") else { continue }
+                if dashIndent == nil { dashIndent = indent }
+                if indent == dashIndent { starts.append(index) }
+            }
+            let entries = starts.enumerated().compactMap { offset, start -> (lines: Range<Int>, member: Member)? in
+                var stop = offset + 1 < starts.count ? starts[offset + 1] : end
+                while stop > start + 1, lines[stop - 1].trimmingCharacters(in: .whitespaces).isEmpty { stop -= 1 }
+                var fields: [String: String] = [:]
+                var scalar: String?
+                for index in start..<stop {
+                    var field = lines[index].trimmingCharacters(in: .whitespaces)
+                    if index == start { field = String(field.dropFirst()).trimmingCharacters(in: .whitespaces) }
+                    guard !field.isEmpty else { continue }
+                    // A `key: value` field; a scalar locator's `arbor:` has no space after it.
+                    if let colon = field.firstIndex(of: ":"),
+                       field[field.startIndex..<colon].allSatisfy({ $0.isLetter }),
+                       field.index(after: colon) == field.endIndex || field[field.index(after: colon)] == " " {
+                        fields[String(field[..<colon])] = ArborProfileDocument.decodeScalar(String(field[field.index(after: colon)...]))
+                    } else if index == start {
+                        scalar = ArborProfileDocument.decodeScalar(field)
+                    }
+                }
+                guard let profile = fields["profile"] ?? scalar else { return nil }
+                return (start..<stop, Member(profile: profile, handle: fields["handle"]))
+            }
+            return (header, entries)
         }
 
         mutating func appendMember(profile: String, handle: String?) throws {
@@ -296,7 +416,7 @@ struct ArborProfileDocument: Equatable {
             guard matches.count <= 1 else {
                 throw ArborWireValidationError.invalidValue("The profile contains more than one members field")
             }
-            let memberLines = Self.memberLines(profile: profile, handle: handle)
+            let memberLines = try Self.memberLines(profile: profile, handle: handle)
             guard let index = matches.first else {
                 lines.append("members:")
                 lines.append(contentsOf: memberLines)
@@ -319,17 +439,74 @@ struct ArborProfileDocument: Equatable {
             lines.insert(contentsOf: memberLines, at: insertion)
         }
 
-        private static func memberLines(profile: String, handle: String?) -> [String] {
-            var result = ["  - profile: \(quoted(profile))"]
-            if let handle, !handle.isEmpty { result.append("    handle: \(quoted(handle))") }
+        static func memberLines(profile: String, handle: String?) throws -> [String] {
+            let quotedProfile = try quoted(profile)
+            var result = ["  - profile: \(quotedProfile)"]
+            if let handle, !handle.isEmpty {
+                let quotedHandle = try quoted(handle)
+                result.append("    handle: \(quotedHandle)")
+            }
             return result
         }
 
-        private static func quoted(_ value: String) -> String {
+        private static let scalarEncoder: JSONEncoder = {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.withoutEscapingSlashes]
-            let data = try! encoder.encode(value)
-            return String(data: data, encoding: .utf8)!
+            return encoder
+        }()
+
+        /// A double-quoted YAML scalar: JSON string syntax is valid YAML.
+        static func quoted(_ value: String) throws -> String {
+            String(decoding: try scalarEncoder.encode(value), as: UTF8.self)
         }
+    }
+}
+
+/// The canonical path segment a new group takes from its name.
+enum ArborGroupSlug {
+    static func make(from name: String) -> String {
+        let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
+        var slug = ""
+        for scalar in folded.unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                slug.unicodeScalars.append(scalar)
+            } else if !slug.isEmpty, !slug.hasSuffix("-") {
+                slug.append("-")
+            }
+        }
+        while slug.hasSuffix("-") { slug.removeLast() }
+        return String(slug.prefix(63)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    static func isValid(_ slug: String) -> Bool {
+        slug.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,62})$"#, options: .regularExpression) != nil
+    }
+}
+
+/// Where New Group puts a group, as the canonical path before its slug.
+/// These are Canopy's conventions; the Canopy decides which it allows.
+enum ArborGroupPlacement: String, CaseIterable, Identifiable {
+    case groupsFolder, canopy
+    var id: Self { self }
+
+    var label: String {
+        switch self {
+        case .groupsFolder: "In my groups folder"
+        case .canopy: "On the Canopy"
+        }
+    }
+
+    func prefix(handle: String) -> String {
+        switch self {
+        case .groupsFolder: "/~\(handle)/groups/"
+        case .canopy: "/~"
+        }
+    }
+}
+
+extension DirectoryPerson {
+    /// The Canopy's own membership profile: the group hosted at its root.
+    var isCommunityProfile: Bool {
+        entry.kind == "group" && entry.locator.flatMap(URL.init(string:)).map { ["", "/"].contains($0.path) } == true
     }
 }

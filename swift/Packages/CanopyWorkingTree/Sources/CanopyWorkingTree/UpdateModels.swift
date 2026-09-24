@@ -2,6 +2,14 @@ import CanopyAppKit
 import Overstory
 import Foundation
 
+/// JSON with sorted keys and default strategies: the stable spelling of
+/// request bodies, digests, tokens, and the sync directory's journals.
+func sortedKeysJSON<T: Encodable>(_ value: T) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    return try encoder.encode(value)
+}
+
 public enum UpdateError: Error, Equatable, Sendable {
     case awaitingCanopyReconciliation
     case replicaIsNotPlaced

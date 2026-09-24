@@ -52,7 +52,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
         func components(_ path: String) throws -> [String] {
             if path == "/" { return [] }
             let parts = path.dropFirst().split(separator:"/",omittingEmptySubsequences:false).map(String.init)
-            guard path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }) else { throw invalid() }
+            guard path.hasPrefix("/"), parts.allSatisfy(WireGraph.isPathComponent) else { throw invalid() }
             return parts
         }
         let sourceParts = try components(source), parentParts = try components(parent)
@@ -118,12 +118,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
                 if let i = entries.firstIndex(where: { $0.name == filePath.last }) { entries[i].file = rewrite.value }
             }
         }
-        var reachable = Set<String>()
-        func visit(_ hash:String,_ isDirectory:Bool) throws {
-            guard reachable.insert(hash).inserted else { return }
-            if isDirectory { for e in try directory(hash).0 { if let file = e.file { try visit(file,false) }; if let directory = e.directory { try visit(directory,true) } } }
-        }
-        try visit(root,true)
-        return (WireSnapshot(root:root,objects:reachable.sorted().compactMap { h in objects[h].map { .init(hash:h,bytes:$0) } }),operations)
+        let result = try WireGraph.reachable(from: root, in: objects) { _, kind in if kind == .directory { throw invalid() } }
+        return (result, operations)
     }
 }

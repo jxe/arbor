@@ -75,7 +75,7 @@ public enum ArborMarkdownCodec {
                 if case let .documentLink(_, reference) = block.kind,
                    let target = resolveNodeTarget(base: directory.path, href: reference.rawValue) {
                     let tree = target.tree.map(TreeID.init(rawValue:)) ?? directory.tree
-                    let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+                    let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
                     if let stableKey {
                         mentionedIdentities.insert(.key(tree: tree, stableKey: stableKey))
                     }
@@ -260,6 +260,15 @@ public enum ArborMarkdownCodec {
             }
             return nil
         }
+        // A byte-preserved final block may end in a single newline. Keep no-op
+        // source exact, but separate a newly emitted top-level block so
+        // Markdown does not fold its text into the preceding paragraph.
+        func separator(before raw: String, containerDepth: Int) -> String {
+            guard containerDepth == 0, !emittedTail.isEmpty,
+                  !emittedTail.hasSuffix(ledger.newline + ledger.newline),
+                  !raw.hasPrefix(ledger.newline) else { return "" }
+            return emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
+        }
         func append(_ block: Block, depth: Int, containerDepth: Int) {
             guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
@@ -282,23 +291,10 @@ public enum ArborMarkdownCodec {
                     hasChildren: !block.children.isEmpty,
                     explicitEmptyMarker: needsExplicitEmptyMarker
                 )
-                if containerDepth == 0,
-                   !emittedTail.isEmpty,
-                   !emittedTail.hasSuffix(ledger.newline + ledger.newline),
-                   !raw.hasPrefix(ledger.newline) {
-                    // A byte-preserved final block may end in a single newline.
-                    // Keep no-op source exact, but separate a newly appended
-                    // non-list block so Markdown does not fold its text into
-                    // the preceding paragraph.
-                    raw = (emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline) + raw
-                }
+                raw = separator(before: raw, containerDepth: containerDepth) + raw
             }
             if let copied {
-                var prefix = ""
-                if containerDepth == 0, !emittedTail.isEmpty,
-                   !emittedTail.hasSuffix(ledger.newline + ledger.newline), !raw.hasPrefix(ledger.newline) {
-                    prefix = emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
-                }
+                let prefix = separator(before: raw, containerDepth: containerDepth)
                 copiedSpans[block.id] = (copied, prefix.utf8.count)
                 raw = prefix + raw
                 // A copied unterminated block must remain distinct from the
@@ -318,11 +314,7 @@ public enum ArborMarkdownCodec {
             )
             position += raw.utf8.count
             emittedAuthoredBlock = true
-            let addsContainerDepth: Bool
-            switch block.kind {
-            case .bullet, .numbered, .todo, .toggle: addsContainerDepth = true
-            default: addsContainerDepth = false
-            }
+            let addsContainerDepth = isIndentContainer(block)
             for child in block.children {
                 append(
                     child,
@@ -447,8 +439,13 @@ public enum ArborMarkdownCodec {
     }
 
     private static func sourceLines(_ source: String) -> [SourceLine] {
-        guard !source.isEmpty else { return [] }
         var result: [SourceLine] = []
+        forEachSourceLine(source) { result.append($0); return true }
+        return result
+    }
+
+    /// Visits the source's lines in order until `body` returns false.
+    private static func forEachSourceLine(_ source: String, _ body: (SourceLine) -> Bool) {
         var raw = ""
         for character in source {
             raw.append(character)
@@ -457,13 +454,33 @@ public enum ArborMarkdownCodec {
             if contentScalars.last?.value == 0x0A { contentScalars.removeLast() }
             if contentScalars.last?.value == 0x0D { contentScalars.removeLast() }
             let content = String(String.UnicodeScalarView(contentScalars))
-            result.append(SourceLine(content: content, raw: raw))
+            guard body(SourceLine(content: content, raw: raw)) else { return }
             raw = ""
         }
         if !raw.isEmpty {
-            result.append(SourceLine(content: raw, raw: raw))
+            _ = body(SourceLine(content: raw, raw: raw))
         }
-        return result
+    }
+
+    /// The text of the first block when it is an H1, exactly as
+    /// `parseBlocks(source).first` reads it, without parsing the rest of the
+    /// document. A heading is always a single-line block, so the first
+    /// nonblank line after the frontmatter envelope decides it.
+    static func leadingH1Text(_ source: String) -> String? {
+        var index = 0
+        var inFrontmatter = false
+        var text: String?
+        forEachSourceLine(source) { line in
+            defer { index += 1 }
+            if index == 0, line.content == "---" { inFrontmatter = true; return true }
+            if inFrontmatter { inFrontmatter = line.content != "---"; return true }
+            if isBlankLine(line.content) { return true }
+            if case let .heading(level, heading) = parseBlock([line], id: BlockID()).kind, level == .h1 {
+                text = String(heading.characters)
+            }
+            return false
+        }
+        return text
     }
 
     private static func structuralLine(_ value: String) -> Bool {
@@ -636,13 +653,7 @@ public enum ArborMarkdownCodec {
         case let .image(source, alt): line = prefix + "![\(alt)](\(source))"
         case let .unsupported(payload, _): return payload
         }
-        let compactContainer: Bool
-        switch block.kind {
-        case .bullet, .numbered, .todo, .toggle:
-            compactContainer = hasChildren
-        default:
-            compactContainer = false
-        }
+        let compactContainer = hasChildren && isIndentContainer(block)
         return line + newline + (compactContainer ? "" : newline)
     }
 
@@ -738,40 +749,53 @@ public enum ArborMarkdownCodec {
         return result
     }
 
+    /// The single replacement that turns `old` into exactly `new`. The common
+    /// prefix and suffix are found on UTF-8 bytes, then each split point backs
+    /// up to an offset that is a Character boundary in both strings, so an edit
+    /// never divides a grapheme cluster.
     private static func minimalEdit(from old: String, to new: String) -> WorkspaceSourceEdit? {
-        guard old != new else { return nil }
-        let oldCharacters = Array(old)
-        let newCharacters = Array(new)
+        let oldBytes = old.utf8, newBytes = new.utf8
+        guard !oldBytes.elementsEqual(newBytes) else { return nil }
+        let oldCount = oldBytes.count, newCount = newBytes.count
         var prefix = 0
-        while prefix < oldCharacters.count, prefix < newCharacters.count, oldCharacters[prefix] == newCharacters[prefix] { prefix += 1 }
+        for (lhs, rhs) in zip(oldBytes, newBytes) {
+            guard lhs == rhs else { break }
+            prefix += 1
+        }
+        while !isCharacterBoundary(prefix, in: old) || !isCharacterBoundary(prefix, in: new) { prefix -= 1 }
+        let suffixLimit = min(oldCount, newCount) - prefix
         var suffix = 0
-        while suffix < oldCharacters.count - prefix,
-              suffix < newCharacters.count - prefix,
-              oldCharacters[oldCharacters.count - suffix - 1] == newCharacters[newCharacters.count - suffix - 1] { suffix += 1 }
-        let oldPrefix = String(oldCharacters[..<prefix])
-        let oldMiddle = String(oldCharacters[prefix..<(oldCharacters.count - suffix)])
-        let newMiddle = String(newCharacters[prefix..<(newCharacters.count - suffix)])
-        let start = oldPrefix.utf8.count
+        for (lhs, rhs) in zip(oldBytes.reversed(), newBytes.reversed()) {
+            guard suffix < suffixLimit, lhs == rhs else { break }
+            suffix += 1
+        }
+        while !isCharacterBoundary(oldCount - suffix, in: old) || !isCharacterBoundary(newCount - suffix, in: new) { suffix -= 1 }
+        let oldStart = oldBytes.index(oldBytes.startIndex, offsetBy: prefix)
+        let oldEnd = oldBytes.index(oldBytes.startIndex, offsetBy: oldCount - suffix)
+        let newStart = newBytes.index(newBytes.startIndex, offsetBy: prefix)
+        let newEnd = newBytes.index(newBytes.startIndex, offsetBy: newCount - suffix)
         return WorkspaceSourceEdit(
-            utf8Range: start..<(start + oldMiddle.utf8.count),
-            replacement: newMiddle,
-            expected: oldMiddle
+            utf8Range: prefix..<(oldCount - suffix),
+            replacement: String(new[newStart..<newEnd]),
+            expected: String(old[oldStart..<oldEnd])
         )
     }
 
+    private static func isCharacterBoundary(_ utf8Offset: Int, in value: String) -> Bool {
+        value.utf8.index(value.utf8.startIndex, offsetBy: utf8Offset).samePosition(in: value) != nil
+    }
+
     private static func stableID(seed: String, ordinal: Int) -> BlockID {
-        let digest = Array(SHA256.hash(data: Data("\(seed):\(ordinal)".utf8)).prefix(16))
-        let uuid = UUID(uuid: (
-            digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
-            digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]
-        ))
-        return BlockID(uuid)
+        digestID("\(seed):\(ordinal)")
     }
 
     private static func projectedChildID(_ reference: WorkspaceReference) -> BlockID {
-        let digest = Array(SHA256.hash(
-            data: Data("arbor-child:\(String(describing: reference.identity))".utf8)
-        ).prefix(16))
+        digestID("arbor-child:\(String(describing: reference.identity))")
+    }
+
+    /// A deterministic BlockID from the first 16 bytes of the value's SHA-256.
+    private static func digestID(_ value: String) -> BlockID {
+        let digest = Array(SHA256.hash(data: Data(value.utf8)).prefix(16))
         return BlockID(UUID(uuid: (
             digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
             digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]

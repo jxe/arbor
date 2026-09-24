@@ -136,7 +136,8 @@ enum CanonicalCBOR {
                 return .text(value)
             case 4:
                 var values: [CanonicalCBORValue] = []
-                values.reserveCapacity(length)
+                // Every element takes at least one byte, so the remaining input bounds a declared length.
+                values.reserveCapacity(min(length, data.count - offset))
                 for _ in 0..<length { values.append(try decode(depth: depth + 1)) }
                 return .array(values)
             case 5:

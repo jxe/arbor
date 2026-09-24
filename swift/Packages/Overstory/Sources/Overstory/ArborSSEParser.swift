@@ -81,6 +81,13 @@ public struct ArborSSEParser: Sendable {
     }
 }
 
+/// How long an observation stream waits before reconnecting after `failures`
+/// consecutive failed attempts: 250 ms, doubling per failure, capped at `maximum`.
+/// A cleanly closed stream (no failures) still waits the base delay.
+public func observationReconnectDelay(afterFailures failures: Int, maximum: Duration = .seconds(5)) -> Duration {
+    min(.milliseconds(250 * (1 << min(max(failures, 0), 5))), maximum)
+}
+
 public struct WireWatchEvent: Equatable, Sendable {
     public var id: String
     public var cursor: String

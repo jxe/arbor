@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
+import type { ObjectHash } from "@overstory/protocol";
+import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./tree-diff.ts";
 
 /**
  * Descriptive metadata of a tree's file entries, kept beside the hashes and
@@ -52,38 +53,23 @@ export function documentKey(path: string, source: string): string {
 export async function entryChanges(
   before: ObjectHash | null,
   after: ObjectHash,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
+  load: Load | TreeReader,
 ): Promise<EntryChanges> {
+  const reader = treeReader(load);
   const changes: EntryChanges = { set: [], removed: [] };
-  const entries = async (hash: ObjectHash | null) =>
-    hash ? decodeWireDirectory(await load(hash)).entries : [];
-  const set = async (path: string, hash: ObjectHash) => {
-    const change: EntryChange = { path, hash };
-    if (path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(await load(hash))) };
-    changes.set.push(change);
-  };
-  const files = async (directory: ObjectHash, parent: string, visit: (path: string, hash: ObjectHash) => Promise<void>) => {
-    for (const entry of await entries(directory)) {
-      const path = `${parent}/${entry.name}`;
-      if (entry.file) await visit(path, entry.file);
-      else if (entry.directory) await files(entry.directory, path, visit);
-    }
-  };
-  const walk = async (left: ObjectHash | null, right: ObjectHash, parent: string) => {
-    if (left === right) return;
-    const old = new Map((await entries(left)).map((e) => [e.name, e]));
-    const next = new Map((await entries(right)).map((e) => [e.name, e]));
-    for (const name of new Set([...old.keys(), ...next.keys()])) {
-      const a = old.get(name), b = next.get(name), path = `${parent}/${name}`;
-      if (a?.directory && b?.directory) { await walk(a.directory, b.directory, path); continue; }
-      if (a?.file && a.file === b?.file) continue;
-      if (a?.file) changes.removed.push(path);
-      if (a?.directory) await files(a.directory, path, async (removed) => { changes.removed.push(removed); });
-      if (b?.file) await set(path, b.file);
-      if (b?.directory) await files(b.directory, path, set);
-    }
-  };
-  await walk(before, after, "");
+  await walkTreeDiff(before, after, reader, {
+    entry: async ({ path, before: old, after: next }) => {
+      if (old?.file && old.file === next?.file) return false;
+      if (old?.file) changes.removed.push(path);
+      if (next?.file) {
+        const change: EntryChange = { path, hash: next.file };
+        if (path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(await reader.bytes(next.file))) };
+        changes.set.push(change);
+      }
+      // An added or removed directory contributes every file beneath it.
+      return true;
+    },
+  });
   // A path both removed and set (a file replaced in place) is only set.
   const written = new Set(changes.set.map((c) => c.path));
   changes.removed = changes.removed.filter((path) => !written.has(path));

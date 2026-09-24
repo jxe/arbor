@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
+import { IntentError } from "./intent-model.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { merge } from "./index.ts";
 import { workerObjects } from "./worker-objects.ts";
@@ -92,7 +93,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         process.stdout.write(
           JSON.stringify({
             error: {
-              ...(error instanceof CheckpointBatchLimitError ? {code: "checkpoint-batch-too-large"} : {}),
+              ...(error instanceof CheckpointBatchLimitError ? {code: "checkpoint-batch-too-large"}
+                : error instanceof IntentError ? {code: error.code} : {}),
               message:
                 error instanceof Error
                   ? error.message

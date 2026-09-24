@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import Overstory
 
+extension WireAuthoredUpdateRequest {
+    /// The request identities as the production submission path computes them.
+    func identities(tree: String) throws -> [(bytes: Data, digest: String)] {
+        updateRequestIdentities(tree: tree, base: base, updates: try updates.map(WireCandidateUpdate.init))
+    }
+}
+
 @Suite("Consolidated request transport")
 struct AuthoredTransportTests {
     private func fixture(_ name: String) throws -> [String: Any] {

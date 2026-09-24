@@ -66,7 +66,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
         }
         for (index, path) in removals.enumerated() {
             let parts = path.dropFirst().split(separator:"/",omittingEmptySubsequences:false).map(String.init)
-            guard path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }) else { throw invalid() }
+            guard path.hasPrefix("/"), parts.allSatisfy(WireGraph.isPathComponent) else { throw invalid() }
             var hash = graph.root
             for (i, part) in parts.enumerated() {
                 guard let bytes = basisObjects[hash], case let .directory(entries,_) = try WireObjectCodec.decode(bytes,kind:.directory), let entry = entries.first(where: { $0.name == part }), let next = entry.hash,
@@ -76,15 +76,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
             operations.append(try WireSourceOperation(["key":.string("remove-\(index)"),"kind":.string("removeEntry"),"source":.object(["material":.object(["kind":.string("basis"),"path":.string(path),"object":.string(hash)])])]))
             current.root = try remove(current.root,parts[...])
         }
-        var reachable = Set<String>()
-        func visit(_ hash: String, directory: Bool) throws {
-            guard reachable.insert(hash).inserted else { return }
-            if directory {
-                guard let bytes = objects[hash], case let .directory(entries,_) = try WireObjectCodec.decode(bytes,kind:.directory) else { throw invalid() }
-                for e in entries { if let h = e.file { try visit(h,directory:false) }; if let h = e.directory { try visit(h,directory:true) } }
-            }
-        }
-        try visit(current.root,directory:true)
-        return (.init(root:current.root,objects:reachable.sorted().compactMap { h in objects[h].map { .init(hash:h,bytes:$0) } }),operations)
+        let result = try WireGraph.reachable(from: current.root, in: objects) { _, kind in if kind == .directory { throw invalid() } }
+        return (result, operations)
     }
 }

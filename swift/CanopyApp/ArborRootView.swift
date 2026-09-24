@@ -19,7 +19,16 @@ import UIKit
 import VisionKit
 #endif
 
-private extension LocalCanopyAccountDescriptor {
+/// How a Canopy account is named in account lists, whether the Mac daemon or
+/// the iPhone's keychain holds it.
+private protocol ArborAccountPresentable {
+    var configurationTree: String { get }
+    var handle: String? { get }
+    /// The account's Canopy host, when known.
+    var arborHost: String? { get }
+}
+
+private extension ArborAccountPresentable {
     var profileSectionID: String { "profile:\(configurationTree)" }
     var devicesSectionID: String { "devices:\(configurationTree)" }
 
@@ -29,28 +38,23 @@ private extension LocalCanopyAccountDescriptor {
     }
 
     var arborDisplayDetail: String {
-        if let canopy, !canopy.isEmpty {
-            return URL(string: canopy)?.host() ?? canopy
-        }
+        if let host = arborHost, !host.isEmpty { return host }
         let suffix = configurationTree.dropFirst(3).prefix(8)
         return suffix.isEmpty ? "Account settings" : "Account \(suffix.uppercased())"
+    }
+
+    var arborDisplayLabel: String { "\(arborDisplayName) · \(arborDisplayDetail)" }
+}
+
+extension LocalCanopyAccountDescriptor: ArborAccountPresentable {
+    fileprivate var arborHost: String? {
+        guard let canopy, !canopy.isEmpty else { return nil }
+        return URL(string: canopy)?.host() ?? canopy
     }
 }
 
-private extension NativeCanopyAccount {
-    var profileSectionID: String { "profile:\(configurationTree)" }
-    var devicesSectionID: String { "devices:\(configurationTree)" }
-
-    var arborDisplayName: String {
-        guard let handle, !handle.isEmpty else { return "Canopy account" }
-        return "~\(handle)"
-    }
-
-    var arborDisplayDetail: String {
-        if let host = origin.host(), !host.isEmpty { return host }
-        let suffix = configurationTree.dropFirst(3).prefix(8)
-        return suffix.isEmpty ? "Account settings" : "Account \(suffix.uppercased())"
-    }
+extension NativeCanopyAccount: ArborAccountPresentable {
+    fileprivate var arborHost: String? { origin.host() }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -65,25 +69,30 @@ private struct ArborVoiceRecordingToolbarButton: View {
 
     var body: some View {
         VoiceRecordingButton(session: session) {
-            await startRecording()
+            await startArborVoiceRecording(session, model: model, workspace: workspace, editorCommands: editorCommands)
         }
     }
+}
 
-    /// Editing at the moment recording starts takes precedence over the page's
-    /// ordinary voice destination. Capture both the command bridge and block id
-    /// now so delayed transcription cannot drift into a different row.
-    private func startRecording() async {
-        let commands = editorCommands
-        let target = commands?.activeEditingBlock()
-        var inlineDelivery: VoiceTranscriptDelivery<String>?
-        if let target {
-            inlineDelivery = { transcript, destination in
-                if commands?.insertText(transcript, target) == true { return }
-                try await workspace.deliverVoiceTranscript(transcript, to: destination)
-            }
+/// Editing at the moment recording starts takes precedence over the page's
+/// ordinary voice destination. Capture both the command bridge and block id
+/// now so delayed transcription cannot drift into a different row.
+@MainActor
+private func startArborVoiceRecording(
+    _ session: VoiceRecordingSession<String>,
+    model: ArborAppModel,
+    workspace: ArborWorkspaceState,
+    editorCommands commands: EditorCommands?
+) async {
+    let target = commands?.activeEditingBlock()
+    var inlineDelivery: VoiceTranscriptDelivery<String>?
+    if let target {
+        inlineDelivery = { transcript, destination in
+            if commands?.insertText(transcript, target) == true { return }
+            try await workspace.deliverVoiceTranscript(transcript, to: destination)
         }
-        await model.startVoiceRecording(session, delivery: inlineDelivery)
     }
+    await model.startVoiceRecording(session, delivery: inlineDelivery)
 }
 
 enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
@@ -127,23 +136,19 @@ enum ArborSidebarPages {
         _ results: [WorkspaceSearchResult],
         by order: ArborSidebarPageOrder
     ) -> [WorkspaceSearchResult] {
-        results.sorted { lhs, rhs in
-            if order == .recent, lhs.modifiedAt != rhs.modifiedAt {
-                return (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
+        // Derive each title's sort key once, not once per comparison.
+        let keyed = results.map { (result: $0, title: arborSidebarTitleParts($0.title).text) }
+        return keyed.sorted { lhs, rhs in
+            if order == .recent, lhs.result.modifiedAt != rhs.result.modifiedAt {
+                return (lhs.result.modifiedAt ?? .distantPast) > (rhs.result.modifiedAt ?? .distantPast)
             }
-            if order == .linkCount, lhs.backlinkCount != rhs.backlinkCount {
-                return lhs.backlinkCount > rhs.backlinkCount
+            if order == .linkCount, lhs.result.backlinkCount != rhs.result.backlinkCount {
+                return lhs.result.backlinkCount > rhs.result.backlinkCount
             }
-            let titleOrder = alphabeticalTitle(lhs.title).localizedStandardCompare(alphabeticalTitle(rhs.title))
+            let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
-            return lhs.reference.path.localizedStandardCompare(rhs.reference.path) == .orderedAscending
-        }
-    }
-
-    private static func alphabeticalTitle(_ title: String) -> String {
-        guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else { return title }
-        let remainder = title.dropFirst().trimmingCharacters(in: .whitespaces)
-        return remainder.isEmpty ? title : remainder
+            return lhs.result.reference.path.localizedStandardCompare(rhs.result.reference.path) == .orderedAscending
+        }.map { $0.result }
     }
 
     static func recentGroups(
@@ -260,13 +265,6 @@ enum ArborPagePickerSelection {
 }
 
 #if os(macOS)
-private enum MacSidebarSearchCommand {
-    case previous
-    case next
-    case open
-    case escape
-}
-
 @MainActor
 private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     // FocusState reconciliation happens asynchronously. Release the AppKit
@@ -275,280 +273,6 @@ private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     NSApp.keyWindow?.makeFirstResponder(nil)
     DispatchQueue.main.async {
         commands?.perform(.escape)
-    }
-}
-
-// A decorative sibling of the accessory, so AppKit's accessory clipping does
-// not cut off the background extension. It never intercepts titlebar input.
-private final class MacSidebarTitlebarBackground: NSHostingView<AnyView> {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
-private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
-    let width: CGFloat
-    let isVisible: Bool
-    let focusSearchRequest: Int
-    let handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
-    @Binding var installed: Bool
-    let content: AnyView
-    @FocusedValue(\.editorCommands) private var editorCommands
-
-    init<Content: View>(
-        width: CGFloat,
-        isVisible: Bool,
-        focusSearchRequest: Int,
-        handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void,
-        installed: Binding<Bool>,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.width = width
-        self.isVisible = isVisible
-        self.focusSearchRequest = focusSearchRequest
-        self.handleSearchCommand = handleSearchCommand
-        _installed = installed
-        self.content = AnyView(content())
-    }
-
-    private func dispatchSearchCommand(_ command: MacSidebarSearchCommand) {
-        handleSearchCommand(command)
-        if case .escape = command {
-            returnFocusFromMacSearch(to: editorCommands)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            installed: $installed,
-            isVisible: isVisible,
-            handleSearchCommand: dispatchSearchCommand
-        )
-    }
-
-    func makeNSView(context: Context) -> MacWindowReaderView {
-        let view = MacWindowReaderView()
-        view.windowChanged = { window in
-            context.coordinator.attach(to: window)
-        }
-        return view
-    }
-
-    func updateNSView(_ view: MacWindowReaderView, context: Context) {
-        context.coordinator.update(
-            content: content,
-            width: width,
-            isVisible: isVisible,
-            focusSearchRequest: focusSearchRequest,
-            handleSearchCommand: dispatchSearchCommand
-        )
-        context.coordinator.attach(to: view.window)
-    }
-
-    static func dismantleNSView(_ view: MacWindowReaderView, coordinator: Coordinator) {
-        coordinator.detach()
-    }
-
-    @MainActor
-    final class Coordinator {
-        private let installed: Binding<Bool>
-        private var windowObservers: [NSObjectProtocol] = []
-        private let controller = NSTitlebarAccessoryViewController()
-        private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
-        private let leadingBackground = MacSidebarTitlebarBackground(
-            rootView: AnyView(Color.clear.modifier(ArborSidebarSurface()))
-        )
-        private lazy var widthConstraint = hostingView.widthAnchor.constraint(equalToConstant: sidebarWidth)
-        private weak var window: NSWindow?
-        private var sidebarWidth: CGFloat = 240
-        private var isVisible: Bool
-        private var pendingFocusSearchRequest = 0
-        private var handledFocusSearchRequest = 0
-        private var handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
-        private var keyMonitor: Any?
-
-        init(
-            installed: Binding<Bool>,
-            isVisible: Bool,
-            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
-        ) {
-            self.installed = installed
-            self.isVisible = isVisible
-            self.handleSearchCommand = handleSearchCommand
-            controller.layoutAttribute = .left
-            hostingView.wantsLayer = true
-            hostingView.layer?.masksToBounds = true
-            controller.view = hostingView
-            widthConstraint.isActive = true
-        }
-
-        func update(
-            content: AnyView,
-            width: CGFloat,
-            isVisible: Bool,
-            focusSearchRequest: Int,
-            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
-        ) {
-            hostingView.rootView = content
-            sidebarWidth = max(0, width)
-            self.isVisible = isVisible
-            self.handleSearchCommand = handleSearchCommand
-            pendingFocusSearchRequest = focusSearchRequest
-            guard isVisible else {
-                detach()
-                return
-            }
-            updatePresentation()
-            focusSearchFieldIfRequested()
-        }
-
-        func attach(to nextWindow: NSWindow?) {
-            guard isVisible else {
-                detach()
-                return
-            }
-            guard let nextWindow else { return }
-            guard window !== nextWindow else {
-                updatePresentation()
-                installKeyMonitorIfNeeded()
-                return
-            }
-            detach()
-            window = nextWindow
-            installKeyMonitorIfNeeded()
-            for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-                windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nextWindow, queue: .main) { [weak self] _ in
-                    Task { @MainActor in self?.updatePresentation() }
-                })
-            }
-            updatePresentation()
-        }
-
-        private func updatePresentation() {
-            guard let window else { return }
-            if !window.titlebarAccessoryViewControllers.contains(where: { $0 === controller }) {
-                controller.view.frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: 52)
-                window.addTitlebarAccessoryViewController(controller)
-            }
-            fitToSidebar()
-            setInstalled(true)
-            focusSearchFieldIfRequested()
-        }
-
-        func detach() {
-            leadingBackground.removeFromSuperview()
-            windowObservers.forEach(NotificationCenter.default.removeObserver)
-            windowObservers.removeAll()
-            if let keyMonitor {
-                NSEvent.removeMonitor(keyMonitor)
-                self.keyMonitor = nil
-            }
-            if let window,
-               let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === controller }) {
-                window.removeTitlebarAccessoryViewController(at: index)
-            }
-            window = nil
-            setInstalled(false)
-        }
-
-        private func fitToSidebar() {
-            guard window != nil else {
-                setAccessoryWidth(sidebarWidth)
-                return
-            }
-            let accessoryLeadingEdge = max(0, hostingView.convert(.zero, to: nil).x)
-            setAccessoryWidth(max(0, sidebarWidth - accessoryLeadingEdge))
-            updateLeadingBackground()
-        }
-
-        private func updateLeadingBackground() {
-            // In fullscreen AppKit leaves an 18pt leading inset (measured in
-            // the view debugger). Derive it from coordinates rather than
-            // baking that system spacing into the layout.
-            guard window?.styleMask.contains(.fullScreen) == true,
-                  let container = hostingView.superview,
-                  let titlebar = container.superview else {
-                leadingBackground.removeFromSuperview()
-                return
-            }
-            if leadingBackground.superview !== titlebar {
-                leadingBackground.removeFromSuperview()
-                titlebar.addSubview(leadingBackground, positioned: .below, relativeTo: container)
-            }
-            let accessoryFrame = hostingView.convert(hostingView.bounds, to: titlebar)
-            let windowLeadingEdge = titlebar.convert(.zero, from: nil).x
-            leadingBackground.frame = NSRect(
-                x: windowLeadingEdge,
-                y: accessoryFrame.minY,
-                width: max(0, accessoryFrame.minX - windowLeadingEdge),
-                height: accessoryFrame.height
-            )
-        }
-
-        private func setAccessoryWidth(_ width: CGFloat) {
-            widthConstraint.constant = width
-            controller.view.frame.size.width = width
-        }
-
-        private func setInstalled(_ value: Bool) {
-            guard installed.wrappedValue != value else { return }
-            DispatchQueue.main.async { [installed] in
-                installed.wrappedValue = value
-            }
-        }
-
-        private func focusSearchFieldIfRequested() {
-            guard hostingView.window != nil, pendingFocusSearchRequest > 0,
-                  pendingFocusSearchRequest != handledFocusSearchRequest else { return }
-            let request = pendingFocusSearchRequest
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let field = self.firstEditableTextField(in: self.hostingView),
-                      self.window?.makeFirstResponder(field) == true else { return }
-                self.handledFocusSearchRequest = request
-            }
-        }
-
-        private func firstEditableTextField(in view: NSView) -> NSTextField? {
-            if let field = view as? NSTextField, field.isEditable { return field }
-            for child in view.subviews {
-                if let field = firstEditableTextField(in: child) { return field }
-            }
-            return nil
-        }
-
-        private func installKeyMonitorIfNeeded() {
-            guard keyMonitor == nil else { return }
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      event.window === self.window,
-                      self.searchFieldIsFirstResponder else { return event }
-                let command: MacSidebarSearchCommand
-                switch event.keyCode {
-                case 53: command = .escape
-                case 126: command = .previous
-                case 125: command = .next
-                case 36, 76: command = .open
-                default: return event
-                }
-                self.handleSearchCommand(command)
-                return nil
-            }
-        }
-
-        private var searchFieldIsFirstResponder: Bool {
-            guard let responder = window?.firstResponder,
-                  let field = firstEditableTextField(in: hostingView) else { return false }
-            return responder === field || field.currentEditor() === responder
-        }
-    }
-}
-
-@MainActor
-private final class MacWindowReaderView: NSView {
-    var windowChanged: ((NSWindow?) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        windowChanged?(window)
     }
 }
 
@@ -573,6 +297,107 @@ private struct MutedMacToolbarHoverModifier: ViewModifier {
 private extension View {
     func mutedMacToolbarHover() -> some View {
         modifier(MutedMacToolbarHoverModifier())
+    }
+}
+
+/// Sizes the sidebar search's toolbar item to the titlebar over the sidebar:
+/// the sidebar's width less the window buttons' reach (none in full screen)
+/// and a trailing margin. A toolbar item keeps its ideal width, and a width
+/// held in SwiftUI state lands a layout pass after the split view resizes,
+/// which pushes the item into the overflow menu when the sidebar narrows. So
+/// the width is an AppKit constraint on the item's view, updated as the split
+/// view resizes.
+private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
+    func makeNSView(context: Context) -> SizerView { SizerView() }
+    func updateNSView(_ view: SizerView, context: Context) { view.resize() }
+
+    final class SizerView: NSView {
+        private static let trailingMargin: CGFloat = 32
+        private static let minimumWidth: CGFloat = 60
+
+        private var observers: [NSObjectProtocol] = []
+        private weak var itemView: NSView?
+        private var widthConstraint: NSLayoutConstraint?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let center = NotificationCenter.default
+            let resizeOnNotification: (Notification) -> Void = { [weak self] _ in
+                MainActor.assumeIsolated { self?.resize() }
+            }
+            if let splitView {
+                observers.append(center.addObserver(
+                    forName: NSSplitView.didResizeSubviewsNotification,
+                    object: splitView, queue: nil, using: resizeOnNotification
+                ))
+            }
+            for name in [
+                NSWindow.didEnterFullScreenNotification,
+                NSWindow.didExitFullScreenNotification,
+                NSWindow.didResizeNotification,
+            ] {
+                observers.append(center.addObserver(forName: name, object: window, queue: nil, using: resizeOnNotification))
+            }
+            resize()
+            // The toolbar item may not exist until the toolbar's first pass.
+            DispatchQueue.main.async { [weak self] in self?.resize() }
+        }
+
+        func resize() {
+            guard let window, let splitView, let sidebar = splitView.arrangedSubviews.first,
+                  let item = searchItem(in: window), let view = item.view else { return }
+            // Dragging the sidebar closed collapses it without removing the
+            // sidebar's toolbar items, which would leave the search in the
+            // overflow menu.
+            let collapsed = splitView.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1
+            if item.isHidden != collapsed { item.isHidden = collapsed }
+            guard !collapsed else { return }
+            let width = max(Self.minimumWidth, sidebar.frame.width - buttonsInset(in: window) - Self.trailingMargin)
+            if view !== itemView {
+                widthConstraint?.isActive = false
+                let constraint = view.widthAnchor.constraint(equalToConstant: width)
+                constraint.isActive = true
+                itemView = view
+                widthConstraint = constraint
+            } else if widthConstraint?.constant != width {
+                widthConstraint?.constant = width
+            }
+        }
+
+        private var splitView: NSSplitView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let split = view as? NSSplitView { return split }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        /// The toolbar item in the sidebar section whose view holds a text
+        /// field: the search.
+        private func searchItem(in window: NSWindow) -> NSToolbarItem? {
+            for item in window.toolbar?.items ?? [] {
+                if item.itemIdentifier.rawValue.hasPrefix("com.apple.SwiftUI.splitViewSeparator") { break }
+                if let view = item.view, Self.containsTextField(view) { return item }
+            }
+            return nil
+        }
+
+        private func buttonsInset(in window: NSWindow) -> CGFloat {
+            guard !window.styleMask.contains(.fullScreen),
+                  let zoom = window.standardWindowButton(.zoomButton), !zoom.isHidden,
+                  let superview = zoom.superview else { return 0 }
+            return superview.convert(zoom.frame, to: nil).maxX
+        }
+
+        private static func containsTextField(_ view: NSView) -> Bool {
+            view is NSTextField || view.subviews.contains(where: containsTextField)
+        }
     }
 }
 
@@ -613,7 +438,7 @@ private struct MacPageOrderPicker: NSViewRepresentable {
         if let index = orders.firstIndex(of: selection) {
             button.selectItem(at: index)
         }
-        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.78)
+        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(ArborStyle.mutedToolbarOpacity)
         button.setAccessibilityValue(selection.label)
     }
 
@@ -641,15 +466,135 @@ private final class PageOrderPopUpButton: NSPopUpButton {
 }
 #endif
 
+/// The sidebar's search controls. macOS hosts them as a toolbar item, where
+/// SwiftUI focus tracking never sees the field focused, so there the field's
+/// AppKit first-responder state drives `isFocused` and a request to focus it.
+private struct ArborSidebarSearchControls: View {
+    @Binding var query: String
+    @Binding var order: ArborSidebarPageOrder
+    @Binding var isFocused: Bool
+    let handleKeyPress: (KeyPress) -> KeyPress.Result
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        ArborPageSearchControls(
+            includesTrees: true,
+            query: $query,
+            order: $order,
+            prompt: order == .trees ? "Search trees" : "Search pages",
+            focused: $fieldFocused,
+            showsFocus: isFocused,
+            handleKeyPress: handleKeyPress,
+            escapeReturnsToDocument: true
+        )
+#if os(macOS)
+        .background { MacToolbarSearchFieldFocus(isFocused: $isFocused) }
+#else
+        .onAppear { fieldFocused = isFocused }
+        .onChange(of: fieldFocused) { _, focused in isFocused = focused }
+        .onChange(of: isFocused) { _, focused in fieldFocused = focused }
+#endif
+    }
+}
+
+#if os(macOS)
+private final class WeakEditorCommands {
+    weak var value: EditorCommands?
+}
+
+/// Binds `isFocused` to whether the text field beside it is the window's
+/// first responder, and makes it or releases it when `isFocused` changes.
+private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
+    @Binding var isFocused: Bool
+
+    func makeNSView(context: Context) -> FocusView {
+        let view = FocusView()
+        view.focusChanged = { isFocused = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: FocusView, context: Context) {
+        view.focusChanged = { isFocused = $0 }
+        view.request(isFocused)
+    }
+
+    final class FocusView: NSView {
+        var focusChanged: ((Bool) -> Void)?
+        private var observation: NSKeyValueObservation?
+        private var fieldIsFocused = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observation = window?.observe(\.firstResponder) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.firstResponderChanged() }
+            }
+            firstResponderChanged()
+        }
+
+        func request(_ focused: Bool) {
+            guard focused != fieldIsFocused else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window, let field = self.field else { return }
+                if focused, !self.fieldIsFocused {
+                    window.makeFirstResponder(field)
+                } else if !focused, self.fieldIsFocused {
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
+
+        private func firstResponderChanged() {
+            let responder = window?.firstResponder
+            let focused = field.map { responder === $0 || (responder != nil && $0.currentEditor() === responder) } ?? false
+            guard focused != fieldIsFocused else { return }
+            fieldIsFocused = focused
+            let focusChanged = focusChanged
+            DispatchQueue.main.async { focusChanged?(focused) }
+        }
+
+        /// The nearest editable text field around this view: the search field
+        /// in the same toolbar item.
+        private var field: NSTextField? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let field = Self.firstEditableTextField(in: view) { return field }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        private static func firstEditableTextField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            for child in view.subviews {
+                if let field = firstEditableTextField(in: child) { return field }
+            }
+            return nil
+        }
+    }
+}
+#endif
+
 struct ArborPageSearchControls: View {
     var includesTrees = false
     @Binding var query: String
     @Binding var order: ArborSidebarPageOrder
     var prompt = "Search pages"
     var focused: FocusState<Bool>.Binding
+    /// Overrides `focused` for the focus highlight, where the field's focus
+    /// is tracked outside SwiftUI.
+    var showsFocus: Bool?
     var handleKeyPress: ((KeyPress) -> KeyPress.Result)?
     var escapeReturnsToDocument = false
+
+    private var isShowingFocus: Bool { showsFocus ?? focused.wrappedValue }
     @FocusedValue(\.editorCommands) private var editorCommands
+#if os(macOS)
+    /// The editor's commands as last seen. A field in the titlebar sees none
+    /// once it takes focus, so Escape returns to the editor they belong to.
+    @State private var lastEditorCommands = WeakEditorCommands()
+#endif
 
     var body: some View {
         HStack(spacing: 6) {
@@ -663,7 +608,7 @@ struct ArborPageSearchControls: View {
                     .onKeyPress(.escape) {
                         guard escapeReturnsToDocument else { return .ignored }
                         focused.wrappedValue = false
-                        returnFocusFromMacSearch(to: editorCommands)
+                        returnFocusFromMacSearch(to: editorCommands ?? lastEditorCommands.value)
                         return .handled
                     }
 #endif
@@ -690,11 +635,11 @@ struct ArborPageSearchControls: View {
 #endif
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(focused.wrappedValue ? 0.065 : 0.035))
+                    .fill(Color.primary.opacity(isShowingFocus ? 0.065 : 0.035))
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(
-                                Color.primary.opacity(focused.wrappedValue ? 0.18 : 0.075),
+                                Color.primary.opacity(isShowingFocus ? 0.18 : 0.075),
                                 lineWidth: 0.75
                             )
                     }
@@ -728,6 +673,11 @@ struct ArborPageSearchControls: View {
             .accessibilityValue(order.label)
 #endif
         }
+#if os(macOS)
+        .onChange(of: editorCommands.map(ObjectIdentifier.init), initial: true) {
+            if let editorCommands { lastEditorCommands.value = editorCommands }
+        }
+#endif
     }
 
     private var cornerRadius: CGFloat {
@@ -810,15 +760,14 @@ struct ArborRootView: View {
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
+    @State private var reviewAccessoryReveal: EditorAccessoryReveal?
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
-    @FocusState private var sidebarSearchFocused: Bool
+    @State private var sidebarSearchFocused = false
     @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
-    @State private var sidebarTitlebarAccessoryInstalled = false
-    @State private var sidebarSearchFocusRequest = 0
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var profileAfterManagementDismiss: String?
@@ -1017,13 +966,21 @@ struct ArborRootView: View {
 #endif
         .sheet(isPresented: $peoplePresented) {
             NavigationStack {
-                ArborDirectoryView(workspace: workspace) { person in
-                    peoplePresented = false
-                    Task {
-                        do { try await workspace.openDirectoryProfile(person) }
-                        catch { workspace.errorMessage = error.localizedDescription }
+                ArborDirectoryView(
+                    workspace: workspace,
+                    openProfile: { person in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: person.id) }
+                    },
+                    editMembers: { tree, prefill in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: tree, membersSheet: true, prefill: prefill) }
+                    },
+                    openGroup: { tree in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: tree) }
                     }
-                }
+                )
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { peoplePresented = false } } }
                 .task { await workspace.refreshDirectory() }
             }
@@ -1112,7 +1069,7 @@ struct ArborRootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
                 .toolbar(removing: .sidebarToggle)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 260, max: 500)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 500)
         } detail: {
             switch workspace.launchPhase {
             case let .restoring(name):
@@ -1121,7 +1078,7 @@ struct ArborRootView: View {
                 ArborLaunchEmptyView(
                     message: message,
                     trees: localTreeMenuItems,
-                    openTree: windowCommands.jumpToLocalTree,
+                    openTree: jumpToLocalTree,
                     openLocation: { presentedSheet = .openLocation },
                     showAccounts: showAccountsPanel,
                     retry: message == nil ? nil : { Task { await workspace.retryRestore() } }
@@ -1144,6 +1101,16 @@ struct ArborRootView: View {
     }
 
 #if os(iOS)
+    /// Drag thresholds of the sidebar drawer, in points.
+    private enum SidebarDrawerGesture {
+        /// How near the leading edge a drag must start to open the drawer.
+        static let edgeWidth: CGFloat = 22
+        /// A drag this far, or projected this far, opens or closes the drawer.
+        static let commitDistance: CGFloat = 96
+        static let commitProjectedDistance: CGFloat = 170
+        static let settleDuration: TimeInterval = 0.28
+    }
+
     private var iosSidebarDrawer: some View {
         GeometryReader { geometry in
             let drawerWidth = min(430, max(280, geometry.size.width - 28))
@@ -1171,7 +1138,7 @@ struct ArborRootView: View {
     private var openSidebarEdgeGesture: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .onChanged { value in
-                guard value.startLocation.x <= 22,
+                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
                       value.translation.width > 0,
                       abs(value.translation.width) > abs(value.translation.height) else { return }
                 var transaction = Transaction()
@@ -1181,14 +1148,14 @@ struct ArborRootView: View {
                 }
             }
             .onEnded { value in
-                guard value.startLocation.x <= 22,
+                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
                       abs(value.translation.width) > abs(value.translation.height) else {
                     return
                 }
-                let shouldOpen = value.translation.width > 96
-                    || value.predictedEndTranslation.width > 170
+                let shouldOpen = value.translation.width > SidebarDrawerGesture.commitDistance
+                    || value.predictedEndTranslation.width > SidebarDrawerGesture.commitProjectedDistance
                 sidebarSearchFocused = false
-                withAnimation(.snappy(duration: 0.28)) {
+                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
                     sidebarRevealProgress = shouldOpen ? 1 : 0
                 }
             }
@@ -1207,10 +1174,10 @@ struct ArborRootView: View {
                 }
             }
             .onEnded { value in
-                let shouldClose = value.translation.width < -96
-                    || value.predictedEndTranslation.width < -170
+                let shouldClose = value.translation.width < -SidebarDrawerGesture.commitDistance
+                    || value.predictedEndTranslation.width < -SidebarDrawerGesture.commitProjectedDistance
                 sidebarSearchFocused = false
-                withAnimation(.snappy(duration: 0.28)) {
+                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
                     sidebarRevealProgress = shouldClose ? 0 : 1
                 }
                 Task { @MainActor in
@@ -1222,35 +1189,46 @@ struct ArborRootView: View {
 
     private func closeIOSSidebar() {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: 0.28)) {
+        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
             sidebarRevealProgress = 0
         }
     }
 #endif
 
+    /// The sidebar column. Its search reactions live here, not on
+    /// `sidebarPagesHeader`, which macOS hosts as a toolbar item that the
+    /// toolbar may rebuild.
     private var sidebarContent: some View {
+        sidebarColumn
+            .onChange(of: sidebarSearchText) { _, query in
+                sidebarKeyboardSelection = nil
+                sidebarTreeSelection = nil
+                if sidebarPageOrder != .trees { Task { await model.search(query) } }
+            }
+            .task(id: sidebarPageOrder) {
+                sidebarKeyboardSelection = nil
+                if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
+                else { await model.search(sidebarSearchText) }
+            }
+    }
+
+    private var sidebarColumn: some View {
 #if os(macOS)
         VStack(spacing: 0) {
-            if !sidebarTitlebarAccessoryInstalled {
-                sidebarPagesHeader
-            }
             sidebarReviewContent
             sidebarFooter
         }
         .modifier(ArborSidebarSurface(showsDivider: true))
-        .background {
-            GeometryReader { geometry in
-                MacSidebarTitlebarAccessory(
-                    width: geometry.size.width,
-                    isVisible: columnVisibility != .detailOnly,
-                    focusSearchRequest: sidebarSearchFocusRequest,
-                    handleSearchCommand: handleSidebarSearchCommand,
-                    installed: $sidebarTitlebarAccessoryInstalled
-                ) {
-                    sidebarPagesHeader
-                }
-                .frame(width: 0, height: 0)
+        .background { MacSidebarSearchTitlebarSizer() }
+        // Toolbar content declared on the sidebar column occupies the
+        // toolbar's sidebar section, over the sidebar in the titlebar. The
+        // sizer sets the item's width; the controls fill it.
+        .toolbar {
+            ToolbarItem {
+                sidebarPagesHeader
+                    .frame(maxWidth: .infinity)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
 #else
         VStack(spacing: 0) {
@@ -1271,16 +1249,22 @@ struct ArborRootView: View {
     private var sidebarTrees: [SidebarTree] {
 #if os(macOS)
         let overview = workspace.localArborSyncOverview
-        let values = (overview?.trees ?? []).filter { $0.kind != "account-configuration" && $0.path != nil }.map { tree in
-            let account = overview?.accounts.first { $0.configurationTree == tree.configurationTree }
-            return SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
-                account: account.map { "\($0.arborDisplayName) · \($0.arborDisplayDetail)" } ?? "Other Trees")
+        let accountLabels = Dictionary(
+            (overview?.accounts ?? []).map { ($0.configurationTree, $0.arborDisplayLabel) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let values = (overview?.trees ?? []).filter { $0.kind != ArborTreeKind.accountConfiguration && $0.path != nil }.map { tree in
+            SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
+                account: tree.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #else
+        let accountLabels = Dictionary(
+            sidebarAccounts.map { ($0.configurationTree, $0.arborDisplayLabel) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let values = workspace.nativePlacements.map { placement in
-            let account = sidebarAccounts.first { $0.configurationTree == placement.configurationTree }
-            return SidebarTree(id: placement.tree.id, title: placement.tree.canonicalPath ?? placement.tree.id,
-                account: account.map { "\($0.arborDisplayName) · \($0.arborDisplayDetail)" } ?? "Other Trees")
+            SidebarTree(id: placement.tree.id, title: placement.tree.canonicalPath ?? placement.tree.id,
+                account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
         let query = sidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1290,8 +1274,9 @@ struct ArborRootView: View {
 
     private var sidebarTreesList: some View {
         ScrollViewReader { proxy in
+            let trees = sidebarTrees
             List {
-                ForEach(sidebarTrees) { tree in
+                ForEach(trees) { tree in
                     Button { openSidebarTree(tree.id) } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "tree").font(.system(size: 18)).frame(width: 20)
@@ -1314,7 +1299,7 @@ struct ArborRootView: View {
                     .arborKeyboardSelectedRow(sidebarTreeSelection == tree.id)
                     .id(tree.id)
                 }
-                if sidebarTrees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
+                if trees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
                 if let sidebarAccountError { Text(sidebarAccountError).font(.caption).foregroundStyle(.secondary) }
 #if os(macOS)
                 Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
@@ -1435,8 +1420,6 @@ struct ArborRootView: View {
         .onChange(of: workspace.generation) { _, _ in reviewingChoices = false }
     }
 
-    @State private var reviewAccessoryReveal: EditorAccessoryReveal?
-
     private func showChoiceReview() {
         guard let review = workspace.conflictReview else { return }
         reviewingChoices = true
@@ -1457,8 +1440,14 @@ struct ArborRootView: View {
             var page: WorkspaceReference?
             if let path = decision.path {
                 let reference = WorkspaceReference(tree: workspace.home.tree, path: reviewLogicalPath(path))
-                // Deleted entries still have a review even when no live page exists.
-                if (try? await workspace.provider.resolve(reference)) != nil { page = reference }
+                do {
+                    _ = try await workspace.provider.resolve(reference)
+                    page = reference
+                } catch WorkingTreeError.notFound, WorkspaceProviderError.notFound {
+                    // Deleted entries still have a review even when no live page exists.
+                } catch {
+                    workspace.errorMessage = error.localizedDescription
+                }
             }
             // Load the choice first, then switch page and selection in the same
             // main-actor turn, so the panel never renders against the wrong
@@ -1466,6 +1455,13 @@ struct ArborRootView: View {
             await review.select(decision, expand: false)
             guard review.selectedID == decision.id else { return }
             if let page { await model.navigate(to: page) }
+            if let binding = model.pagePresentation(for: model.currentLocation)?.editorLease?.binding,
+               inlineBlocks(for: decision, in: binding) != nil {
+                review.expanded = false
+                await review.openInline(decision)
+                reviewAccessoryReveal = EditorAccessoryReveal("choice-\(decision.id)")
+                return
+            }
             review.expanded = true
             reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
         }
@@ -1499,6 +1495,7 @@ struct ArborRootView: View {
 
     private var sidebarPagesContent: some View {
         ScrollViewReader { proxy in
+            let reviewChoices = reviewChoicesByPage
             sidebarPagesList {
                 ArborOrderedPageSections(
                     results: model.searchResults,
@@ -1506,7 +1503,13 @@ struct ArborRootView: View {
                     alphabeticalSectionTitle: nil,
                     topSpacing: 8
                 ) { result, showsBacklinkCount in
-                    sidebarSearchRow(result, showsBacklinkCount: showsBacklinkCount)
+                    sidebarSearchRow(
+                        result,
+                        showsBacklinkCount: showsBacklinkCount,
+                        reviewChoice: result.reference.tree == workspace.home.tree
+                            ? reviewChoices[result.reference.path]
+                            : nil
+                    )
                 }
             }
             .listStyle(.sidebar)
@@ -1555,39 +1558,34 @@ struct ArborRootView: View {
     }
 
     private var sidebarPagesHeader: some View {
-        ArborPageSearchControls(
-            includesTrees: true,
+        ArborSidebarSearchControls(
             query: $sidebarSearchText,
             order: $sidebarPageOrder,
-            prompt: sidebarPageOrder == .trees ? "Search trees" : "Search pages",
-            focused: $sidebarSearchFocused,
-            handleKeyPress: handleSidebarSearchKeyPress,
-            escapeReturnsToDocument: true
+            isFocused: $sidebarSearchFocused,
+            handleKeyPress: handleSidebarSearchKeyPress
         )
-#if os(macOS)
-        .padding(.leading, 8)
-        .padding(.trailing, 8)
-        .frame(height: 52)
-#else
+#if os(iOS)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-#endif
         .modifier(ArborSidebarSurface())
-        .onChange(of: sidebarSearchText) { _, query in
-            sidebarKeyboardSelection = nil
-            sidebarTreeSelection = nil
-            if sidebarPageOrder != .trees { Task { await model.search(query) } }
+#endif
+    }
+
+    /// The first review choice on each page of the open tree, by logical path.
+    private var reviewChoicesByPage: [String: ConflictReviewDecision] {
+        var choices: [String: ConflictReviewDecision] = [:]
+        for decision in workspace.conflictReview?.decisions ?? [] {
+            guard let path = decision.path else { continue }
+            let page = reviewLogicalPath(path)
+            if choices[page] == nil { choices[page] = decision }
         }
-        .task(id: sidebarPageOrder) {
-            sidebarKeyboardSelection = nil
-            if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
-            else { await model.search(sidebarSearchText) }
-        }
+        return choices
     }
 
     private func sidebarSearchRow(
         _ result: WorkspaceSearchResult,
-        showsBacklinkCount: Bool
+        showsBacklinkCount: Bool,
+        reviewChoice choice: ConflictReviewDecision?
     ) -> some View {
         HStack(spacing: 4) {
             ArborSidebarSearchRow(
@@ -1600,9 +1598,7 @@ struct ArborRootView: View {
             ) {
                 openFromSidebar(.reference(result.reference))
             }
-            if let review = workspace.conflictReview,
-               result.reference.tree == workspace.home.tree,
-               let choice = review.decisions.first(where: { $0.path.map { reviewLogicalPath($0) == result.reference.path } ?? false }) {
+            if let choice {
                 Button { openReviewChoice(choice) } label: { Image(systemName: "arrow.triangle.branch") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                     .accessibilityLabel("Review choices on \(result.title)")
@@ -1655,37 +1651,6 @@ struct ArborRootView: View {
             in: results.map(\.id)
         )
     }
-
-#if os(macOS)
-    private func handleSidebarSearchCommand(_ command: MacSidebarSearchCommand) {
-        if case .escape = command {
-            sidebarSearchFocused = false
-            return
-        }
-        if sidebarPageOrder == .trees {
-            switch command {
-            case .previous: moveTreeSelection(-1)
-            case .next: moveTreeSelection(1)
-            case .open: openSelectedSidebarTree()
-            case .escape: break
-            }
-            return
-        }
-        let results = keyboardNavigableSidebarResults
-        guard !results.isEmpty else { return }
-        switch command {
-        case .escape:
-            break
-        case .previous:
-            moveSidebarKeyboardSelection(by: -1, in: results)
-        case .next:
-            moveSidebarKeyboardSelection(by: 1, in: results)
-        case .open:
-            let result = results.first { $0.id == sidebarKeyboardSelection } ?? results[0]
-            openFromSidebar(.reference(result.reference))
-        }
-    }
-#endif
 
 #if os(macOS)
     @ViewBuilder
@@ -1788,12 +1753,22 @@ struct ArborRootView: View {
 
     private var canRenameCurrentPage: Bool {
 #if os(macOS)
-        model.node?.isWritable == true
-            && model.currentReference.path != "/"
-            && !model.currentReference.path.hasPrefix("/Trash/")
+        currentPageIsMovable
 #else
         false
 #endif
+    }
+
+    /// A writable page other than the tree root and outside Trash: one that
+    /// can be renamed, moved, or trashed.
+    private var currentPageIsMovable: Bool {
+        model.node?.isWritable == true
+            && model.currentReference.path != "/"
+            && !currentPageIsInTrash
+    }
+
+    private var currentPageIsInTrash: Bool {
+        model.currentReference.path.hasPrefix("/Trash/")
     }
 
     private var recordingErrorBinding: Binding<Bool> {
@@ -1903,9 +1878,6 @@ struct ArborRootView: View {
                 Task { @MainActor in
                     await Task.yield()
                     sidebarSearchFocused = true
-#if os(macOS)
-                    sidebarSearchFocusRequest += 1
-#endif
                 }
             },
             showSearch: { searchPresented = true },
@@ -1921,14 +1893,7 @@ struct ArborRootView: View {
 #endif
             },
             localTrees: localTreeMenuItems,
-            jumpToLocalTree: { tree in
-#if os(macOS)
-                Task {
-                    do { try await workspace.openPlacedTree(tree) }
-                    catch { workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind) }
-                }
-#endif
-            },
+            jumpToLocalTree: jumpToLocalTree,
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: showStatusPanel,
@@ -1954,17 +1919,20 @@ struct ArborRootView: View {
             ),
             canShare: model.node != nil,
             canRevealPageInFinder: revealablePageURL != nil,
-            canMovePage: model.node?.isWritable == true
-                && model.binding != nil
-                && model.currentReference.path != "/"
-                && !model.currentReference.path.hasPrefix("/Trash/"),
+            canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
-            canMovePageToTrash: model.node?.isWritable == true
-                && model.currentReference.path != "/"
-                && !model.currentReference.path.hasPrefix("/Trash/"),
-            canRestorePage: model.node?.isWritable == true
-                && model.currentReference.path.hasPrefix("/Trash/")
+            canMovePageToTrash: currentPageIsMovable,
+            canRestorePage: model.node?.isWritable == true && currentPageIsInTrash
         )
+    }
+
+    private func jumpToLocalTree(_ tree: String) {
+#if os(macOS)
+        Task {
+            do { try await workspace.openPlacedTree(tree) }
+            catch { workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind) }
+        }
+#endif
     }
 
     private var revealablePageURL: URL? {
@@ -1994,15 +1962,7 @@ struct ArborRootView: View {
     private func toggleVoiceRecording(editorCommands: EditorCommands?) async {
         switch recordingSession.state {
         case .idle:
-            let target = editorCommands?.activeEditingBlock()
-            var inlineDelivery: VoiceTranscriptDelivery<String>?
-            if let target {
-                inlineDelivery = { transcript, destination in
-                    if editorCommands?.insertText(transcript, target) == true { return }
-                    try await workspace.deliverVoiceTranscript(transcript, to: destination)
-                }
-            }
-            await model.startVoiceRecording(recordingSession, delivery: inlineDelivery)
+            await startArborVoiceRecording(recordingSession, model: model, workspace: workspace, editorCommands: editorCommands)
         case .recording:
             await recordingSession.stopAndDeliver()
         case .transcribing:
@@ -2040,7 +2000,7 @@ struct ArborRootView: View {
 
 #if os(macOS)
     private func localTreeTitle(_ tree: LocalArborSyncTreePresentation) -> String {
-        guard tree.kind == "account-configuration" else {
+        guard tree.kind == ArborTreeKind.accountConfiguration else {
             return tree.canonicalPath ?? tree.name
         }
         let account = workspace.localArborSyncOverview?.accounts.first {
@@ -2354,7 +2314,7 @@ struct ArborRootView: View {
 
 #if os(macOS)
     private var mutedMacToolbarForeground: Color {
-        Color.secondary.opacity(0.78)
+        Color.secondary.opacity(ArborStyle.mutedToolbarOpacity)
     }
 
     private func mutedMacToolbarIcon(_ name: String) -> some View {
@@ -2404,21 +2364,55 @@ struct ArborRootView: View {
         return presentation.node.surface.supportsDocumentSession && presentation.node.isWritable && presentation.editorLease != nil
     }
 
-    private func reviewAccessories(for location: WorkspaceLocation) -> [EditorAccessory] {
+    /// The blocks a source-range choice occupies on this page, when the
+    /// decision names source this editor holds; nil sends it to the page panel.
+    private func inlineBlocks(for decision: ConflictReviewDecision, in binding: ArborDocumentBinding) -> [BlockID]? {
+        guard let range = decision.sourceRange, let object = decision.affected.first?.material.object else { return nil }
+        return binding.blocks(overlapping: range, inSource: object)
+    }
+
+    private func reviewAccessories(for location: WorkspaceLocation, binding: ArborDocumentBinding) -> [EditorAccessory] {
         guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
         let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
-        guard !choices.isEmpty || review.showingAppliedResult else { return [] }
-        return [EditorAccessory(
+        var accessories: [EditorAccessory] = []
+        var placed: Set<String> = []
+        for decision in choices {
+            guard let blocks = inlineBlocks(for: decision, in: binding), let anchor = blocks.last else { continue }
+            placed.insert(decision.id)
+            accessories.append(EditorAccessory(
+                id: "choice-\(decision.id)", anchor: .block(anchor), accessibilityLabel: "Review this choice",
+                isExpanded: Binding(get: { review.inlineID == decision.id }, set: { expanded in
+                    if expanded { review.expanded = false; Task { await review.openInline(decision) } }
+                    else if review.inlineID == decision.id { review.inlineID = nil }
+                }), marker: {
+                    Image(systemName: "arrow.triangle.branch")
+                        .foregroundStyle(.orange)
+                        .help("Changed in two places")
+                }, detail: {
+                    ArborInlineChoice(review: review, decision: decision) {
+                        review.inlineID = nil
+                        Task {
+                            await review.select(decision, expand: true)
+                            reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
+                        }
+                    }
+                }))
+        }
+        let remaining = choices.filter { !placed.contains($0.id) }
+        let panelOpen = review.expanded && review.selectedID.map { id in choices.contains { $0.id == id } } == true
+        guard !remaining.isEmpty || panelOpen || (review.showingAppliedResult && review.inlineID == nil) else { return accessories }
+        let count = remaining.count
+        accessories.insert(EditorAccessory(
             id: "accepted-choices", anchor: .document, accessibilityLabel: "Review alternatives",
             isExpanded: Binding(get: { review.expanded }, set: { expanded in
-                if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = choices.first { openReviewChoice(first) }
+                if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = remaining.first ?? choices.first { openReviewChoice(first) }
                 else { review.expanded = expanded }
             }), marker: {
                 // The marker is the panel's disclosure control, so the panel
                 // itself shows no second close button.
                 Label {
-                    Text(choices.isEmpty ? "Choice resolved"
-                         : "\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")")
+                    Text(count == 0 ? (choices.isEmpty ? "Choice resolved" : "Review choice")
+                         : "\(count) unresolved \(count == 1 ? "choice" : "choices")")
                 } icon: {
                     Image(systemName: review.expanded ? "chevron.down" : "chevron.right")
                 }
@@ -2431,7 +2425,8 @@ struct ArborRootView: View {
 #else
                 EmptyView()
 #endif
-            })]
+            }), at: 0)
+        return accessories
     }
 
     @ViewBuilder
@@ -2443,7 +2438,7 @@ struct ArborRootView: View {
                     VStack(spacing: 0) {
                         if location == model.currentLocation,
                            node.reference.path == "/",
-                           let profile = profileDocument(for: node) {
+                           let profile = model.profileDocument(for: node) {
                             ArborProfileWidget(
                                 profile: profile,
                                 pageTitle: node.title,
@@ -2472,7 +2467,7 @@ struct ArborRootView: View {
                             configuration: ArborStyle.editorConfiguration,
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
-                            accessories: reviewAccessories(for: location),
+                            accessories: reviewAccessories(for: location, binding: lease.binding),
                             accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
                             readOnly: !node.isWritable
                         ) {
@@ -2497,15 +2492,6 @@ struct ArborRootView: View {
         }
     }
 
-    private func profileDocument(for node: WorkspaceNode) -> ArborProfileDocument? {
-        switch node.surface {
-        case let .markdown(source, _), let .directoryDocument(source, _, _):
-            ArborProfileDocument.parse(source)
-        default:
-            nil
-        }
-    }
-
     @ViewBuilder
     private func sheet(_ sheet: ArborPresentedSheet) -> some View {
         switch sheet {
@@ -2525,8 +2511,6 @@ struct ArborRootView: View {
             .frame(minWidth: 560, minHeight: 420)
         case .networkLog:
             ArborNetworkLogView()
-        case .syncStatus:
-            syncStatusPanel
         default:
             ArborMutationForm(mode: sheet, submit: submitMutation)
         }
@@ -2674,7 +2658,7 @@ private struct ArborProfileSyncToolbarLabel: View {
         ZStack(alignment: .bottomTrailing) {
             Image(systemName: "person.crop.circle")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color.secondary.opacity(0.78))
+                .foregroundStyle(Color.secondary.opacity(ArborStyle.mutedToolbarOpacity))
                 .frame(width: 32, height: 32)
 
             badge
@@ -2780,8 +2764,11 @@ private struct ArborSharePanel: View {
     @State private var profileLocator = ""
     @State private var selectedAccountID = ""
     @State private var canonicalURL = ""
-    @State private var promotionAccess = "none"
+    @State private var promotionAccess = ArborTreeAccess.noAccess
     @State private var permissionEditor = false
+    @State private var newGroup: ArborNewGroupRequest?
+    /// The access a group made from this panel receives once it exists.
+    @State private var newGroupAccess = ArborTreeAccess.read
 
     var body: some View {
         NavigationStack {
@@ -2837,6 +2824,12 @@ private struct ArborSharePanel: View {
                 }
             }
         }
+        .sheet(item: $newGroup) { request in
+            ArborNewGroupSheet(workspace: workspace, request: request) { tree in
+                guard case let .tracked(access) = presentation else { return }
+                Task { await change(access, target: .profile(locator: tree), permission: newGroupAccess) }
+            }
+        }
         .task { await load() }
         .onChange(of: selectedAccountID) { _, id in
             guard case let .promotable(path, accounts) = presentation,
@@ -2876,7 +2869,12 @@ private struct ArborSharePanel: View {
                 excluding: Set(access.entries.compactMap { entry in if case .profile(let tree) = entry.subject { tree } else { nil } }),
                 disabled: busy || !access.canEdit,
                 onPick: { person in Task { await addProfiles([person.entry.profile], to: access) } },
-                onRawSubmit: { shareInvites(access) }
+                onRawSubmit: { shareInvites(access) },
+                onCreateGroup: canCreateGroup && access.canEdit ? { name in
+                    newGroupAccess = .read
+                    newGroup = ArborNewGroupRequest(name: name)
+                    profileLocator = ""
+                } : nil
             )
         } footer: {
             if !access.canEdit {
@@ -2901,6 +2899,18 @@ private struct ArborSharePanel: View {
         } footer: {
             if !access.canEdit {
                 Text("Only an administrator for this Canopy account can change access.")
+            } else if canCreateGroup, groupableEntries(access).count >= 2 {
+                Button("Make these people a group…") {
+                    let entries = groupableEntries(access)
+                    newGroupAccess = entries.allSatisfy { $0.access == ArborTreeAccess.write.rawValue } ? .write : .read
+                    newGroup = ArborNewGroupRequest(members: entries.compactMap { entry in
+                        if case .profile(let tree) = entry.subject { tree } else { nil }
+                    })
+                }
+#if os(macOS)
+                .buttonStyle(.link)
+#endif
+                .disabled(busy)
             }
         }
         Section {
@@ -2910,6 +2920,22 @@ private struct ArborSharePanel: View {
             Button("Manage app permissions…") { permissionEditor = true }
                 .disabled(busy || !access.canEdit)
         } header: { Text("Scoped and app permissions") }
+    }
+
+    private var canCreateGroup: Bool {
+#if os(macOS)
+        workspace.groupCreationAccount != nil
+#else
+        false
+#endif
+    }
+
+    /// People (not groups, not you) listed individually on this tree.
+    private func groupableEntries(_ access: NativeTreeAccessPresentation) -> [NativeTreeAccessEntry] {
+        access.entries.filter { entry in
+            guard case .profile(let tree) = entry.subject, !entry.isCurrentUser else { return false }
+            return workspace.directory.first { $0.id == tree }?.entry.kind != "group"
+        }
     }
 
     private func accessRow(
@@ -2940,7 +2966,7 @@ private struct ArborSharePanel: View {
                 .help("Your access cannot be removed")
             } else if access.canEdit {
                 accessMenu(
-                    current: entry.access,
+                    current: ArborTreeAccess(rawValue: entry.access),
                     set: { permission in
                         Task { await change(access, target: .existing(entry.subject), permission: permission) }
                     }
@@ -2965,9 +2991,9 @@ private struct ArborSharePanel: View {
             Spacer(minLength: 8)
             if access.canEdit {
                 accessMenu(
-                    current: "none",
+                    current: .noAccess,
                     set: { permission in
-                        guard permission != "none" else { return }
+                        guard permission != .noAccess else { return }
                         Task { await change(access, target: .everyone, permission: permission) }
                     }
                 )
@@ -2983,8 +3009,8 @@ private struct ArborSharePanel: View {
         switch entry.subject {
         case .everyone:
             accessIcon(systemName: "globe", tint: .blue)
-        case .profile:
-            if case let .profile(tree) = entry.subject, let person = workspace.directory.first(where: { $0.id == tree }) {
+        case let .profile(tree):
+            if let person = workspace.directory.first(where: { $0.id == tree }) {
                 ArborAvatarView(person: person, workspace: workspace)
             } else {
                 accessIcon(systemName: entry.isCurrentUser ? "person.crop.circle.fill" : "person.2.fill", tint: .indigo)
@@ -3001,27 +3027,24 @@ private struct ArborSharePanel: View {
             .background(tint.opacity(0.12), in: Circle())
     }
 
-    private func accessMenu(current: String, set: @escaping (String) -> Void) -> some View {
+    /// `current` is nil for an access level this app does not recognize.
+    private func accessMenu(current: ArborTreeAccess?, set: @escaping (ArborTreeAccess) -> Void) -> some View {
         Menu {
-            Button {
-                set("read")
-            } label: {
-                if current == "read" { Label("Can view", systemImage: "checkmark") }
-                else { Text("Can view") }
+            ForEach([ArborTreeAccess.read, .write], id: \.self) { access in
+                Button {
+                    set(access)
+                } label: {
+                    if current == access { Label(access.label, systemImage: "checkmark") }
+                    else { Text(access.label) }
+                }
             }
-            Button {
-                set("write")
-            } label: {
-                if current == "write" { Label("Can edit", systemImage: "checkmark") }
-                else { Text("Can edit") }
-            }
-            if current != "none" {
+            if current != .noAccess {
                 Divider()
-                Button("Remove access", role: .destructive) { set("none") }
+                Button("Remove access", role: .destructive) { set(.noAccess) }
             }
         } label: {
             HStack(spacing: 5) {
-                Text(permissionLabel(current))
+                Text((current ?? .noAccess).label)
                 Image(systemName: "chevron.down").font(.caption)
             }
             .foregroundStyle(.secondary)
@@ -3056,9 +3079,9 @@ private struct ArborSharePanel: View {
                 }
                 TextField("Canonical URL", text: $canonicalURL)
                 Picker("Initial access", selection: $promotionAccess) {
-                    Text("Private").tag("none")
-                    Text("Everyone can view").tag("read")
-                    Text("Everyone can edit").tag("write")
+                    Text("Private").tag(ArborTreeAccess.noAccess)
+                    Text("Everyone can view").tag(ArborTreeAccess.read)
+                    Text("Everyone can edit").tag(ArborTreeAccess.write)
                 }
                 Button("Make This an Arbor Tree", systemImage: "tree") {
                     guard let account = accounts.first(where: { $0.id == selectedAccountID }) else { return }
@@ -3087,11 +3110,7 @@ private struct ArborSharePanel: View {
     }
 
     private func permissionLabel(_ permission: String) -> String {
-        switch permission {
-        case "read": "Can view"
-        case "write": "Can edit"
-        default: "No access"
-        }
+        (ArborTreeAccess(rawValue: permission) ?? .noAccess).label
     }
 
     private var inviteLocators: [String] {
@@ -3127,7 +3146,7 @@ private struct ArborSharePanel: View {
     private func change(
         _ current: NativeTreeAccessPresentation,
         target: NativeTreeAccessTarget,
-        permission: String
+        permission: ArborTreeAccess
     ) async {
         busy = true
         defer { busy = false }
@@ -3152,7 +3171,7 @@ private struct ArborSharePanel: View {
                 latest = try await workspace.setShareAccess(
                     tree: latest.tree,
                     target: .profile(locator: locator),
-                    access: "read"
+                    access: .read
                 )
             }
             presentation = .tracked(latest)
@@ -3245,7 +3264,6 @@ private struct MacArborSyncAccountPanel: View {
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
-    private var activeDevices: [LocalArborSyncDevicePresentation] { account?.devices ?? [] }
 
     var body: some View {
         NavigationStack {
@@ -3307,37 +3325,7 @@ private struct MacArborSyncAccountPanel: View {
                             }
                         }
                     }
-                    if account.accounts.isEmpty, account.handle != nil {
-                        Section {
-                            ForEach(activeDevices, id: \.id) { device in
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(device.label)
-                                        Text([
-                                            device.isCurrent ? "This Mac" : nil,
-                                            device.isAdministrator ? "Administrator" : "Active device",
-                                        ].compactMap { $0 }.joined(separator: " · "))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Button("Revoke", role: .destructive) {
-                                        Task { await revoke(device.id) }
-                                    }
-                                    .disabled(device.isAdministrator && activeDevices.filter(\.isAdministrator).count == 1)
-                                }
-                            }
-                        } header: {
-                            ArborDevicesHeader(addAccount: { setupPresented = true })
-                        } footer: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Each active device has its own server credential. Revoking one does not delete any tree data.")
-                                Button("Pair another device…") { Task { await createPairing(configurationTree: nil) } }
-                                    .buttonStyle(.link)
-                                    .textCase(nil)
-                            }
-                        }
-                    } else if account.accounts.isEmpty {
+                    if account.accounts.isEmpty {
                         ContentUnavailableView(
                             "No Canopy account",
                             systemImage: "person.crop.circle.badge.questionmark",
@@ -3563,7 +3551,7 @@ private struct MacArborSyncAccountPanel: View {
         }
     }
 
-    private func createPairing(configurationTree: String?) async {
+    private func createPairing(configurationTree: String) async {
         do {
             let value = try await workspace.createLocalArborSyncPairing(configurationTree: configurationTree)
             pairing = value
@@ -3589,36 +3577,43 @@ private struct MacArborSyncAccountPanel: View {
             message = error.localizedDescription
         }
     }
-
-    private func revoke(_ id: String) async {
-        do { try await workspace.revokeLocalArborSyncDevice(id) }
-        catch { message = error.localizedDescription }
-    }
 }
 
 private struct PairingQRCode: View {
     let payload: String
+    /// The code rendered for `payload`, generated once per payload rather
+    /// than on every body evaluation.
+    @State private var rendered: (payload: String, image: CGImage?)?
 
     var body: some View {
-        if let image = Self.image(payload) {
-            Image(decorative: image, scale: 1)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .padding(14)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16))
-                .accessibilityLabel("One-time iPhone pairing code")
-        } else {
-            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+        Group {
+            if let rendered, rendered.payload == payload {
+                if let image = rendered.image {
+                    Image(decorative: image, scale: 1)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(14)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityLabel("One-time iPhone pairing code")
+                } else {
+                    ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+                }
+            } else {
+                Color.clear.aspectRatio(1, contentMode: .fit)
+            }
         }
+        .task(id: payload) { rendered = (payload, Self.image(payload)) }
     }
 
-    private static func image(_ payload: String) -> CGImage? {
+    @MainActor private static let context = CIContext()
+
+    @MainActor private static func image(_ payload: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
-        return CIContext().createCGImage(output, from: output.extent)
+        return context.createCGImage(output, from: output.extent)
     }
 }
 #endif
@@ -3766,7 +3761,7 @@ struct ArborIOSLaunchView: View {
     @ViewBuilder
     private var scanner: some View {
         if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
-            PairingQRScanner { payload in
+            PairingQRScanner(onScanFailure: { scanError = $0 }) { payload in
                 guard phase == .scanning else { return }
                 phase = .claiming
                 Task { await claim(payload) }
@@ -3839,7 +3834,7 @@ struct ArborIOSLaunchView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(tree.canonicalPath ?? tree.id)
-                                    Text(tree.access == "write" ? "Ready to sync" : "Read only")
+                                    Text(tree.grantsWrite ? "Ready to sync" : "Read only")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -3847,7 +3842,7 @@ struct ArborIOSLaunchView: View {
                                 Image(systemName: "arrow.down.circle")
                             }
                         }
-                        .disabled(tree.access != "write")
+                        .disabled(!tree.grantsWrite)
                     }
                     if trees.isEmpty, treeError == nil {
                         ProgressView("Loading folders…")
@@ -3878,7 +3873,7 @@ struct ArborIOSLaunchView: View {
             await loadAccounts()
             phase = .accounts
         } catch {
-            scanError = String(describing: error)
+            scanError = error.localizedDescription
             phase = .scanning
         }
     }
@@ -3888,7 +3883,7 @@ struct ArborIOSLaunchView: View {
             accounts = try await KeychainDeviceCredentialStore().accounts()
             scanError = nil
         } catch {
-            scanError = String(describing: error)
+            scanError = error.localizedDescription
         }
     }
 
@@ -3908,7 +3903,7 @@ struct ArborIOSLaunchView: View {
                 ($0.canonicalPath ?? $0.id) < ($1.canonicalPath ?? $1.id)
             }
         } catch {
-            treeError = String(describing: error)
+            treeError = error.localizedDescription
         }
     }
 
@@ -3921,7 +3916,7 @@ struct ArborIOSLaunchView: View {
             try await workspace.place(tree: tree, from: origin, configurationTree: selectedConfigurationTree)
             ready = true
         } catch {
-            treeError = String(describing: error)
+            treeError = error.localizedDescription
             phase = .choosing
         }
     }
@@ -3987,7 +3982,7 @@ private struct IOSPlaceTreePanel: View {
 
     private var unplacedTrees: [WireTreeDescriptor] {
         let placed = Set(workspace.nativePlacements.map(\.tree.id))
-        return trees.filter { $0.kind == "ordinary" && !placed.contains($0.id) }
+        return trees.filter { $0.kind == ArborTreeKind.ordinary && !placed.contains($0.id) }
     }
 
     var body: some View {
@@ -4027,7 +4022,7 @@ private struct IOSPlaceTreePanel: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(tree.canonicalPath ?? tree.id)
-                                        Text(tree.access == "write" ? "Can edit" : "Can view")
+                                        Text(tree.grantsWrite ? "Can edit" : "Can view")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -4220,16 +4215,17 @@ private struct IOSAccountPanel: View {
             try await workspace.disconnectNativeAccount()
             dismiss()
             onDisconnect()
-        } catch { message = String(describing: error) }
+        } catch { message = error.localizedDescription }
     }
 }
 #endif
 
 #if os(iOS)
 private struct PairingQRScanner: UIViewControllerRepresentable {
+    let onScanFailure: @MainActor (String) -> Void
     let onPayload: @MainActor (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPayload: onPayload) }
+    func makeCoordinator() -> Coordinator { Coordinator(onScanFailure: onScanFailure, onPayload: onPayload) }
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
@@ -4242,12 +4238,12 @@ private struct PairingQRScanner: UIViewControllerRepresentable {
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        try? scanner.startScanning()
+        context.coordinator.startScanning(scanner)
         return scanner
     }
 
-    func updateUIViewController(_ scanner: DataScannerViewController, context _: Context) {
-        if !scanner.isScanning { try? scanner.startScanning() }
+    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
+        if !scanner.isScanning { context.coordinator.startScanning(scanner) }
     }
 
     static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator _: Coordinator) {
@@ -4256,10 +4252,32 @@ private struct PairingQRScanner: UIViewControllerRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        let onScanFailure: @MainActor (String) -> Void
         let onPayload: @MainActor (String) -> Void
         private var completed = false
+        private var reportedScanFailure = false
 
-        init(onPayload: @escaping @MainActor (String) -> Void) { self.onPayload = onPayload }
+        init(
+            onScanFailure: @escaping @MainActor (String) -> Void,
+            onPayload: @escaping @MainActor (String) -> Void
+        ) {
+            self.onScanFailure = onScanFailure
+            self.onPayload = onPayload
+        }
+
+        /// Start the camera scanner, reporting the first failure outside the
+        /// view update that attempted it; later retries fail the same way.
+        func startScanning(_ scanner: DataScannerViewController) {
+            do {
+                try scanner.startScanning()
+            } catch {
+                guard !reportedScanFailure else { return }
+                reportedScanFailure = true
+                let report = onScanFailure
+                let message = error.localizedDescription
+                Task { @MainActor in report(message) }
+            }
+        }
 
         func dataScanner(
             _ dataScanner: DataScannerViewController,
@@ -4342,6 +4360,7 @@ private struct ArborProfileWidget: View {
     let model: ArborAppModel
     @State private var presented = false
     @State private var reloadAfterDismiss = false
+    @State private var prefill: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -4370,18 +4389,26 @@ private struct ArborProfileWidget: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.quaternary.opacity(0.35))
+        .onAppear(perform: consumePendingAction)
+        .onChange(of: workspace.pendingProfileAction) { _, _ in consumePendingAction() }
         .sheet(isPresented: $presented, onDismiss: {
+            prefill = nil
             guard reloadAfterDismiss else { return }
             reloadAfterDismiss = false
             Task { await model.load() }
         }) {
             if profile.kind == .group {
-                ArborAddProfileMemberSheet(
+                ArborProfileMembersSheet(
                     profile: profile,
                     workspace: workspace,
                     reservesCanopyHandle: workspace.isCommunityMembershipTree,
+                    prefill: prefill,
                     add: {
                         try await model.addProfileMember(treeID: $0, handle: $1)
+                        reloadAfterDismiss = true
+                    },
+                    remove: {
+                        try await model.removeProfileMember(profile: $0)
                         reloadAfterDismiss = true
                     }
                 )
@@ -4397,34 +4424,43 @@ private struct ArborProfileWidget: View {
         }
     }
 
+    /// Present the Members sheet People asked this group page for.
+    private func consumePendingAction() {
+        guard let action = workspace.pendingProfileAction,
+              action.tree == model.currentReference.tree.rawValue else { return }
+        workspace.pendingProfileAction = nil
+        guard profile.kind == .group, isWritable else {
+            workspace.errorMessage = "You can view \(bannerTitle), but only an editor can change its members."
+            return
+        }
+        prefill = action.prefill
+        presented = true
+    }
+
     private var detail: String {
         if !isWritable { return "You can view this profile, but only an editor can change it." }
         if profile.kind == .person {
             if let description = profile.description, !description.isEmpty { return description }
-            return hasPersonalDetails
+            return profile.hasPersonalDetails
                 ? "Personal profile"
                 : "Add a display name, photo, and short description."
         }
+        let count = profile.members.count
+        let people = count == 1 ? "1 member" : "\(count) members"
         return workspace.isCommunityMembershipTree
-            ? "Add a person by Profile TreeID and reserve their handle on this Canopy."
-            : "Add a member by Profile TreeID."
+            ? "\(people) on this Canopy. Adding a person reserves their handle here."
+            : "\(people). Share a tree with this group to share it with all of them."
     }
 
     private var actionTitle: String {
-        guard profile.kind == .group else { return hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
-        return workspace.isCommunityMembershipTree ? "Add Person…" : "Add Member…"
+        guard profile.kind == .group else { return profile.hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
+        return workspace.isCommunityMembershipTree ? "People…" : "Members…"
     }
 
     private var bannerTitle: String {
         if profile.kind == .person, let name = profile.displayName, !name.isEmpty { return name }
         if profile.kind == .group, !pageTitle.isEmpty { return pageTitle }
         return profile.kind == .group ? "Group profile" : "Personal profile"
-    }
-
-    private var hasPersonalDetails: Bool {
-        profile.displayName?.isEmpty == false
-            || profile.description?.isEmpty == false
-            || profile.avatarPath != nil
     }
 }
 
@@ -4451,12 +4487,7 @@ private struct ArborProfileBannerAvatar: View {
             guard let avatarPath = profile.avatarPath else { image = nil; return }
             let path = "/" + avatarPath
             guard let data = try? await workspace.provider.readFile(.init(tree: reference.tree, path: path)),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 184,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                  ] as CFDictionary) else {
+                  let thumbnail = ArborAvatarImage.thumbnail(data, maxPixelSize: 184) else {
                 image = nil
                 return
             }
@@ -4500,7 +4531,7 @@ private struct ArborPersonalProfileSheet: View {
                 }
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
-            .navigationTitle(hasExistingDetails ? "Edit Profile" : "Fill Out Profile")
+            .navigationTitle(profile.hasPersonalDetails ? "Edit Profile" : "Fill Out Profile")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -4534,12 +4565,6 @@ private struct ArborPersonalProfileSheet: View {
             message = error.localizedDescription
         }
     }
-
-    private var hasExistingDetails: Bool {
-        profile.displayName?.isEmpty == false
-            || profile.description?.isEmpty == false
-            || profile.avatarPath != nil
-    }
 }
 
 enum ArborProfilePhotoImport {
@@ -4551,12 +4576,7 @@ enum ArborProfilePhotoImport {
     }
 
     static func normalized(_ data: Data) throws -> WorkspaceAsset {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1024,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-              ] as CFDictionary) else {
+        guard let image = ArborAvatarImage.thumbnail(data, maxPixelSize: 1024) else {
             throw ArborWireValidationError.invalidValue("The selected file is not a readable image")
         }
         for quality in [0.86, 0.72, 0.58] {
@@ -4576,7 +4596,7 @@ enum ArborProfilePhotoImport {
                 return WorkspaceAsset(name: "profile-photo.jpg", mediaType: "image/jpeg", bytes: bytes)
             }
         }
-        throw ArborWireValidationError.invalidValue("The selected photo could not be reduced below 2 MB")
+        throw ArborWireValidationError.invalidValue("The selected photo could not be reduced below \(AvatarCache.maximumSizeDescription)")
     }
 }
 
@@ -4607,17 +4627,27 @@ private struct ArborSelectedProfilePhoto: View {
     }
 }
 
-private struct ArborAddProfileMemberSheet: View {
+/// A group's members, one row each, with removal and the add form. Edits
+/// go through the open page's editor, so they undo and sync like any edit.
+private struct ArborProfileMembersSheet: View {
     @Environment(\.dismiss) private var dismiss
     let profile: ArborProfileDocument
     let workspace: ArborWorkspaceState
     let reservesCanopyHandle: Bool
+    let prefill: String?
     let add: (String, String) async throws -> Void
+    let remove: (String) async throws -> Void
     @State private var treeID = ""
     @State private var handle = ""
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
+    @State private var removed: Set<String> = []
+    @State private var confirmingRemoval: ArborProfileDocument.Member?
+
+    private var members: [ArborProfileDocument.Member] {
+        profile.members.filter { !removed.contains($0.profile) }
+    }
 
     private var people: [DirectoryPerson] {
         DirectoryMatcher.matches(query: query, in: workspace.directory).filter {
@@ -4629,7 +4659,15 @@ private struct ArborAddProfileMemberSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Person") {
+                Section(reservesCanopyHandle ? "People on this Canopy" : "Members") {
+                    ForEach(members) { member in
+                        memberRow(member)
+                    }
+                    if members.isEmpty {
+                        Text("No members yet.").foregroundStyle(.secondary)
+                    }
+                }
+                Section(reservesCanopyHandle ? "Add a person" : "Add a member") {
                     TextField("TreeID (tr_…)", text: $treeID)
                     if reservesCanopyHandle {
                         HStack(spacing: 4) {
@@ -4642,14 +4680,14 @@ private struct ArborAddProfileMemberSheet: View {
                         : "The TreeID is the member’s stable profile identity.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button(reservesCanopyHandle ? "Add Person" : "Add Member") { Task { await submit() } }
+                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || (reservesCanopyHandle
+                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
-                Section("People on this Canopy") {
+                Section("Suggestions from People") {
                     ForEach(people) { person in
-                        Button {
-                            treeID = person.entry.profile
-                            if reservesCanopyHandle { handle = person.entry.handle ?? "" }
-                            message = nil
-                        } label: {
+                        Button { choose(person) } label: {
                             HStack(spacing: 12) {
                                 ArborAvatarView(person: person, workspace: workspace)
                                 VStack(alignment: .leading, spacing: 2) {
@@ -4657,9 +4695,14 @@ private struct ArborAddProfileMemberSheet: View {
                                     Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                if treeID == person.entry.profile {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
                             }
+                            .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(treeID == person.entry.profile ? Color.accentColor.opacity(0.12) : nil)
                         .disabled(busy)
                     }
                     if people.isEmpty {
@@ -4673,18 +4716,77 @@ private struct ArborAddProfileMemberSheet: View {
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
             .searchable(text: $query, prompt: "Search people")
-            .navigationTitle("Add Person")
+            .navigationTitle(reservesCanopyHandle ? "People" : "Members")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { Task { await submit() } }
-                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || (reservesCanopyHandle
-                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
-                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .confirmationDialog(
+                "Remove \(confirmingRemoval.map(label) ?? "this person") from this Canopy?",
+                isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
+                presenting: confirmingRemoval
+            ) { member in
+                Button("Remove", role: .destructive) { Task { await removeNow(member) } }
+            } message: { _ in
+                Text("Removing a person from this community disables that account.")
             }
         }
-        .frame(minWidth: 440, minHeight: 360)
+        .frame(minWidth: 440, minHeight: 420)
+        .onAppear {
+            guard let prefill, let person = workspace.directory.first(where: { $0.entry.profile == prefill }) else {
+                if let prefill { treeID = prefill }
+                return
+            }
+            choose(person)
+        }
+    }
+
+    private func memberRow(_ member: ArborProfileDocument.Member) -> some View {
+        let person = member.treeID.flatMap { tree in workspace.directory.first { $0.entry.profile == tree } }
+        return HStack(spacing: 12) {
+            ArborAvatarView(person: person, workspace: workspace, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label(member))
+                Text(member.handle.map { "~\($0)" } ?? person?.subtitle ?? member.profile)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button(role: .destructive) {
+                if reservesCanopyHandle { confirmingRemoval = member }
+                else { Task { await removeNow(member) } }
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .disabled(busy)
+            .help("Remove")
+            .accessibilityLabel("Remove \(label(member))")
+        }
+    }
+
+    private func label(_ member: ArborProfileDocument.Member) -> String {
+        if let tree = member.treeID, let person = workspace.directory.first(where: { $0.entry.profile == tree }) {
+            return person.title
+        }
+        return member.handle.map { "~\($0)" } ?? member.treeID ?? member.profile
+    }
+
+    private func choose(_ person: DirectoryPerson) {
+        treeID = person.entry.profile
+        if reservesCanopyHandle { handle = person.entry.handle ?? "" }
+        message = nil
+    }
+
+    private func removeNow(_ member: ArborProfileDocument.Member) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await remove(member.profile)
+            removed.insert(member.profile)
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     private func submit() async {

@@ -53,13 +53,13 @@ private func endpointOrigin(_ endpoint: String) -> (scheme: String, authority: S
 }
 
 /// The public HTTP URL of a canonical tree, derived from its endpoint and decoded path.
-public func canonicalHTTPURL(endpoint: String, path: String) -> String {
+private func canonicalHTTPURL(endpoint: String, path: String) -> String {
     guard let origin = endpointOrigin(endpoint) else { return endpoint + encodedCanonicalPath(path) }
     return "\(origin.scheme)://\(origin.authority)\(encodedCanonicalPath(path))"
 }
 
 /// The `arbor://` locator of a canonical tree, derived from its endpoint and decoded path.
-public func canonicalArborLocator(endpoint: String, path: String) -> String {
+private func canonicalArborLocator(endpoint: String, path: String) -> String {
     guard let origin = endpointOrigin(endpoint) else { return "arbor://" + encodedCanonicalPath(path) }
     return "arbor://\(origin.authority)\(encodedCanonicalPath(path))"
 }
@@ -132,6 +132,20 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         }
         return self
     }
+}
+
+/// `GET /.arbor/trees/{id}/entry-metadata`: file entries of the current root,
+/// keyed by entry path (`/Trips/_index.md`), with the accepted update they
+/// describe. Unknown fields inside an entry are ignored.
+public struct WireEntryMetadata: Decodable, Sendable, Equatable {
+    public struct Entry: Decodable, Sendable, Equatable {
+        /// Unix milliseconds of the accepted update that last wrote the entry.
+        public var modifiedAt: Double?
+        public init(modifiedAt: Double? = nil) { self.modifiedAt = modifiedAt }
+    }
+    public var update: String
+    public var entries: [String: Entry]
+    public init(update: String, entries: [String: Entry]) { self.update = update; self.entries = entries }
 }
 
 public struct WireSnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
@@ -239,11 +253,12 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let value=try WireAcceptedStateContract(from:decoder)
         let f=value.fields
-        id=f["id"]!.text!; tree=f["tree"]!.text!; root=f["root"]!.text!
-        previous=f["previous"]?.fields.map { WireAcceptedLink(id:$0["id"]!.text!,root:$0["root"]!.text!) }
-        if case .number(let time)=f["acceptedAt"]! { acceptedAt=time } else { throw ArborWireValidationError.invalidValue("Invalid accepted time") }
+        typealias Read = AcceptedReadValidation
+        id=try Read.string(f["id"]); tree=try Read.string(f["tree"]); root=try Read.string(f["root"])
+        previous=try f["previous"]?.fields.map { WireAcceptedLink(id:try Read.string($0["id"]),root:try Read.string($0["root"])) }
+        if case .number(let time)?=f["acceptedAt"] { acceptedAt=time } else { throw ArborWireValidationError.invalidValue("Invalid accepted time") }
         subject=f["subject"]?.text
-        if case .bool(let flag)=f["conflicted"]! { conflicted=flag } else { throw ArborWireValidationError.invalidValue("Missing conflict signal") }
+        if case .bool(let flag)?=f["conflicted"] { conflicted=flag } else { throw ArborWireValidationError.invalidValue("Missing conflict signal") }
     }
     public func encode(to encoder: Encoder) throws {
         var c=encoder.container(keyedBy:CodingKeys.self)
@@ -252,7 +267,12 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
         try c.encode(subject,forKey:.subject); try c.encode(conflicted,forKey:.conflicted)
     }
     public func validated() throws -> Self {
-        _ = try JSONDecoder().decode(WireAcceptedStateContract.self,from:JSONEncoder().encode(self))
+        try AcceptedReadValidation.state([
+            "id": .string(id), "tree": .string(tree), "root": .string(root),
+            "previous": previous.map { .object(["id": .string($0.id), "root": .string($0.root)]) } ?? .null,
+            "acceptedAt": .number(acceptedAt), "subject": subject.map(WireReadValue.string) ?? .null,
+            "conflicted": .bool(conflicted),
+        ])
         return self
     }
 }
@@ -455,11 +475,17 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
         objects = payload.objects
         deltas = payload.deltas
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
-        _ = try validated()
+        // Decoding `update` already validated it against the accepted-state contract.
+        try validateTransition()
     }
 
     public func validated() throws -> Self {
         _ = try update.validated()
+        try validateTransition()
+        return self
+    }
+
+    private func validateTransition() throws {
         guard update.previous != nil else {
             throw ArborWireValidationError.invalidValue("Initial accepted update cannot be replayed as a transition")
         }
@@ -471,23 +497,7 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
             }
         }
         if let requestDigest { try validateObjectHash(requestDigest) }
-        var results = Set<String>()
-        for envelope in objects {
-            try validateObjectHash(envelope.hash)
-            guard WireObjectCodec.hash(envelope.bytes) == envelope.hash else {
-                throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: WireObjectCodec.hash(envelope.bytes))
-            }
-            guard results.insert(envelope.hash).inserted else {
-                throw ArborWireValidationError.invalidValue("Duplicate transition result")
-            }
-        }
-        for delta in deltas {
-            _ = try delta.validated()
-            guard results.insert(delta.result).inserted else {
-                throw ArborWireValidationError.invalidValue("Transition result supplied more than once")
-            }
-        }
-        return self
+        _ = try WireTransitionPayload(objects: objects, deltas: deltas).validated()
     }
 }
 
@@ -522,7 +532,7 @@ public struct WireTraceFrame: Sendable, Equatable {
               let ops = f["operations"]?.items else {
             throw ArborWireValidationError.invalidValue("Expected trace frame")
         }
-        self.init(before: before, after: after, operations: try ops.map { try WireSourceOperation($0.fields!) })
+        self.init(before: before, after: after, operations: try ops.map { try WireSourceOperation(WireSemanticValue.fields($0)) })
     }
 }
 
@@ -555,11 +565,14 @@ public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     }
     init(_ decoded: WireAuthoredCandidate) throws {
         let fields = decoded.intentFields
-        self.init(candidate: fields["candidate"]!.text!, change: fields["change"]!.text!,
-            trace: try fields["trace"]!.items.map { try $0.map(WireTraceFrame.init) },
-            resolves: fields["resolves"]!.items!.map { raw in
-                let r = raw.fields!
-                return WireResolutionDeclaration(state: r["state"]!.text!, conflict: r["conflict"]!.text!, alternatives: r["alternatives"]!.items!.map { $0.text! })
+        typealias Value = WireSemanticValue
+        guard let trace = fields["trace"] else { throw ArborWireValidationError.invalidValue("Missing trace") }
+        self.init(candidate: try Value.text(fields["candidate"]), change: try Value.text(fields["change"]),
+            trace: try trace.items.map { try $0.map(WireTraceFrame.init) },
+            resolves: try Value.items(fields["resolves"]).map { raw in
+                let r = try Value.fields(raw)
+                return WireResolutionDeclaration(state: try Value.text(r["state"]), conflict: try Value.text(r["conflict"]),
+                    alternatives: try Value.items(r["alternatives"]).map(Value.text))
             }, ifCurrent: fields["ifCurrent"]?.text, objects: decoded.payload.objects, deltas: decoded.payload.deltas)
     }
     public init(from decoder: Decoder) throws { try self.init(WireAuthoredCandidate(from: decoder)) }
@@ -879,7 +892,7 @@ extension WireUpdateResult: Codable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        let update = try values.decode(WireAcceptedUpdate.self, forKey: .update).validated()
+        let update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
         switch try values.decode(String.self, forKey: .outcome) {
         case "unchanged": self = .unchanged(update)
         case "accepted": self = .accepted(update)
