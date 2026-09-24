@@ -853,7 +853,11 @@ struct ArborInlineChoice: View {
                     if review.applying || review.previewing { ProgressView().controlSize(.small) }
                     if let message = review.message { Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                     Spacer()
+                    #if os(macOS)
                     Button("More options…", action: moreOptions).buttonStyle(.link).font(.caption)
+                    #else
+                    Button("More options…", action: moreOptions).buttonStyle(.borderless).font(.caption)
+                    #endif
                 }
             }
         }
