@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { initialAdmissionState, reduceAdmission, type AdmissionEvent, type AdmissionState, reduceUpdate, type UpdateEvent, type UpdateState } from "@overstory/client";
+import { reduceUpdate, type UpdateEvent, type UpdateOptions, type UpdateState } from "@overstory/client";
 
 interface Step {
   event: Record<string, unknown>;
@@ -14,7 +14,7 @@ interface Step {
 
 interface Scenario {
   name: string;
-  admissionPolicy?: "compare-and-swap" | "retained-basis";
+  options?: UpdateOptions;
   initial: Record<string, unknown>;
   steps: Step[];
 }
@@ -29,7 +29,6 @@ interface MachineFixture {
 interface Fixture {
   version: number;
   machines: {
-    "document-admission": MachineFixture;
     "working-tree-updates": MachineFixture;
   };
 }
@@ -89,21 +88,7 @@ describe("client state machine fixtures", () => {
   test("declare every state, event, and effect a step names", async () => {
     const fixture = await loadFixture();
     expect(fixture.version).toBe(1);
-    validateSchema(fixture.machines["document-admission"]);
     validateSchema(fixture.machines["working-tree-updates"]);
-  });
-
-  test("the TypeScript document admission machine executes every scenario", async () => {
-    const fixture = await loadFixture();
-    const options = { equal: (left: string, right: string) => left === right };
-    for (const scenario of fixture.machines["document-admission"].scenarios) {
-      const initial = scenario.initial as { accepted: { source: string; revision: string } };
-      runScenario<AdmissionState<string>, AdmissionEvent<string>>(
-        scenario,
-        initialAdmissionState(initial.accepted),
-        (state, event) => reduceAdmission(state, event, { ...options, admissionPolicy: scenario.admissionPolicy }),
-      );
-    }
   });
 
   test("the TypeScript working-tree update machine executes every scenario", async () => {
@@ -112,14 +97,14 @@ describe("client state machine fixtures", () => {
       runScenario<UpdateState, UpdateEvent>(
         scenario,
         scenario.initial as unknown as UpdateState,
-        (state, event) => reduceUpdate(state, event),
+        (state, event) => reduceUpdate(state, event, scenario.options),
       );
     }
   });
 
   test("the fixture rejects unknown states and incomplete steps", async () => {
     const fixture = await loadFixture();
-    const machine = structuredClone(fixture.machines["document-admission"]);
+    const machine = structuredClone(fixture.machines["working-tree-updates"]);
     machine.scenarios[0]!.steps[0]!.state = "unknown-state";
     expect(() => validateSchema(machine)).toThrow(/unknown state/);
     const incomplete = structuredClone(fixture.machines["working-tree-updates"]);

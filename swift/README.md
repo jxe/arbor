@@ -7,11 +7,11 @@ the TypeScript workspace, and the Canopy app for macOS and iOS.
 |---|---|---|---|
 | [`Overstory`](Packages/Overstory/README.md) | Protocol models, canonical CBOR, SSE, the HTTP client, contracts, operations, resource policy | `protocol` | |
 | [`OverstoryObjectStore`](Packages/OverstoryObjectStore/README.md) | Object stores: overlay, layered, directory, host-backed | `object-store` | Overstory |
-| [`CanopyAppKit`](Packages/CanopyAppKit/README.md) | Workspace models and coordinator, the document admission machine, logical URLs and titles, the browser tab controller | (`client/document-admission`) | |
+| [`CanopyAppKit`](Packages/CanopyAppKit/README.md) | Workspace models and coordinator, the editor source, logical URLs and titles, the browser tab controller | | |
 | [`CanopyWorkingTree`](Packages/CanopyWorkingTree/README.md) | The durable working tree, update machine and coordinator, admission queue, entry actions, conflict review | `client` | CanopyAppKit, OverstoryObjectStore, Overstory |
 | [`OverstoryClient`](Packages/OverstoryClient/README.md) | Credentials, placement service, watch runner, account YAML, resource consent | `client` | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
 | [`ArborSyncClient`](Packages/ArborSyncClient/README.md) | The loopback REST client for the daemon and its process supervisor | `arborsync-client` | CanopyAppKit, OverstoryObjectStore, Overstory |
-| [`CanopyEditor`](Packages/CanopyEditor/README.md) | The Quagmire editor host, document binding, Markdown codec, editor recovery, conflict analysis | | ArborSyncClient, CanopyAppKit, Quagmire |
+| [`CanopyEditor`](Packages/CanopyEditor/README.md) | The Quagmire editor host, document binding, Markdown codec | | ArborSyncClient, CanopyAppKit, Quagmire |
 
 `CanopyApp/` is the app target (SwiftUI, the arborsync helper service, the
 launchd plist, entitlements) and `CanopyAppTests/` its test bundle. The app

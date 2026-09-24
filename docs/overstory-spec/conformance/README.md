@@ -26,18 +26,15 @@ identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query o
 hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
-`client-state-machines.json` freezes the transition scenarios of the two
-client state machines: `document-admission` for an editor against its
-working tree's document session (`DocumentAdmissionMachine` in `CanopyAppKit`,
-`reduceAdmission` in `@overstory/client`; one transport, a rejected admission runs
-the host's local merge helper), and `working-tree-updates` for the update
-machine a working tree runs against Overstory (`UpdateMachine` in
-`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`; every working
-tree is a source, there is no filesystem role). Roots, updates, cursors, and
-digests are tokens. The `working-tree-updates` scenarios include adoption: a request whose
-leading elements were adopted from another working tree resubmits them
-exactly after a restart, and a watch event carrying an adopted element's
-digest is evidence for the whole request.
+`client-state-machines.json` freezes the transition scenarios of the one
+client synchronization machine, `working-tree-updates` (`UpdateMachine` in
+`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`): a working tree
+publishes the local changes in its change log, whether an editor or a folder
+appended them. Changes, roots, updates, cursors, and digests are tokens. The
+fixture pins the reducers only; in TypeScript nothing in production runs the
+reducer yet, and the daemon's folder synchronization runs its own loop. There
+is no editor-side machine: editors append local changes to the change log
+([editor sources](../../implementing-editors/editor-source.md)).
 
 `protocol-update-intent.json` also carries `envelopeIndependence`: several
 packings of object envelopes across the same plural request produce

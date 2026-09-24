@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "description": "Runner vectors for the update machine's runner (UpdateCoordinator). Each scenario drives a runner over one working tree whose document /note starts as `document`, a fake host, and a change log. `responses` scripts the host's answer to each submission in order (accept every element, reject with 409, fail the transport, or refuse an unsupported operation); calls past the script accept. Steps append editor generations, request synchronization, change transport availability, restart the runner on the same durable state, or discard held changes; `expect` checks the machine phase, what the host received, the change log, and the document the editor reads. These are implementation vectors, not Overstory compatibility.",
+  "scenarios": [
+    {
+      "name": "one change publishes and settles",
+      "document": "Base\n",
+      "steps": [
+        { "append": "One\n" },
+        { "expect": { "phase": "locally-pending", "requests": 0, "pending": 1 } },
+        { "sync": true },
+        { "expect": { "phase": "current", "requests": 1, "lastElements": 1, "pending": 0, "document": "Base\nOne\n" } }
+      ]
+    },
+    {
+      "name": "changes appended before publication are one chain in one request",
+      "document": "Base\n",
+      "steps": [
+        { "append": "One\n" },
+        { "append": "Two\n" },
+        { "sync": true },
+        { "expect": { "phase": "current", "requests": 1, "lastElements": 2, "pending": 0, "document": "Base\nOne\nTwo\n" } }
+      ]
+    },
+    {
+      "name": "a change made after acceptance starts from the new accepted state",
+      "document": "Base\n",
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "append": "Two\n" },
+        { "sync": true },
+        { "expect": { "phase": "current", "requests": 2, "lastElements": 1, "pending": 0, "document": "Base\nOne\nTwo\n" } }
+      ]
+    },
+    {
+      "name": "an ambiguous prefix is repeated exactly and extended once",
+      "document": "Base\n",
+      "responses": ["acceptThenFail"],
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "expect": { "phase": "offline", "requests": 1 } },
+        { "append": "Two\n" },
+        { "transport": false },
+        { "transport": true },
+        { "expect": { "phase": "current", "requests": 2, "lastElements": 2, "repeatsPrefix": true, "pending": 0, "document": "Base\nOne\nTwo\n" } }
+      ]
+    },
+    {
+      "name": "a transport failure resubmits the exact request on reconnection",
+      "document": "Base\n",
+      "responses": ["fail"],
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "expect": { "phase": "offline", "requests": 1, "pending": 1 } },
+        { "transport": false },
+        { "transport": true },
+        { "expect": { "phase": "current", "requests": 2, "sameBody": true, "pending": 0 } }
+      ]
+    },
+    {
+      "name": "a durable change survives a restart before publication",
+      "document": "Base\n",
+      "steps": [
+        { "append": "One\n" },
+        { "restart": true },
+        { "expect": { "requests": 0, "pending": 1 } },
+        { "sync": true },
+        { "expect": { "phase": "current", "requests": 1, "pending": 0, "document": "Base\nOne\n" } }
+      ]
+    },
+    {
+      "name": "a rejection is held across restart with later work until discarded",
+      "document": "Base\n",
+      "responses": ["reject"],
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "expect": { "phase": "held", "requests": 1, "pending": 1 } },
+        { "append": "Two\n" },
+        { "sync": true },
+        { "expect": { "phase": "held", "requests": 1, "pending": 2, "document": "Base\nOne\nTwo\n" } },
+        { "restart": true },
+        { "sync": true },
+        { "expect": { "phase": "held", "requests": 1, "pending": 2 } },
+        { "discardHeld": true },
+        { "expect": { "phase": "current", "requests": 1, "pending": 0, "document": "Base\n" } }
+      ]
+    },
+    {
+      "name": "an unsupported operation is held, not terminal",
+      "document": "Base\n",
+      "responses": ["unsupported"],
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "expect": { "phase": "held", "requests": 1, "pending": 1 } }
+      ]
+    },
+    {
+      "name": "a restart after a lost response replays the exact request once",
+      "document": "Base\n",
+      "responses": ["acceptThenFail"],
+      "steps": [
+        { "append": "One\n" },
+        { "sync": true },
+        { "expect": { "phase": "offline", "requests": 1 } },
+        { "restart": true },
+        { "sync": true },
+        { "expect": { "phase": "current", "requests": 2, "sameBody": true, "pending": 0, "document": "Base\nOne\n" } }
+      ]
+    }
+  ]
+}

@@ -241,26 +241,49 @@ public enum ConflictReviewError: LocalizedError {
     }
 }
 
+/// Drafts, and the fingerprint of the draft each submitted resolution change
+/// carries. Schema 3 publishes resolutions through the change log; an earlier
+/// journal with its own pending attempt is refused rather than rewritten.
 struct ConflictReviewJournal: Codable {
-    var schema = 2
+    var schema = 3
     var drafts: [ConflictReviewDraft] = []
-    var attempt: ConflictReviewAttempt?
-}
-struct ConflictReviewAttempt: Codable {
-    let draft: ConflictReviewDraft
-    let request: UpdateAttempt
+    var submitted: [String: String] = [:]
+
+    init(drafts: [ConflictReviewDraft] = [], submitted: [String: String] = [:]) {
+        self.drafts = drafts
+        self.submitted = submitted
+    }
+
+    private enum CodingKeys: String, CodingKey { case schema, drafts, submitted, attempt }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try values.decode(Int.self, forKey: .schema)
+        guard (1...3).contains(schema) else { throw ConflictReviewError.unavailable }
+        if values.contains(.attempt), (try? values.decodeNil(forKey: .attempt)) == false {
+            throw UpdateError.earlierPendingWork("conflict-review.json")
+        }
+        drafts = try values.decodeIfPresent([ConflictReviewDraft].self, forKey: .drafts) ?? []
+        submitted = try values.decodeIfPresent([String: String].self, forKey: .submitted) ?? [:]
+        schema = 3
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(schema, forKey: .schema)
+        try values.encode(drafts, forKey: .drafts)
+        try values.encode(submitted, forKey: .submitted)
+    }
 }
 
 extension UpdateControlFiles {
     func loadReview() throws -> ConflictReviewJournal {
         let url = directory.appending(path: "conflict-review.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return .init() }
-        let journal = try JSONDecoder().decode(ConflictReviewJournal.self, from: Data(contentsOf: url))
-        guard (1...2).contains(journal.schema) else { throw ConflictReviewError.unavailable }
-        return journal
+        return try JSONDecoder().decode(ConflictReviewJournal.self, from: Data(contentsOf: url))
     }
     func writeReview(_ journal: ConflictReviewJournal) throws {
-        var next = journal; next.schema = 2
+        var next = journal; next.schema = 3
         try atomicWrite(sortedKeysJSON(next), to: directory.appending(path: "conflict-review.json"))
     }
 }

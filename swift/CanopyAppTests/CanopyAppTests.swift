@@ -220,7 +220,7 @@ struct CanopyAppTests {
             sync: .init(state: .current),
             binding: nil,
             arborsyncProcessKind: nil,
-            retrySave: {}, reviewDocumentConflict: {}, syncNow: {},
+            retrySave: {}, syncNow: {},
             reconnectArborSync: {}, showArborSyncLogs: {}
         )
         #expect(status.overallStatusTitle == "This Arbor client is up to date")
@@ -248,8 +248,8 @@ struct CanopyAppTests {
         #expect(!ArborSyncStatus.attention.showsIOSShareAction)
     }
 
-    @Test("A current tree cannot hide a document conflict after continued typing")
-    func syncStatusRetainsDocumentConflict() async throws {
+    @Test("A current tree cannot hide a document edit that could not be retained")
+    func syncStatusRetainsDocumentFailure() async throws {
         let session = StatusConflictSession()
         let binding = try await ArborDocumentBinding.open(reference: session.reference, session: session)
         let host = ArborEditorHost(
@@ -267,19 +267,19 @@ struct CanopyAppTests {
         let status = ArborSyncStatusView(
             provider: "Test", sync: .init(state: .current), binding: binding,
             arborsyncProcessKind: nil,
-            retrySave: {}, reviewDocumentConflict: {}, syncNow: {},
+            retrySave: {}, syncNow: {},
             reconnectArborSync: {}, showArborSyncLogs: {}
         )
         #expect(status.overallStatusTitle == "A document needs attention")
-        #expect(status.saveStatus == "Conflict needs a choice")
-        #expect(binding.conflict?.submittedSource.contains("Latest edit") == true)
+        #expect(status.saveStatus == "Latest edit not retained locally")
+        #expect(binding.lastError != nil)
         await binding.close()
     }
-    @Test("History explains device-local editor recovery")
-    func editorRecoveryHistoryCopy() {
+    @Test("History explains that edits wait in the change log")
+    func historyCopy() {
         #expect(ArborHistoryView.title == "History")
-        #expect(ArborHistoryView.unavailableTitle == "No local editor copies yet")
-        #expect(ArborHistoryView.unavailableExplanation.contains("saved on this device"))
+        #expect(ArborHistoryView.unavailableTitle == "No history yet")
+        #expect(ArborHistoryView.unavailableExplanation.contains("change log"))
     }
 
     @Test("Share invites accept comma-separated handles and profile URLs")
@@ -373,37 +373,21 @@ struct CanopyAppTests {
         ))
 
         #expect(diagnostic.kind == .providerFailure)
-        #expect(diagnostic.conditionLabel == "Native durability failed")
+        #expect(diagnostic.conditionLabel == "Change log append failed")
         #expect(diagnostic.synchronizationOverride == nil)
     }
 
-    @Test("Working-tree failure reports an exact recoverable local copy")
-    func recoverableWorkingTreeFailureDiagnostic() throws {
+    @Test("An append failure says the edit is only in the editor and names the change log")
+    func appendFailureDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
             WorkspaceProviderError.invalidAction("Captured editor intent changed"),
-            processKind: .supervised,
-            localRecovery: .retained
+            processKind: .supervised
         ))
 
-        #expect(diagnostic.conditionLabel == "Working-tree admission failed")
-        #expect(diagnostic.bannerMessage.contains("retained in local recovery"))
-        #expect(diagnostic.editSafetyDetail.contains("recoverable on this device"))
+        #expect(diagnostic.conditionLabel == "Change log append failed")
+        #expect(diagnostic.editSafetyDetail.contains("only in this editor session"))
         #expect(diagnostic.technicalDetail == "Captured editor intent changed")
         #expect(diagnostic.explanation.contains("placed Arbor file"))
-    }
-
-    @Test("Private recovery failure distinguishes working-tree durability")
-    func privateRecoveryFailureDiagnostic() throws {
-        let diagnostic = try #require(ArborSaveDiagnostic.describe(
-            CocoaError(.fileWriteNoPermission),
-            processKind: .supervised,
-            localRecovery: .failed
-        ))
-
-        #expect(diagnostic.conditionLabel == "Private recovery failed")
-        #expect(diagnostic.bannerMessage.contains("private recovery copy"))
-        #expect(diagnostic.editSafetyDetail.contains("only if working-tree admission succeeds"))
-        #expect(diagnostic.explanation.contains("does not by itself mean"))
     }
 
     @Test("Automatic synchronization recognizes transient network failures")
@@ -1201,7 +1185,7 @@ struct CanopyAppTests {
     }
 
 #if os(macOS)
-    /// Hosted smoke: `native/scripts/hosted-smoke.ts` starts a local Canopy,
+    /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local Canopy,
     /// claims an account into the test data home, places a disposable folder,
     /// and runs this suite with `ARBOR_TEST_TREE` naming that tree. The signed
     /// app supervises its bundled control-mode helper on the test port, opens
@@ -1215,7 +1199,8 @@ struct CanopyAppTests {
         let workspace = ArborWorkspaceState()
         try await workspace.openPlacedTree(tree)
         #expect(workspace.openPlacedTreeID == tree)
-        #expect(workspace.capabilities == .full)
+        // A Canopy working tree keeps history on Canopy, not device-locally.
+        #expect(workspace.capabilities == .init(structuralActions: true, assets: true, localHistory: false))
         let created = try #require(try await workspace.provider.perform(.createMarkdown(
             parent: workspace.home,
             name: "hosted-smoke",

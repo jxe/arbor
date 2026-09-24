@@ -187,7 +187,6 @@ final class ArborWorkspaceState {
     private(set) var directoryError: String?
     private var directoryRefreshTask: Task<Void, Never>?
     var pendingProfileAction: ArborProfileAction?
-    private let editorRecoveryRoot: URL?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
     private let nativePathMonitor = NWPathMonitor()
@@ -195,7 +194,6 @@ final class ArborWorkspaceState {
     private var nativeTransportAvailable = false
 
     init(provider suppliedProvider: InMemoryWorkspaceProvider? = nil) {
-        self.editorRecoveryRoot = suppliedProvider == nil ? ArborSupportDirectories.root.appending(path: "EditorRecovery") : nil
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: ArborSupportDirectories.linkPreviews
         )
@@ -210,7 +208,7 @@ final class ArborWorkspaceState {
             )
         ])
         self.provider = provider
-        self.editorWorkspace = ArborEditorWorkspace(provider: provider, recoveryRoot: editorRecoveryRoot)
+        self.editorWorkspace = ArborEditorWorkspace(provider: provider)
         var initialHome = suppliedProvider == nil
             ? disconnectedHome
             : WorkspaceReference(tree: "tr_sample", path: "/")
@@ -277,7 +275,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            sourceObjectStore: workingTree,
+            platformObjectStore: workingTree,
             readOnly: !tree.grantsWrite
         )
         if remember {
@@ -333,13 +331,14 @@ final class ArborWorkspaceState {
         return workingTree
     }
 
-    /// An update coordinator for `workingTree` and the provider that saves
-    /// through it, refreshing the sync presentation after each immediate sync.
+    /// An update coordinator for `workingTree` and the provider whose writes
+    /// are local changes it publishes. The coordinator polls so that a
+    /// transport failure is retried while the network is believed available.
     private func synchronizedProvider(
         workingTree: WorkingTree,
         transport: ArborWireReplicaTransport,
         stateRoot: URL,
-        sourceObjectStore: any ObjectStore,
+        platformObjectStore: any ObjectStore,
         readOnly: Bool = false,
         materializedRoot: URL? = nil
     ) throws -> (UpdateCoordinator, WorkingTreeProvider) {
@@ -348,18 +347,15 @@ final class ArborWorkspaceState {
             transport: transport,
             stateRoot: stateRoot,
             transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: true,
-            sourceObjectStore: sourceObjectStore
+            platformObjectStore: platformObjectStore,
+            pollInterval: .seconds(30)
         )
         let provider = WorkingTreeProvider(
             workingTree: workingTree,
             readOnly: readOnly,
             materializedRoot: materializedRoot,
-            sourceCoordinator: coordinator
-        ) { [weak self] admission in
-            try await coordinator.syncImmediately(admission)
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
+            coordinator: coordinator
+        )
         return (coordinator, provider)
     }
 
@@ -1046,7 +1042,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: stateRoot,
-            sourceObjectStore: platform,
+            platformObjectStore: platform,
             materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) }
         )
         try await nativePlacementStore.save(NativePlacementRecord(
@@ -1196,7 +1192,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            sourceObjectStore: workingTree
+            platformObjectStore: workingTree
         )
         await switchProvider(
             provider,
@@ -1274,8 +1270,7 @@ final class ArborWorkspaceState {
                     ),
                     home: WorkspaceReference(tree: tree, path: "/"),
                     detail: "Connecting · \(record.displayName) · \(osPath)",
-                    canonicalPath: record.tree.canonicalPath,
-                    recoversEdits: false
+                    canonicalPath: record.tree.canonicalPath
                 )
                 launchPhase = .confirming(record.displayName)
             }
@@ -1648,6 +1643,13 @@ final class ArborWorkspaceState {
         try await openDirectoryProfile(person)
     }
 
+    /// Leave `held` by discarding the refused change and the changes made on it.
+    func discardHeldChanges() async {
+        guard let syncCoordinator else { return }
+        do { try await syncCoordinator.discardHeldChanges() } catch { errorMessage = error.localizedDescription }
+        await refreshSyncPresentation(from: syncCoordinator)
+    }
+
     func syncNow(reportTransientNetworkErrors: Bool = true) async {
         guard let syncCoordinator else { return }
         do {
@@ -1798,8 +1800,7 @@ final class ArborWorkspaceState {
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
         detail: String,
         canonicalPath: String? = nil,
-        preservingNavigation: Bool = false,
-        recoversEdits: Bool = true
+        preservingNavigation: Bool = false
     ) async {
 #if os(macOS)
         if let locator = openVisitLocator { navigationLocators[home.tree] = locator }
@@ -1807,8 +1808,7 @@ final class ArborWorkspaceState {
         await editorWorkspace.closeAll()
         conflictReview = nil
         provider = nextProvider
-        // A read-only preview never keeps editor recovery drafts.
-        editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: recoversEdits ? editorRecoveryRoot : nil)
+        editorWorkspace = ArborEditorWorkspace(provider: nextProvider)
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
@@ -2451,10 +2451,10 @@ final class ArborAppModel {
         backlinks = loaded
     }
 
+    /// A session without history (a working tree today) shows the empty state.
     func loadHistory() async {
         guard let binding else { history = []; return }
-        do { history = try await binding.history() }
-        catch { errorMessage = error.localizedDescription }
+        history = (try? await binding.history()) ?? []
     }
 
     func inspectSource() async {
@@ -2477,25 +2477,6 @@ final class ArborAppModel {
 
     func dismissError() { errorMessage = nil }
 
-    func resolveEditorConflict(preferSubmitted: Bool) async {
-        guard let binding else { return }
-        do {
-            try await binding.resolveConflict(preferSubmitted: preferSubmitted)
-            await load()
-        } catch { errorMessage = error.localizedDescription }
-    }
-
-    func resolveEditorConflict(source: String) async {
-        guard let binding else { return }
-        do {
-            try await binding.resolveConflict(source: source)
-            await load()
-        } catch is WorkspaceDocumentConflict {
-            // The binding retained the live editor and conflict evidence; its
-            // banner remains the actionable error presentation.
-        } catch { errorMessage = error.localizedDescription }
-    }
-
     func retryDocumentSave() async {
         await binding?.retryLastSave()
     }
@@ -2504,7 +2485,7 @@ final class ArborAppModel {
         guard let binding, let node, node.isWritable,
               binding.reference.path != "/",
               !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
-              binding.lastError == nil, binding.conflict == nil else {
+              binding.lastError == nil else {
             titleRenameProposal = nil
             return
         }
@@ -2542,7 +2523,7 @@ final class ArborAppModel {
               binding.reference.identity == proposal.reference.identity else { return }
         dismissTitleRenameProposal()
         await binding.flush()
-        guard binding.lastError == nil, binding.conflict == nil else { return }
+        guard binding.lastError == nil else { return }
         do {
             guard let renamed = try await workspace.perform(.rename(
                 reference: binding.reference,

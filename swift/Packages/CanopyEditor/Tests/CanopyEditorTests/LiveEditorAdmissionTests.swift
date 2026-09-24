@@ -43,7 +43,7 @@ struct LiveEditorAdmissionTests {
         binding.document.transaction(name: "Typing") {
             _ = binding.document.setText(binding.document.children[0].id, AttributedString(text))
         }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
     }
 
     @Test("Cross-document copies and page conversion undo retain their authored scope", arguments: [false, true])
@@ -57,18 +57,17 @@ struct LiveEditorAdmissionTests {
         let source = try await freshUndoPage(client: client, tree: treeID)
         let destination = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
         let session = try await provider.openDocument(source)
-        let binding = try await ArborDocumentBinding.open(reference: source, session: session, debounce: .seconds(3600))
+        let binding = try await ArborDocumentBinding.open(reference: source, session: session)
         let host = ArborEditorHost(binding: binding, provider: provider, linkPreviewService: LinkPreviewService(cacheDirectory: root.appending(path: "previews")))
         let undo = UndoManager(); undo.groupsByEvent = false; binding.document.undoManager = undo
-        binding.document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
+        binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         let original = try await session.snapshot().source
         #expect(await host.copyToDocument(ArborDocumentReferenceCodec.encode(destination), blocks: [binding.document.children[0]], from: binding.document))
         _ = try await coordinator.syncOnce()
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         #expect(try await queue.retained().contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true })
         let action = UUID(), block = binding.document.children[0]
         let page = try #require(await host.createDocument(title: "Converted " + action.uuidString, requestedReference: nil,
@@ -78,13 +77,13 @@ struct LiveEditorAdmissionTests {
                 binding.document.replaceSubtree(block.id, with: [.documentLink(label: AttributedString("Converted"), reference: page, id: block.id)])
             }
         }
-        binding.admitCurrentGeneration(); await binding.flush()
+        binding.appendCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         _ = try await coordinator.syncOnce()
         let created = try #require(ArborDocumentReferenceCodec.decode(page))
         #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
-            let capture = try await tree.captureSourceAdmissionBasis(created)
+            let capture = try await tree.captureSourceBasis(created)
             let text = capture.document.source + "\nPeer work must survive undo\n"
             let patch = WorkspaceDocumentPatch(baseContentRevision: capture.document.contentRevision,
                 edits: [.init(utf8Range: capture.document.source.utf8.count..<capture.document.source.utf8.count, replacement: "\nPeer work must survive undo\n")])
@@ -93,7 +92,7 @@ struct LiveEditorAdmissionTests {
             _ = try await client.submitUpdateResponse(request)
             _ = try await coordinator.recoverWatchGap()
         }
-        undo.undo(); binding.admitCurrentGeneration(); await binding.flush()
+        undo.undo(); binding.appendCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         #expect(try await session.snapshot().source == original)
         // Undo is a plain source edit to the owning document: the created page
@@ -101,15 +100,15 @@ struct LiveEditorAdmissionTests {
         #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
             _ = try await coordinator.syncOnce()
-            let peerPage = try await tree.captureSourceAdmissionBasis(created)
+            let peerPage = try await tree.captureSourceBasis(created)
             #expect(peerPage.document.source.contains("Peer work must survive undo"))
             #expect(try await client.descriptor(tree: treeID).tree.conflicted == false)
         }
         let retained = try await queue.retained()
         #expect(!retained.contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "removeEntry" } } == true })
-        let reopened = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let reopened = try await ChangeLog(tree: treeID, stateRoot: root)
         #expect(try await reopened.retained() == retained)
-        undo.redo(); binding.admitCurrentGeneration(); await binding.flush()
+        undo.redo(); binding.appendCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
@@ -130,22 +129,21 @@ struct LiveEditorAdmissionTests {
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
         let root = FileManager.default.temporaryDirectory.appending(path: "live-editor-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let recovery = root.appending(path: "editor"), queueRoot = root.appending(path: "client")
+        let queueRoot = root.appending(path: "client")
         let client = ArborWireClient(origin: url, credential: token)
         let initial = try await client.descriptor(tree: treeID)
         var tree = try await place(initial, client: client)
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
         let transport = ArborWireReplicaTransport(client: client)
-        var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        var session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        var session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let r1 = try await session.snapshot()
-        var binding: ArborDocumentBinding? = try await .open(reference: reference, session: session,
-            debounce: .seconds(3600), recoveryRoot: recovery)
-        edit(try #require(binding), text: "Exact local intent \(UUID())")
-        let authored = try #require(binding?.lastEnqueuedSource)
+        var binding: ArborDocumentBinding? = try await .open(reference: reference, session: session)
+        // The editor holds R1 and has not captured its edit yet (Quagmire's
+        // typing checkpoint) when a peer's R2 is installed beneath it.
+        binding?.stopObserving()
 
-        let capture = try await tree.captureSourceAdmissionBasis(reference)
+        let capture = try await tree.captureSourceBasis(reference)
         let peerSource = "Peer before admission \(UUID())\n"
         let peerIntent = try WorkspaceDocumentIntent(basis: capture.document,
             patch: .init(baseContentRevision: capture.document.contentRevision,
@@ -154,30 +152,31 @@ struct LiveEditorAdmissionTests {
         let peer = try capture.prepare(intent: peerIntent)
         let request = try await client.prepareUpdates(tree: treeID, base: #require(capture.accepted), updates: [peer.update])
         _ = try await client.submitUpdateResponse(request)
-        if recoverDraft { binding?.stopObserving() }
         _ = try await coordinator.recoverWatchGap()
         let remote = try await client.descriptor(tree: treeID)
         #expect(try await tree.heads().acceptedUpdate == remote.tree.update)
-        #expect(binding?.conflict == nil)
+
+        // The R1-authored edit is appended against R1, not rebased onto R2.
+        edit(try #require(binding), text: "Exact local intent \(UUID())")
+        let authored = try #require(binding?.lastEnqueuedSource)
 
         if recoverDraft {
-            let unadmitted = try await SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
-            #expect(try await unadmitted.retained().isEmpty)
-            // Lose the editor before debounce/admission, retaining only its own
-            // recovery journal. Rebuild the replica at R2 and recover the R1 draft.
-            binding?.stopObserving()
+            // The generation is durable in the change log as soon as its append
+            // returns. Lose the editor and the in-memory replica, rebuild the
+            // replica at R2, and the R1 change is still there.
+            await binding?.flush()
             binding = nil
             await session.close(); await coordinator.close(); await tree.close()
             tree = try await place(remote, client: client)
-            coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot,
-                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-            session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-            binding = try await .open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: recovery)
+            coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
+            binding = try await .open(reference: reference, session: session)
+            #expect(binding?.lastEnqueuedSource == nil)
+            #expect(try await session.snapshot().source == authored)
         }
         await binding?.flush()
         #expect(binding?.lastError == nil)
-        #expect(binding?.conflict == nil)
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
+        let queue = try await ChangeLog(tree: treeID, stateRoot: queueRoot)
         let record = try #require(try await queue.retained().first)
         // Records keep no sources; the basis revision and the candidate's bytes prove the same capture.
         #expect(record.document?.basisRevision == r1.contentRevision)
@@ -189,15 +188,13 @@ struct LiveEditorAdmissionTests {
 
         // Reopen after durable client admission, then publish its original request.
         tree = try await place(remote, client: client)
-        coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: queueRoot , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let accepted = try await coordinator.syncOnce()
         #expect(accepted.acceptedConflicted == true)
         #expect(try await coordinator.presentation().state == .current)
-        session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-        binding = try await .open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: recovery)
+        session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
+        binding = try await .open(reference: reference, session: session)
         #expect(try await session.snapshot().source == peerSource)
-        #expect(binding?.conflict == nil)
         edit(try #require(binding), text: "Continued after acceptance \(UUID())")
         let continued = try #require(binding?.lastEnqueuedSource)
         await binding?.flush()
@@ -244,36 +241,36 @@ extension LiveEditorAdmissionTests {
         let client = ArborWireClient(origin:url,credential:token), transport = ArborWireReplicaTransport(client:ArborWireClient(origin:url,credential:token))
         let initial = try await client.descriptor(tree:treeID)
         var tree = try await place(initial,client:client)
-        var coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
-            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        var coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
         let reference = WorkspaceReference(tree:TreeID(rawValue:treeID),path:"/page")
-        var session = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference)
+        var session = try await WorkingTreeProvider(workingTree:tree,coordinator:coordinator).openDocument(reference)
         let original = try await session.snapshot()
-        let recovery = root.appending(path:"editor")
-        var binding: ArborDocumentBinding? = try await .open(reference:reference,session:session,debounce:.seconds(3600),recoveryRoot:recovery)
+
+        var binding: ArborDocumentBinding? = try await .open(reference:reference,session:session)
         let document = try #require(binding?.document)
-        document.didCommitTransaction = { [weak binding] _ in binding?.admitCurrentGeneration() }
+        document.didCommitTransaction = { [weak binding] _ in binding?.appendCurrentGeneration() }
         _ = document.insertCopies(of:[document.children[0]],at:.init(parent:nil,position:0))
         let authored = try #require(binding?.lastEnqueuedSource)
         var expected = authored
         if recoverDraft {
+            // Durable once appended: losing the editor and client keeps it.
+            await binding?.flush()
             binding?.stopObserving(); binding = nil
             await session.close(); await coordinator.close(); await tree.close()
             tree = try await place(initial,client:client)
-            coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
-                sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
-            session = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference)
-            binding = try await .open(reference:reference,session:session,debounce:.seconds(3600),recoveryRoot:recovery)
+            coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+            session = try await WorkingTreeProvider(workingTree:tree,coordinator:coordinator).openDocument(reference)
+            binding = try await .open(reference:reference,session:session)
             let restored = try #require(binding)
             restored.document.transaction(name:"Edit immediately after recovery") {
                 _ = restored.document.insertSubtree(.paragraph(text:AttributedString("After recovery")),at:.init(parent:nil,position:restored.document.children.count))
             }
-            restored.admitCurrentGeneration()
+            restored.appendCurrentGeneration()
             expected = try #require(restored.lastEnqueuedSource)
         }
         await binding?.flush()
         #expect(binding?.lastError == nil)
-        let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
+        let records = try await ChangeLog(tree:treeID,stateRoot:root).retained()
         let record = try #require(records.first)
         let final = try #require(records.last)
         #expect(record.graph.objects.contains { $0.bytes == Data(original.source.utf8) })
@@ -281,12 +278,11 @@ extension LiveEditorAdmissionTests {
         #expect(record.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true)
         await binding?.close(); binding = nil; await coordinator.close(); await tree.close()
         tree = try await place(initial,client:client)
-        coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
-            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
         _ = try await coordinator.syncOnce()
         #expect(try await coordinator.presentation().state == .current)
         #expect(try await client.descriptor(tree:treeID).tree.root == final.candidate.root)
-        let source = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference).snapshot().source
+        let source = try await WorkingTreeProvider(workingTree:tree,coordinator:coordinator).openDocument(reference).snapshot().source
         #expect(source == expected)
         await coordinator.close(); await tree.close()
     }
@@ -301,13 +297,13 @@ extension LiveEditorAdmissionTests {
         let reference = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
-            stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: root.appending(path: "editor"))
+            stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let original = try await session.snapshot().source
         let manager = UndoManager(); manager.groupsByEvent = false
         let document = binding.document; document.undoManager = manager
-        document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
+        document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         for text in ["Plain first", "Plain second"] {
             document.transaction(name: "Typing", coalesceKey: "typing") {
                 _ = document.setText(document.children[0].id, AttributedString(text))
@@ -317,11 +313,11 @@ extension LiveEditorAdmissionTests {
         await binding.flush()
         #expect(binding.lastError == nil)
         _ = try await coordinator.syncOnce()
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         var suffix = ""
         if peerEdit {
             binding.stopObserving()
-            let capture = try await tree.captureSourceAdmissionBasis(reference)
+            let capture = try await tree.captureSourceBasis(reference)
             suffix = "\n\nIndependent peer contribution\n"
             let patch = WorkspaceDocumentPatch(baseContentRevision: capture.document.contentRevision,
                 edits: [.init(utf8Range: capture.document.source.utf8.count..<capture.document.source.utf8.count, replacement: suffix)])
@@ -340,7 +336,7 @@ extension LiveEditorAdmissionTests {
         let retained = try await queue.retained()
         // No inverse operations, no transaction evidence, no document sources in the journal.
         #expect(retained.allSatisfy { $0.update.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true })
-        let journal = String(decoding: try Data(contentsOf: root.appending(path: "sync/source-admissions.json")), as: UTF8.self)
+        let journal = String(decoding: try Data(contentsOf: root.appending(path: "sync/change-log.json")), as: UTF8.self)
         #expect(!journal.contains("Plain first"))
         manager.redo()
         await binding.flush()
@@ -369,28 +365,28 @@ extension LiveEditorAdmissionTests {
         let reference = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
-            stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: root.appending(path: "editor"))
+            stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let document = binding.document
         let bullet = Block.bullet(text: AttributedString())
         document.transaction(name: "Insert list item") { _ = document.insertSubtree(bullet, at: .init(parent: nil, position: 1)) }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
         document.transaction(name: "Type list item") { _ = document.setText(bullet.id, AttributedString("the conflict stuff is buggy / weird")) }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
         document.transaction(name: "Continue list") {
             _ = document.insertSubtree(.bullet(text: AttributedString()), at: .init(parent: bullet.id, position: 0))
         }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
         #expect(binding.lastEnqueuedSource?.contains("- the conflict stuff is buggy / weird\n\n  - \n\n") == true)
         document.transaction(name: "Reorder") { _ = document.replaceChildrenReconciled(Array(document.children.reversed())) }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
         let expected = try #require(binding.lastEnqueuedSource)
-        #expect(binding.admissionState.pendingGenerations.count == 4)
+        #expect(binding.generation == 4)
         await binding.flush()
         #expect(binding.lastError == nil, Comment(rawValue: String(describing: binding.lastError)))
         #expect(try await session.snapshot().source == expected)
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         let record = try #require(try await queue.retained().last { $0.document?.reference == reference })
         let frames = try #require(record.update.trace)
         #expect(frames.count == 2, Comment(rawValue: "frames=\(frames.count)"))

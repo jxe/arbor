@@ -393,13 +393,7 @@ public enum WorkspacePatchError: Error, Equatable, Sendable {
     case invalidUTF8
 }
 
-public enum WorkspaceAdmissionPolicy: Sendable {
-    case compareAndSwap
-    case retainedBasis
-}
-
 public protocol WorkspaceDocumentSession: Actor, Sendable {
-    var admissionPolicy: WorkspaceAdmissionPolicy { get }
     var identity: WorkspaceIdentity { get }
     func snapshot() async throws -> WorkspaceDocumentSnapshot
     func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
@@ -417,7 +411,6 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
 public extension WorkspaceDocumentSession {
     func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode? { nil }
     func copyDocument() async throws -> WorkspaceCopyDocument? { nil }
-    var admissionPolicy: WorkspaceAdmissionPolicy { .compareAndSwap }
     /// Compatibility bridge for existing providers. It preserves their rejection/recovery
     /// behavior until their publication queues support independently retained bases.
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {

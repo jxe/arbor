@@ -470,7 +470,7 @@ than reporting the tree as conflict-free.
 [Source intent and provenance](10-source-intent.md) defines operation identities,
 alternative edits, format-aware explicit automatic resolution, and continued
 editing of accepted decisions on the ordinary update route. The
-[client synchronization contract](09-client-synchronization.md#accepted-conflicts-and-unaccepted-local-work)
+[client synchronization contract](09-client-synchronization.md#5-accepted-conflicts-and-held-local-work)
 requires safe independent work to continue around held changes without rewriting
 an immutable request or changing sequential prefix semantics.
 These semantics require no extension negotiation or parallel API version.
@@ -738,7 +738,7 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "resolves": [],
       "objects": [],
@@ -754,7 +754,7 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "resolves": [],
       "objects": [],
@@ -762,7 +762,7 @@ same time:
     },
     {
       "change": "change-two",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
       "resolves": [],
       "objects": [],
@@ -1045,14 +1045,14 @@ directly. The normative client behavior is the update machine in
 0. The working tree is installed from an accepted snapshot. On a device that
    shares an installation with the folder's daemon it installs a **sparse
    spine** (directories and Markdown inline, other files by hash and lazily
-   fetched from the loopback object route) and, when the daemon holds a
-   pending request, **adopts** that request verbatim as its first attempt;
-   elsewhere it installs from the host. Either way it records the confirmed
+   fetched from the loopback object route) rooted at the host's accepted
+   root; the daemon's pending request is never adopted. Elsewhere it
+   installs from the host. Either way it records the confirmed
    `{ root, update, cursor }` watchpoint.
-1. Each authored generation is admitted into the working tree and becomes
-   locally durable at once (the document admission machine); unsent
-   generations are compacted so that one candidate represents one
-   intentional accepted-history boundary.
+1. Each authored generation is appended to the working tree's change log
+   and becomes locally durable at once (the editor is a source of local
+   changes); unsent changes are published together so that one request
+   represents one intentional accepted-history boundary.
 2. After a short trailing delay it persists one exact request from the
    confirmed update to its latest durable head: a complete candidate graph
    omitting unchanged objects, using an `ObjectDelta` where that is smaller

@@ -194,10 +194,10 @@ must reproduce its own `after`. A trace is evidence the evaluator checks in
 full, never a hint; an empty trace is snapshot semantics. The protocol bounds
 a trace to 64 frames and 1024 operations. `undoOperation` is not in the
 grammar; editors express undo and redo as ordinary edits, and the evaluator
-answers `unsupported` if it sees the kind. Clients compact a debounced burst of
-plain `editSource` frames before admission: `compactTrace` in
-`packages/client/src/source-admission-queue.ts` (and the Swift queue) composes
-them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/document-admission.md#trace-compaction)).
+answers `unsupported` if it sees the kind. Clients compact a burst of plain
+`editSource` frames before publication: `compactTrace` in
+`packages/client/src/source-admission-queue.ts` (and the Swift `ChangeLog`) composes
+them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/editor-source.md#trace-compaction)).
 The evaluator does not compact; it checks the trace it receives.
 `composeFrames` in `tests/support/source-edits.ts` implements the same rule by
 executing the composition, and serves as a test reference for it.

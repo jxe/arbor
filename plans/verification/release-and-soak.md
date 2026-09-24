@@ -19,7 +19,7 @@ Owners: Native [008](../swift/008-complete-native-move-copy-undo-capture.md) for
 - [ ] Complete 010's macOS/iPhone hands-on gate: layout, typing, focus, selection, scrolling,
   keyboard routing, VoiceOver, large text and installed review-draft recovery.
 
-Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [client state machines](../../docs/implementing-editors/document-admission.md), and [Native 010](../swift/010-client-conflict-review.md).
+Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [editor sources](../../docs/implementing-editors/editor-source.md), and [Native 010](../swift/010-client-conflict-review.md).
 Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
@@ -71,8 +71,9 @@ that completed checkbox here. Do not keep finished release steps as an evergreen
 ## Manual recipes retained from the deleted checkpoints
 
 **Editor recovery.** Rebuild the app and use a disposable page: edit offline,
-reconnect without Sync Now, verify host and peer convergence, then verify the
-page's Local History survives reopening. Preserve real user text before
+reconnect without Sync Now, and verify host and peer convergence. Quit the app
+while offline with unpublished edits and verify the reopened page shows them
+from the change log, then that they publish. Preserve real user text before
 intentionally testing process interruption.
 
 **Automatic publication.** Verify ordinary automatic Mac edit publication and

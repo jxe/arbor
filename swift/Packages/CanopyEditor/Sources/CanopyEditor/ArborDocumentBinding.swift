@@ -5,70 +5,50 @@ import Observation
 import OSLog
 import Quagmire
 
-/// Editor adapter for the Arbor Sync document admission machine.
+/// Quagmire plumbing for an `EditorSource`.
 ///
-/// Quagmire owns the block tree, undo grouping, and the exact-source ledger;
-/// `DocumentAdmissionMachine` in CanopyAppKit owns every timer, in-flight,
-/// successor, flush, observation, failure, and conflict transition; this
-/// binding runs the machine's effects against a `WorkspaceDocumentSession`.
+/// Quagmire owns the block tree, undo grouping and the exact-source ledger.
+/// Each committed generation is captured against the previous generation's
+/// ledger, so its patch states exactly what the editor did, and is appended
+/// through the `EditorSource` to the document session, which retains it in
+/// its working tree's change log. The binding keeps the editor tree intact:
+/// an acknowledgement of our own bytes advances the ledger without
+/// reparsing, keystrokes Quagmire has not committed yet are never replaced,
+/// and a live update is re-read through the session under an anchor.
 @MainActor
 @Observable
 public final class ArborDocumentBinding {
-    private static let diagnosticLog = Logger(subsystem: "org.arbor.native", category: "EditorAdmission")
+    private static let diagnosticLog = Logger(subsystem: "org.arbor.native", category: "EditorSource")
     private func trace(_ message: String) {
-        Self.diagnosticLog.notice("tree=\(self.reference.tree.rawValue, privacy: .public) generation=\(self.machine.generation) phase=\(self.machine.kind, privacy: .public) \(message, privacy: .public)")
-    }
-    /// The digest the recovery journal names this exact source by.
-    private static func sourceID(_ source: String) -> String {
-        EditorRecoveryStore.hash(Data(source.utf8))
+        Self.diagnosticLog.notice("tree=\(self.reference.tree.rawValue, privacy: .public) generation=\(self.generation) \(message, privacy: .public)")
     }
 
     public let document: Document
     public let editorState: EditorState
     public private(set) var reference: WorkspaceReference
-    private var saveError: Error?
-    public private(set) var recoveryError: Error?
-    public var lastError: Error? { recoveryError ?? saveError }
-    private var recoveryStore: EditorRecoveryStore?
-    private var recoveryRevision: EditorRecoveryStore.Revision?
-    private var recoverySource: String?
-    public private(set) var conflict: WorkspaceDocumentConflict?
     public private(set) var lastEnqueuedSource: String?
     public private(set) var acceptedTitle: String
 
     let session: any WorkspaceDocumentSession
-    private var accepted: WorkspaceDocumentSnapshot
+    @ObservationIgnored private let source: EditorSource
+    /// Ledgers of sources the editor has held, by revision, for mapping source ranges to blocks.
     private var basisLedgers: [String: ArborSourceLedger] = [:]
-    /// The exact ledger each unacknowledged generation produced, so a confirmed
-    /// admission can retain its ledger as the next basis.
+    /// The ledger each generation produced, until its append is durable.
     private var authoredLedgers: [Int: ArborSourceLedger] = [:]
     private var copySources: [BlockID: BlockID] = [:]
     private(set) var ledger: ArborSourceLedger
-    private var machine: DocumentAdmissionMachine.State
-    private var debounceTask: Task<Void, Never>?
-    private var admissionTask: Task<Void, Never>?
     private var updatesTask: Task<Void, Never>?
-    private var settleWaiters: [CheckedContinuation<Void, Never>] = []
-    /// Snapshots the machine may be asked to acknowledge or apply, keyed by content revision.
-    private var snapshots: [String: WorkspaceDocumentSnapshot] = [:]
-    private var pendingConflict: WorkspaceDocumentConflict?
-    private var pendingFailure: Error?
-    private let debounce: Duration
-    private let admissionPolicy: WorkspaceAdmissionPolicy
     private var directoryProjection: (reference: WorkspaceReference, children: [WorkspaceNode])?
+    /// Mirrors of the source's state for observation.
+    private var saving = false
+    private var failure: (any Error)?
 
-    public var generation: Int { machine.generation }
-    /// True only when the private recovery journal contains the exact latest
-    /// source handed to the admission machine. A working-tree failure can
-    /// therefore be presented without implying that the edit exists only in
-    /// memory.
-    public var latestEditIsRetainedInRecovery: Bool {
-        recoveryError == nil && recoveryRevision != nil && recoverySource == lastEnqueuedSource
-    }
-    /// True from the first uncommitted authored generation until Arbor Sync acknowledges the latest one.
-    public var isSaving: Bool { !machine.isSettled }
-    /// The machine state, for lifecycle callers and tests.
-    public var admissionState: DocumentAdmissionMachine.State { machine }
+    /// Generations captured since the document opened.
+    public private(set) var generation = 0
+    /// True from the first captured generation until the latest one is durable.
+    public var isSaving: Bool { saving }
+    /// A failed append; its generations stay in the editor and are retried.
+    public var lastError: (any Error)? { failure }
 
     /// Object hashes of ledger sources, by ledger revision; revisions are opaque.
     @ObservationIgnored private var sourceObjects: [String: String] = [:]
@@ -98,38 +78,21 @@ public final class ArborDocumentBinding {
         return ordered.isEmpty ? nil : ordered.map(\.block.id)
     }
 
-    public static func open(
-        reference: WorkspaceReference,
-        session: any WorkspaceDocumentSession,
-        debounce: Duration = DocumentAdmissionMachine.debounce,
-        recoveryRoot: URL? = nil
-    ) async throws -> ArborDocumentBinding {
+    /// Open the document as its session serves it. A working tree serves its
+    /// newest unsettled change, so edits that were durable before a restart
+    /// reopen exactly as they were left.
+    public static func open(reference: WorkspaceReference, session: any WorkspaceDocumentSession) async throws -> ArborDocumentBinding {
         let snapshot = try await session.snapshot()
-        let policy = await session.admissionPolicy
-        let binding = ArborDocumentBinding(reference: reference, session: session, snapshot: snapshot, debounce: debounce, admissionPolicy: policy)
-        if let recoveryRoot {
-            // Fail opening rather than offer an editor whose safety journal cannot be read.
-            let store = try EditorRecoveryStore(root: recoveryRoot, reference: snapshot.reference)
-            binding.recoveryStore = store
-            try binding.restoreDraft(from: store, retainsBasis: policy == .retainedBasis)
-        }
-        binding.trace("opened policy=\(policy) source=\(Self.sourceID(snapshot.source))")
+        let binding = ArborDocumentBinding(session: session, snapshot: snapshot)
+        binding.trace("opened source=\(EditorSourceID.of(snapshot.source))")
         await binding.observeAuthoritativeUpdates()
         return binding
     }
 
-    private init(
-        reference: WorkspaceReference,
-        session: any WorkspaceDocumentSession,
-        snapshot: WorkspaceDocumentSnapshot,
-        debounce: Duration,
-        admissionPolicy: WorkspaceAdmissionPolicy
-    ) {
+    private init(session: any WorkspaceDocumentSession, snapshot: WorkspaceDocumentSnapshot) {
         self.reference = snapshot.reference
         self.session = session
-        self.accepted = snapshot
-        self.debounce = debounce
-        self.admissionPolicy = admissionPolicy
+        self.source = EditorSource(session: session, basis: snapshot)
         let opened = ArborMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
@@ -144,248 +107,62 @@ public final class ArborDocumentBinding {
         self.document = document
         self.acceptedTitle = document.title
         self.editorState = EditorState()
-        self.machine = DocumentAdmissionMachine.State(
-            accepted: .init(source: snapshot.source, revision: snapshot.contentRevision)
-        )
-        self.snapshots[snapshot.contentRevision] = snapshot
         self.basisLedgers[snapshot.contentRevision] = opened.ledger
-    }
-
-    // MARK: Independent local recovery
-
-    /// The generations the machine holds since `accepted`, as one chain that
-    /// reproduces `source` from the accepted bytes; nil when a generation has
-    /// no captured patch or the chain no longer starts at the accepted source.
-    private func capturedGenerations(ending source: String) -> [WorkspaceDocumentGeneration]? {
-        Self.capturedChain(machine.pendingGenerations, from: accepted.source, revision: accepted.contentRevision, ending: source)
-    }
-
-    /// Each generation's patch was captured against its predecessor's source,
-    /// so the chain is replayed as captured, one frame per nonempty patch,
-    /// each restated against `baseRevision`. Nil when a generation has no
-    /// captured patch or the replay does not reproduce `source` from `baseSource`.
-    private static func capturedChain(
-        _ generations: [DocumentAdmissionMachine.Generation],
-        from baseSource: String,
-        revision baseRevision: String,
-        ending source: String
-    ) -> [WorkspaceDocumentGeneration]? {
-        var chain: [WorkspaceDocumentGeneration] = []
-        var previous = baseSource
-        for generation in generations {
-            guard var patch = generation.patch, let produced = try? patch.applying(to: previous),
-                  produced.utf8.elementsEqual(generation.source.utf8) else { return nil }
-            patch.baseContentRevision = baseRevision
-            if !patch.edits.isEmpty { chain.append(.init(patch: patch, source: generation.source)) }
-            previous = generation.source
-        }
-        guard previous.utf8.elementsEqual(source.utf8) else { return nil }
-        return chain
-    }
-
-    private func checkpoint(source: String) {
-        guard let recoveryStore else { return }
-        do {
-            // The journal retains the generations as captured, so recovery
-            // replays them as frames rather than re-deriving one claim.
-            let captured = capturedGenerations(ending: source)
-            // `recoverySource` is the source last recorded or restored for
-            // `recoveryRevision`; only an unchanged source needs the journal read.
-            if let recoveryRevision, recoverySource == source, try recoveryStore.source(recoveryRevision) == source,
-               recoveryRevision.baseRevision == accepted.contentRevision,
-               try recoveryStore.base(recoveryRevision) == accepted.source,
-               try (captured == nil || recoveryStore.intent(recoveryRevision)?.generations == captured),
-               !recoveryStore.isSaved(recoveryRevision) || source == accepted.source { return }
-            recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted, generations: captured)
-            recoverySource = source
-            recoveryError = nil
-        } catch { trace("recovery checkpoint failed: \(String(describing: error))"); recoveryError = error }
-    }
-
-    private func markRecoverySaved(source: String) {
-        guard let recoveryStore, let recoveryRevision else { return }
-        do {
-            guard recoverySource == source, try recoveryStore.source(recoveryRevision) == source else { return }
-            try recoveryStore.markSaved(recoveryRevision)
-            recoveryError = nil
-        } catch { recoveryError = error }
-    }
-
-    private var recoveredIntent: WorkspaceDocumentIntent?
-
-    private func restoreDraft(from store: EditorRecoveryStore, retainsBasis: Bool) throws {
-        guard let record = try store.revisions().first, !store.isSaved(record) else { return }
-        // Validate retained patches against their original basis before any recovery action.
-        let retainedIntent = try store.intent(record)
-        let source = try store.source(record)
-        trace("restore draft=\(record.id) source=\(Self.sourceID(source)) bytes=\(source.utf8.count) retainsBasis=\(retainsBasis)")
-        recoveryRevision = record
-        recoverySource = source
-        if !retainsBasis, source == accepted.source {
-            try store.markSaved(record)
-            return
-        }
-        let baseSource = try store.base(record)
-        let current = accepted
-        if retainsBasis {
-            recoveredIntent = retainedIntent
-            accepted = .init(reference: record.reference, source: baseSource, contentRevision: record.baseRevision)
-            machine.accepted = .init(source: baseSource, revision: record.baseRevision)
-            snapshots[record.baseRevision] = accepted
-        }
-        let restored = ArborMarkdownCodec.open(source: source, revision: accepted.contentRevision,
-                                               identitySeed: String(describing: reference.identity))
-        ledger = restored.ledger
-        _ = document.replaceChildrenReconciled(restored.blocks)
-        lastEnqueuedSource = source
-        // Replay the retained generations so the machine holds the chain the
-        // editor captured and the admission states it frame by frame.
-        let preserves = { (patch: WorkspaceDocumentPatch) in patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty } }
-        if retainsBasis, let intent = recoveredIntent {
-            let generations = intent.generations.isEmpty ? [WorkspaceDocumentGeneration(patch: intent.patch, source: intent.source)] : intent.generations
-            for generation in generations {
-                dispatch(.edit(source: generation.source, preservesIntent: preserves(generation.patch), patch: generation.patch))
-            }
-            authoredLedgers[machine.generation] = restored.ledger
-        } else {
-            dispatch(.edit(source: source, preservesIntent: recoveredIntent.map { preserves($0.patch) } ?? false))
-        }
-        if retainsBasis, retainedIntent?.patch.edits.contains(where: { !($0.copies ?? []).isEmpty }) == true {
-            // Retain recovered operation evidence before a new transaction can
-            // coalesce its exact source evidence into a different generation.
-            dispatch(.flush)
-        }
-        if !retainsBasis, baseSource != current.source {
-            // A remote edit cannot silently replace a recovered local draft.
-            // Reuse the existing conflict review with both exact alternatives.
-            debounceTask?.cancel()
-            debounceTask = nil
-            let value = WorkspaceDocumentConflict(
-                base: .init(reference: record.reference, source: baseSource, contentRevision: record.baseRevision),
-                current: current, submittedSource: source)
-            pendingConflict = value
-            conflict = value
-            saveError = value
-            machine.phase = .conflict(submitted: .init(generation: machine.generation, source: source),
-                                      current: Self.observation(current), latest: nil)
+        source.onAcknowledged = { [weak self] snapshot in self?.acknowledge(snapshot) }
+        source.onFailure = { [weak self] error in
+            self?.trace("append failed: \(String(describing: error))")
+            self?.refreshState()
         }
     }
 
-    // MARK: Machine
-
-    private func dispatch(_ event: DocumentAdmissionMachine.Event) {
-        let (next, effects) = DocumentAdmissionMachine.reduce(machine, event, debounce: debounce, admissionPolicy: admissionPolicy)
-        let priorPhase = machine.kind
-        machine = next
-        trace("transition \(priorPhase) -> \(machine.kind)")
-        if machine.kind != priorPhase {
-            do { try recoveryStore?.log(phase: machine.kind, generation: machine.generation, revision: recoveryRevision) }
-            catch { recoveryError = error }
-            // Editor admission phases beside the network events, so a long
-            // "saving" indicator can be attributed without the unified log.
-            var note = WireNetworkLogEntry(kind: .note, name: "editor-phase", tree: reference.tree.rawValue)
-            note.error = "\(priorPhase) → \(machine.kind) generation=\(machine.generation)"
-            WireNetworkLog.current?.record(note)
-        }
-        for effect in effects { run(effect) }
-        if machine.isSettled {
-            for waiter in settleWaiters { waiter.resume() }
-            settleWaiters.removeAll()
-        }
+    /// The source Quagmire's current tree serializes to.
+    private var mountedSource: String {
+        ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source
     }
 
-    private func run(_ effect: DocumentAdmissionMachine.Effect) {
-        switch effect {
-        case let .schedule(delay):
-            debounceTask?.cancel()
-            debounceTask = Task { @MainActor [weak self] in
-                do { try await Task.sleep(for: delay) } catch { return }
-                guard let self, !Task.isCancelled else { return }
-                self.debounceTask = nil
-                self.dispatch(.debounceElapsed)
-            }
-        case .cancelTimer:
-            debounceTask?.cancel()
-            debounceTask = nil
-        case let .admit(generations, baseRevision, baseSource):
-            let previous = admissionTask
-            admissionTask = Task { @MainActor [self] in
-                if let previous { await previous.value }
-                await self.persist(generations: generations, baseRevision: baseRevision, baseSource: baseSource)
-            }
-        case let .acknowledge(result):
-            acknowledge(result)
-        case let .apply(_, revision):
-            guard let snapshot = snapshots[revision] else { return }
-            applyAcceptedReplacementNow(snapshot)
-        case .mergeLocally:
-            // Native Arbor never merges a document locally: the conflict is
-            // client-owned evidence until the user chooses a resolution.
-            conflict = pendingConflict
-            saveError = pendingConflict
-        case let .surfaceFailure(failure):
-            saveError = pendingFailure ?? NSError(domain: "ArborDocumentBinding", code: 1, userInfo: [NSLocalizedDescriptionKey: failure.message])
-        case .stop:
-            break
-        }
-    }
-
-    /// Wait until no request or timer remains.
-    private func settle() async {
-        while !machine.isSettled {
-            await withCheckedContinuation { continuation in settleWaiters.append(continuation) }
-        }
+    private func refreshState() {
+        saving = !source.isSettled
+        failure = source.failure
     }
 
     // MARK: Editor commits
 
     /// Undo is an ordinary edit: the editor keeps its own undo stack and each
-    /// generation is admitted as a plain patch. Only explicit copies are evidence.
+    /// generation is captured as a plain patch. Only explicit copies are evidence.
     func captureTransactionEvidence() {
         copySources.merge(document.blockCopiesForCurrentCommit) { _, newest in newest }
     }
 
-    func admitCurrentGeneration() {
-        if basisLedgers[accepted.contentRevision] == nil, ledger.source.utf8.elementsEqual(accepted.source.utf8) {
-            var basis = ledger; basis.revision = accepted.contentRevision
-            basisLedgers[accepted.contentRevision] = basis
-        }
+    /// Capture the editor's current tree as one generation and append it.
+    func appendCurrentGeneration() {
         captureTransactionEvidence()
-        let generation = machine.generation + 1
-        // The generation's patch is captured against the previous generation's
-        // ledger, exactly as the editor produced it; the machine keeps it and the
-        // admission states it in its own frame (docs/overstory-spec/09).
-        let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
-        let preservesIntent = admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }
-        authoredLedgers[generation] = nextLedger
-        lastEnqueuedSource = admission.source
+        // The patch is captured against the previous generation's ledger,
+        // exactly as the editor produced it; the change states it in its own
+        // frame (docs/overstory-spec/09-client-synchronization.md §4).
+        let (captured, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
         ledger = nextLedger
-        // Editing does not resolve a blocked admission. Keep the warning and
-        // update its retained source so Review/Keep My Edit uses the latest
-        // generation, rather than the first edit that encountered the conflict.
-        if var conflict {
-            conflict.submittedSource = admission.source
-            self.conflict = conflict
-            pendingConflict = conflict
-        }
-        dispatch(.edit(source: admission.source, preservesIntent: preservesIntent, patch: admission.patch))
-        checkpoint(source: admission.source)
+        guard !captured.patch.edits.isEmpty || !captured.source.utf8.elementsEqual(source.latestSource.utf8) else { return }
+        generation += 1
+        authoredLedgers[generation] = nextLedger
+        lastEnqueuedSource = captured.source
+        source.append(.init(patch: captured.patch, source: captured.source))
+        refreshState()
+        trace("captured source=\(EditorSourceID.of(captured.source)) edits=\(captured.patch.edits.count)")
     }
 
-    /// Force the latest authored generation through and await local durability.
+    /// Capture any uncommitted keystroke and wait until every generation is durable.
     public func flush() async {
         // Capture a final keystroke even if the editor's commit callback has
         // not run yet (navigation, backgrounding, or process termination).
-        let source = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source
-        if source != (lastEnqueuedSource ?? machine.accepted.source) { admitCurrentGeneration() }
-        dispatch(.flush)
-        await settle()
-        do { try await session.flush() } catch { saveError = error }
+        if mountedSource != source.latestSource { appendCurrentGeneration() }
+        await source.settle()
+        refreshState()
     }
 
     public func retryLastSave() async {
-        guard lastError != nil, conflict == nil else { return }
-        admitCurrentGeneration()
+        guard lastError != nil else { return }
+        if mountedSource != source.latestSource { appendCurrentGeneration() }
+        source.retry()
         await flush()
     }
 
@@ -394,19 +171,28 @@ public final class ArborDocumentBinding {
         return try await session.snapshot()
     }
 
-    /// Admit an exact host-authored source replacement, such as a structured
-    /// frontmatter form. It follows the same recovery, conflict, and durable
-    /// admission path as an edit produced by Quagmire.
-    public func replaceSource(_ source: String) async throws {
+    /// Append an exact host-authored source replacement, such as a structured
+    /// frontmatter form, through the same durable path as an editor edit.
+    public func replaceSource(_ replacement: String) async throws {
         await flush()
         if let error = lastError { throw error }
-        let current = try await session.snapshot()
-        guard !source.utf8.elementsEqual(current.source.utf8) else { return }
-        checkpoint(source: source)
-        dispatch(.edit(source: source))
-        dispatch(.flush)
-        await settle()
-        do { try await session.flush() } catch { saveError = error }
+        let current = source.latestSource
+        guard !replacement.utf8.elementsEqual(current.utf8) else { return }
+        generation += 1
+        // The editor shows the replacement at once, so the keystroke guard sees
+        // no uncommitted input and the acknowledgement confirms without reparsing.
+        let opened = ArborMarkdownCodec.open(source: replacement, revision: source.basis.contentRevision,
+                                             identitySeed: String(describing: reference.identity))
+        let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
+        _ = document.replaceChildrenReconciled(rebased.blocks)
+        ledger = rebased.ledger
+        authoredLedgers[generation] = rebased.ledger
+        lastEnqueuedSource = replacement
+        source.append(.init(patch: .init(baseContentRevision: source.basis.contentRevision,
+            edits: [.init(utf8Range: 0..<current.utf8.count, replacement: replacement, expected: current)]), source: replacement))
+        refreshState()
+        await source.settle()
+        refreshState()
         if let error = lastError { throw error }
     }
 
@@ -436,65 +222,15 @@ public final class ArborDocumentBinding {
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         await flush()
-        if let recoveryStore {
-            return try recoveryStore.revisions().map {
-                WorkspaceHistoryEntry(id: "editor-recovery:" + $0.id, revision: "editor-recovery:" + $0.id,
-                                      title: $0.summary.map { "Local copy: " + $0 } ?? "Local editor copy", timestamp: $0.timestamp)
-            }
-        }
         return try await session.history()
     }
 
     @discardableResult
     public func recover(revision: String) async throws -> WorkspaceDocumentSnapshot {
         await flush()
-        if revision.hasPrefix("editor-recovery:"), let recoveryStore,
-           let record = try recoveryStore.revisions().first(where: { "editor-recovery:" + $0.id == revision }) {
-            let source = try recoveryStore.source(record)
-            let current = try await session.snapshot()
-            // Preserve the current editor too. Recovery creates an ordinary
-            // new edit and never removes the original evidence.
-            checkpoint(source: ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source)
-            let restored = WorkspaceDocumentSnapshot(reference: reference, source: source, contentRevision: current.contentRevision)
-            applyAcceptedReplacementNow(restored)
-            accepted = current
-            machine.accepted = .init(source: current.source, revision: current.contentRevision)
-            machine.phase = .clean
-            admitCurrentGeneration()
-            await flush()
-            if let error = lastError { throw error }
-            return try await session.snapshot()
-        }
         let recovered = try await session.recover(revision: revision)
         await applyAcceptedReplacement(recovered)
         return recovered
-    }
-
-    // MARK: Conflicts
-
-    public func resolveConflict(preferSubmitted: Bool) async throws {
-        guard let conflict else { return }
-        try await resolveConflict(source: preferSubmitted ? conflict.submittedSource : conflict.current.source)
-    }
-
-    public func resolveConflict(source: String) async throws {
-        guard let conflict else { return }
-        if source == conflict.current.source {
-            markRecoverySaved(source: conflict.submittedSource)
-            snapshots[conflict.current.contentRevision] = conflict.current
-            dispatch(.resolveConflict(keepSubmitted: false))
-            return
-        }
-        // The chosen source becomes the latest generation and is resubmitted
-        // against the verified current revision. The editor is replaced only
-        // when the provider acknowledges it; a failed retry leaves both the
-        // editor tree and the recoverable conflict evidence intact.
-        saveError = nil
-        checkpoint(source: source)
-        dispatch(.edit(source: source))
-        dispatch(.resolveConflict(keepSubmitted: true))
-        await settle()
-        if let error = lastError { throw error }
     }
 
     // MARK: Authoritative replacement
@@ -502,8 +238,7 @@ public final class ArborDocumentBinding {
     public func applyAcceptedReplacement(_ snapshot: WorkspaceDocumentSnapshot) async {
         await flush()
         applyAcceptedReplacementNow(snapshot)
-        machine.accepted = .init(source: snapshot.source, revision: snapshot.contentRevision)
-        machine.phase = .clean
+        source.adopt(snapshot)
     }
 
     private func applyAcceptedReplacementNow(_ snapshot: WorkspaceDocumentSnapshot) {
@@ -524,19 +259,16 @@ public final class ArborDocumentBinding {
             replacement = rebased.blocks
         }
         _ = document.replaceChildrenReconciled(replacement)
-        accepted = snapshot
         reference = snapshot.reference
         ledger = rebased.ledger
+        basisLedgers = [snapshot.contentRevision: rebased.ledger]
         acceptedTitle = document.title
         lastEnqueuedSource = nil
-        conflict = nil
-        saveError = nil
     }
 
     public func close() async {
         stopObserving()
         await flush()
-        dispatch(.close)
         await session.close()
     }
 
@@ -570,19 +302,14 @@ public final class ArborDocumentBinding {
     }
 
     private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
-        if snapshot.contentRevision == accepted.contentRevision {
-            // Same revision: nothing to reconcile.
-            snapshots[snapshot.contentRevision] = snapshot
-            return
-        }
-        // Quagmire can contain a keystroke or newly inserted block before its
-        // commit callback has entered the machine. An incoming transition must
-        // not replace that dirty tree: the machine has no generation for it yet.
-        let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0
-        guard currentAdmission.source == machine.accepted.source else { return }
-        let anchor = machine.anchor
-        // Read through the provider so read-your-writes holds; suspending
-        // here is safe because the anchor discards a stale result.
+        guard snapshot.contentRevision != source.basis.contentRevision else { return }
+        // Captured work reads its own writes when its append returns. A live
+        // update never replaces it, and never replaces a keystroke Quagmire has
+        // not committed yet: neither has reached the change log.
+        guard source.isSettled, mountedSource == source.latestSource else { return }
+        let anchor = (source.acknowledgements, generation)
+        // Read through the session so read-your-writes holds; suspending here
+        // is safe because the anchor discards a result an edit overtook.
         let current: WorkspaceDocumentSnapshot
         do {
             current = try await session.snapshot()
@@ -590,149 +317,43 @@ public final class ArborDocumentBinding {
             trace("authoritative update not read: \(String(describing: error))")
             return
         }
-        snapshots[current.contentRevision] = current
-        dispatch(.observed(observation: Self.observation(current), anchor: anchor))
-    }
-
-    private static func observation(_ snapshot: WorkspaceDocumentSnapshot) -> DocumentAdmissionMachine.Observation {
-        .init(source: snapshot.source, revision: snapshot.contentRevision)
-    }
-
-    // MARK: Admission transport
-
-    private func persist(generations: [DocumentAdmissionMachine.Generation], baseRevision: String, baseSource: String) async {
-        guard let latest = generations.last else {
-            trace("persist requested without a generation")
-            return
+        guard anchor == (source.acknowledgements, generation), source.isSettled,
+              mountedSource == source.latestSource,
+              current.contentRevision != source.basis.contentRevision else { return }
+        if current.source.utf8.elementsEqual(source.latestSource.utf8) {
+            // The same bytes under a new identity: advance without reparsing.
+            ledger.revision = current.contentRevision
+            basisLedgers[current.contentRevision] = ledger
+            reference = current.reference
+        } else {
+            applyAcceptedReplacementNow(current)
         }
-        let generation = latest.generation, source = latest.source
-        trace("persist generation=\(generation) generations=\(generations.count) base=\(Self.sourceID(baseSource)) source=\(Self.sourceID(source)) bytes=\(source.utf8.count)")
-        // Each generation's patch was captured against its predecessor's
-        // ledger, so the chain is stated as it was captured: one frame per
-        // generation, nothing re-derived against the oldest basis. A chain that
-        // does not start at this base (a conflict resolved onto other bytes, a
-        // draft recovered without its capture) is a plain byte edit.
-        var chain = Self.capturedChain(generations, from: baseSource, revision: baseRevision, ending: source) ?? []
-        var patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
-        if chain.count == 1 { patch = chain[0].patch; chain = [] }
-        trace("captured frames=\(max(chain.count, patch.edits.isEmpty ? 0 : 1)) edits=\(patch.edits.count)")
-        let authoredLedger = authoredLedgers[generation] ?? (ledger.source.utf8.elementsEqual(source.utf8) ? ledger : nil)
-        guard !patch.edits.isEmpty || !chain.isEmpty else {
-            // Quagmire may report a follow-up commit after the authored source
-            // is already current. It is saved by definition.
-            do { try await session.flush() } catch {
-                pendingFailure = error
-                dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
-                return
-            }
-            finishAdmission(generation: generation, snapshot: accepted)
-            return
-        }
-        do {
-            trace("validate edits=\(patch.edits.count) recovered=\(recoveredIntent != nil)")
-            let intent = try WorkspaceDocumentIntent(
-                basis: .init(reference: reference, source: baseSource, contentRevision: baseRevision),
-                patch: patch, source: source, generations: chain)
-            trace("provider admit begin")
-            let confirmed = try await session.admit(intent: intent)
-            trace("provider admit succeeded source=\(Self.sourceID(confirmed.source))")
-            snapshots[confirmed.contentRevision] = confirmed
-            if var next = authoredLedger, next.source.utf8.elementsEqual(confirmed.source.utf8) {
-                next.revision = confirmed.contentRevision
-                basisLedgers[confirmed.contentRevision] = next
-            }
-            authoredLedgers = authoredLedgers.filter { $0.key > generation }
-            finishAdmission(generation: generation, snapshot: confirmed)
-        } catch let value as WorkspaceDocumentConflict {
-            if admissionPolicy == .retainedBasis {
-                // A provider violating the retained-basis contract must neither
-                // open legacy review nor infer durable admission from equal bytes.
-                pendingFailure = value
-                dispatch(.admissionConflicted(generation: generation, current: Self.observation(value.current)))
-                return
-            }
-            if value.current.source == source {
-                do { try await session.flush() } catch {
-                    pendingFailure = error
-                    dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
-                    return
-                }
-                snapshots[value.current.contentRevision] = value.current
-                finishAdmission(generation: generation, snapshot: value.current)
-            } else {
-                var enriched = value
-                if enriched.base == nil { enriched.base = accepted }
-                pendingConflict = enriched
-                snapshots[value.current.contentRevision] = value.current
-                dispatch(.admissionConflicted(generation: generation, current: Self.observation(value.current)))
-            }
-        } catch let value as WorkspacePatchError {
-            guard case .staleRevision = value else {
-                pendingFailure = value
-                dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: value), retryable: false)))
-                return
-            }
-            if admissionPolicy == .retainedBasis {
-                pendingFailure = value
-                dispatch(.admissionConflicted(generation: generation, current: nil))
-                return
-            }
-            do {
-                let current = try await session.snapshot()
-                snapshots[current.contentRevision] = current
-                if current.source == source {
-                    try await session.flush()
-                    // A durable provider write can win the race with its local
-                    // acknowledgement. Exact bytes are an idempotent success.
-                    finishAdmission(generation: generation, snapshot: current)
-                } else {
-                    pendingConflict = WorkspaceDocumentConflict(base: accepted, current: current, submittedSource: source)
-                    dispatch(.admissionConflicted(generation: generation, current: Self.observation(current)))
-                }
-            } catch {
-                pendingFailure = error
-                dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
-            }
-        } catch {
-            trace("provider admission failed: \(String(describing: error))")
-            pendingFailure = error
-            dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
-        }
+        source.adopt(current)
     }
 
-    private func finishAdmission(generation: Int, snapshot: WorkspaceDocumentSnapshot) {
-        // A keystroke can precede Quagmire's commit callback while a save is
-        // suspended. Register it as a successor before an older acknowledgement
-        // is allowed to reconcile the editor.
-        let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source
-        if mounted != (lastEnqueuedSource ?? machine.accepted.source) { admitCurrentGeneration() }
-        dispatch(.admitted(generation: generation, result: Self.result(snapshot)))
-    }
+    // MARK: Acknowledgement
 
-    private static func result(_ snapshot: WorkspaceDocumentSnapshot) -> DocumentAdmissionMachine.Result {
-        .init(source: snapshot.source, revision: snapshot.contentRevision)
-    }
-
-    private func acknowledge(_ result: DocumentAdmissionMachine.Result) {
-        guard let confirmed = snapshots[result.revision] else { return }
-        markRecoverySaved(source: confirmed.source)
-        accepted = confirmed
+    private func acknowledge(_ confirmed: WorkspaceDocumentSnapshot) {
         reference = confirmed.reference
-        // A retained successor means the editor already holds newer content;
-        // only source authority advances. Otherwise the acknowledgement
-        // describes the tree mounted in Quagmire.
-        var newerRetained = false
-        if case .submitting = machine.phase { newerRetained = true }
-        if !newerRetained {
+        if let authored = authoredLedgers.first(where: { $0.value.source.utf8.elementsEqual(confirmed.source.utf8) })?.value {
+            var basis = authored
+            basis.revision = confirmed.contentRevision
+            basisLedgers[confirmed.contentRevision] = basis
+        }
+        // A keystroke can precede Quagmire's commit callback while an append is
+        // suspended. Capture it as a successor before an acknowledgement is
+        // allowed to reconcile the editor.
+        if mountedSource != source.latestSource { appendCurrentGeneration() }
+        if source.isSettled {
             let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0
-            if confirmed.source == mounted.source {
+            if confirmed.source.utf8.elementsEqual(mounted.source.utf8) {
                 // Self-confirmation: advance without reparsing or replacing so
-                // focus, selection, typing, and undo coalescing are undisturbed.
+                // focus, selection, typing and undo coalescing are undisturbed.
                 ledger.source = confirmed.source
                 ledger.revision = confirmed.contentRevision
             } else {
-                // A provider-returned transformation is genuinely new
-                // authoritative content and still needs reconciliation.
+                // A session-returned transformation, or a host-authored
+                // replacement: genuinely new content the editor must show.
                 let opened = ArborMarkdownCodec.open(
                     source: confirmed.source,
                     revision: confirmed.contentRevision,
@@ -743,15 +364,15 @@ public final class ArborDocumentBinding {
                 if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
             }
             acceptedTitle = document.title
-        }
-        conflict = nil
-        saveError = nil
-        pendingConflict = nil
-        pendingFailure = nil
-        if machine.isSettled {
             authoredLedgers.removeAll()
             copySources.removeAll()
             basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }
         }
+        refreshState()
     }
+}
+
+/// A short digest that names exact source bytes in diagnostics without logging them.
+enum EditorSourceID {
+    static func of(_ source: String) -> String { String(WireObjectCodec.hash(Data(source.utf8)).suffix(12)) }
 }

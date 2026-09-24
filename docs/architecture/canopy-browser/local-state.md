@@ -1,7 +1,7 @@
 # Canopy local state
 
-What the Canopy app keeps on disk on macOS and iOS: working trees, the editor
-recovery store, the admission journals, and diagnostic streams. The daemon's
+What the Canopy app keeps on disk on macOS and iOS: working trees, their change
+logs and update control, and diagnostic streams. The daemon's
 data home is in [the Arbor data home](../arborsync/data-home.md).
 
 ## Native working trees
@@ -61,35 +61,29 @@ following that tree's Overstory watch, anonymous unless an account at the same
 origin holds a credential, with file bytes served by `/v1/objects?origin=`
 when the daemon is running and by canopyd's object route otherwise.
 
-## Editor recovery store
+## Editor recovery
 
-Before a committed editor generation enters the admission debounce, the Mac
-app saves its exact source and exact accepted base in a device-local recovery
-store at `<Application Support>/Arbor/EditorRecovery` (reached through the
-`~/.arbor` support-directory symlink). Sources are SHA-256 addressed and
-verified on read. Each document gets an identity-hashed directory: stable keys
-follow moves within a tree, and identical keys in different trees stay
-separate. `*.json` records reference exact UTF-8 `sources/*.md` objects. A
-`*.saved` marker records local provider acknowledgment, not host acceptance.
-Neither markers nor later versions delete older sources; the app's Local
-History lists these copies and restores one as a new ordinary edit.
+There is no separate editor recovery store. Each committed editor generation
+is appended to the working tree's change log and acknowledged once that append
+is durable, and a reopened document shows its newest unsettled change, so the
+change log is the recovery record ([editor sources](../../implementing-editors/editor-source.md#4-recovery)).
+Input Quagmire has not committed when the process stops can still be lost. A
+failed append stays visible and keeps the edit in the editor until a retry.
+Arbor Sync's filesystem journal is not a backup of unsubmitted editor text.
+The recovery store earlier builds kept under
+`<Application Support>/Arbor/EditorRecovery` is no longer read or written.
 
-Recovery checkpoints begin at the editor commit callback, so a crash before
-that callback and before lifecycle flush can still lose the last uncommitted
-input. Disk failure can prevent both primary persistence and recovery and stays
-visible. This store is device-local history, not the host's accepted history,
-and Arbor Sync's filesystem journal is not a backup of unsubmitted editor text.
-There is no automatic pruning; the store grows with every edited source version.
+## Change logs
 
-## Source admission journals
-
-Each working tree keeps its admission journal at `sync/source-admissions.json`,
-separate from update control and from editor recovery. The complete journal is
-written to a private temporary file, fsynced, renamed, and its directory
-fsynced before a write returns; Swift locks concurrent writers and TypeScript
-serializes within the owning process. One process must own a state directory;
-cross-process ownership is not enforced. Opening a corrupt journal fails
-without rewriting it.
+Each working tree keeps its change log at `sync/change-log.json` with its
+objects under `sync/change-log-objects/`, separate from update control and
+from editor recovery. The complete journal is written to a private temporary
+file, fsynced, renamed, and its directory fsynced before a write returns;
+Swift locks concurrent writers and TypeScript serializes within the owning
+process. One process must own a state directory; cross-process ownership is
+not enforced. Opening a corrupt journal fails without rewriting it. A journal
+written under its earlier name, `sync/source-admissions.json` with
+`sync/source-admission-objects/`, is moved to the new names on first open.
 
 Journal schemas: 2 stores roots, ordered object hashes, and authored metadata;
 3 stores the protocol element verbatim with a capture summary; 4 stores one
@@ -98,12 +92,14 @@ frame and rewriting it. A fully settled journal of any schema retires without
 decoding. The TypeScript publisher records settlements in
 `sync/source-settlements.json`, written atomically only after the host has
 durably installed the request. The Mac's conflict review keeps
-`sync/conflict-review.json` (schema 2, also reading 1) with exact drafts,
-pinned decision and alternative evidence, and an immutable prepared request.
+`sync/conflict-review.json` (schema 3, reading 1 and 2) with exact drafts and
+pinned decision and alternative evidence; a submitted resolution is a change
+in the change log, and the journal names the draft it came from.
 
-Local update-control schema 3 is source mode; schema 2 is the legacy snapshot
-mode. A source-disabled coordinator refuses to open schema 3, and a source-mode
-journal cannot downgrade to snapshot mode.
+Local update-control schema 4 holds the exact persisted request, the change it
+ends at, the held reason, and settled changes. A schema-3 control that still
+holds a snapshot head, a next base, or an attempt outside the change log is
+refused without being rewritten; a clean one converts.
 
 Local Trash is absent from protocol snapshots. Structural records retain
 private Trash nodes and their file objects so deletion survives another action
@@ -115,10 +111,11 @@ policy bounds that store yet.
 
 ## Diagnostic streams
 
-Each document's `events.jsonl` records admission phase changes, generation,
-draft ID, and time. Each working tree's `sync/events.jsonl` records persisted
-sync state, head, generation, request digest, candidate and accepted roots,
-and conflict and hold flags. The app's network log,
+Each working tree's `sync/events.jsonl` records every update-control write:
+the machine phase, the persisted request's digest, tip change and candidate,
+the held reason, and the number of settled changes. Editor appends are in the
+unified log (`EditorSource`, `ChangeLog` categories) and in the network log as
+`change-log-append` notes. The app's network log,
 `<Application Support>/Arbor/Logs/network-YYYY-MM-DD.jsonl`, records one JSON
 line per update POST, watch connect, disconnect and frame, and tree read; it
 is also shown under Sync Status. Correlate it with the host's per-request log

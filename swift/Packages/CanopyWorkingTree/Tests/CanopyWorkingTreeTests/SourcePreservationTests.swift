@@ -19,13 +19,13 @@ func sourcePreservationFixtures() throws {
             let graph = WireSnapshot(root:WireObjectCodec.hash(directory),objects:[.init(hash:hash,bytes:file),.init(hash:WireObjectCodec.hash(directory),bytes:directory)])
             let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
             let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)
-            let record = try SourceAdmissionRecord(tree:"tr_lineage",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
+            let record = try LocalChange(tree:"tr_lineage",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
             try record.validate()
             #expect(record.update.trace?.first?.operations.first?.fields["lineage"] == .array(value.lineage.map { part in .object([
                 "source":.object(["material":.object(["kind":.string("basis"),"path":.string("/note.md"),"object":.string(hash)]),"range":.array(part.source.map(WireSemanticValue.integer))]),
                 "range":.array(part.replacement.map(WireSemanticValue.integer))
             ]) }))
-            #expect(try JSONDecoder().decode(SourceAdmissionRecord.self,from:JSONEncoder().encode(record)) == record)
+            #expect(try JSONDecoder().decode(LocalChange.self,from:JSONEncoder().encode(record)) == record)
         }
         else { #expect(throws:(any Error).self) { try patch.applying(to:value.source) } }
     }
@@ -47,11 +47,11 @@ func sourceCopyFixtures() async throws {
         let graph = WireSnapshot(root:hash,objects:[.init(hash:file,bytes:bytes),.init(hash:hash,bytes:directory)])
         let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
         let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)
-        let record = try SourceAdmissionRecord(tree:"tr_copy",basis:.accepted(.init(root:hash,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
+        let record = try LocalChange(tree:"tr_copy",basis:.accepted(.init(root:hash,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
         #expect(record.update.trace?.flatMap(\.operations).filter { $0.kind == "copySource" }.count == value.copies.count)
         let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:root) }
-        try await SourceAdmissionQueue(tree:"tr_copy",stateRoot:root).retain(record)
-        #expect(try await SourceAdmissionQueue(tree:"tr_copy",stateRoot:root).retained() == [record])
+        try await ChangeLog(tree:"tr_copy",stateRoot:root).retain(record)
+        #expect(try await ChangeLog(tree:"tr_copy",stateRoot:root).retained() == [record])
     }
 }

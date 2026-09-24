@@ -12,11 +12,11 @@ func compoundEntryFixtures() async throws {
     for value in fixture.cases {
         let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:root) }
-        let record = try SourceAdmissionRecord(change:fixture.change,tree:"tr_compound",basis:.accepted(.init(root:fixture.graph.root,update:"basis")),graph:fixture.graph,candidate:value.candidate,entryActions:value.actions)
+        let record = try LocalChange(change:fixture.change,tree:"tr_compound",basis:.accepted(.init(root:fixture.graph.root,update:"basis")),graph:fixture.graph,candidate:value.candidate,entryActions:value.actions)
         #expect(record.update.trace?.flatMap(\.operations) == value.operations)
-        let queue = try await SourceAdmissionQueue(tree:"tr_compound",stateRoot:root)
+        let queue = try await ChangeLog(tree:"tr_compound",stateRoot:root)
         try await queue.retain(record)
-        let reopened = try await SourceAdmissionQueue(tree:"tr_compound",stateRoot:root)
+        let reopened = try await ChangeLog(tree:"tr_compound",stateRoot:root)
         #expect(try await reopened.retained() == [record])
         #expect(throws:(any Error).self) { try EntryActions(removals:["/pair","/pair/child.md"]).prepare(graph:fixture.graph,changeID:"invalid") }
     }

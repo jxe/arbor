@@ -323,7 +323,7 @@ multi-account pairing transaction or global device identity. Several local
 clients on one installation MAY share that installation's device credential:
 to the host they are one device, and their request digests share one scope,
 which is what makes adoption
-([working-tree updates §2.2](09-client-synchronization.md#22-entry)) sound.
+([working-tree updates §2.2](09-client-synchronization.md#32-entry)) sound.
 
 ## 6. Declaring and activating a tree
 

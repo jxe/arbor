@@ -15,37 +15,6 @@ struct CanopyEditorTests {
         )
     }
 
-    @Test("Document conflict analysis suggests only a safe disjoint merge")
-    func documentConflictAnalysis() {
-        let reference = WorkspaceReference(tree: "tr_notes", path: "/note")
-        let base = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: "First.\nSecond.\n",
-            contentRevision: "r1"
-        )
-        let current = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: "Current first.\nSecond.\n",
-            contentRevision: "r2"
-        )
-        let conflict = WorkspaceDocumentConflict(
-            base: base,
-            current: current,
-            submittedSource: "First.\nSubmitted second.\n"
-        )
-
-        #expect(ArborDocumentConflictAnalysis(conflict).automaticMergeSource == "Current first.\nSubmitted second.\n")
-
-        var authoritative = conflict
-        authoritative.context = .init(
-            code: "conflict",
-            message: "Update could not be merged",
-            kind: "server-update",
-            conflicts: [.init(path: "/note.md", reason: "frontmatter-conflict")]
-        )
-        #expect(ArborDocumentConflictAnalysis(authoritative).automaticMergeSource == nil)
-    }
-
     @Test("No-op is byte-identical across envelopes, CRLF, marks, and raw Markdown")
     func noOp() throws {
         let source = "---\r\nid: pg_exact\r\ntitle:  A  \r\n---\r\n\r\n# Heading *as authored*\r\n\r\nParagraph with **bold**, [link](other.md), $x^2$, and  two spaces.\r\n\r\n<table><tr><td>raw</td></tr></table>\r\n"
@@ -479,7 +448,7 @@ struct CanopyEditorTests {
     }
 
     @MainActor
-    @Test("Synchronous commit bursts coalesce into one patch admission and flush forces it")
+    @Test("Each commit is appended as captured, a burst during an append follows as one change, and flush waits for both")
     func hostPersistence() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
@@ -508,11 +477,10 @@ struct CanopyEditorTests {
         host.persistCommit(changes: [], in: document)
         #expect(binding.generation == 2)
         #expect(binding.lastEnqueuedSource?.contains("Final edit") == true, Comment(rawValue: binding.lastEnqueuedSource ?? "nil"))
-        #expect(await session.admissionCount() == 0)
         await host.flush(document)
 
         let saved = await session.snapshot()
-        #expect(await session.admissionCount() == 1)
+        #expect(await session.admissionCount() == 2)
         #expect(binding.lastError == nil, Comment(rawValue: String(describing: binding.lastError)))
         #expect(saved.source.contains("Final edit"), Comment(rawValue: saved.source))
 
@@ -544,7 +512,7 @@ struct CanopyEditorTests {
     }
 
     @MainActor
-    @Test("A pending commit is admitted after the debounce without an explicit flush")
+    @Test("A captured commit is appended without an explicit flush")
     func debouncedPersistence() async throws {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = RecordingAdmissionSession(snapshot: .init(
@@ -556,14 +524,14 @@ struct CanopyEditorTests {
         let paragraph = try #require(binding.document.children.last)
 
         binding.document.transaction(name: "edit") {
-            _ = binding.document.setText(paragraph.id, AttributedString("Debounced edit"))
+            _ = binding.document.setText(paragraph.id, AttributedString("Appended edit"))
         }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
 
         #expect(await session.admissionCount() == 0)
         try await Task.sleep(for: .milliseconds(400))
         #expect(await session.admissionCount() == 1)
-        #expect((await session.snapshot()).source.contains("Debounced edit"))
+        #expect((await session.snapshot()).source.contains("Appended edit"))
         await binding.close()
     }
 
@@ -912,66 +880,6 @@ struct CanopyEditorTests {
         #expect(replacements.isEmpty)
         #expect(binding.document.children[1].id == empty.id)
         #expect((try await session.snapshot()).source == "before\n\n\nafter\n")
-    }
-
-    @MainActor
-    @Test("An already durable edit resolves a stale acknowledgement as success")
-    func staleExactSaveIsIdempotent() async throws {
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
-        let session = AlreadyAppliedStaleSession(snapshot: .init(
-            reference: reference,
-            source: "# Welcome\n\nBefore.\n",
-            contentRevision: "r1"
-        ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
-            binding: binding,
-            provider: InMemoryWorkspaceProvider.sample(),
-            linkPreviewService: linkPreviewService()
-        )
-        let paragraph = try #require(binding.document.children.first?.children.first?.id)
-        var replacements: [DocumentReplacement] = []
-        binding.document.didReplaceChildren = { replacements.append($0) }
-        binding.document.transaction(name: "Edit") {
-            _ = binding.document.setText(paragraph, AttributedString("Already durable."))
-        }
-
-        host.persistCommit(changes: [], in: binding.document)
-        await host.flush(binding.document)
-
-        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        #expect(binding.conflict == nil)
-        #expect(replacements.isEmpty)
-        let saved = try await session.snapshot()
-        #expect(saved.contentRevision == "r2")
-        #expect(saved.source.contains("Already durable."))
-    }
-
-    @MainActor
-    @Test("A failed Keep My Edit retains the live editor and conflict evidence")
-    func failedConflictResolutionIsNonDestructive() async throws {
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
-        let session = ResolutionFailureSession(snapshot: .init(
-            reference: reference,
-            source: "# Welcome\n\nBefore.\n",
-            contentRevision: "r1"
-        ))
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let paragraph = try #require(binding.document.children.first?.children.first?.id)
-        binding.document.transaction(name: "Edit") {
-            _ = binding.document.setText(paragraph, AttributedString("My unsaved edit."))
-        }
-        binding.admitCurrentGeneration()
-        await binding.flush()
-        let conflict = try #require(binding.conflict)
-
-        await #expect(throws: ResolutionFailure.self) {
-            try await binding.resolveConflict(source: conflict.submittedSource)
-        }
-
-        #expect(binding.conflict == conflict)
-        #expect(binding.lastError is ResolutionFailure)
-        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "My unsaved edit.")
     }
 
     @MainActor
@@ -1545,7 +1453,7 @@ struct CanopyEditorTests {
         binding.document.transaction(name: "newer local generation") {
             _ = binding.document.setText(paragraphID, AttributedString("Newest local"))
         }
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
         await binding.flush()
         await session.releaseBlockedSnapshot()
         try await Task.sleep(for: .milliseconds(50))
@@ -1637,100 +1545,6 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
     func admittedPatches() -> [WorkspaceDocumentPatch] { patches }
     /// Every intent admitted, with the generation chain the editor captured.
     func admittedIntents() -> [WorkspaceDocumentIntent] { intents }
-    func flush() {}
-    func history() -> [WorkspaceHistoryEntry] { [] }
-    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
-    func close() {}
-}
-
-private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
-    nonisolated let identity: WorkspaceIdentity
-    private var current: WorkspaceDocumentSnapshot
-
-    init(snapshot: WorkspaceDocumentSnapshot) {
-        identity = snapshot.reference.identity
-        current = snapshot
-    }
-
-    func snapshot() throws -> WorkspaceDocumentSnapshot { current }
-
-    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
-        guard current.contentRevision == baseContentRevision else {
-            throw WorkspacePatchError.staleRevision(
-                expected: baseContentRevision,
-                actual: current.contentRevision
-            )
-        }
-        current = WorkspaceDocumentSnapshot(
-            reference: current.reference,
-            source: source,
-            contentRevision: "r2"
-        )
-        return current
-    }
-
-    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
-        let source = try patch.applying(to: current.source)
-        current = WorkspaceDocumentSnapshot(
-            reference: current.reference,
-            source: source,
-            contentRevision: "r2"
-        )
-        throw WorkspacePatchError.staleRevision(
-            expected: patch.baseContentRevision,
-            actual: current.contentRevision
-        )
-    }
-
-    func flush() {}
-    func history() -> [WorkspaceHistoryEntry] { [] }
-    func recover(revision: String) throws -> WorkspaceDocumentSnapshot { current }
-    func close() {}
-}
-
-private struct ResolutionFailure: Error {}
-
-private actor ResolutionFailureSession: WorkspaceDocumentSession {
-    nonisolated let identity: WorkspaceIdentity
-    private var current: WorkspaceDocumentSnapshot
-    private var conflicted = false
-
-    init(snapshot: WorkspaceDocumentSnapshot) {
-        identity = snapshot.reference.identity
-        current = snapshot
-    }
-
-    func snapshot() -> WorkspaceDocumentSnapshot { current }
-
-    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
-        throw ResolutionFailure()
-    }
-
-    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
-        // The first admission conflicts; the resolution retry, which the
-        // binding submits through the same admission path, fails outright.
-        guard !conflicted else { throw ResolutionFailure() }
-        conflicted = true
-        let base = current
-        let submitted = try patch.applying(to: base.source)
-        current = WorkspaceDocumentSnapshot(
-            reference: current.reference,
-            source: "# Welcome\n\nRemote edit.\n",
-            contentRevision: "r2"
-        )
-        throw WorkspaceDocumentConflict(
-            base: base,
-            current: current,
-            submittedSource: submitted,
-            context: .init(
-                code: "conflict",
-                message: "Update could not be merged",
-                kind: "server-update",
-                conflicts: [.init(path: "/welcome.md", reason: "frontmatter-conflict")]
-            )
-        )
-    }
-
     func flush() {}
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
@@ -1877,13 +1691,6 @@ func reorderedSourceLineage() throws {
     let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
     #expect(try admission.patch.applying(to:source) == admission.source)
     #expect(admission.patch.edits.flatMap { $0.lineage ?? [] }.count >= 1)
-    let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at:root) }
-    let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
-    let store = try EditorRecoveryStore(root:root,reference:reference)
-    let revision = try store.record(reference:reference,source:admission.source,base:.init(reference:reference,source:source,contentRevision:"r"),generations:[.init(patch:admission.patch,source:admission.source)])
-    #expect(try store.intent(revision)?.patch == admission.patch)
-    #expect(try store.intent(revision)?.generations.isEmpty == true)
 }
 
 @Test("Reordering equal-byte blocks still retains distinct source intent")
@@ -1898,15 +1705,15 @@ func equalByteReorderLineage() throws {
 }
 
 @MainActor
-@Test("Editor binding retains equal-byte reorder intent through its admission machine")
+@Test("Editor binding retains equal-byte reorder intent in the change it appends")
 func boundEqualByteReorder() async throws {
     let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:"same\n\nsame\n\n",contentRevision:"r1"))
-    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session)
     binding.document.transaction(name:"reorder") {
         _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
     }
-    binding.admitCurrentGeneration()
+    binding.appendCurrentGeneration()
     await binding.flush()
     let patches = await session.admittedPatches()
     #expect(patches.count == 1)
@@ -1916,36 +1723,29 @@ func boundEqualByteReorder() async throws {
 }
 
 @MainActor
-@Test("Explicit duplication retains copy spans through debounce and editor recovery", arguments:[0,2])
+@Test("Explicit duplication keeps its copy spans in the generation that captured it", arguments:[0,2])
 func boundSourceCopy(position: Int) async throws {
     let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
     let source = "Café\r\n\r\nsame\r\n\r\n"
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:source,contentRevision:"r1"))
-    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
-    binding.document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session)
+    binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
     let original = binding.document.children[0]
     _ = binding.document.insertCopies(of:[original],at:.init(parent:nil,position:position))
-    // A later commit must not lose the pending copy evidence during debounce.
+    // A later commit while the copy is being appended must not lose its evidence.
     binding.document.transaction(name:"unrelated append") {
         _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.children.count))
     }
     await binding.flush()
-    // One admission carries both generations; the copy stays in the generation
-    // that captured it rather than being re-derived across the append.
+    // The copy is appended at once; the later commit follows as the next
+    // change, authored on the first one's acknowledgement.
     let intents = await session.admittedIntents()
-    #expect(intents.count == 1)
-    let intent = try #require(intents.first)
-    #expect(intent.generations.count == 2)
-    let captured = intent.generations.map(\.patch)
-    #expect(captured.flatMap(\.edits).flatMap { $0.copies ?? [] }.count == 1)
-    #expect(captured.first?.edits.contains { !($0.copies ?? []).isEmpty } == true)
-    let copy = try #require(captured.flatMap(\.edits).first { !($0.copies ?? []).isEmpty }?.copies?.first)
+    #expect(intents.count == 2)
+    let first = try #require(intents.first)
+    let copy = try #require(first.patch.edits.first { !($0.copies ?? []).isEmpty }?.copies?.first)
     #expect(Data(source.utf8).subdata(in:copy.source) == Data("Café\r\n\r\n".utf8))
-    let directory = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at:directory) }
-    let store = try EditorRecoveryStore(root:directory,reference:reference)
-    let revision = try store.record(reference:reference,source:intent.source,base:.init(reference:reference,source:source,contentRevision:"r1"),generations:intent.generations)
-    #expect(try EditorRecoveryStore(root:directory,reference:reference).intent(revision)?.generations == intent.generations)
+    #expect(intents[1].patch.edits.allSatisfy { ($0.copies ?? []).isEmpty })
+    #expect(intents[1].basis.source == first.source)
     #expect(binding.lastError == nil)
     await binding.close()
 }

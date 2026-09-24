@@ -19,6 +19,9 @@ public enum UpdateError: Error, Equatable, Sendable {
     case closed
     case requestEmpty
     case unsupportedControlSchema(Int)
+    /// Durable state from an earlier client still holds unpublished work in a
+    /// form this client no longer runs. Nothing is decoded away or rewritten.
+    case earlierPendingWork(String)
 }
 
 extension UpdateError: LocalizedError {
@@ -32,6 +35,7 @@ extension UpdateError: LocalizedError {
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
         case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
+        case let .earlierPendingWork(file): "\(file) holds unpublished work from an earlier version of Canopy. Open this tree with that version to finish publishing it, then update."
         }
     }
 }
@@ -107,34 +111,69 @@ struct UpdateAttempt: Codable, Equatable, Sendable {
     var allRequestDigests: [String] { requestDigests ?? [digest] }
 }
 
-/// The latest durable local head together with the objects it introduces over
-/// its base, written before the machine learns of the head. A process that
-/// stops before the publication delay recovers this as a one-element attempt.
-struct UpdateHead: Codable, Equatable, Sendable {
-    /// Inline object bytes above this total spill to `objects/<hash>` beside the control file.
-    static let inlineByteCap = 32 * 1024 * 1024
-
-    var base: WireUpdateBase
-    var root: String
-    var generation: Int
-    /// Objects carried inline.
-    var objects: [WireObjectEnvelope]
-    /// Objects spilled beside the control file and referenced by hash.
-    var spilledObjects: [String]?
+/// Why a retained request is held, so a restart holds it again.
+struct HeldRecord: Codable, Equatable, Sendable {
+    var reason: UpdateMachine.HeldReason
+    var detail: String?
 }
 
-/// Schema 3 retains snapshot heads and protects source queues from older clients.
-struct UpdateControl: Codable, Equatable, Sendable {
-    static let currentSchema = 3
+extension UpdateMachine.HeldReason: Codable {}
 
-    /// Source-session activation is an explicit server-first release choice.
-    var sourceMode: Bool?
-    var sourceAttemptChange: String?
-    var sourceAcceptedChanges: [String]?
-    var acceptedConflicted: Bool?
+/// What the update machine's runner retains beside the change log: the exact
+/// persisted request and the change it ends at, why it is held, and which
+/// changes have settled. The accepted `{ root, update, cursor }` is the
+/// working tree's own state. Schema 4 dropped the snapshot head and next base
+/// of the earlier snapshot publication path.
+struct UpdateControl: Codable, Equatable, Sendable {
+    static let currentSchema = 4
+
     var schema = currentSchema
     var attempt: UpdateAttempt?
-    var nextBase: WireUpdateBase?
-    var head: UpdateHead?
-    var presentation = WorkspaceSyncPresentation(state: .offline)
+    /// The local change the attempt's last element carries.
+    var attemptTip: String?
+    var held: HeldRecord?
+    /// Changes an accepted update incorporates, until the log compacts them.
+    var settled: [String] = []
+    var acceptedConflicted: Bool?
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case schema, attempt, attemptTip, held, settled, acceptedConflicted
+        // Schema 3.
+        case sourceAttemptChange, sourceAcceptedChanges, head, nextBase
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try values.decode(Int.self, forKey: .schema)
+        guard schema <= Self.currentSchema else { throw UpdateError.unsupportedControlSchema(schema) }
+        attempt = try values.decodeIfPresent(UpdateAttempt.self, forKey: .attempt)
+        acceptedConflicted = try values.decodeIfPresent(Bool.self, forKey: .acceptedConflicted)
+        if schema < 4 {
+            // A snapshot head, a next base, or an attempt outside the change log
+            // is unpublished work this client cannot run: refuse, rewrite nothing.
+            let tip = try values.decodeIfPresent(String.self, forKey: .sourceAttemptChange)
+            if values.contains(.head) && (try? values.decodeNil(forKey: .head)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
+            if values.contains(.nextBase) && (try? values.decodeNil(forKey: .nextBase)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
+            if attempt != nil, tip == nil { throw UpdateError.earlierPendingWork("update-control.json") }
+            attemptTip = tip
+            settled = try values.decodeIfPresent([String].self, forKey: .sourceAcceptedChanges) ?? []
+        } else {
+            attemptTip = try values.decodeIfPresent(String.self, forKey: .attemptTip)
+            held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
+            settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
+        }
+        schema = Self.currentSchema
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(schema, forKey: .schema)
+        try values.encodeIfPresent(attempt, forKey: .attempt)
+        try values.encodeIfPresent(attemptTip, forKey: .attemptTip)
+        try values.encodeIfPresent(held, forKey: .held)
+        try values.encode(settled, forKey: .settled)
+        try values.encodeIfPresent(acceptedConflicted, forKey: .acceptedConflicted)
+    }
 }
