@@ -184,7 +184,9 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 Copy the most recent migration directory (today `019-one-access-store/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
-root and is idempotent (it checks the schema stamp and refuses to run twice);
-a `migrate.test.ts` runnable with
+root and is idempotent (it checks the schema stamp and refuses to run twice)
+and ends by checking the result with both `assertCurrentCanopySchema` and
+`assertCanopyData` from `schema.ts` (startup checks only the former, and 019's
+`run.ts` predates the latter); a `migrate.test.ts` runnable with
 `bun run test:migration packages/canopyd/migrations/NNN-<name>`. Batch wire changes into one
 migration whenever they are ready together.

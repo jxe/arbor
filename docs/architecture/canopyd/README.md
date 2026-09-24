@@ -12,7 +12,12 @@ memory ([writing a sidecar](writing-a-sidecar.md)). canopyd accepts plain
 edits on the head itself, checks each answer's shape and objects, merges
 account configuration itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
-lists every stamp.
+lists every stamp. Startup reads only the schema: the stamp, then each table's
+columns and the indexes queries rely on. Any difference is a
+`SchemaMismatchError`, and `canopyd` serves maintenance mode rather than the
+data root. The row invariants (every tree has accepted history, every account
+a device, no foreign key dangles) scan whole tables, so the integrity audit
+checks them instead.
 
 ## Accounts and canonical paths
 

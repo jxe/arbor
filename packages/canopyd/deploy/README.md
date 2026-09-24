@@ -97,7 +97,7 @@ canopyd reads these variables at start; all are optional.
 
 `GET /` is the readiness probe; Railway checks it. `GET /.arbor/health` is a
 cheap SQLite check. `GET /.arbor/integrity` runs the full integrity audit of the
-database and every retained object. It is a
+database, its row invariants and foreign keys, and every retained object. It is a
 maintenance command, not a readiness check: it can exceed a short request
 timeout, and polling it has exhausted the memory of a live instance. Call it
 deliberately, once, after a deploy or migration.

@@ -58,7 +58,7 @@ import { AccountDirectory } from "./accounts.ts";
 import { HANDLE, handleOfPath, leadingHandle, legacyMemberHandle, memberReservations, profileLocatorTree, recordProfileFacts, rootProfileFacts, storedProfileFacts, type RootProfileFacts } from "./profile.ts";
 import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
-import { openCanopyDatabase } from "./schema.ts";
+import { assertCanopyData, openCanopyDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
 export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
@@ -187,7 +187,7 @@ function profileSource(
   ].join("\n");
 }
 
-export { CANOPY_SCHEMA_VERSION, assertCanopySchemaVersion, assertCurrentCanopySchema } from "./schema.ts";
+export { CANOPY_SCHEMA_VERSION, SchemaMismatchError, assertCanopyData, assertCanopySchemaVersion, assertCurrentCanopySchema } from "./schema.ts";
 
 /** The basis a batch element was authored on: an accepted log entry, and the
  * earlier candidates of the batch authored on it that no entry records as
@@ -1818,7 +1818,8 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private integrityRun: Promise<void> | null = null;
 
-  /** Verify SQLite plus every object reachable from retained accepted history.
+  /** Verify SQLite, the row invariants `assertCanopyData` names, and every
+   * object reachable from retained accepted history.
    * This walks all retained history, so concurrent callers share one run. */
   verifyIntegrity(): Promise<void> {
     this.integrityRun ??= this.auditIntegrity().finally(() => { this.integrityRun = null; });
@@ -1827,6 +1828,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private async auditIntegrity(): Promise<void> {
     this.verifyDatabase();
+    assertCanopyData(this.db);
     // The same closure the object collector keeps: every object it names is
     // present and hash-consistent.
     await retainedObjects(this.db, this.objects);

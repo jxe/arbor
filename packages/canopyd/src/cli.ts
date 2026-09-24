@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { CanopyDaemon, serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
+import { CanopyDaemon, SchemaMismatchError, serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
 
 const USAGE = `Usage:
   canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]
@@ -80,6 +80,14 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
   return server;
 }
 
+/** Serve maintenance mode until the process is told to stop. */
+function maintainUntilStopped(port: number, hostname: string): void {
+  const server = serveMaintenance(port, hostname);
+  const stop = () => { server.stop(true); process.exit(0); };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
 /** `canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]` */
 export async function initCommunity(args: string[]): Promise<void> {
   const valued = ["--founder", "--data"];
@@ -120,13 +128,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
   if (positional.length > 1) usage();
 
   const requestedPort = parsePort(args);
-  if (process.env.ARBOR_CANOPY_MAINTENANCE?.trim()) {
-    const server = serveMaintenance(requestedPort, hostnameOption(args));
-    const stop = () => { server.stop(true); process.exit(0); };
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
-    return;
-  }
+  if (process.env.ARBOR_CANOPY_MAINTENANCE?.trim()) return maintainUntilStopped(requestedPort, hostnameOption(args));
   const onRailway = Boolean(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
   const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
   const arborDomain = process.env.ARBOR_DOMAIN;
@@ -187,16 +189,12 @@ export async function serveCommunity(args: string[]): Promise<void> {
       hostname: hostnameOption(args),
     });
   } catch (error) {
-    // A data root written by another schema version is not served and not
-    // touched; the process stays up in maintenance mode so an operator can run
-    // the migration in place, then restart.
-    if (error instanceof Error && /schema version/.test(error.message)) {
+    // A data root whose schema this build does not serve is not served and
+    // not touched; the process stays up in maintenance mode so an operator can
+    // run the migration in place, then restart.
+    if (error instanceof SchemaMismatchError) {
       console.error(error.message);
-      const server = serveMaintenance(requestedPort, hostnameOption(args));
-      const stop = () => { server.stop(true); process.exit(0); };
-      process.on("SIGINT", stop);
-      process.on("SIGTERM", stop);
-      return;
+      return maintainUntilStopped(requestedPort, hostnameOption(args));
     }
     throw error;
   }

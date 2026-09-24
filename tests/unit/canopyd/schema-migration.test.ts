@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CANOPY_SCHEMA_VERSION, CanopyDaemon } from "@overstory/canopyd";
+import { CANOPY_SCHEMA_VERSION, CanopyDaemon, SchemaMismatchError } from "@overstory/canopyd";
 
 const roots: string[] = [];
 const bootstrap = {
@@ -85,5 +85,33 @@ describe("Canopy schema version stamp", () => {
     db.run("UPDATE meta SET value = 'future' WHERE key = 'schema_version'");
     db.close();
     await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version future.*run the offline migration/);
+    // The command line enters maintenance mode on this type, not on message text.
+    await expect(CanopyDaemon.open(root)).rejects.toBeInstanceOf(SchemaMismatchError);
+  });
+
+  test("a table that differs from the stamp is a schema mismatch", async () => {
+    const root = await dataRoot();
+    const first = await CanopyDaemon.open(root, bootstrap);
+    await first[Symbol.asyncDispose]();
+    const db = new Database(join(root, "canopy.sqlite3"));
+    db.run("ALTER TABLE meta ADD COLUMN note TEXT");
+    db.close();
+    await expect(CanopyDaemon.open(root)).rejects.toBeInstanceOf(SchemaMismatchError);
+  });
+
+  test("startup reads only the schema; the integrity audit checks the rows", async () => {
+    const root = await dataRoot();
+    const first = await CanopyDaemon.open(root, bootstrap);
+    await first.verifyIntegrity();
+    await first[Symbol.asyncDispose]();
+    const db = new Database(join(root, "canopy.sqlite3"));
+    db.run("INSERT INTO trees (id, ref) VALUES ('tr_orphan', ?)", [`sha256:${"0".repeat(64)}`]);
+    db.close();
+    const reopened = await CanopyDaemon.open(root);
+    try {
+      await expect(reopened.verifyIntegrity()).rejects.toThrow(/trees without accepted history/);
+    } finally {
+      await reopened[Symbol.asyncDispose]();
+    }
   });
 });

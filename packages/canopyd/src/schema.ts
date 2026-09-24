@@ -119,6 +119,14 @@ export function createCanopySchema(db: Database): void {
   db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [CANOPY_SCHEMA_VERSION]);
 }
 
+/** A data root whose schema this build does not serve: another stamp, or
+ * tables and indexes that differ from the stamp's. canopyd leaves it
+ * untouched, and the command line serves maintenance mode until an operator
+ * migrates it. */
+export class SchemaMismatchError extends Error {
+  override readonly name = "SchemaMismatchError";
+}
+
 /** Refuse a data root written by a different schema version before touching it. */
 export function assertCanopySchemaVersion(db: Database): void {
   const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
@@ -126,13 +134,18 @@ export function assertCanopySchemaVersion(db: Database): void {
     ? (db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null)?.value ?? null
     : null;
   if (stamp !== CANOPY_SCHEMA_VERSION) {
-    throw new Error(
+    throw new SchemaMismatchError(
       `Canopy data root was written by schema version ${stamp ?? "(unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
       + "run the offline migration for this version after backing up retained history",
     );
   }
 }
 
+/**
+ * The startup check: the version stamp, then every table's columns and the
+ * indexes queries rely on. It reads only the schema, never the rows, so it
+ * stays cheap on a large data root; `assertCanopyData` checks the rows.
+ */
 export function assertCurrentCanopySchema(db: Database): void {
   assertCanopySchemaVersion(db);
   const issues: string[] = [];
@@ -148,22 +161,30 @@ export function assertCurrentCanopySchema(db: Database): void {
       issues.push(`missing ${index} index`);
     }
   }
-  if (!issues.length) {
-    const missingHistory = db.query(`
-      SELECT COUNT(*) AS count FROM trees t
-      WHERE NOT EXISTS (SELECT 1 FROM accepted_updates u WHERE u.tree_id = t.id)
-    `).get() as { count: number };
-    const missingDevices = db.query(`
-      SELECT COUNT(*) AS count FROM accounts a
-      WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
-    `).get() as { count: number };
-    if (missingHistory.count) issues.push("trees without accepted history");
-    if (missingDevices.count) issues.push("accounts without devices");
-    if (db.query("PRAGMA foreign_key_check").all().length) issues.push("foreign-key violations");
-  }
   if (issues.length) {
-    throw new Error(`Canopy schema requires the one-time migration before startup: ${issues.join(", ")}`);
+    throw new SchemaMismatchError(`Canopy schema requires the one-time migration before startup: ${issues.join(", ")}`);
   }
+}
+
+/**
+ * Row invariants every current data root keeps: each tree has accepted
+ * history, each account a device, and no foreign key dangles. These scan
+ * whole tables, so the integrity audit runs them rather than every start.
+ */
+export function assertCanopyData(db: Database): void {
+  const issues: string[] = [];
+  const missingHistory = db.query(`
+    SELECT COUNT(*) AS count FROM trees t
+    WHERE NOT EXISTS (SELECT 1 FROM accepted_updates u WHERE u.tree_id = t.id)
+  `).get() as { count: number };
+  const missingDevices = db.query(`
+    SELECT COUNT(*) AS count FROM accounts a
+    WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
+  `).get() as { count: number };
+  if (missingHistory.count) issues.push("trees without accepted history");
+  if (missingDevices.count) issues.push("accounts without devices");
+  if (db.query("PRAGMA foreign_key_check").all().length) issues.push("foreign-key violations");
+  if (issues.length) throw new Error(`Canopy data integrity check failed: ${issues.join(", ")}`);
 }
 
 /** Open (creating and stamping if new, otherwise asserting) the Canopy SQLite database at `path`. */
