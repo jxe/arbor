@@ -66,8 +66,40 @@ const cloneState = (state: IntentState): IntentState => {
   };
 };
 const operationsOf = traceOperations;
-const same = (a: unknown, b: unknown) =>
-  stableJSONString(a) === stableJSONString(b);
+/** Whether `a` and `b` have one `stableJSONString` form, decided without
+ * building either string (evaluation compares whole node maps with it).
+ * Evaluation data is JSON, so equal references and primitives serialize
+ * alike, and each member of an array or record serializes unambiguously and
+ * can be compared alone. The one collision between different shapes, an
+ * array of one unserializable member against an empty array, is left to the
+ * full form. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  const objectA = a !== null && typeof a === "object",
+    objectB = b !== null && typeof b === "object";
+  if (!objectA || !objectB)
+    return !objectA && !objectB && JSON.stringify(a) === JSON.stringify(b);
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    const other = b as unknown[];
+    if (a.length !== other.length)
+      return stableJSONString(a) === stableJSONString(other);
+    for (let index = 0; index < a.length; index++)
+      if (!same(a[index], other[index])) return false;
+    return true;
+  }
+  const left = a as Record<string, unknown>,
+    right = b as Record<string, unknown>;
+  let count = 0;
+  for (const key of Object.keys(left)) {
+    if (left[key] === undefined) continue;
+    if (right[key] === undefined || !Object.hasOwn(right, key) || !same(left[key], right[key]))
+      return false;
+    count++;
+  }
+  for (const key of Object.keys(right)) if (right[key] !== undefined) count--;
+  return count === 0;
+}
 const fail = (message: string): never => {
   throw new IntentError("invalid", message);
 };
