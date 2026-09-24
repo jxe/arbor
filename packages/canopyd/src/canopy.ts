@@ -1569,9 +1569,6 @@ export class CanopyDaemon implements AsyncDisposable {
         proposed
       );
       markPhase("validate-accepted");
-      await this.objects.store(
-        [...proposed].map(([hash, bytes]) => ({ hash, bytes }))
-      );
       const entry = await this.history.write({
         format: LOG_ENTRY_FORMAT,
         tree: tree.id,
@@ -1583,7 +1580,7 @@ export class CanopyDaemon implements AsyncDisposable {
         decisions,
         ...(question ? { asked: asked(question, root) } : {}),
         ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
-      });
+      }, [...proposed].map(([hash, bytes]) => ({ hash, bytes })));
       markPhase("accepted-store");
       const now = Date.now(),
         commit = await policy.prepareCommit(
@@ -1968,11 +1965,10 @@ export class CanopyDaemon implements AsyncDisposable {
         evidence = answer.evidence;
       }
     }
-    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
     return this.history.write({
       format: LOG_ENTRY_FORMAT, tree, previous, root, change, trace: null, resolves: [], decisions,
       ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
-    });
+    }, [...staged].map(([hash, bytes]) => ({ hash, bytes })));
   }
 
   /** Everything a server-side rewrite of a canonical parent's boundaries needs

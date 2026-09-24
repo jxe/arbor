@@ -118,7 +118,14 @@ const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** The canonical bytes of an entry (`stableJSONString`), which name it. */
 export function encodeLogEntry(entry: LogEntry): Uint8Array {
-  return encoder.encode(stableJSONString(logEntrySchema.parse(entry)));
+  return validatedLogEntry(entry).bytes;
+}
+
+/** A checked entry and its canonical bytes, for a writer that keeps the
+ * entry without decoding the bytes again. */
+export function validatedLogEntry(entry: LogEntry): { entry: LogEntry; bytes: Uint8Array } {
+  const valid = logEntrySchema.parse(entry) as LogEntry;
+  return { entry: valid, bytes: encoder.encode(stableJSONString(valid)) };
 }
 
 /** Parse an entry's bytes. Only canonical bytes are an entry. */

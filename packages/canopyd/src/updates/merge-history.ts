@@ -13,7 +13,7 @@ import {
   type ObjectHash,
   type SourceOperation,
 } from "@overstory/protocol";
-import { decodeLogEntry, encodeLogEntry, type AlternativeBinding, type LogDecision, type LogEntry } from "@overstory/merge-protocol";
+import { decodeLogEntry, validatedLogEntry, type AlternativeBinding, type LogDecision, type LogEntry } from "@overstory/merge-protocol";
 import type { ObjectStore } from "@overstory/object-store";
 import type { AcceptedUpdateStore } from "./store.ts";
 
@@ -66,12 +66,15 @@ export class MergeHistory {
 
   constructor(private readonly updates: AcceptedUpdateStore, private readonly objects: ObjectStore) {}
 
-  /** Store an entry durably, before the transaction that records it. */
-  async write(entry: LogEntry): Promise<{ hash: ObjectHash; conflicted: boolean }> {
-    const bytes = encodeLogEntry(entry), hash = hashObject(bytes);
-    await this.objects.store([{ hash, bytes }]);
-    this.entries.set(hash, decodeLogEntry(bytes));
-    return { hash, conflicted: entry.decisions.length > 0 };
+  /** Store an entry durably, before the transaction that records it, in one
+   * durable publish with the objects it names. Nothing names the entry until
+   * that transaction commits, so every object is durable before any commit
+   * reaches it. */
+  async write(entry: LogEntry, objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }> = []): Promise<{ hash: ObjectHash; conflicted: boolean }> {
+    const { entry: valid, bytes } = validatedLogEntry(entry), hash = hashObject(bytes);
+    await this.objects.store([...objects, { hash, bytes }]);
+    this.entries.set(hash, valid);
+    return { hash, conflicted: valid.decisions.length > 0 };
   }
 
   async entry(hash: ObjectHash): Promise<LogEntry> {
