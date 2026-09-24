@@ -36,7 +36,7 @@ Today the app reads that state and shows nothing actionable.
 3. Reword the configuration-tree refusal to point at that entry.
 4. Keep `conflicted: true` (accepted alternatives) visually distinct: it is
    ordinary accepted state, reviewed through Native
-   [010](010-client-conflict-review.md).
+   [010](010-inline-choice-context.md).
 
 ## Verify
 

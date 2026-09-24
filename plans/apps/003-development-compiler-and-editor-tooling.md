@@ -2,8 +2,8 @@
 
 > This plan supplies coherent compilation and SSR/hydration artifacts for the browser integration gate owned by [Apps 001](001-supplies-executable-site.md). That integration follows the headless [Apps 005](005-source-resolution-and-sidecar.md) gate; compiler work may proceed independently, and Apps 005 does not wait for it.
 
-> **Execution-model revision (2026-09-18):** Resource policy is now owned by
-> [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
+> **Execution-model revision (2026-09-18):** Resource policy is the deployed
+> [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
 > by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
 > durable workflows by [Apps 006](006-durable-authoring.md). These supersede inherited
 > named-permission, single-domain-only and unchanged-syntax instructions below.
@@ -139,7 +139,7 @@ Completion gate:
 - Coordinate authored query/mutation syntax changes with Apps 006. Authority
   semantics are defined by
   [`docs/overstory-spec/08-authoring-api.md`](../../docs/overstory-spec/08-authoring-api.md#3-handles) and
-  [Apps 004](004-mutation-permissions.md); Apps 006 owns the final authoring surface.
+  [access control](../../docs/overstory-spec/05-access-control.md); Apps 006 owns the final authoring surface.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
 - Do not require one editor, one workspace layout, or a running canopyd.

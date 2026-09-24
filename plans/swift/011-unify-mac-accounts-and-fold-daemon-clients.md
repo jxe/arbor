@@ -16,7 +16,7 @@ identity/recovery routes before execution, preserving their tested behavior.
 ## Why
 
 The Mac app and the iOS app run the same working tree, update machine, and
-admission queue, but they reach accounts, placements, and conflicts by
+change log, but they reach accounts, placements, and conflicts by
 different roads. iOS is a direct client of the host through `OverstoryClient`
 and `CanopyWorkingTree`. The Mac asks the daemon over its loopback API for
 the same things, so the daemon carries a second copy of host-facing
@@ -102,8 +102,8 @@ are deleted rather than kept as adapters.
    app-initiated move produce identical checkout and `placements.yaml`
    results.
 4. **Accepted-choice review on the Mac.** Drive it through `CanopyWorkingTree`
-   exactly as iOS does; keep the daemon's filesystem-sync conflict sheet as
-   the only daemon-fed review. Gate: the same conflict fixture resolves
+   exactly as iOS does; held folders (refused folder changes,
+   [Native 012](012-show-held-folders.md)) stay the only daemon-fed surface. Gate: the same conflict fixture resolves
    identically on both platforms, and `swift/CanopyAppTests` covers both.
 5. **Remove the unused routes and client methods** listed above, in one
    commit per side (daemon, Swift client, TypeScript client), each with the

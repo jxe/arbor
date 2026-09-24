@@ -8,7 +8,7 @@ Source implementation status is distinct from installed/deployed behavior.
 ## Native release and hands-on review
 
 Owners: Native [008](../swift/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
-[010](../swift/010-client-conflict-review.md) for review behavior.
+[010](../swift/010-inline-choice-context.md) for review behavior.
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and accepted-choice
   review when Joe can quit both apps. Verify the exact selected revision and destination server
@@ -19,7 +19,7 @@ Owners: Native [008](../swift/008-complete-native-move-copy-undo-capture.md) for
 - [ ] Complete 010's macOS/iPhone hands-on gate: layout, typing, focus, selection, scrolling,
   keyboard routing, VoiceOver, large text and installed review-draft recovery.
 
-Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [editor sources](../../docs/implementing-editors/editor-source.md), and [Native 010](../swift/010-client-conflict-review.md).
+Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [editor sources](../../docs/implementing-editors/editor-source.md), and [Native 010](../swift/010-inline-choice-context.md).
 Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
@@ -30,7 +30,6 @@ Owner: canopyd [014](../canopyd/014-merge-moved-text.md). Deployed with `5ef1fe2
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.
   Preserve existing whole-file policy and format-required coupling.
 - [ ] Record server readiness before enabling any newly captured client operation forms.
-  Use [011](011-client-compatibility.md)'s mixed-client checks.
 
 The schema-12 merge-authority cutover (migration 010, deleted after cutover; see git history) is complete;
 these later refinements are not another request to repeat that migration.
@@ -47,18 +46,21 @@ elapsed calendar time alone is insufficient.
   both platforms. Migration 005 (migration 005, deleted after cutover; see git history) already
   records matching rehearsals, unchanged authored bytes, both upgrades and round-trip edits.
   No history reset is requested.
-- [ ] **Reliability 012 / accepted-state cutover:** record continued automatic Mac publication
-  through subsequent edits, merges, offline work and reconnect without Sync Now. Installation,
-  cross-device publication and restart have later evidence; the full original observation matrix
-  is not certified. If a stall recurs, capture the machine phase and preparation error before
-  retrying. Phone foreground refresh is expected, not a background-sync defect.
+- [ ] **Clients 001 soak:** ordinary use of the one update machine on Mac, iPhone and the
+  daemon. It absorbs the Reliability 012 observation, whose publication path Clients 001
+  replaced: record continued automatic Mac publication through subsequent edits, merges,
+  offline work and reconnect without Sync Now. Installation, cross-device publication and
+  restart already have evidence. If a stall recurs, capture the machine phase and
+  preparation error before retrying; see the automatic-publication recipe below. Phone
+  foreground refresh is expected, not a background-sync defect.
 - [ ] **Clients 001 / Hetzner sync lab:** run `packages/canopyd/deploy/hcloud-sync-lab` against
   the update-machine daemon. Its binary scenario now expects Canopy to accept both versions as an
   unresolved alternative instead of a daemon conflict; it has not run since that rewrite.
 
 Historical plans: Native 022 (completed plan, deleted; see git history),
 Arbor Sync 001 (completed plan, deleted; see git history),
-Reliability 012 (completed plan, deleted; see git history).
+Reliability 012 (completed plan, deleted; see git history; its soak is now part of the
+Clients 001 soak).
 The deleted progress investigation (git history: `docs/native-sync-progress.md`) preserved the reproduced failures
 without claiming to prove the original incident's exact cause.
 

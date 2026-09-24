@@ -9,12 +9,18 @@ Read [DEVELOPMENT.md](../../DEVELOPMENT.md), `status.md`, current source and tes
 before relying on this checkpoint. No live-data, installed-app or public-host
 changes are authorized by this plan. Do not commit or push unless requested.
 
-Prerequisites from [Apps 004](004-mutation-permissions.md) are implemented execution
-tokens, scoped authorization, guarded updates and authority invalidation primitives.
-Step 1 here implements and tests host/session/code-activation attestation and connects
-it to token issuance and authority invalidation. Do not wait for Apps 004's
-entire provider-integration checklist: this plan implements that integration.
-Interactive consent/live rollout gates still apply before enabling a real application.
+The resource-policy prerequisites (Apps 004, deployed on schema 13, plan deleted;
+see git history) are implemented execution tokens, scoped authorization, guarded
+updates and authority invalidation primitives. Step 1 here implements and tests
+host/session/code-activation attestation and connects it to token issuance and
+authority invalidation; there is intentionally no public mint endpoint. This plan
+owns the provider integration Apps 004 left: verify an app's requested effects fit
+the supported scoped snapshot subset, and implement exact provider enforcement
+before exposing the operation, resolution and whole-object/watch projection forms
+that currently reject; never substitute broad read or write access to make them
+work. The consent, revocation and configuration-conflict soak is in
+[release and soak](../verification/release-and-soak.md#manual-recipes-retained-from-the-deleted-checkpoints)
+and still applies before enabling a real application.
 
 The outcome is an independently shippable **headless HTTP execution sidecar**.
 canopyd owns identity, authorization, immutable tree reads, accepted watches and

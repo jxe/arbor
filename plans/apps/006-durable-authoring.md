@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-**P1 · PLANNED · after Apps [004](004-mutation-permissions.md) and
+**P1 · PLANNED · after Apps
 [005](005-source-resolution-and-sidecar.md); coordinates [003](003-development-compiler-and-editor-tooling.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another

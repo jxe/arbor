@@ -24,9 +24,9 @@ peer edits rather than simply restore an old whole-document snapshot.
 Ordinary source edits, exact source-backed copies (including same-tree cross-document copies),
 page/entry moves and copies, typing/copy undo, and turning blocks into a new page with undo/redo
 have implementation evidence. Their exact scope and release status live in the
-the admission queue (journals in [the local system](../../docs/architecture/canopy-browser/local-state.md#change-logs), invariants in [editor sources](../../docs/implementing-editors/editor-source.md#6-change-invariants-and-trace-compaction)), especially
+change log (journals in [the local system](../../docs/architecture/canopy-browser/local-state.md#change-logs), invariants in [editor sources](../../docs/implementing-editors/editor-source.md#6-change-invariants-and-trace-compaction)), especially
 cross-document copy and page conversion (`docs/overstory-spec/conformance/cross-document-copy.json`, `docs/overstory-spec/conformance/page-conversion-undo.json`).
-The durable queue and source publication path already exist. Do not rebuild them.
+The durable change log and source publication path already exist. Do not rebuild them.
 
 ## Remaining command coverage
 
@@ -59,7 +59,7 @@ undo stack after restart is separate from retaining already-authored undo reques
   discard captured operations. Preserve local work and expose a problem if it cannot be encoded.
 - canopyd executes and reconciles the operations. Its existing support must cover every emitted
   form before client release. Server policy belongs to [canopyd 014](../canopyd/014-merge-moved-text.md);
-  conflict review belongs to [Native 010](010-client-conflict-review.md).
+  conflict review belongs to [Native 010](010-inline-choice-context.md).
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.
 

@@ -1,6 +1,6 @@
 # canopyd 014: Merge moved and copied text beyond paragraphs
 
-Split from canopyd 009 on 2026-09-22. (Plan numbers are separate from
+Split from canopyd 009 (merge rule selection, since deleted; see git history) on 2026-09-22. (Plan numbers are separate from
 migration numbers: this is not migration 014.)
 
 ## Status

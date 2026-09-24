@@ -6,9 +6,18 @@
 > report — do not improvise. When done, update this plan's entry in
 > `plans/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/protocol/src/model/logical-path.ts packages/protocol/src/model/logical-url.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
+> **Drift check (run first)**: `git diff --stat b7141f61..HEAD -- packages/protocol/src/model/logical-path.ts packages/protocol/src/model/logical-url.ts packages/arborsync/src/browser-http.ts packages/arborsync/src/service.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
+
+> **Refreshed 2026-09-24** against `b7141f61`: both bugs below still reproduce. The
+> file-surface decodes moved from `server.ts` to `browser-http.ts`; `service.ts`
+> `resolve` decodes locator segments and then calls `canonicalNodePath`, a second
+> double decode; the listing site is now `workspace-fs.ts:452`; and
+> `fs-service.ts` (the local-scope listing) is gone with the daemon's editor path.
+> [Web 025](../canopy-web/025-arbor-web.md) will delete the `browser-http.ts`
+> file-serving and Referer paths, so fix the shared layer and `service.ts` first and
+> keep the `browser-http.ts` change small.
 
 ## Status
 
@@ -29,9 +38,7 @@ once. Two things follow.
 A file whose name contains `%` breaks. Verified by running the real function:
 `canonicalNodePath("/Q3 100%.md")` throws `URIError`. That makes the file's
 parent directory 500 in a tracked tree (the call at
-`packages/fs/src/workspace-fs.ts:405` sits outside the surrounding try/catch),
-while in the local scope the same file is silently dropped from the listing
-instead. Names like `50% off.md` are ordinary in real notes.
+`packages/fs/src/workspace-fs.ts:452` sits outside the surrounding try/catch). Names like `50% off.md` are ordinary in real notes.
 
 Worse, decoding is not idempotent in a way that preserves identity:
 `canonicalNodePath("/a%2Fb.md")` returns `/a/b` — a single file is
@@ -49,9 +56,10 @@ Files involved:
 
 - `packages/protocol/src/model/logical-path.ts` — `normalizeTreePath` / `canonicalNodePath`; the decode to remove.
 - `packages/protocol/src/model/logical-url.ts` — resolves authored links; calls the above.
-- `packages/arborsync/src/server.ts` — HTTP boundary; already decodes before calling in.
+- `packages/arborsync/src/browser-http.ts` — HTTP boundary for file surfaces; already decodes before calling in.
+- `packages/arborsync/src/service.ts` — `resolve` decodes locator segments (`:257`, `:262`), then `canonicalNodePath` decodes again.
+- `packages/arborsync/src/server.ts` — maps `PathEscapeError` to a 400 `unsafe-path` (`:65`).
 - `packages/fs/src/workspace-fs.ts` — directory listing; the 500 site.
-- `packages/arborsync/src/fs-service.ts` — local-scope listing; the silent-drop site.
 
 `packages/protocol/src/model/logical-path.ts:1-19`:
 
@@ -77,7 +85,7 @@ export function canonicalNodePath(input: string): string {
 }
 ```
 
-The directory listing that throws, `packages/fs/src/workspace-fs.ts:400-406`:
+The directory listing that throws, `packages/fs/src/workspace-fs.ts:448-453`:
 
 ```ts
     for (const entry of entries) {
@@ -93,13 +101,13 @@ the `paths.add(...)` above it is unprotected. Here `entry.name` comes from
 `readdir`: it is a real on-disk filename, never percent-encoded, so decoding it
 is unambiguously wrong.
 
-The HTTP boundary that already decodes, `packages/arborsync/src/server.ts:509`:
+The HTTP boundary that already decodes, `packages/arborsync/src/browser-http.ts:81`:
 
 ```ts
         let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
 ```
 
-and the referer-derived path just below it, `packages/arborsync/src/server.ts:515-521`:
+and the referer-derived path just below it, `packages/arborsync/src/browser-http.ts:86-92`:
 
 ```ts
           const referer = request.headers.get("referer");
@@ -143,16 +151,14 @@ Repo conventions:
 
 - `packages/protocol/src/model/logical-path.ts`
 - `packages/protocol/src/model/logical-url.ts` (only if it double-decodes — see step 2)
-- `packages/arborsync/src/server.ts` (boundary decode + `URIError` handling)
+- `packages/arborsync/src/browser-http.ts` and `packages/arborsync/src/service.ts` (boundary decode + `URIError` handling)
 - `tests/unit/path.test.ts` (add cases)
 - `tests/integration/server.test.ts` (add a case)
 
 **Out of scope** (do NOT touch):
 
-- `packages/fs/src/workspace-fs.ts` and `packages/arborsync/src/fs-service.ts` —
-  once `normalizeTreePath` stops decoding, their calls become correct as
-  written. Do not "also fix" the try/catch asymmetry between them here; note
-  it in your report instead.
+- `packages/fs/src/workspace-fs.ts` — once `normalizeTreePath` stops decoding,
+  its calls become correct as written.
 - `swift/` — the Swift mirror of this logic. If the TypeScript contract
   changes in a way Swift must follow, report it; do not edit Swift in this plan.
 - `packages/canopy-web/src/App.tsx` — the client also builds URLs; leave it unless
@@ -218,8 +224,9 @@ is expected and is fixed in step 3.
 The security property from `tests/unit/path.test.ts:22` must still hold for
 requests arriving over HTTP.
 
-In `packages/arborsync/src/server.ts`, the decode at `:509` and the two at
-`:518-520` are the boundary. Introduce a single helper in that file, e.g.:
+In `packages/arborsync/src/browser-http.ts`, the decode at `:81` and the two at
+`:90-91` are the boundary, and so are the segment decodes in `service.ts` `resolve`
+(`:257`, `:262`). Introduce a single helper in that file, e.g.:
 
 ```ts
 function decodeRequestPath(value: string): string { ... }
@@ -229,18 +236,18 @@ It must:
 
 - `decodeURIComponent` the value.
 - Catch `URIError` and throw the existing `ProtocolError` with code
-  `"unsafe-path"` and status **400** — match how `assertSameOrigin` at
-  `packages/arborsync/src/server.ts:38-44` constructs a `ProtocolError`, so the
-  error flows through the same envelope. A malformed encoding currently falls
+  `"unsafe-path"` and status **400** — construct it as other
+  `ProtocolError`s in `packages/arborsync/src` are, so the error flows through
+  the same envelope in `server.ts`. A malformed encoding currently falls
   through to a generic 500; 400 is correct.
 - Feed the decoded result through `normalizeTreePath` so traversal is rejected
   once, at the boundary, on the decoded value. `normalizeTreePath` throws
-  `PathEscapeError`; confirm the server already maps that to a 400 response
-  (`grep -n "PathEscapeError" packages/arborsync/src/server.ts`) and if it does
-  not, map it the same way as `ProtocolError` with `"unsafe-path"`.
+  `PathEscapeError`; the server already maps that to a 400
+  `unsafe-path` response (`packages/arborsync/src/server.ts:65`).
 
-Replace all three `decodeURIComponent(...)` call sites at `:509` and `:518-520`
-with this helper. Also guard the `new URL(referer)` call at `:516` — a
+Replace the three `browser-http.ts` call sites and the two `service.ts` segment
+decodes with this helper. Also guard the `new URL(referer)` call at
+`browser-http.ts:87` — a
 malformed `Referer` header currently throws out to the generic 500 handler;
 wrap it so a bad referer simply yields `null`.
 
@@ -321,8 +328,7 @@ ALL must hold:
 - [ ] The step 5 traversal test returns 400 with `unsafe-path`, and fails when
       the boundary check is reverted
 - [ ] The step 1 script prints `/Q3 100%` and `/a%2Fb`
-- [ ] `packages/fs/src/workspace-fs.ts` and `packages/arborsync/src/fs-service.ts`
-      are unmodified
+- [ ] `packages/fs/src/workspace-fs.ts` is unmodified
 - [ ] `git status --short` shows no modified files outside the In-scope list
 - [ ] `bun run test:protocol` passes, or its absence is reported explicitly
 - [ ] `plans/README.md` entry for Security 002 updated
@@ -345,8 +351,8 @@ Stop and report back (do not improvise) if:
 
 ## Maintenance notes
 
-- The new contract is: **URLs are decoded exactly once, in
-  `packages/arborsync/src/server.ts`, and everything downstream of that receives
+- The new contract is: **URLs are decoded exactly once, at the
+  `packages/arborsync` HTTP and locator boundaries, and everything downstream of that receives
   decoded logical paths.** Any future entry point that accepts a URL-shaped
   path (a new route, a new CLI argument, a new client) must decode at its own
   boundary and must run traversal rejection there.
@@ -356,10 +362,8 @@ Stop and report back (do not improvise) if:
   follow-up work; the conformance suite may or may not catch it.
 - A reviewer should scrutinize step 3 hardest: the traversal rejection moving
   from a widely-called pure function to a single boundary helper is the risky
-  part of this change. Confirm every `decodeURIComponent` in `server.ts` goes
-  through the helper.
-- Deliberately deferred: the inconsistency where
-  `packages/fs/src/workspace-fs.ts:405` lets a path error 500 while
-  `packages/arborsync/src/fs-service.ts:287` silently swallows it. Once paths stop
-  throwing on `%`, this matters much less, but the two sites should eventually
-  agree on a policy.
+  part of this change. Confirm every `decodeURIComponent` in `browser-http.ts`
+  and `service.ts` `resolve` goes through the helper.
+- Deliberately deferred: `packages/fs/src/workspace-fs.ts:452` still lets a
+  path error escape as a 500. Once paths stop throwing on `%`, this matters much
+  less.

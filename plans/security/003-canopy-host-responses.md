@@ -1,9 +1,13 @@
 # Security 003: Harden canopyd responses and rate limiting
 
 > **Drift check**: inspect `packages/canopyd/src/host.ts`,
-> `tests/integration/canopy`, and `deploy/` before editing. This plan was
-> reconciled after the authority-to-canopyd rename; stop if a shared response
-> policy or trusted-proxy abstraction has since landed.
+> `tests/integration/canopyd`, and `packages/canopyd/deploy/` before editing.
+> Rechecked 2026-09-24 at `b7141f61`: nothing below has landed. The throttle key
+> is at `host.ts:355`, the unpruned `pairingClaimAttempts` map at `host.ts:235`,
+> and the access-link bootstrap's inline script at `host.ts:160`. Stop if a
+> shared response policy or trusted-proxy abstraction has since landed.
+> Step 3 (the throttle key and pruning) is independent and can ship first.
+> Deploying any of it needs Joe's go-ahead.
 
 ## Status
 
@@ -106,7 +110,7 @@ Add focused tests under `tests/integration/canopyd/` for:
 ## Verification
 
 ```sh
-bun test tests/integration/canopy
+bun test tests/integration/canopyd
 bun run typecheck
 bun run build
 git diff --check

@@ -1,148 +1,61 @@
-# CLI 004: External agent access through the `arbor` CLI
+# CLI 004: Teach external agents to work in placed folders
 
-Historical identifier: **Smaller project 004**. The filename number is preserved; this plan now belongs to cli.
+Historical identifier: **Smaller project 004**. Cut down 2026-09-24: the earlier
+read/mutation command surface (`arbor read`, `children`, `search`, `backlinks`,
+`recovery`, `write`, `create`, `move`, `copy`, `trash`, `restore`) is dropped. It was
+to be "thin commands over `ArborSyncRESTClient`", but after the working-tree
+redesign that client has no read, search or mutation calls, and adding them would
+put an editor path back in the daemon. Git history keeps the old plan.
 
-**Status:** In progress. General `arbor status [<locator>] [--json]` and cloud-session discovery are implemented; the composable read, mutation, skill, and workflow surfaces below remain. This is an independent enabling plan, not the canopyd-hosted agent milestone. Compiled executable-document handle invocation follows the live-data document work.
+**Status:** PLANNED · S. Nothing below is built yet; what it builds on is.
 
-## Target result
+## What an agent already has
 
-An installed general-purpose agent such as Codex or Claude Code can work with a person's Overstory workspace without Overstory hosting the model or implementing a model-provider client.
+- **Placed folders are the interface.** An agent reads and edits ordinary files in a
+  placed tree with its own tools; Arbor Sync's update machine publishes the changes
+  and pulls others' (see [the update machine](../../docs/implementing-sync-services/update-machine.md)).
+- **`arbor status [<locator>] --json`** reports whether Arbor Sync is running, every
+  in-scope tree's condition, and an overall `ready`; with a locator it also resolves
+  it (tree ref, historical flag, placement condition). This already covers the old
+  plan's `arbor resolve`.
+- **Short-lived cloud workspaces** (`arbor cloud ...`) give a sandboxed agent an
+  isolated root with exact placements and an explicit finish
+  ([CLI](../../docs/getting-started/cli.md#short-lived-cloud-sessions)).
 
-The agent learns Overstory through a small reusable skill and addresses Overstory through a structured CLI. It may use its own browser, shell, skills, plugins, or connected services to gather outside information, then use `arbor` to read or change local, mounted, and remote Overstory data. Overstory supplies the data interface; the external agent supplies reasoning and orchestration.
+## Work
 
-This plan is deliberately useful before authored Overstory agents exist. It does not implement `arbor run`, a host chat surface, a model loop, an MCP server, or provider-specific data integrations.
-
-## Product boundary
-
-The external agent is a client of Overstory, like a human UI or another program. It does not become an Overstory-authored agent merely because it has read an agent Markdown file.
-
-Overstory owns:
-
-- locator resolution across local paths, placed trees, remote trees, and revisions;
-- exact source and structured node/children access;
-- durable, retryable mutations and their receipts;
-- stable machine-readable output and errors; and
-- the reusable instructions that teach an agent how to use those operations.
-
-Codex, Claude Code, or another external agent owns:
-
-- model selection, conversation state, scheduling, and reasoning;
-- deciding which Overstory commands to invoke;
-- access to its separately installed web, browser, or service integrations; and
-- combining outside information with Overstory content.
-
-An external service does not need an Overstory-specific adapter when the chosen agent can already reach it through a plugin, MCP server, browser, or vendor CLI. Continuous synchronization or transactional mirroring of an external service remains a separate store/workflow problem rather than an implicit property of this agent access.
-
-## Agent-oriented CLI surface
-
-Add thin CLI commands over the existing `ArborSyncRESTClient` operations. Commands resolve operands as Overstory locators and use arborsync or the relevant server rather than reading private Overstory state.
-
-The remaining initial read surface is:
-
-```text
-arbor resolve <locator> --json
-arbor read <locator> [--source|--json]
-arbor children <locator> [--cursor <cursor>] --json
-arbor search <locator> --query <text> [--cursor <cursor>] --json
-arbor backlinks <locator> [--cursor <cursor>] --json
-arbor recovery <locator> [--recursive] [--cursor <cursor>] --json
-```
-
-The initial mutation surface is:
-
-```text
-arbor write <locator> --stdin --base-revision <revision> [--mutation-id <id>] --json
-arbor create <parent-locator> --name <name> [--stdin] [--mutation-id <id>] --json
-arbor move <locator>... --to <directory-locator> [--mutation-id <id>] --json
-arbor copy <locator>... --to <directory-locator> [--mutation-id <id>] --json
-arbor trash <locator>... [--mutation-id <id>] --json
-arbor restore <locator> [--mutation-id <id>] --json
-```
-
-Names may be reconciled with the final portable CLI specification before implementation, but the behaviors must remain individually composable. Do not replace them with one prompt-shaped `arbor agent` command.
-
-After compiled handles exist, add:
-
-```text
-arbor call <script-locator#handle> --input <json> [--mutation-id <id>] --json
-```
-
-`arbor call` validates against the compiled handle schema and returns the ordinary query result or durable mutation receipt. It does not start a model or interpret an agent document.
-
-## Output contract
-
-Machine-readable mode is a product surface, not a rendering of human terminal prose.
-
-- Successful JSON identifies the resolved tree, logical path, stable key when
-  present, selected revision, observation cursor where relevant, and
-  command-specific result.
-- Paginated commands return the next cursor explicitly and never silently truncate.
-- Mutations return the caller-supplied or generated mutation ID and the ordinary durable receipt.
-- A transport failure with an uncertain mutation outcome is distinct from a known rejection; the error tells the caller to retry with the same mutation ID.
-- Expected failures have stable error codes and safe messages. Diagnostics go to stderr; stdout contains only the requested result.
-- Raw credentials, access-link secrets, private state paths, and unrelated configuration never enter output.
-
-Human-readable output may remain concise, but every command needed by the skill must support JSON without scraping text.
-
-## Reusable Overstory skill
-
-Create one source skill with thin packaging for Codex and Claude Code rather than maintaining divergent instructions. The skill teaches the agent to:
-
-1. verify that arborsync is available with `arbor status --json`;
-2. resolve a locator before assuming its tree, path, placement, or writability;
-3. use `children`, `search`, and `backlinks` instead of recursively scanning
-   guessed filesystem roots or assuming that rows have a separate endpoint;
-4. retain provenance and revisions when summarizing or editing;
-5. read exact source before making an exact-source change;
-6. pass the observed base revision and a stable mutation ID for writes;
-7. retry an ambiguous mutation only with the same ID;
-8. use the external agent's own connected tools for non-Overstory systems; and
-9. report which Overstory locations changed and include their receipts.
-
-Keep the skill procedural and small. Command help and JSON schemas remain authoritative; do not duplicate the entire Overstory specification into agent instructions.
-
-## Implementation order
-
-### Phase 1 — read and discovery commands
-
-1. Extend the status command's request/output conventions across `ArborSyncRESTClient` operations.
-2. Implement `resolve`, `read`, `children`, `search`, `backlinks`, and
-   `recovery` with deterministic JSON.
-3. Exercise local paths, mounted nested trees, unplaced remote trees, historical locators, pagination, missing content, and inaccessible content.
-4. Document concise examples in CLI help without requiring a running model.
-
-### Phase 2 — durable mutation commands
-
-1. Implement revision-aware write/create and structural mutation commands through ordinary arborsync mutations.
-2. Accept an explicit mutation ID and return it on every result path.
-3. Test exact retry, stale-base conflict, partial transport failure, cross-tree rejection, nested-boundary behavior, and receipt serialization.
-4. Keep direct filesystem writes and private-state manipulation out of the CLI implementation.
-
-### Phase 3 — skills and real workflows
-
-1. Package the shared Overstory operating instructions for Codex and Claude Code.
-2. Run both agents from a directory outside the Overstory repository so success does not depend on repository source knowledge.
-3. Test a research-only task spanning two mounted trees.
-4. Test an edit task that reads exact source, applies one focused change, and reports the receipt.
-5. Test a mixed integration task in which an agent reads from one of its existing connected services and writes a sourced result into Overstory without an Overstory-specific service client.
-6. Revise command descriptions and skill routing from observed failures before adding a richer protocol.
-
-### Phase 4 — compiled handle invocation
-
-After the live-data document compiler and handle runner exist, implement `arbor call` for one Supplies query and one Supplies mutation. Prove that the external agent can use application-level operations without database credentials or knowledge of the backing schema.
+1. **Wait for publication.** An agent needs to know its edits reached Canopy before
+   it reports them. Check whether `arbor status --json`'s `ready` and per-tree
+   conditions already say that after a local edit (pending, held, up to date). If
+   not, add `arbor status --wait [--timeout <s>]`, which exits 0 once every in-scope
+   tree is up to date and non-zero with the tree's condition if one is held.
+2. **One reusable skill**, packaged for Claude Code and Codex from one source. It
+   teaches the agent to:
+   1. run `arbor status --json` first and stop if Arbor Sync is not ready;
+   2. resolve a locator with `arbor status <locator> --json` before assuming its
+      tree, placement or writability;
+   3. edit files in the placed folder only, never under Arbor's state directories;
+   4. keep Markdown frontmatter `id:` values and links intact;
+   5. wait for publication (step 1) and report the changed paths; and
+   6. treat a held tree as a stop: report it, don't retry or discard.
+   Keep it short; command help stays authoritative.
+3. **Try it from outside the checkout.** Run Claude Code and Codex from a directory
+   outside this repository on a research task over two placed trees and an edit
+   task on one document; revise the skill from what goes wrong.
 
 ## Completion gate
 
-From outside the Overstory source checkout, both Codex and Claude Code can discover the Overstory skill, use only documented CLI commands to research two mounted trees, make a revision-safe update to one document, and report the exact changed locator and durable receipt. One agent also reads an already-connected external service and writes a sourced result into Overstory without any service-specific code in Overstory.
+From outside the source checkout, both agents discover the skill, confirm Arbor Sync
+is ready, make one edit in a placed folder, wait until it is published, and report
+the changed locator.
 
-After compiled handles land, the same agents can invoke a checked-in Supplies query and mutation through `arbor call` with validated JSON input.
+## Later, not in this plan
+
+`arbor call <script-locator#handle> --input <json>` for compiled query and mutation
+handles, once Apps 003 and 006 produce them.
 
 ## Deliberate absences
 
-- no model-provider API client or Overstory-owned conversation loop;
-- no canopyd-hosted chat UI;
-- no authored-agent execution semantics or transcript format;
-- no MCP requirement before the CLI proves insufficient;
-- no generic external-service connector registry;
-- no claim that an ad hoc agent run continuously synchronizes an external system; and
-- no weakening of mutation revisions, retry identity, or durable acknowledgement for convenience.
+No model-provider client or Overstory-owned conversation loop, no MCP server before
+the CLI proves insufficient, no new arborsync routes, and no direct writes to
+Arbor's private state.

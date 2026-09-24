@@ -2,8 +2,8 @@
 
 > After the headless [Apps 005](005-source-resolution-and-sidecar.md) gate, this plan owns browser integration acceptance: document/action/asset forwarding, SSR and hydration without duplicate initial reads, navigation and JavaScript-free form actions, using the coherent compiler supplied by Apps 003. Apps 005 does not wait for this gate.
 
-> **Execution-model revision (2026-09-18):** Resource policy is now owned by
-> [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
+> **Execution-model revision (2026-09-18):** Resource policy is the deployed
+> [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
 > by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
 > durable workflows by [Apps 006](006-durable-authoring.md). These supersede inherited
 > named-permission, single-domain-only and unchanged-syntax instructions below.
@@ -19,8 +19,8 @@
   Data 002 (completed plan, deleted; see git history)
 - **Progress**: IN PROGRESS — compiler and development typechecking are owned
   by [Apps 003](003-development-compiler-and-editor-tooling.md), and
-  permissioned reader mutation is owned by
-  [Apps 004](004-mutation-permissions.md)
+  permissioned reader mutation by
+  [Apps 005](005-source-resolution-and-sidecar.md) provider enforcement
 - **Reference corpus**: [`examples/supplies`](../../examples/supplies)
 
 ## Target result
@@ -115,7 +115,7 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
    tree/path/access resolution, SSR React with authorized initial results, and
    hydrate without duplicate reads.
 3. Bind the frozen `overstory/react` surface and React Actions to the implemented
-   query/mutation runtimes. Complete [Apps 004](004-mutation-permissions.md) so
+   query/mutation runtimes. Use Apps 005's provider enforcement so
    a reader can invoke only explicitly permitted reviewed mutations without
    receiving whole-tree write access. Preserve JavaScript-free form submission,
    ordinary anchors, query strings, back/forward, reload, and copied URLs.

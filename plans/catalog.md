@@ -13,11 +13,12 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `swift/` — Native placement, offline data, editor command capture and accepted-choice review.
 
 - [Native 003 — Project collection files into native offline replicas](swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
-- [Native 006 — Preview and resume initial working-tree bootstrap](swift/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
+- [Native 006 — Place trees sparsely on iOS](swift/006-sparse-ios-placement.md) — **PLANNED · M.** Place an iOS tree by walking its spine (directories and Markdown) object by object, as catch-up already does, instead of downloading one whole snapshot; resume by keeping what arrived, and state what an unfetched file does offline.
 - [Native 008 — Complete native move, copy, and undo capture](swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
 - [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
 - [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
-- [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
+- [Native 010 — Show accepted choices in their editor context](swift/010-inline-choice-context.md) — **IMPLEMENTED, NOT INSTALLED.** The hands-on release gate, then alternatives shown in their sentence or block, tinted affected blocks (a Quagmire highlight), and placement of choices retained in their own context.
+- **Choice review extensions** — candidates split from Native 010 on 2026-09-24; promote one when a real review needs it. Safe binary previews and export, richer directory browsing and format-specific collection reconstruction; richer long-source comparison (beyond 4,000 lines it falls back to raw source) and visual checks of whitespace and line-ending differences; a compatible freshness policy so unrelated accepted updates need not force renewed review (host and client together); wider fault injection across review persistence, submission, installation, retirement, authorization changes and cancellation; explanations of verified moves, copies and deletions; rule-provided combination previews; bulk resolution and offline review.
 
 ## Web client
 
@@ -29,20 +30,18 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
-- [Filesystem 002 — Serialize write-journal counters and appends per document](filesystem/002-journal-append.md) — **DEFERRED.** Recheck the inherited journal-ordering concern against current code before resuming.
 - [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](filesystem/005-ignore-policy.md) — **P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
 - [Filesystem 011 — Keep independent filesystem writes moving after a rejection](filesystem/011-independent-writes-after-rejection.md) — **NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
+- [Filesystem 025 — Heal links after folder moves, then remove the old editor write path](filesystem/025-folder-link-healing.md) — **P2 · PLANNED · M.** Moves made in a placed folder (Finder, `git mv`, agents) are never healed since the daemon editor path went; add a byte-preserving source-level healer shared with Swift, heal stable-key backlinks after a watcher move, then delete `scheduleLinkHealing`, `WorkspaceFS.writeMarkdown`/`mutate` and the unused mutation types.
 
 ## canopyd authority, storage and history
 
 `canopyd/` — Merge policy, retained state, accepted history and provenance.
 
 - [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
-- [canopyd 002](canopyd/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
-- [canopyd 006 — Attribute accepted updates and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
+- [canopyd 006 — Record who submitted each update and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; after canopyd 007.** Record a safe actor on each accepted update, replace the public `subject` with it, and compute current-line blame over the `document_versions` rows; versions from before the migration 016 squash show an unknown actor.
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
-- [canopyd 009 — Merge rule selection per host and per tree](canopyd/009-merge-rule-selection.md) — **P3 · PLANNED.** Governed host and per-tree choice among the merge tool's existing rules, recorded in each merge's evidence.
 - [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
 - [canopyd 017 — Run the object collector live](canopyd/017-collect-objects-live.md) — **P2 · READY; gated on Joe.** The collector is implemented and rehearsed; deploy it, back up, dry-run, delete, then schedule `railway ssh` runs. Open: a document-version retention bound, which holds most of what remains.
 - [canopyd 018 — Profile facts per tree](canopyd/018-profile-facts-per-tree.md) — **P3 · PLANNED.** Store profile facts once per profile, group or community tree instead of once per accepted root, and recompute them only when `_index.md` or the avatar changes; migration 020 moves the `meta` `profile:<root>` rows.
@@ -52,7 +51,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `cli/` — Structured access for independently installed agents.
 
-- [CLI 004 — Give external agents safe structured access](cli/004-external-agent-access.md) — **IN PROGRESS; not near-term.** General status and cloud-session discovery are implemented; structured read/mutation commands and the reusable agent skill remain.
+- [CLI 004 — Teach external agents to work in placed folders](cli/004-external-agent-access.md) — **PLANNED · S.** A publication wait on `arbor status` if needed and one reusable skill for Claude Code and Codex; agents edit placed folders with their own tools. The old read/mutation command surface is dropped.
 
 ## Executable applications
 
@@ -61,7 +60,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Apps 001 — Run the Supplies tree locally, natively, and on canopyd](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003–006**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the adapted [`examples/supplies`](../examples/supplies) corpus as executable documents in local Canopy for the web, signed macOS Overstory, and its canonical canopyd website.
 - [Apps 002 — Host authored conversational interfaces over compiled Overstory handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Overstory users, and canopyd execution. Agents reuse the same compiled query/mutation handles and authenticated Overstory-user context rather than introducing a separate data/runtime framework.
 - [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
-- [Apps 004 — Resource policy, execution authority, and coordinated account cutover](apps/004-mutation-permissions.md) — **DEPLOYED on schema 13; provider integration and soak remain.** The rule grammar, governed index, execution tokens, guarded scoped effects, revocation stream, and Canopy consent review are live; provider-specific enforcement, source resolution, and the soak closeout are the remaining work, shared with Apps 005.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after 007 and the implemented authority prerequisites of 004.** Extract the headless HTTP runtime, prove failure independence and a QuickJS-free daemon graph; browser hosting follows in 001/003.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
 - [Apps 007 — CDDL collection schemas](apps/007-cddl-collection-schemas.md) — **P1 · PLANNED; before 005.** Replace executable collection schemas with a bounded CDDL profile, versioned descriptors and a verified migration/history policy; remove QuickJS from collection acceptance, projection and merge.
@@ -97,7 +95,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `verification/` — Evidence and acceptance checks for implemented behavior, separate from feature work.
 
-- [Verification 011 — Client compatibility](verification/011-client-compatibility.md): map requirements to passing tests across snapshot and operation-aware clients; report implementation gaps to their owners.
 - [Release and soak](verification/release-and-soak.md): remaining installs, deployments, hands-on checks and dated ordinary-use observation.
 
 ## Compatibility cutoffs
