@@ -1,31 +1,31 @@
-import type { ValidatedMaterial } from "../../canopyd-merge/src/intent-engine.ts";
-import type { IntentState } from "../../canopyd-merge/src/intent-model.ts";
-import { RetentionCache, verifyIntentRetention } from "../../canopyd-merge/src/retention.ts";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stableJSONString, hashObject, type ObjectHash } from "@overstory/protocol";
+import { ObjectStore } from "@overstory/object-store";
+import {
+  CheckpointBatchLimitError,
+  parseResponse,
+  type IntentRequestInput,
+  type IntentResponse,
+  type MergeObjects,
+  type MergeRequest,
+  type MergeResult,
+  type ProjectionRequest,
+  type ProjectionResponse,
+} from "@overstory/canopyd-merge";
 import type {
   CheckpointBatchRequest, CheckpointBatchResponse,
   CheckpointRequest,
   CheckpointResponse,
-} from "../../canopyd-merge/src/checkpoint.ts";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ObjectStore } from "@overstory/object-store";
-import {
-  parseResponse,
-  type MergeRequest,
-  type ProjectionRequest,
-  type ProjectionResponse,
-  type IntentRequestInput,
-  type IntentResponse,
-} from "@overstory/canopyd-merge";
-import { changeIdentity, parseIntentRequest } from "../../canopyd-merge/src/intent-model.ts";
-import { CheckpointBatchLimitError, type MergeResult } from "@overstory/canopyd-merge";
+} from "@overstory/canopyd-merge/checkpoint";
+import type { ValidatedMaterial } from "@overstory/canopyd-merge/intent-engine";
+import { changeIdentity, parseIntentRequest, type IntentState } from "@overstory/canopyd-merge/intent-model";
+import { RetentionCache, verifyIntentRetention } from "@overstory/canopyd-merge/retention";
+import { StateMapValidationCache, type MapProof } from "@overstory/canopyd-merge/state-map";
+import { jsonHash } from "@overstory/canopyd-merge/state-value";
+import { absentFrom, holdsObject } from "@overstory/canopyd-merge/worker-objects";
 import { PersistentMergeWorker } from "./merge-worker.ts";
-import { absentFrom, holdsObject } from "../../canopyd-merge/src/worker-objects.ts";
-import { jsonHash } from "../../canopyd-merge/src/state-value.ts";
-import type { MergeObjects } from "../../canopyd-merge/src/index.ts";
-import { StateMapValidationCache, type MapProof } from "../../canopyd-merge/src/state-map.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
@@ -133,7 +133,7 @@ export class MergeTool {
     objects: MergeObjects,
     previous?: ValidatedMaterial,
   ): Promise<StateProof> {
-    const { validateIntentState } = await import("../../canopyd-merge/src/intent-engine.ts");
+    const { validateIntentState } = await import("@overstory/canopyd-merge/intent-engine");
     let stateBytes = 0;
     let history: readonly MapProof[] = [];
     const material: ValidatedMaterial = new Map();
