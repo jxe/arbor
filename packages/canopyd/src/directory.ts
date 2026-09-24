@@ -31,11 +31,14 @@ export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccoun
     } else entries.set(profile, { profile, kind: "unknown", ...(handle ? { handle } : {}), sources: [source] });
   };
 
+  // Every tree read once; each entry below reuses its row.
+  const trees = new Map(canopy.list().map((tree) => [tree.id, tree]));
+  const active = [...trees.values()].filter((tree) => tree.status === "active");
   for (const member of canopy.communityMembers()) {
     const profile = profileLocatorTree(member.profile);
     if (profile) include(profile, "community", member.handle);
   }
-  for (const group of canopy.readableGroupTrees(account)) {
+  for (const group of active.filter((tree) => canopy.rootProfileType(tree.ref) === "group" && canopy.canRead(account, tree))) {
     include(group.id, `group:${group.id}`);
     const facts = await canopy.profileCard(group.ref);
     for (const member of facts.members) {
@@ -43,15 +46,15 @@ export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccoun
       if (profile) include(profile, `group:${group.id}`, member.handle);
     }
   }
-  for (const tree of canopy.administeredTrees(account)) {
+  for (const tree of active.filter((tree) => tree.accountID === account.id)) {
     for (const rule of canopy.accessEntries(tree.id)) if (rule.subjectKind === "profile") include(rule.subject, "access");
   }
 
   await Promise.all([...entries.values()].map(async (entry) => {
-    const tree = canopy.get(entry.profile);
+    const tree = trees.get(entry.profile);
     const handle = canopy.handleForProfile(entry.profile);
     if (handle) entry.handle = handle;
-    if (!tree || !canopy.canRead(account, tree.id)) return;
+    if (!tree || !canopy.canRead(account, tree)) return;
     const card = await canopy.profileCard(tree.ref);
     entry.kind = card.type ?? "unknown";
     const locator = treeLocator(origin, tree);

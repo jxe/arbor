@@ -136,35 +136,44 @@ export class ExecutionAuthority {
   run<T>(context: ExecutionContext | undefined, operation: () => T): T {
     return this.local.run(context as ExecutionContext, operation);
   }
+  /** One operation, with the context's coverage checked again. A caller
+   * checking several effects checks `covered` once, then each with `granted`. */
   allows(
     tree: string,
     path: string,
     operation: AccessOperation,
     context = this.current
   ): boolean {
-    return (
-      !!context &&
-      this.covered(context) &&
-      context.grants.some(
-        (g) =>
-          g.tree === tree &&
-          scopeContains(g.within, path) &&
-          operationAllowed(g.allow, operation) &&
-          this.permits(context, g, path, operation)
-      )
+    return !!context && this.covered(context) && this.granted(tree, path, operation, context);
+  }
+  /**
+   * Whether a grant of a context the caller has just found `covered` names
+   * this operation. Coverage already asked `permits` for every operation of
+   * every grant at the grant's scope, and a permission at a scope holds at
+   * every path within it (rules match by scope containment; the ordinary
+   * read/write decisions are whole-tree), as a `write` grant's holds for every
+   * operation it implies (`write` permits whatever `read` or any other
+   * operation does). So only the grants themselves remain to be matched.
+   */
+  granted(
+    tree: string,
+    path: string,
+    operation: AccessOperation,
+    context: ExecutionContext
+  ): boolean {
+    return context.grants.some(
+      (g) =>
+        g.tree === tree &&
+        scopeContains(g.within, path) &&
+        operationAllowed(g.allow, operation)
     );
   }
   canSubmit(tree: string): boolean {
     const c = this.current;
     return (
       !!c &&
-      c.grants.some(
-        (g) =>
-          g.tree === tree &&
-          g.allow.some(
-            (op) => op !== "read" && this.allows(tree, g.within, op, c)
-          )
-      )
+      c.grants.some((g) => g.tree === tree && g.allow.some((op) => op !== "read")) &&
+      this.covered(c)
     );
   }
 }

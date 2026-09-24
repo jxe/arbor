@@ -1,6 +1,7 @@
 import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, sha256, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
+import { AccountDirectory } from "./accounts.ts";
 import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
 
 type ResourceRules = ReturnType<typeof parseResourceRules>;
@@ -10,12 +11,12 @@ const PARSED_RULES_LIMIT = 256;
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
   /**
-   * Whether a group profile tree lists this person: by Profile TreeID, or by
-   * handle for a legacy scalar `/~handle` member locator.
+   * Whether a group profile tree's current root lists this person: by Profile
+   * TreeID, or by handle for a legacy scalar `/~handle` member locator.
    */
-  isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean;
-  /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
-  rootProfileType(treeID: string): "person" | "group" | null;
+  isProfileMember(group: CanopyTree, profileTree: string, handle: string | undefined): boolean;
+  /** The tree's current root frontmatter `type`, or null when it declares neither profile kind. */
+  rootProfileType(tree: CanopyTree): "person" | "group" | null;
 }
 
 /** A stored access entry as the configuration rule that declares it. */
@@ -37,20 +38,39 @@ export function accessRule(entry: CanopyAccessEntry): AccessRule {
  */
 export class AccessControl {
   private readonly parsedRules = new Map<string, ResourceRules>();
+  private readonly accounts: AccountDirectory;
 
-  constructor(private readonly db: Database, private readonly host: AccessHost) {}
+  constructor(private readonly db: Database, private readonly host: AccessHost) {
+    this.accounts = new AccountDirectory(db);
+  }
 
-  /** The account's governed rules for a tree, parsed once per distinct policy text. */
-  private rules(account: string, tree: string): ResourceRules | undefined {
-    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(account, tree) as { rules_json: string } | null;
-    if (!row) return undefined;
-    let rules = this.parsedRules.get(row.rules_json);
+  /** Rules parsed once per distinct policy text. */
+  private parse(rulesJSON: string): ResourceRules {
+    let rules = this.parsedRules.get(rulesJSON);
     if (!rules) {
-      rules = parseResourceRules(JSON.parse(row.rules_json));
+      rules = parseResourceRules(JSON.parse(rulesJSON));
       if (this.parsedRules.size >= PARSED_RULES_LIMIT) this.parsedRules.delete(this.parsedRules.keys().next().value!);
-      this.parsedRules.set(row.rules_json, rules);
+      this.parsedRules.set(rulesJSON, rules);
     }
     return rules;
+  }
+
+  /** The account's governed rules for a tree. */
+  private rules(account: string, tree: string): ResourceRules | undefined {
+    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(account, tree) as { rules_json: string } | null;
+    return row ? this.parse(row.rules_json) : undefined;
+  }
+
+  /** An account's rules for a tree and the Profile TreeID its `who: me`
+   * rules name, in one read; undefined when either is missing. An owner the
+   * community disabled can no longer sign in, but the rules it accepted keep
+   * governing its trees, as they did before it was disabled. */
+  private policy(account: string, tree: string): { rules: ResourceRules; ownerProfile: string } | undefined {
+    const row = this.db.query(`
+      SELECT p.rules_json, a.profile_tree FROM resource_policy p JOIN accounts a ON a.id = p.account_id
+      WHERE p.account_id = ? AND p.tree_id = ?
+    `).get(account, tree) as { rules_json: string; profile_tree: string | null } | null;
+    return row?.profile_tree ? { rules: this.parse(row.rules_json), ownerProfile: row.profile_tree } : undefined;
   }
 
   /** A tree's whole-tree rules as access entries: an owned tree's from its
@@ -67,6 +87,11 @@ export class AccessControl {
       // A stable id per tree and subject, as a stored entry's would be.
       return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
     });
+    return this.storedEntries(tree);
+  }
+
+  /** The stored `access` rows of a tree no account owns. */
+  private storedEntries(tree: string): CanopyAccessEntry[] {
     return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {
@@ -106,29 +131,24 @@ export class AccessControl {
     return this.rules(account, tree)?.map(safeResourceRule);
   }
 
-  private profile(account: string): string | null {
-    return (this.db.query("SELECT profile_tree FROM accounts WHERE id = ? AND enabled = 1").get(account) as { profile_tree: string } | null)?.profile_tree ?? null;
-  }
-
-  /** A tree owner's Profile TreeID, which `who: me` rules name. An owner the
-   * community disabled can no longer sign in, but the rules it accepted keep
-   * governing its trees, as they did before it was disabled. */
-  private ownerProfile(account: string): string | null {
-    return (this.db.query("SELECT profile_tree FROM accounts WHERE id = ?").get(account) as { profile_tree: string | null } | null)?.profile_tree ?? null;
+  /** The tree `id` names, when its current root declares `type: group`. */
+  private groupTree(id: string): CanopyTree | null {
+    const group = this.host.tree(id);
+    return group && this.host.rootProfileType(group) === "group" ? group : null;
   }
 
   private policyAllows(policyAccount: string, caller: string | null, tree: string, path: string, operation: AccessOperation, via?: string, linkDigest?: string): boolean {
     if (!policyAccount) return false;
-    const ownerProfile = this.ownerProfile(policyAccount);
-    if (!ownerProfile) return false;
-    const rules = this.rules(policyAccount, tree);
-    if (!rules) return false;
-    return rulesAllow(rules, {
-      ownerProfile, callerProfile: caller, via, linkDigest,
-      isGroupMember: (group, profile) => {
-        if (this.host.rootProfileType(group) !== "group") return false;
-        const member = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profile) as { handle: string } | null;
-        return !!member && this.host.isProfileMember(group, profile, member.handle);
+    const policy = this.policy(policyAccount, tree);
+    if (!policy) return false;
+    return rulesAllow(policy.rules, {
+      ownerProfile: policy.ownerProfile, callerProfile: caller, via, linkDigest,
+      isGroupMember: (groupID, profile) => {
+        const group = this.groupTree(groupID);
+        if (!group) return false;
+        // Only a profile an enabled account holds counts as a member.
+        const handle = this.accounts.handleForProfile(profile);
+        return handle !== undefined && this.host.isProfileMember(group, profile, handle);
       },
     }, path, operation);
   }
@@ -136,12 +156,15 @@ export class AccessControl {
   directExecution(account: CanopyAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
     const tree = this.host.tree(treeID);
     if (!tree?.accountID || tree.policy !== "ordinary") return undefined;
-    const policy = this.rules(tree.accountID, treeID);
-    const ownerProfile = this.ownerProfile(tree.accountID);
-    if (!policy || !ownerProfile) return undefined;
-    const rules = policy.filter(rule => !rule.via && ruleMatches(rule, {
-      ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
-      isGroupMember: (group, profile) => this.host.rootProfileType(group) === "group" && profile === account?.profileTree && this.host.isProfileMember(group, profile, account.handle),
+    const policy = this.policy(tree.accountID, treeID);
+    if (!policy) return undefined;
+    const rules = policy.rules.filter(rule => !rule.via && ruleMatches(rule, {
+      ownerProfile: policy.ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
+      isGroupMember: (groupID, profile) => {
+        if (profile !== account?.profileTree) return false;
+        const group = this.groupTree(groupID);
+        return !!group && this.host.isProfileMember(group, profile, account.handle);
+      },
     }));
     return { code: "", version: "direct", caller: account?.id ?? null, sponsor: tree.accountID, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
@@ -153,24 +176,23 @@ export class AccessControl {
   executionAllows(context: ExecutionContext, grant: ExecutionGrant, path: string, operation: AccessOperation): boolean {
     const tree = this.host.tree(grant.tree);
     if (!tree || tree.policy !== "ordinary") return false;
-    const callerProfile = context.caller ? this.profile(context.caller) : null;
-    if (context.caller && !callerProfile) return false;
-    const grantor = this.db.query("SELECT * FROM accounts WHERE id = ? AND enabled = 1").get(grant.account) as any;
+    const caller = context.caller ? this.accounts.enabledAccount(context.caller) : null;
+    if (context.caller && !caller?.profileTree) return false;
+    const callerProfile = caller?.profileTree ?? null;
+    const grantor = this.accounts.enabledAccount(grant.account);
     if (!grantor) return false;
     const owner = tree.accountID;
-    const underlying = grant.account === owner || this.policyAllows(owner ?? "", this.profile(grant.account), tree.id, path, operation)
-      || (operation === "read" ? this.canRead({ id: grant.account, profileTree: grantor.profile_tree, handle: grantor.handle } as CanopyAccount, tree.id)
-          : this.canWrite({ id: grant.account, profileTree: grantor.profile_tree, handle: grantor.handle } as CanopyAccount, tree.id));
+    const underlying = grant.account === owner || this.policyAllows(owner ?? "", grantor.profileTree, tree.id, path, operation)
+      || (operation === "read" ? this.canRead(grantor, tree) : this.canWrite(grantor, tree));
     if (!underlying) return false;
     // A caller can use ordinary permissions through code without a new grant.
     if (grant.role === "user" && grant.account === context.caller) return true;
-    const callerRow = context.caller ? this.db.query("SELECT * FROM accounts WHERE id = ? AND enabled = 1").get(context.caller) as any : null;
-    const callerAccount = callerRow ? { id: callerRow.id, profileTree: callerRow.profile_tree, handle: callerRow.handle } as CanopyAccount : null;
-    const ordinaryCaller = operation === "read" ? this.canRead(callerAccount, tree.id, context.linkDigest) : this.canWrite(callerAccount, tree.id, context.linkDigest);
+    const ordinaryCaller = operation === "read" ? this.canRead(caller, tree, context.linkDigest) : this.canWrite(caller, tree, context.linkDigest);
     return ordinaryCaller || this.policyAllows(owner ?? "", callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest)
       || this.policyAllows(grant.account, callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest);
   }
 
+  /** `treeOrID` is an ID, or a tree the caller already read, which saves reading it again. */
   canRead(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
@@ -195,12 +217,12 @@ export class AccessControl {
     return this.effectiveAccess(account, treeID) === "write" || tree.publicAccess === "write";
   }
 
-  canAdminister(account: CanopyAccount, treeID: string): boolean {
-    const tree = this.host.tree(treeID);
+  canAdminister(account: CanopyAccount, treeOrID: string | CanopyTree): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree || !account.profileTree) return false;
     if (isAccountConfigPolicy(tree.policy) || tree.accountID) return tree.accountID === account.id;
     if (tree.id === account.profileTree) return true;
-    return this.subjectAccess("profile", account.profileTree, treeID) === "write";
+    return this.subjectAccess("profile", account.profileTree, tree.id) === "write";
   }
 
   private subjectAccess(kind: "link" | "profile", subject: string, treeID: string): ReadWriteAccess | "none" {
@@ -220,10 +242,11 @@ export class AccessControl {
     const direct = this.subjectAccess("profile", account.profileTree, treeID);
     if (direct === "write") return direct;
     let result: ReadWriteAccess | "none" = direct;
-    for (const entry of this.entries(treeID)) {
+    // Reached only for a tree no account owns, whose rules are its stored entries.
+    for (const entry of this.storedEntries(treeID)) {
       if (entry.subjectKind !== "profile") continue;
-      if (this.host.rootProfileType(entry.subject) !== "group") continue;
-      if (this.host.isProfileMember(entry.subject, account.profileTree, account.handle)) {
+      const group = this.groupTree(entry.subject);
+      if (group && this.host.isProfileMember(group, account.profileTree, account.handle)) {
         if (entry.access === "write") return "write";
         result = "read";
       }

@@ -32,6 +32,18 @@ export class AccountDirectory {
       : null;
   }
 
+  /** The account row when it exists and the community has not disabled it. */
+  enabledAccount(id: string): CanopyAccount | null {
+    const account = this.account(id);
+    return account?.enabled ? account : null;
+  }
+
+  /** The handle of the enabled account whose profile this is. */
+  handleForProfile(profileTree: string): string | undefined {
+    const row = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profileTree) as { handle: string } | null;
+    return row?.handle;
+  }
+
   accountByHandle(handle: string): CanopyAccount | null {
     const row = this.db.query("SELECT id FROM accounts WHERE handle = ?").get(handle) as { id: string } | null;
     return row ? this.account(row.id) : null;

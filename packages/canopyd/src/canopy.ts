@@ -307,11 +307,8 @@ export class CanopyDaemon implements AsyncDisposable {
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
-      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group, profileTree, handle),
-      rootProfileType: (id) => {
-        const tree = this.get(id);
-        return tree ? this.rootProfileType(tree.ref) : null;
-      },
+      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group.ref, profileTree, handle),
+      rootProfileType: (tree) => this.rootProfileType(tree.ref),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
   }
@@ -754,7 +751,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const active = Object.keys(devices);
       if (!active.length) throw new Error(`Account ${id} has no active device to administer its configuration`);
       const declarations = Object.fromEntries(this.list()
-        .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
+        .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree))
         .map((tree) => [tree.id, {
           canonical: `${new URL(origin).origin}${tree.canonicalPath!}`,
           access: this.accessEntries(tree.id).map(accessRule).map(resourceRuleFromLegacy),
@@ -950,16 +947,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   handleForProfile(profileTree: string): string | undefined {
-    const row = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profileTree) as { handle: string } | null;
-    return row?.handle;
-  }
-
-  readableGroupTrees(account: CanopyAccount): CanopyTree[] {
-    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree));
-  }
-
-  administeredTrees(account: CanopyAccount): CanopyTree[] {
-    return this.list().filter((tree) => tree.status === "active" && tree.accountID === account.id);
+    return this.accounts.handleForProfile(profileTree);
   }
 
   /** A root's complete profile facts, card fields included: its stored row,
@@ -977,8 +965,8 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.execution.current ? this.execution.allows(idOf(tree), "/", "write") : this.access.canWrite(account, tree, linkDigest);
   }
 
-  canAdminister(account: CanopyAccount, treeID: string): boolean {
-    return !this.execution.current && this.access.canAdminister(account, treeID);
+  canAdminister(account: CanopyAccount, tree: string | CanopyTree): boolean {
+    return !this.execution.current && this.access.canAdminister(account, tree);
   }
 
   /**
@@ -1150,11 +1138,12 @@ export class CanopyDaemon implements AsyncDisposable {
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
+    const retainedTree = this.get(treeID);
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
       if (
         (request.base === null ||
-          isAccountConfigPolicy(this.get(treeID)?.policy ?? "ordinary")) &&
+          isAccountConfigPolicy(retainedTree?.policy ?? "ordinary")) &&
         update.trace !== null
       ) {
         throw new UpdateProtocolError(
@@ -1177,26 +1166,23 @@ export class CanopyDaemon implements AsyncDisposable {
     // A recorded later digest proves every earlier element ran, including no-ops
     // without accepted rows. Those elements must not recheck a now-stale guard.
     let recordedThrough = -1;
-    const retainedTree = this.get(treeID);
-    if (retainedTree && (this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) {
-      const subject = this.subjectFor(retainedTree, account, linkDigest, credentialSubject);
+    const writable = retainedTree !== null && (this.canWrite(account, retainedTree, linkDigest) || this.execution.canSubmit(treeID));
+    const subject = writable ? this.subjectFor(retainedTree, account, linkDigest, credentialSubject) : null;
+    if (subject !== null) {
       for (let index = digests.length - 1; index >= 0; index--) {
         if (this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
+    const traced = request.base !== null && request.updates.some((update) => update.trace !== null);
+    if (traced && subject === null) throw new PermissionDeniedError("Write access is not allowed");
     markPhase("receipts");
     // The author's basis for each element: an accepted entry, and the batch
     // candidates authored on it that no entry records as the author wrote them.
     let basis: AuthoredBasis | null = request.base ? { entry: (await this.history.entryFor(request.base)).hash, prefix: [] } : null;
     let prepared: PreparedAnswer | undefined;
-    if (
-      request.base &&
-      request.updates.some((update) => update.trace !== null)
-    ) {
-      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    if (traced && request.base !== null && subject !== null) {
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
-        const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
         const results = [];
         for (let index = 0; index < request.updates.length; index++) {
           const receipt = this.acceptedStore.acceptedRequest(
@@ -1387,7 +1373,7 @@ export class CanopyDaemon implements AsyncDisposable {
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
-    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    if (!(this.canWrite(account, tree, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
     const policy = isAccountConfigPolicy(tree.policy)
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
@@ -1397,7 +1383,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
       if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new PermissionDeniedError("Execution update form is not allowed");
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
-      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
+      if (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     }
     const replay = this.acceptedStore.acceptedRequest(treeID, subject, requestDigest);
     if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
@@ -1688,7 +1674,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!execution) return;
       if (request.resolves.length || request.trace !== null) throw new PermissionDeniedError("Scoped execution operations/resolutions are not allowed until effect validation is available");
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
-      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
+      if (effects.length && (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution effects are not allowed");
     };
     return {
       subject: this.subjectFor(tree, account, linkDigest, credentialSubject),
@@ -1709,7 +1695,7 @@ export class CanopyDaemon implements AsyncDisposable {
       },
       prepareCommit: async () => ({
         withinTransaction: () => {
-          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution permission is not allowed");
+          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution permission is not allowed");
         },
       }),
     };
@@ -1874,7 +1860,8 @@ export class CanopyDaemon implements AsyncDisposable {
    * tree may fetch any retained object whose hash they know; the route does not
    * prove reachability from that tree's roots or alternatives. */
   isReadableObject(treeID: string, account: CanopyAccount | null, linkDigest?: string): boolean {
-    return this.get(treeID) !== null && this.canRead(account, treeID, linkDigest);
+    const tree = this.get(treeID);
+    return tree !== null && this.canRead(account, tree, linkDigest);
   }
 
   /** Retained object bytes, or null when no object has this hash. */
@@ -2106,10 +2093,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return null;
   }
 
-  private isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean {
-    const tree = this.get(groupTree);
-    if (!tree) return false;
-    const profile = this.rootProfile(tree.ref);
+  /** Whether a group root lists this person: by Profile TreeID, or by handle
+   * for a legacy scalar `/~handle` member locator. */
+  private isProfileMember(groupRoot: ObjectHash, profileTree: string, handle: string | undefined): boolean {
+    const profile = this.rootProfile(groupRoot);
     return profile.profiles.has(profileTree) || (handle !== undefined && profile.legacyHandles.has(handle));
   }
 

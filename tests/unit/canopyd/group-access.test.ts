@@ -34,9 +34,9 @@ const profileTypes = new Map<string, "person" | "group" | null>([
 const host: AccessHost = {
   tree: (id) => trees.get(id) ?? null,
   isProfileMember: (group, profile, handle) =>
-    (["tr_group", "tr_person", "tr_untyped"].includes(group) && profile === "tr_bob")
-    || (group === "tr_legacy" && handle === "bob"),
-  rootProfileType: (id) => profileTypes.get(id) ?? null,
+    (["tr_group", "tr_person", "tr_untyped"].includes(group.id) && profile === "tr_bob")
+    || (group.id === "tr_legacy" && handle === "bob"),
+  rootProfileType: (tree) => profileTypes.get(tree.id) ?? null,
 };
 
 describe("group ACL expansion is gated on the subject root's type: group", () => {
