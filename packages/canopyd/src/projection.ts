@@ -1,39 +1,19 @@
-import type {
-  Diagnostic,
-  Hash,
-  JSONValue,
-  LocalTreeDescriptor,
-  NodeResponse,
-  NodeSummary,
-  CollectionFileDescriptor,
-  TreeRef,
-} from "@overstory/protocol";
 import {
-  stableJSONString,
   canonicalNodePath,
-  mediaTypeForPath,
-  toJSONValue,
   isPageID,
   pageIDStableKey,
-  revisionOf,
-} from "@overstory/protocol";
-import { directoryPlacementDiagnostics, parseMarkdown } from "@overstory/protocol";
-import { decodeWireCollectionFile, SchemaSandbox, type DecodedWireCollectionFile, type WireCollectionFileRow } from "@overstory/apps-runtime/collections";
-import {
+  parseMarkdown,
   resolveWireLogicalNode,
+  type CollectionFileDescriptor,
   type ObjectHash,
   type ResolvedWireLogicalNode,
   type WireDirectory,
 } from "@overstory/protocol";
+import { decodeWireCollectionFile, SchemaSandbox, type DecodedWireCollectionFile, type WireCollectionFileRow } from "@overstory/apps-runtime/collections";
 
 export interface WireProjectionOptions {
-  tree: TreeRef;
   root: ObjectHash;
   load(hash: ObjectHash): Promise<Uint8Array>;
-  rootName: string;
-  observedThrough: string;
-  enclosingTree?: LocalTreeDescriptor;
-  includeBoundary?(path: string): boolean | Promise<boolean>;
 }
 
 export type WireResolution =
@@ -41,13 +21,7 @@ export type WireResolution =
   | { kind: "collection-file-row"; path: string; row: WireCollectionFileRow; descriptor: CollectionFileDescriptor }
   | { kind: "missing"; path: string };
 
-export interface WireNodeProjection {
-  resolution: Exclude<WireResolution, { kind: "missing" }>;
-  snapshot: NodeResponse;
-  children: NodeSummary[];
-}
-
-export function wireNodeStableKey(node: ResolvedWireLogicalNode): string | null {
+function wireNodeStableKey(node: ResolvedWireLogicalNode): string | null {
   const file = node.kind === "file" ? node.bytes : node.body;
   if (!file) return null;
   const id = parseMarkdown(new TextDecoder().decode(file)).frontmatter.id;
@@ -68,11 +42,7 @@ export function wireCollectionFileRowMarkdown(row: WireCollectionFileRow): strin
   return `# ${wireCollectionFileRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
-function properties(value: unknown): Record<string, JSONValue> {
-  return (toJSONValue(value) ?? {}) as Record<string, JSONValue>;
-}
-
-/** Immutable node-model projection over a content-addressed Wire tree. */
+/** Path and stable-key resolution over a content-addressed Wire tree. */
 export class WireProjection {
   constructor(private readonly options: WireProjectionOptions) {}
 
@@ -102,155 +72,6 @@ export class WireProjection {
 
     const healed = await this.findNodeByStableKey(stableKey);
     return healed ?? { kind: "missing", path };
-  }
-
-  async project(requestedPath: string, stableKey: string | null = null): Promise<WireNodeProjection | null> {
-    const resolution = await this.resolve(requestedPath, stableKey);
-    if (resolution.kind === "missing") return null;
-    if (resolution.kind === "collection-file-row") {
-      return { resolution, snapshot: this.collectionFileRowSummary(
-        resolution.path.slice(0, resolution.path.lastIndexOf("/")) || "/",
-        resolution.descriptor.schemaFingerprint,
-        resolution.row,
-      ), children: [] };
-    }
-
-    const { node, path } = resolution;
-
-    const objectName = node.objectName || (path === "/" ? this.options.rootName : path.split("/").at(-1)!) || this.options.rootName;
-    const diagnostics: Diagnostic[] = node.shadowedBody ? [{
-      code: "shadowed-body",
-      message: `${path} has a sibling Markdown body beside its _index.md; _index.md is the content and the sibling is ignored.`,
-      path,
-      severity: "warning",
-    }] : [];
-    if (node.kind === "file") {
-      const markdown = objectName.endsWith(".md");
-      const document = markdown ? parseMarkdown(new TextDecoder().decode(node.bytes)) : undefined;
-      const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      const revision = revisionOf(node.bytes);
-      return {
-        resolution,
-        snapshot: this.response({
-          path,
-          name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
-          revision,
-          stableKey: document && isPageID(document.frontmatter.id) ? pageIDStableKey(document.frontmatter.id) : null,
-          properties: properties(document?.frontmatter),
-          capabilities: document ? {
-            properties: { revision, writable: false },
-            content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-          } : { content: { revision, mediaType: mediaTypeForPath(path), writable: false } },
-          ...(document ? { content: { source: document.source, representation: { state: "stored", origin: "sibling" } as const } } : {}),
-          diagnostics,
-        }),
-        children: [],
-      };
-    }
-
-    const source = node.body ? new TextDecoder().decode(node.body) : "";
-    const collectionFileDescriptor = node.directory.childrenSource;
-    const collectionFile = await this.collectionFile(node.directory);
-    const children = (await Promise.all(node.directory.entries
-      .filter((entry) => entry.name !== "_index.md"
-        && entry.name !== collectionFileDescriptor?.source
-        && entry.name !== collectionFileDescriptor?.schemaSource)
-      .map(async (entry) => {
-        const childBytes = entry.file && entry.name.endsWith(".md") ? await this.options.load(entry.file) : null;
-        const markdown = childBytes !== null && entry.name.endsWith(".md");
-        const name = markdown ? entry.name.slice(0, -3) : entry.name;
-        const childPath = canonicalNodePath(`${path === "/" ? "" : path}/${name}`);
-        if (entry.tree && this.options.includeBoundary && !await this.options.includeBoundary(childPath)) return null;
-        const document = markdown && childBytes !== null
-          ? parseMarkdown(new TextDecoder().decode(childBytes!))
-          : undefined;
-        const revision = entry.file ?? entry.directory ?? entry.tree ?? revisionOf(childPath);
-        const stableKey = document && isPageID(document.frontmatter.id) ? pageIDStableKey(document.frontmatter.id) : null;
-        const kind = entry.tree || entry.directory !== undefined ? "directory" : markdown ? "markdown" : "file";
-        const summary: NodeSummary = {
-          ref: { tree: this.options.tree, path: childPath, stableKey },
-          name,
-          revision,
-          properties: properties(document?.frontmatter),
-          capabilities: document ? {
-            properties: { revision, writable: false },
-            content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-          } : kind === "file" ? { content: { revision, mediaType: mediaTypeForPath(childPath), writable: false } } : {},
-          materialization: "available",
-          diagnostics: [],
-        };
-        return { summary, descriptor: { path: childPath, kind, pageID: document?.frontmatter.id ?? null } };
-      }))).filter((child): child is NonNullable<typeof child> => child !== null);
-    if (collectionFile && collectionFileDescriptor) {
-      for (const row of collectionFile.rows) {
-        children.push({
-          summary: this.collectionFileRowSummary(path, collectionFileDescriptor.schemaFingerprint, row),
-          descriptor: { path: canonicalNodePath(`${path === "/" ? "" : path}/${row.path}`), kind: "file", pageID: null },
-        });
-      }
-    }
-    const document = parseMarkdown(source);
-    const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-    const descriptors = children.map(({ descriptor }) => descriptor)
-      .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
-    const revision = revisionOf(`${source}\0${JSON.stringify(descriptors)}`);
-    const snapshot = this.response({
-      path,
-      name: authoredTitle || objectName,
-      revision,
-      stableKey: isPageID(document.frontmatter.id) ? pageIDStableKey(document.frontmatter.id) : null,
-      properties: properties(document.frontmatter),
-      capabilities: {
-        properties: { revision, writable: false },
-        content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-        children: collectionFile && collectionFileDescriptor ? {
-          revision: node.directory.entries.find((entry) => entry.name === collectionFileDescriptor.source)!.file!,
-          schema: collectionFileDescriptor.schemaFingerprint,
-          backing: {
-            type: "collection-file",
-            format: collectionFileDescriptor.format,
-            childSetHash: collectionFileDescriptor.childSetHash,
-          },
-          total: collectionFile.rows.length,
-          writable: false,
-        } : { revision, backing: { type: "expanded-files" }, total: children.length, writable: false },
-      },
-      content: {
-        source: document.source,
-        representation: node.bodyOrigin
-          ? { state: "stored", origin: node.bodyOrigin }
-          : { state: "implicit" },
-      },
-      diagnostics: [...diagnostics, ...directoryPlacementDiagnostics(path, document)],
-    });
-    return { resolution, snapshot, children: children.map((child) => child.summary) };
-  }
-
-  private response(snapshot: Omit<NodeResponse, "ref" | "materialization" | "observedThrough" | "enclosingTree"> & {
-    path: string;
-    stableKey: string | null;
-  }): NodeResponse {
-    const { path, stableKey, ...rest } = snapshot;
-    return {
-      ...rest,
-      ref: { tree: this.options.tree, path, stableKey },
-      materialization: "available",
-      observedThrough: this.options.observedThrough,
-      ...(this.options.enclosingTree ? { enclosingTree: this.options.enclosingTree } : {}),
-    };
-  }
-
-  private collectionFileRowSummary(parentPath: string, schema: Hash, row: WireCollectionFileRow): NodeResponse {
-    const revision = revisionOf(stableJSONString({ schema, properties: row.properties }));
-    return this.response({
-      path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
-      stableKey: row.stableKey,
-      name: wireCollectionFileRowTitle(row),
-      revision,
-      properties: row.properties,
-      capabilities: { properties: { revision, schema, writable: false } },
-      diagnostics: [],
-    });
   }
 
   private async findCollectionFileRow(path: string, stableKey: string | null): Promise<Extract<WireResolution, { kind: "collection-file-row" }> | null> {

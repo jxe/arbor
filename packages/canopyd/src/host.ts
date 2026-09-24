@@ -734,13 +734,7 @@ export async function serveCanopy(options: {
           }
           const tree = resolved.tree;
           const load = (hash: ObjectHash) => canopy.object(hash);
-          const wireProjection = new WireProjection({
-            tree: tree.id,
-            root: tree.ref,
-            load,
-            rootName: tree.canonicalPath?.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
-            observedThrough: "public",
-          });
+          const wireProjection = new WireProjection({ root: tree.ref, load });
           const resolution = await wireProjection.resolve(resolved.path, requestLocator.stableKey);
           if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
           const logicalPath = resolution.path;
