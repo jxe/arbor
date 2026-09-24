@@ -27,7 +27,10 @@ export interface ServerDevice {
 }
 
 
-/** Accepted identities and observation cursors occupy independent domains. */
+/** An accepted update. Its `id` is an opaque identity, not an observation
+ * cursor: a host may spell both identically (canopyd uses one ordinal for
+ * both), but clients never derive one from the other or compare them as
+ * accepted order (spec 01, tree operations). */
 export interface AcceptedUpdate {
   id: string;
   tree: string;
@@ -80,7 +83,8 @@ export interface UpdateRequest {
   updates: CandidateUpdate[];
 }
 
-/** Historical acceptance receipt; observation progress is carried separately.
+/** One element's acceptance receipt. Observation progress is the enclosing
+ * response's `observedThrough`, never derived from the receipt's update id.
  * Reconciliation transforms the authored candidate into the returned projection.
  */
 export interface UpdateResult {
