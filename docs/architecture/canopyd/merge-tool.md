@@ -70,10 +70,33 @@ must match the supplied candidate. canopyd still validates worker output and
 retention before acceptance. General merges currently retain their full
 projection work; extending incremental execution is separate remaining work.
 
+## Checkpoints and recorded merge states
+
+Every accepted update records a merge state beside its row: a traced edit its
+evaluated state, a snapshot its checkpoint (below), and each acceptance canopyd
+makes itself its own checkpoint of the new root onto the tree's current state:
+a tree's first root (imported with no prior state), pairing, account
+configuration, and the boundary rewrite of a canonical parent. The row's
+`conflicted` flag is that state's open decisions, and inspection pages read
+them. Nothing writes the older whole-entry conflict rows any more; readers keep
+serving the rows written before.
+
+A `checkpoint` request may set `authored: true` with a `candidate`: one job
+then returns, beside the accepted projection's `result`, the author's own
+candidate checkpointed onto the same state without decisions (`authored`), the
+basis a later batch suffix continues from. When no decision is added or
+enclosed the two are the same request, and the worker returns the one state
+twice. canopyd validates both states and their retention before acceptance.
+
+A first import is editable (it has no effects to enforce), so a new tree's
+first edit fast-forwards. A checkpoint names new material by its change and
+path rather than by the projected root, so the accepted projection and the
+author's candidate agree wherever their bytes agree.
+
 ## Historical checkpoints
 
-canopyd reconstructs missing legacy semantic states with `checkpoint-batch`
-requests containing an initial material reference and up to 64 ordered accepted
+Updates accepted before every acceptance recorded a merge state have none, so
+canopyd reconstructs their semantic states with `checkpoint-batch` requests containing an initial material reference and up to 64 ordered accepted
 projections, change identities and legacy decisions. The worker applies the same
 checkpoint semantics at each step and returns every intermediate state reference.
 canopyd checks each against its accepted projection, then validates their combined
@@ -221,13 +244,24 @@ and changed on the other is an existence choice about that file alone: its
 kept alternative is the file, the deleted alternative names no node, and every
 other concurrent change still merges into the projection.
 
-An untraced snapshot (as filesystem sync sends) is checkpointed onto the
-current state. It encloses only choices whose own material it touches: a
+An untraced snapshot (as filesystem sync sends) is merged as a tree against
+the current accepted root and then checkpointed onto the current state, on
+every tree policy. It encloses only choices whose own material it touches: a
 choice about one file is untouched by edits elsewhere, and a snapshot of the
 displayed version continues that alternative, as a traced edit would. When a
 snapshot itself conflicts, each conflicting file (or file against its
 deletion) becomes its own choice and the rest of the snapshot merges; folders
-and the root keep a single whole-root choice.
+and the root keep a single whole-root choice. The current material stays
+displayed and the candidate's is the alternative. The current alternative is
+attributed to each change accepted since the request's base that touched the
+path (as a change, never an operation); the candidate to its own change. A
+batch suffix whose basis showed a hidden alternative of an open file choice
+continues that alternative: the choice keeps its identity, and the
+alternative becomes the suffix's version instead of a second choice about the
+same file. An access-policy conflict on an account-configuration tree keeps
+the restrictive merge as one whole-configuration choice that later
+configuration edits must resolve exactly; other governed conflicts are
+refused.
 
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
 retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations
@@ -281,8 +315,9 @@ Retained state has active material (nodes, decisions) and five history maps
 hash-partitioned map of immutable records. A state is `editable` when the
 evaluation that recorded it enforced every deletion in its effects map on its
 nodes. Transported results, results kept under `conflictProjection:
-"current"`, and imported states are not editable and take one complete scan,
-after which their result is editable. A checkpoint (snapshot candidate) of an
+"current"`, and states imported beside existing history are not editable and
+take one complete scan, after which their result is editable. A tree's first
+import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
 their enforced pieces, and replaced files get fresh origins. Reading a record that was
 not loaded is an evaluator error, never "absent".
@@ -331,11 +366,13 @@ inputs, results awaiting commit, hidden alternatives and provenance dependencies
 
 canopyd uses one worker, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
-limit. Runtime options can change the timeout, but not add workers. Worker launch, timeout,
-validation or execution failure preserves ordinary snapshot content as accepted
-ambiguity where the existing snapshot path can do so safely. Authoritative operation
-execution and semantic checkpoint failures cannot become unchecked snapshot writes:
-no acceptance is recorded, and the client retains its durable request for retry.
+limit. Runtime options can change the timeout, but not add workers. A failed tree merge
+of ordinary content is preserved as an accepted whole-root choice that keeps the
+current tree, since its checkpoint still records the merge state. Every acceptance
+records a merge state, so a worker that cannot start, exits or times out accepts
+nothing: canopyd answers a retryable 503 (`merge-failed`), and the client retains its
+durable request for retry. Authoritative operation execution and semantic checkpoint
+failures cannot become unchecked snapshot writes.
 An exact accepted retry uses its receipt without requiring the worker. Governed account
 configuration retains its authorization/rejection policy. The client keeps its
 usual durable retry behavior for unrelated storage or transaction failures.
