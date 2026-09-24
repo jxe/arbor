@@ -75,7 +75,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome** (`arbor mv` between Canopy accounts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone.
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
-- **Latency.** The target is under 100 ms of server processing for a small fast-forward. Locally, in a fresh data directory, a plain traced edit on the head asks no sidecar and takes about 9 ms with 1 file, 42 ms with 200 and 155 ms with 1,000 files in one directory, where canopyd's own graph validation and entry diff of the 1,000-entry directory dominate; plan 016's target of 20 ms at 1,000 files is not met. A snapshot still asks the sidecar. Divergent-merge and live latency, and the first merge after a restart on a large history, are not established; migration 018's `rebuild-check.ts` measures the latter on a copy.
+- **Latency.** The target is under 100 ms of server processing for a small fast-forward. Locally, in a fresh data directory, a plain traced edit on the head asks no sidecar and takes about 9 ms with 1 file, 42 ms with 200 and 155 ms with 1,000 files in one directory, where canopyd's own graph validation and entry diff of the 1,000-entry directory dominate; plan 016's target of 20 ms at 1,000 files is not met. A snapshot still asks the sidecar. Divergent-merge and live latency are not established. The first merge after a restart replays history at about 17 ms an entry (110 files) and answers retryably past 10 s, so on a long chain it takes several client retries; migration 018's `rebuild-check.ts` measures it on a copy.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of canopyd 016 hold that history as a hash chain, which a listing can walk. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
 - **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript and Swift readers, canopyd and the CLI (check 017 found none before the 2026-09-24 deploy). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
@@ -175,6 +175,16 @@ together with the merge boundary below (canopyd 016 steps 1 to 7 and the documen
   kept result is as editable as current, and every choice narrows the deletions it
   declines so that no complete scan, merge from a basis before the choice, or later
   edit after its resolution cuts what it kept (acceptance and differential tests).
+- **Rebuild budget** (after the deploy, not deployed): a cold sidecar rebuild replays
+  each chain from its start at about 17 ms an entry (110 files, locally; 30 ms at 200 and
+  125 ms at 1,000), and chains only grow, so a restart would eventually leave a tree whose
+  rebuild outlasts canopyd's 30-second timeout, which ended the process and lost the
+  progress: every snapshot and concurrent merge on that tree would then fail. One question
+  now replays for at most `ARBOR_MERGE_REPLAY_MS` (10 s), answers retryably and keeps its
+  progress (`replay-budget.test.ts`). Starting replay at every 64th entry instead was tried
+  and rejected: the stale-edit acceptance test showed an imported start drops the current
+  side's attribution for any merge whose base precedes it. The replay cost itself, a
+  per-file cache, is a [candidate](plans/catalog.md#hardening-efficiency-polish-etc).
 - Not deployed with it: the iPhone app (no wire change was required).
 
 - **Log entries.** Every acceptance path (client updates, tree creation, pairing,
