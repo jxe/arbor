@@ -108,7 +108,7 @@ From Joe's laptop, in the linked repository directory, after reading the
    ```
 
    The heads must equal the rehearsal's. Then `railway redeploy --from-source -y` and poll
-   `/` or a tree route until it serves. Never poll `/.arbor/health`.
+   `/` or a tree route until it serves. Never poll `/.arbor/integrity`.
 7. **Bring the Mac back** (standard step 8). Roots and ids are unchanged, so placements
    only resume. Run `verify.ts` with `--sync` and the authored-manifest diff.
 8. **Round trip one edit** (standard step 9); a plain edit on the head is accepted without

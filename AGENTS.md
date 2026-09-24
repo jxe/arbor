@@ -20,4 +20,4 @@ first. The points below are the ones that most often go wrong for an agent.
   tracked lock. Both Quagmire pins must name the same exact release, and a
   local path never lands in a committed manifest.
 - Live data, installed apps, and the public host are never changed without
-  Joe's explicit go-ahead. `/.arbor/health` is a full audit, not a probe.
+  Joe's explicit go-ahead. `/.arbor/integrity` is a full audit, not a probe; call it once, never poll it.

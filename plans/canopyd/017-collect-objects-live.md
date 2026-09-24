@@ -5,8 +5,9 @@
 - **Priority:** P2
 - **Effort:** S
 - **Risk:** MEDIUM — it deletes from the live volume; every step is gated on Joe
-- **State:** READY; the collector is implemented and rehearsed (see
-  [status](../../status.md#known-gaps), "Storage is unbounded")
+- **State:** FIRST LIVE RUN DONE 2026-09-24 (steps 1 to 3 below; numbers in
+  [status](../../status.md#known-gaps), "Storage is unbounded"). What remains is the
+  schedule and the document-version retention decision.
 - **Depends on:** the collector's commit deployed (it changes `ObjectStore` to
   freshen reused objects and acceptance to freshen objects it takes from the
   store; the collector is only safe beside a canopyd that does both)

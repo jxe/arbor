@@ -107,7 +107,7 @@ fifteen minutes; the rehearsal is where the time should go.
    own notices to the output; `verify.ts` skips anything before the first `{`.
    Then `railway redeploy --from-source -y` (a plain `redeploy` rebuilds the
    latest deployment, which may be a failed one) and poll `/` or a tree route
-   until it serves, about a minute. Never poll `/.arbor/health`: it is a full
+   until it serves, about a minute. Never poll `/.arbor/integrity`: it is a full
    audit and repeated calls exhaust the server's memory.
 8. **Bring the Mac back.** `bun run arbor daemon start`. If the migration
    changed any root, the daemon's private-state stamp makes it discard
