@@ -248,7 +248,7 @@ test("successive states reach the prior frontier without rereading their history
 });
 
 
-test("fresh audit shares history across records and union traversal without trusting earlier audits", async () => {
+test("a fresh audit shares history across records in one union traversal", async () => {
   const f = fixture();
   const state = await loadIntentState(f.state, f.load);
   const roots = [f.state];
@@ -264,16 +264,14 @@ test("fresh audit shares history across records and union traversal without trus
   const expected = await verifyIntentRetention([roots.at(-1)!], f.load);
   const audit = retentionAudit(f.load);
   const before = f.reads();
-  for (const root of roots) await audit([root]);
-  // Per root: its own parts plus one rewritten map leaf, not every earlier change.
+  expect(await audit(roots)).toEqual(expected);
+  // One traversal of the union: each root adds its own parts plus one
+  // rewritten map leaf, not every earlier change.
   expect(f.reads()-before).toBeLessThan(roots.length*16);
-  expect(await audit(roots,true)).toEqual(expected);
-  const unionAudit=retentionAudit(f.load);
-  expect(await unionAudit(roots,true)).toEqual(expected);
   // A union never becomes an incorrectly broad certificate for its first root.
-  expect(await unionAudit([f.state])).toEqual(await verifyIntentRetention([f.state],f.load));
+  expect(await retentionAudit(f.load)([f.state])).toEqual(await verifyIntentRetention([f.state],f.load));
   f.objects.delete(f.file);
-  await expect(retentionAudit(f.load)(roots,true)).rejects.toThrow("Missing object");
+  await expect(retentionAudit(f.load)(roots)).rejects.toThrow("Missing object");
 });
 
 test("a trusted accepted input state stops the history walk; a requested root is never trusted", async () => {

@@ -313,12 +313,11 @@ export async function verifyIntentRetention(
 
 
 /** A new audit owns fresh validation facts; nothing survives into a later
- * audit. Per-root closures serve migration 013, which compares them with the
- * explicit closures of its oldest rows; compact root records can be checked
- * together in one typed graph traversal. */
+ * audit. The compact root records are checked together in one typed graph
+ * traversal. */
 export function retentionAudit(load: (hash: string) => Promise<Uint8Array>) {
   const cache = new RetentionCache(1_000_000, 1_000_000, true);
-  return (roots: string[], union = false) => verifyIntentRetention(roots, load, {
-    cache, durable: () => true, union,
+  return (roots: string[]) => verifyIntentRetention(roots, load, {
+    cache, durable: () => true, union: true,
   });
 }

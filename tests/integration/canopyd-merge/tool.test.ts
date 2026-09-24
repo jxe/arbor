@@ -186,38 +186,27 @@ test("unchanged shared outputs need no staging copies and existing objects are n
 });
 
 
-test("batched checkpoints exactly preserve individual states including legacy alternatives", async () => {
+test("checkpoints chain, and a decision scoped to a file below the root is retained", async () => {
   const roots = [snapshot("base"), snapshot("one"), snapshot("two"), snapshot("hidden")];
   await store.store(roots.flatMap(r => [...r.objects].map(([hash,bytes]) => ({hash,bytes}))));
   const steps = [
     {projection:roots[1]!.root,change:"first",decisions:[]},
     {projection:roots[2]!.root,change:"second",decisions:[{
-      key:"legacy-choice",path:["note.md"],dependencies:[],selected:0,
+      key:"file-choice",path:["note.md"],dependencies:[],selected:0,
       alternatives:[{object:roots[2]!.root,contributions:[{change:"second",operation:null}]},
         {object:roots[3]!.root,contributions:[{change:"hidden",operation:null}]}],
     }]},
   ];
   let current: {object:string;state?:string} = {object:roots[0]!.root};
-  const expected: Array<{object:string;state:string}> = [];
   for (const step of steps) {
     const value = await tool.evaluate({kind:"checkpoint",tree:"history-tree",current,...step},new Map());
     await store.store([...value.objects].map(([hash,bytes])=>({hash,bytes})));
-    expected.push(value.response.result); current = value.response.result;
+    expect(value.response.result.object).toBe(step.projection);
+    current = value.response.result;
   }
-  const request = {kind:"checkpoint-batch" as const,tree:"history-tree",current:{object:roots[0]!.root},steps};
-  const result = await tool.evaluate(request,new Map());
-  expect(result.response.checkpoints).toEqual(expected);
-  expect(result.response.result).toEqual(expected.at(-1)!);
-  const {parseResponse} = await import("@overstory/canopyd-merge");
-  expect(() => parseResponse({...result.response,checkpoints:expected.slice(1)},request)).toThrow();
-  expect(() => parseResponse({...result.response,checkpoints:[...expected].reverse()},request)).toThrow();
-  const other = await tool.evaluate({kind:"checkpoint",tree:"other-tree",current:request.current,...steps[0]!},new Map());
-  await store.store([...other.objects].map(([hash,bytes])=>({hash,bytes})));
-  const forged = {...result.response,checkpoints:[other.response.result,expected[1]!],objects:[]};
-  const fake = join(directory,"wrong-checkpoint.ts");
-  await writeFile(fake, lineWorker(`console.log(${JSON.stringify(JSON.stringify(forged))});`));
-  await using forger = new MergeTool(directory,{command:[process.execPath,fake]});
-  await expect(forger.evaluate(request,new Map())).rejects.toThrow();
+  const {loadIntentState} = await import("@overstory/canopyd-merge");
+  const state = await loadIntentState(current.state!, hash => store.read(hash));
+  expect(state.decisions.map(d => [d.key, d.kind])).toEqual([["file-choice", "content"]]);
 });
 
 
@@ -247,19 +236,6 @@ test("one checkpoint request returns the author's state beside the projection's"
   expect(() => parseResponse({ ...combined.response, authored: undefined }, request)).toThrow("authored");
   expect(() => parseResponse({ ...combined.response, authored: combined.response.result }, request)).toThrow("authored");
   expect(() => parseResponse(combined.response, { ...request, authored: undefined })).toThrow("authored");
-});
-
-test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
-  const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
-  const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
-  const fake=join(directory,"batch-limit.ts");
-  await writeFile(fake,lineWorker(`console.log(${JSON.stringify(JSON.stringify({error:{code:"checkpoint-batch-too-large",message:"Checkpoint batch exceeds object byte budget"}}))});`));
-  const request={kind:"checkpoint-batch" as const,tree:"tree",current:{object:base.root},steps:[{projection:base.root,change:"change",decisions:[]}]};
-  await using limited = new MergeTool(directory,{command:[process.execPath,fake]});
-  await expect(limited.evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchLimitError);
-  // Any other failure of a checkpoint batch stays an ordinary worker failure.
-  await expect(limited.evaluate({...request,kind:"checkpoint" as const,...request.steps[0]!},new Map())).rejects.not.toBeInstanceOf(CheckpointBatchLimitError);
-  await expectNoStaging();
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {

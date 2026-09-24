@@ -254,11 +254,10 @@ test("every acceptance records a merge state, and only accepted profile roots ha
   const db = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
   try {
     // Bootstrap trees, their boundary attachments and every snapshot.
-    expect(db.query(`SELECT u.id FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.id
+    expect(db.query(`SELECT u.ordinal FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.ordinal
       WHERE m.accepted_id IS NULL`).all()).toEqual([]);
     const record = JSON.parse((db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(accepted.id) as { record_json: string }).record_json);
     expect(record.decisions).toHaveLength(1);
-    expect(db.query("SELECT COUNT(*) AS n FROM accepted_conflicts").get()).toEqual({ n: 0 });
     const profiles = db.query("SELECT key, value FROM meta WHERE key LIKE 'profile:%'").all() as Array<{ key: string; value: string }>;
     expect(profiles.map(p => JSON.parse(p.value).type).every(type => type === "person" || type === "group")).toBe(true);
     const keys = new Set(profiles.map(p => p.key));

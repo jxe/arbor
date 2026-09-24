@@ -1,6 +1,4 @@
 import {
-  checkpointBatchSchema, checkpointBatchResponseSchema,
-  type CheckpointBatchRequest, type CheckpointBatchResponse,
   checkpointSchema,
   checkpointResponseSchema,
   type CheckpointRequest,
@@ -43,11 +41,8 @@ export type ProjectionRequest = z.infer<typeof treeRequest>;
 export type MergeRequest =
   | ProjectionRequest
   | IntentRequestInput
-  | CheckpointRequest
-  | CheckpointBatchRequest;
+  | CheckpointRequest;
 export function parseRequest(raw: unknown): MergeRequest {
-  if (raw && typeof raw === "object" && "kind" in raw && raw.kind === "checkpoint-batch")
-    return checkpointBatchSchema.parse(raw);
   if (
     raw &&
     typeof raw === "object" &&
@@ -94,9 +89,7 @@ export type ProjectionResponse = z.infer<typeof response>;
 export type MergeResponse =
   | ProjectionResponse
   | IntentResponse
-  | CheckpointResponse
-  | CheckpointBatchResponse;
-export function parseResponse(raw: unknown, request: CheckpointBatchRequest): CheckpointBatchResponse;
+  | CheckpointResponse;
 export function parseResponse(
   raw: unknown,
   request: CheckpointRequest
@@ -115,26 +108,14 @@ export function parseResponse(
 ):
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>
-  | CheckpointResponse
-  | CheckpointBatchResponse;
+  | CheckpointResponse;
 export function parseResponse(
   raw: unknown,
   request: MergeRequest
 ):
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>
-  | CheckpointResponse
-  | CheckpointBatchResponse {
-  if (request.kind === "checkpoint-batch") {
-    const value = checkpointBatchResponseSchema.parse(raw);
-    if (value.checkpoints.length !== request.steps.length
-      || value.checkpoints.some((ref, index) => ref.object !== request.steps[index]!.projection)
-      || value.result.object !== value.checkpoints.at(-1)!.object
-      || value.result.state !== value.checkpoints.at(-1)!.state
-      || new Set(value.objects).size !== value.objects.length)
-      throw new Error("Checkpoint batch does not match accepted history");
-    return value;
-  }
+  | CheckpointResponse {
   if (request.kind === "checkpoint") {
     const value = checkpointResponseSchema.parse(raw);
     if (

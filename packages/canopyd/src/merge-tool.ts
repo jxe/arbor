@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { stableJSONString, hashObject, type ObjectHash } from "@overstory/protocol";
 import { ObjectStore } from "@overstory/object-store";
 import {
-  CheckpointBatchLimitError,
   parseResponse,
   type IntentRequestInput,
   type IntentResponse,
@@ -15,7 +14,6 @@ import {
   type ProjectionResponse,
 } from "@overstory/canopyd-merge";
 import type {
-  CheckpointBatchRequest, CheckpointBatchResponse,
   CheckpointRequest,
   CheckpointResponse,
 } from "@overstory/canopyd-merge/checkpoint";
@@ -29,7 +27,6 @@ import { PersistentMergeWorker } from "./merge-worker.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
-  | CheckpointBatchResponse
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>;
 export interface MergeToolOptions {
@@ -192,7 +189,6 @@ export class MergeTool {
     this.historyValidation = new StateMapValidationCache(options.historyCacheBytes ?? 256 * 1024 * 1024);
   }
 
-  evaluate(request: CheckpointBatchRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:CheckpointBatchResponse;objects:Map<ObjectHash,Uint8Array>}>;
   evaluate(
     request: CheckpointRequest,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
@@ -303,8 +299,6 @@ export class MergeTool {
       } catch { /* diagnostics only */ }
       const raw = JSON.parse(stdout);
       if (raw && typeof raw === "object" && "error" in raw) {
-        if (request.kind === "checkpoint-batch" && raw.error?.code === "checkpoint-batch-too-large")
-          throw new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget");
         // The worker reports evaluation failures as {error}; never let that
         // shape reach the response schema, whose complaint would hide it.
         throw new MergeWorkerError(
@@ -361,14 +355,6 @@ export class MergeTool {
         };
         const retained = await validate({ object: response.result.object, state: response.result.state });
         const roots = [response.result.state];
-        if (request.kind === "checkpoint-batch" && "checkpoints" in response) {
-          // Each projection stays bound to its authoritative step. Verify the
-          // union of retained dependencies once, sharing the graph walk's cache.
-          for (const ref of response.checkpoints) {
-            await validate(ref);
-            roots.push(ref.state);
-          }
-        }
         if (request.kind === "checkpoint" && "authored" in response && response.authored &&
           response.authored.state !== response.result.state) {
           await validate(response.authored);
@@ -376,7 +362,7 @@ export class MergeTool {
         }
         if (
           "outcome" in response &&
-          request.kind !== "checkpoint" && request.kind !== "checkpoint-batch" &&
+          request.kind !== "checkpoint" &&
           // Either shape the engine accepts states authored evidence: the wire
           // sends a trace, an in-process caller may state one flat step.
           ("trace" in request.incoming || "operations" in request.incoming)

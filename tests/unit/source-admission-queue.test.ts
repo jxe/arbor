@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@overstory/client";
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
-import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { singleStep } from "./canopyd-merge/fixture.ts";
 
 const fixture = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-admission-queue.json", import.meta.url), "utf8"));
@@ -370,7 +370,7 @@ type TraceVector = {
 };
 test.each(fixture.traces as TraceVector[])("shared trace vector $name: generation frames and compaction agree", async (value) => {
   const { compactTrace } = await import("@overstory/client");
-  const { composeFrames, validateSourceTrace } = await import("../../packages/canopyd/src/updates/source-edits.ts");
+  const { composeFrames, validateSourceTrace } = await import("../support/source-edits.ts");
   const { MergeTool } = await import("../../packages/canopyd/src/merge-tool.ts");
   expect(fixture.traces.length).toBeGreaterThan(0);
   await withQueue(async (queue, root) => {

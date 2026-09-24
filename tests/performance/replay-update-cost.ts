@@ -14,8 +14,8 @@ import type { IntentRequestInput, IntentResponse } from "../../packages/canopyd-
 const [dataRoot, treeArg] = process.argv.slice(2);
 if (!dataRoot) throw new Error("usage: replay-update-cost.ts <copied-data-root> [tree-id]");
 const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
-const tree = treeArg ?? (db.query(`select u.tree_id as t from accepted_updates u join accepted_merge_states m on m.accepted_id = u.id group by u.tree_id order by count(*) desc limit 1`).get() as { t: string }).t;
-const heads = db.query(`select u.root as object, json_extract(m.record_json, '$.state') as state from accepted_updates u join accepted_merge_states m on m.accepted_id = u.id where u.tree_id = ? order by u.accepted_at desc, u.rowid desc limit 12`).all(tree) as Array<{ object: string; state: string }>;
+const tree = treeArg ?? (db.query(`select u.tree_id as t from accepted_updates u join accepted_merge_states m on m.accepted_id = u.ordinal group by u.tree_id order by count(*) desc limit 1`).get() as { t: string }).t;
+const heads = db.query(`select u.root as object, json_extract(m.record_json, '$.state') as state from accepted_updates u join accepted_merge_states m on m.accepted_id = u.ordinal where u.tree_id = ? order by u.ordinal desc limit 12`).all(tree) as Array<{ object: string; state: string }>;
 const head = heads[0]!;
 
 const objects = new ObjectStore(join(dataRoot, "objects"));

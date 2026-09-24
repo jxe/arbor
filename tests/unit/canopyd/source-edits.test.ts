@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeWireDirectory, hashObject, type MaterialRef, type SourceOperation } from "@overstory/protocol";
-import { composeFrames, executeExactSourceEdits, validateSourceEditCandidate, validateSourceTrace, UnsupportedSourceEdit } from "../../../packages/canopyd/src/updates/source-edits.ts";
+import { composeFrames, executeExactSourceEdits, validateSourceEditCandidate, validateSourceTrace, UnsupportedSourceEdit } from "../../support/source-edits.ts";
 
 function fixture(text: string, nested = false) {
   const bytes = new TextEncoder().encode(text), file = hashObject(bytes);

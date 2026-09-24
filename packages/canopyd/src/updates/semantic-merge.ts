@@ -1,9 +1,8 @@
-import { loadIntentState, MAX_CHECKPOINT_BATCH, CheckpointBatchLimitError, type CheckpointRequest } from "@overstory/canopyd-merge";
+import { loadIntentState } from "@overstory/canopyd-merge";
 import { Database } from "bun:sqlite";
 import { stableJSONString } from "@overstory/protocol";
 import {
   hashObject,
-  encodeWireDirectory,
   decodeWireDirectory,
   type AcceptedUpdate,
   type CandidateUpdate,
@@ -13,7 +12,6 @@ import {
 } from "@overstory/protocol";
 import { MergeTool } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
-import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
 import {
   type IntentRequest,
@@ -41,162 +39,28 @@ function operationReferences(op: SourceOperation): MaterialRef[] {
 export class SemanticMerge {
   readonly store: MergeStateStore;
   readonly updates: AcceptedUpdateStore;
-  private readonly checkpoints = new Map<string, StateRef>();
   constructor(
-    private db: Database,
+    db: Database,
     private tool: MergeTool,
     private read: (
       hash: string,
       objects: ReadonlyMap<string, Uint8Array>
-    ) => Promise<Uint8Array>,
-    private persist: (
-      objects: Array<{ hash: string; bytes: Uint8Array }>
-    ) => Promise<void>
+    ) => Promise<Uint8Array>
   ) {
     this.store = new MergeStateStore(db);
     this.updates = new AcceptedUpdateStore(db);
   }
-  // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-  private async legacyDecisions(
-    update: AcceptedUpdate,
-    objects: Map<string, Uint8Array>
-  ): Promise<CheckpointRequest["decisions"]> {
-    const result: CheckpointRequest["decisions"] = [];
-    const replace = async (
-      root: string,
-      path: string[],
-      value: Record<string, unknown>
-    ): Promise<string> => {
-      if (!path.length) {
-        if (typeof value.directory !== "string")
-          throw new Error("Root alternative is not a directory");
-        return value.directory;
-      }
-      const directory = decodeWireDirectory(await this.read(root, objects)),
-        name = path[0]!;
-      const prior = directory.entries.find((e) => e.name === name);
-      const entry =
-        path.length === 1
-          ? "absent" in value
-            ? null
-            : { name, ...value }
-          : {
-              name,
-              directory: await replace(
-                prior?.directory ?? "",
-                path.slice(1),
-                value
-              ),
-            };
-      directory.entries = directory.entries.filter((e) => e.name !== name);
-      if (entry)
-        directory.entries.push(entry as typeof directory.entries[number]);
-      directory.entries.sort((a, b) =>
-        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
-      );
-      const bytes = encodeWireDirectory(directory),
-        hash = hashObject(bytes);
-      objects.set(hash, bytes);
-      return hash;
-    };
-    const legacy = new ConflictStore(this.db).get(update.id)?.decisions ?? [];
-    for (const decision of legacy) {
-      const alternatives = [];
-      for (const alternative of decision.alternatives)
-        alternatives.push({
-          object: await replace(
-            update.root,
-            decision.root ? [] : decisionPath(decision).slice(1).split("/"),
-            alternative.value
-          ),
-          contributions: alternative.contributions,
-        });
-      result.push({
-        key: decision.id,
-        dependencies: legacy
-          .filter(
-            (child) =>
-              child.id !== decision.id &&
-              (decision.root ||
-                decisionPath(child).startsWith(decisionPath(decision) + "/"))
-          )
-          .map((child) => child.id),
-        // Files, or a file against its deletion, stay choices about that path.
-        ...(!decision.root &&
-        decision.alternatives.every((a) => "file" in a.value || "absent" in a.value) &&
-        decision.alternatives.some((a) => "file" in a.value)
-          ? { path: decisionPath(decision).slice(1).split("/") }
-          : {}),
-        selected: decision.alternatives.findIndex(
-          (a) => a.id === decision.selected
-        ),
-        alternatives,
-      });
-    }
-    return result;
-  }
-  remember(accepted: string, state: StateRef) {
-    this.checkpoints.set(accepted, state);
-    if (this.checkpoints.size > 256)
-      this.checkpoints.delete(this.checkpoints.keys().next().value!);
-  }
-  /** The merge state an accepted update recorded. An update accepted before
-   * every acceptance recorded one is rebuilt by replaying checkpoints from its
-   * nearest ancestor that has a state, or from the tree's first root.
-   * The replay: legacy rows only; deleted by migration 016 (plans/canopyd/015). */
-  async state(
-    update: AcceptedUpdate,
-    objects: Map<string, Uint8Array>
-  ): Promise<StateRef> {
-    const pending: AcceptedUpdate[] = [];
-    let cursor: AcceptedUpdate | null = update;
-    let prior: {object: string; state?: string} | undefined;
-    while (cursor) {
-      const cached = this.checkpoints.get(cursor.id);
-      const retained = this.store.get(cursor.id);
-      if (cached || retained) {
-        prior = cached ?? {object: cursor.root, state: retained!.state};
-        break;
-      }
-      pending.push(cursor);
-      cursor = cursor.previous ? this.updates.get(cursor.previous.id) : null;
-    }
-    pending.reverse();
-    let current: {object: string; state?: string} = prior ?? {object: pending[0]!.root};
-    let offset = 0;
-    while (offset < pending.length) {
-      let size = Math.min(MAX_CHECKPOINT_BATCH, pending.length - offset);
-      for (;;) {
-        const slice = pending.slice(offset, offset + size);
-        const inputs = new Map(objects), steps = [];
-        for (const accepted of slice) steps.push({
-          projection: accepted.root,
-          change: this.updates.changeForAccepted(accepted.id) ?? `accepted-${accepted.id}`,
-          decisions: await this.legacyDecisions(accepted, inputs),
-        });
-        try {
-          const evaluated = await this.tool.evaluate({kind: "checkpoint-batch", tree: update.tree, current, steps}, inputs);
-          // Persist only this slice and original inputs, never its growing prefix.
-          await this.persist([...inputs, ...evaluated.objects].map(([hash,bytes]) => ({hash,bytes})));
-          for (let index = 0; index < slice.length; index++)
-            this.remember(slice[index]!.id, evaluated.response.checkpoints[index]!);
-          current = evaluated.response.result;
-          offset += size;
-          break;
-        } catch (error) {
-          if (!(error instanceof CheckpointBatchLimitError) || size === 1) throw error;
-          size = Math.max(1, Math.floor(size / 2));
-        }
-      }
-    }
-    return current as StateRef;
+  /** The merge state an accepted update recorded. Every accepted update has
+   * one (schema 18). */
+  state(update: AcceptedUpdate): StateRef {
+    const record = this.store.get(update.id);
+    if (!record) throw new Error(`Accepted update ${update.id} has no merge state`);
+    return { object: update.root, state: record.state };
   }
 
   /** Open decisions at an accepted update. */
   openDecisions(update: AcceptedUpdate): number {
-    return this.store.get(update.id)?.decisions.length
-      // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-      ?? new ConflictStore(this.db).get(update.id)?.decisions.length ?? 0;
+    return this.store.get(update.id)?.decisions.length ?? 0;
   }
 
   /** The merge state of an acceptance the host makes itself (a tree's first
@@ -210,7 +74,7 @@ export class SemanticMerge {
     change: string,
     objects: Map<string, Uint8Array>
   ): Promise<MergeStateRecord> {
-    const current = from ? await this.state(from, objects) : { object: root };
+    const current = from ? this.state(from) : { object: root };
     const evaluated = await this.tool.evaluate({ kind: "checkpoint", tree, current, projection: root, change, decisions: [] }, objects);
     for (const [hash, bytes] of evaluated.objects) objects.set(hash, bytes);
     const result = evaluated.response.result;
@@ -236,16 +100,9 @@ export class SemanticMerge {
           throw new Error(
             "Alternative belongs to another tree or unavailable state"
           );
-        // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-        const previous = new ConflictStore(this.db)
-          .get(material.state)
-          ?.decisions.find((d) => d.id === material.conflict);
-        const retained = this.store.get(material.state),
-          decision =
-            retained?.decisions.find(
-              (d) => d.inspection.id === material.conflict
-            ) ??
-            (previous ? { key: previous.id, inspection: previous } : undefined);
+        const decision = this.store.get(material.state)?.decisions.find(
+          (d) => d.inspection.id === material.conflict
+        );
         const index =
           decision?.inspection.alternatives.findIndex(
             (a) => a.id === material.alternative
@@ -308,14 +165,7 @@ export class SemanticMerge {
     const state = this.tool.validatedState(tree, result)
       ?? await loadIntentState(result.state, (hash) => this.read(hash, objects));
     if (state.tree !== tree) throw new Error("Merge state tree mismatch");
-    // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-    const legacy = new Map(
-      (state.decisions.length ? new ConflictStore(this.db)
-        .forTree(tree)
-        .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
-    );
-    const decisionID = (key: string) =>
-      legacy.has(key) ? key : id([tree, "decision", key]);
+    const decisionID = (key: string) => id([tree, "decision", key]);
     const path = (nodeID: string) => {
       const names: string[] = [];
       let node = state.nodes[nodeID];
@@ -363,9 +213,7 @@ export class SemanticMerge {
               },
             ];
       const alternatives = d.alternatives.map((a, index) => ({
-        id:
-          legacy.get(d.key)?.alternatives[index]?.id ??
-          id([tree, "alternative", d.key, index]),
+        id: id([tree, "alternative", d.key, index]),
         revision: id([a.object, a.state, a.contributions]),
         value:
           d.kind === "existence"
@@ -409,7 +257,6 @@ export class SemanticMerge {
       state: result.state,
       authored: authored.state,
       decisions,
-      retention: { version: 1, roots: [...new Set([result.state, authored.state])] },
       evidence,
       request: {
         change: request.change,
@@ -423,13 +270,7 @@ export class SemanticMerge {
     const record = this.store.get(current.id);
     const keys: string[] = [];
     for (const guard of request.resolves) {
-      // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-      const previous = new ConflictStore(this.db)
-        .get(current.id)
-        ?.decisions.find((d) => d.id === guard.conflict);
-      const decision =
-        record?.decisions.find((d) => d.inspection.id === guard.conflict) ??
-        (previous ? { key: previous.id, inspection: previous } : undefined);
+      const decision = record?.decisions.find((d) => d.inspection.id === guard.conflict);
       if (
         guard.state !== current.id ||
         !decision ||

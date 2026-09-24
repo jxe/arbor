@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { parseMarkdown, plainMarkdownTitle, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
 
 /** A Canopy-local account handle, the name in `/~handle`. */
@@ -106,4 +107,22 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     ...(description !== undefined ? { description } : {}),
     ...(avatar ? { avatar } : {}),
   };
+}
+
+/** A root's stored profile facts (`meta` key `profile:<root>`), or null. Only
+ * accepted person and group profile roots have a row, written with their
+ * acceptance; migration 016 rebuilt the rows for every current head. */
+export function storedProfileFacts(db: Database, root: ObjectHash): RootProfileFacts | null {
+  const row = db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
+  return row ? JSON.parse(row.value) as RootProfileFacts : null;
+}
+
+/** Store a profile root's facts, inside the transaction that accepts it. A
+ * root that declares neither person nor group gets no row. */
+export function recordProfileFacts(db: Database, root: ObjectHash, facts: RootProfileFacts | null): void {
+  if (!facts?.type) return;
+  db.run(
+    "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    [`profile:${root}`, JSON.stringify(facts)],
+  );
 }

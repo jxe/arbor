@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
 import { WireClient, decodeWireDirectory, encodeWireDirectory, hashObject,
   type CandidateUpdate, type ObjectHash, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
-import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../support/source-edits.ts";
 
 process.env.ARBOR_CANOPY_NO_WARMUP = "1";
 const count = Number(process.env.FILES ?? 200);

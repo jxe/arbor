@@ -2,7 +2,7 @@ import { z } from "zod";
 import { OBJECT_HASH } from "./state-value.ts";
 const hash = z.string().regex(OBJECT_HASH);
 const material = z.object({ object: hash, state: hash.optional() }).strict();
-/** Trusted caller supplies accepted projection/legacy decisions, never authored operations. */
+/** Trusted caller supplies an accepted projection and its decisions, never authored operations. */
 export const checkpointSchema = z
   .object({
     kind: z.literal("checkpoint"),
@@ -59,21 +59,3 @@ export const checkpointResponseSchema = z
   })
   .strict();
 export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
-
-/** A bounded linear slice of already-accepted history; no authored execution. */
-export const MAX_CHECKPOINT_BATCH = 64;
-export const checkpointBatchSchema = z.object({
-  kind: z.literal("checkpoint-batch"),
-  tree: z.string().min(1),
-  current: material,
-  steps: z.array(checkpointSchema.pick({ projection: true, change: true, decisions: true }))
-    .min(1).max(MAX_CHECKPOINT_BATCH),
-}).strict();
-export type CheckpointBatchRequest = z.infer<typeof checkpointBatchSchema>;
-export const checkpointBatchResponseSchema = z.object({
-  kind: z.literal("checkpoint-batch"),
-  result: z.object({ object: hash, state: hash }).strict(),
-  checkpoints: z.array(z.object({ object: hash, state: hash }).strict()).min(1).max(MAX_CHECKPOINT_BATCH),
-  objects: z.array(hash),
-}).strict();
-export type CheckpointBatchResponse = z.infer<typeof checkpointBatchResponseSchema>;

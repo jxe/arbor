@@ -7,10 +7,8 @@ import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic
 import { IntentError } from "@overstory/canopyd-merge/intent-model";
 import type { CheckpointRequest } from "@overstory/canopyd-merge";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
-import { decisionDependencies, entryValue, ConflictStore } from "./updates/conflict-store.ts";
-import { changedEntryPaths, TreeReader } from "./updates/tree-diff.ts";
+import { changedEntryPaths } from "./updates/tree-diff.ts";
 import type { DecisionPage } from "@overstory/protocol";
-import { SourceIntentStore } from "./updates/source-intent-store.ts";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -57,14 +55,14 @@ import {
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
 } from "./account-policy-v2.ts";
-import { reconcileUpdate, type MergeStrategy, type MergeSummary } from "./updates/reconcile.ts";
+import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl, accessRule } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
-import { HANDLE, legacyMemberHandle, profileLocatorTree, rootProfileFacts, type RootProfileFacts } from "./profile.ts";
+import { HANDLE, legacyMemberHandle, profileLocatorTree, recordProfileFacts, rootProfileFacts, storedProfileFacts, type RootProfileFacts } from "./profile.ts";
 import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
@@ -108,6 +106,9 @@ interface RootProfile {
   legacyHandles: ReadonlySet<string>;
 }
 const ROOT_PROFILE_LIMIT = 1024;
+/** Watch replay derives each update's transition from two roots; every
+ * watcher of a tree replays the same recent updates. */
+const TRANSITION_CACHE_ENTRIES = 32;
 
 /** Structured handles, plus the handle of a legacy `/~handle` locator. */
 function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
@@ -280,6 +281,8 @@ export class CanopyDaemon implements AsyncDisposable {
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
+  /** Recently replayed transitions by update id (`acceptedTransition`). */
+  private readonly transitions = new Map<string, AcceptedTransitionPayload>();
 
   private constructor(
     readonly dataRoot: string,
@@ -301,7 +304,6 @@ export class CanopyDaemon implements AsyncDisposable {
       db,
       this.mergeTool,
       (hash, objects) => this.objects.load(hash, objects),
-      (objects) => this.objects.store(objects)
     );
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.observations = new ObservationLog(db);
@@ -447,12 +449,21 @@ export class CanopyDaemon implements AsyncDisposable {
     return credentialSubject ? this.acceptedStore.matchingRequestDigest(updateID, credentialSubject) : null;
   }
 
-  acceptedTransition(updateID: string, credentialSubject?: string): AcceptedTransition | null {
+  /** One accepted update's transition from its predecessor, derived from the
+   * two roots (as `netAcceptedTransition` derives a backlog's) and cached,
+   * since every watcher of a tree replays the same update. Null for a tree's
+   * first retained update, which has no predecessor. */
+  async acceptedTransition(updateID: string, credentialSubject?: string): Promise<AcceptedTransition | null> {
     const update = this.update(updateID);
-    let payload: AcceptedTransitionPayload | null;
-    try { payload = this.acceptedStore.transition(updateID); }
-    catch { return null; }
-    if (!update || !payload) return null;
+    if (!update?.previous) return null;
+    let payload = this.transitions.get(update.id);
+    if (payload) this.transitions.delete(update.id);
+    else {
+      try { payload = await this.acceptedTransitionPayload(update.previous.root, update.root); }
+      catch { return null; }
+    }
+    this.transitions.set(update.id, payload);
+    while (this.transitions.size > TRANSITION_CACHE_ENTRIES) this.transitions.delete(this.transitions.keys().next().value!);
     const requestDigest = credentialSubject && update.subject === credentialSubject
       ? this.matchingRequestDigest(updateID, credentialSubject)
       : null;
@@ -482,42 +493,10 @@ export class CanopyDaemon implements AsyncDisposable {
     const update = this.update(state);
     if (!update || update.tree !== tree) return null;
     const semantic = this.semantic.store.get(state);
-    if (semantic) {
-      const page = decisionPage(semantic.decisions.map((d) => d.inspection), tree, state, after, conflict);
-      if (!page) return null;
-      return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
-    }
-    // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-    const decisions = new ConflictStore(this.db).get(state)?.decisions ?? [];
-    if (update.conflicted && !decisions.length) return null;
-    const page = decisionPage(decisions, tree, state, after, conflict);
+    if (!semantic) return null;
+    const page = decisionPage(semantic.decisions.map((d) => d.inspection), tree, state, after, conflict);
     if (!page) return null;
-    const parentFor = (within: string[] = []) => ({
-      material: { kind: "basis" as const, path: "/", object: update.root },
-      ...(within.length ? { within } : {}),
-    });
-    return {
-      tree,
-      state,
-      root: update.root,
-      conflicted: update.conflicted,
-      decisions: page.selected.map((d) => {
-        const parent = parentFor(d.parent);
-        return {
-          id: d.id,
-          kind: d.root ? "directory" : "entry",
-          affected: [parent],
-          selected: d.selected,
-          alternatives: d.alternatives.map((a) => ({
-            ...a,
-            ...(d.root || "absent" in a.value ? {} : { placement: { parent, name: d.name } }),
-          })),
-          dependencies: decisionDependencies(d, decisions),
-          actions: ["resolveConflict"],
-        };
-      }),
-      next: page.next,
-    };
+    return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
   }
 
   /** Complete graph for one retained accepted root, without exposing history metadata. */
@@ -687,7 +666,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const staged = new Map(nextSnapshot.objects);
     const mergeState = await this.semantic.checkpoint(configTree.id, this.update(expectedUpdate)!, nextSnapshot.root, `pairing:${id}`, staged);
     await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
-    const { transition, changes } = await this.acceptedDiff(configTree.ref, nextSnapshot.root);
+    const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit({
       entryChanges: changes,
@@ -695,13 +674,8 @@ export class CanopyDaemon implements AsyncDisposable {
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
       expectedUpdate,
-      kind: "accepted",
       acceptedAt: now,
       subject: `pairing:${id}`,
-      baseRoot: configTree.ref,
-      candidateRoot: nextSnapshot.root,
-      remoteRoot: configTree.ref,
-      transition,
       mergeState,
     }, () => {
       if (!this.accounts.claimPairing(id, input.deviceID, now)) throw new Error("Pairing is invalid, expired, or already used");
@@ -810,7 +784,7 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
-        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes, mergeState });
+        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, acceptedAt: now, entryChanges: changes, mergeState });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
     }
@@ -968,15 +942,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.list().filter((tree) => tree.status === "active" && tree.accountID === account.id);
   }
 
-  /** A root's complete profile facts, card fields included. A stored row
-   * written before version 3 has only the authorization facts, so the card is
-   * read again and the row replaced. */
+  /** A root's complete profile facts, card fields included: its stored row,
+   * or read from the root when it has none (it is not a profile root). */
   async profileCard(root: ObjectHash): Promise<RootProfileFacts> {
-    const stored = this.storedProfileFacts(root);
-    if (stored?.version === 3) return stored as RootProfileFacts;
-    const facts = await rootProfileFacts(root, (hash) => this.objects.read(hash));
-    this.recordProfileFacts(root, facts.type ? facts : null);
-    return facts;
+    return storedProfileFacts(this.db, root) ?? await rootProfileFacts(root, (hash) => this.objects.read(hash));
   }
 
   /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
@@ -1088,7 +1057,6 @@ export class CanopyDaemon implements AsyncDisposable {
         tree: input.configurationTree,
         root: input.configurationSnapshot.root,
         previousRoot: null,
-        kind: "initial",
         acceptedAt: now,
         subject: `device:${input.deviceID}`,
         entryChanges: configurationChanges,
@@ -1122,15 +1090,6 @@ export class CanopyDaemon implements AsyncDisposable {
     if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new PermissionDeniedError("Reconciliation disclosure is not allowed");
     const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
-  }
-
-  /** One accepted update's transition and entry changes, reading the two roots once. */
-  private async acceptedDiff(previousRoot: ObjectHash, root: ObjectHash): Promise<{ transition: AcceptedTransitionPayload; changes: EntryChanges }> {
-    const reader = new TreeReader((hash) => this.object(hash));
-    return {
-      transition: await buildAcceptedTransitionPayload(previousRoot, root, reader),
-      changes: await entryChanges(previousRoot, root, reader),
-    };
   }
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
@@ -1249,10 +1208,7 @@ export class CanopyDaemon implements AsyncDisposable {
           };
       }
       const objects = new Map<ObjectHash, Uint8Array>();
-      let basis = await this.semantic.state(
-        this.update(request.base)!,
-        objects
-      );
+      let basis = this.semantic.state(this.update(request.base)!);
       markPhase("preflight-state");
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
@@ -1262,8 +1218,8 @@ export class CanopyDaemon implements AsyncDisposable {
           const retained = receipt && this.semantic.store.get(receipt.result.update.id);
           // A receipt binds this exact prefix to its credential. Continue from
           // the author's candidate, not the possibly merged accepted projection.
-          // Unchanged receipts can point at another change's state; those and
-          // legacy rows without authored state still need normal evaluation.
+          // Unchanged receipts can point at another change's state; those
+          // still need normal evaluation.
           if (retained?.request.change === update.change && retained.request.candidate === update.candidate) {
             basis = { object: update.candidate, state: retained.authored };
             continue;
@@ -1282,13 +1238,7 @@ export class CanopyDaemon implements AsyncDisposable {
                 this.semantic.store
                   .get(r.state)
                   ?.decisions.filter((d) => d.inspection.id === r.conflict)
-                  .map((d) => d.key) ??
-                // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-                new ConflictStore(this.db)
-                  .get(r.state)
-                  ?.decisions.filter((d) => d.id === r.conflict)
-                  .map((d) => d.id) ??
-                []
+                  .map((d) => d.key) ?? []
             );
             const validated = await this.semantic.evaluate(
               treeID,
@@ -1321,32 +1271,6 @@ export class CanopyDaemon implements AsyncDisposable {
           for (const [hash, bytes] of checkpoint.objects)
             objects.set(hash, bytes);
           basis = checkpoint.response.result;
-          const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
-          const receipt = this.acceptedStore.acceptedRequest(
-            treeID,
-            subject,
-            digests[index]!
-          );
-          // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-          if (receipt && !this.semantic.store.get(receipt.result.update.id)) {
-            const accepted = await this.mergeTool.evaluate(
-              {
-                kind: "checkpoint",
-                tree: treeID,
-                current: basis,
-                projection: receipt.result.update.root,
-                change: `accepted-${receipt.result.update.id}`,
-                decisions: [],
-              },
-              objects
-            );
-            for (const [hash, bytes] of accepted.objects)
-              objects.set(hash, bytes);
-            this.semantic.remember(
-              receipt.result.update.id,
-              accepted.response.result
-            );
-          }
         }
       }
       // These are immutable preflight objects, not accepted state. The accepted
@@ -1670,13 +1594,11 @@ export class CanopyDaemon implements AsyncDisposable {
       const guards = this.semantic.guards(current, request);
       if (guards === null)
         return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, "Resolution guards no longer match the accepted decisions");
-      const currentState = await this.semantic.state(current, proposed);
+      const currentState = this.semantic.state(current);
       markPhase("current-state");
       let result: StateRef,
         authored: StateRef,
-        evidence: Evaluated["evidence"] | null = null,
-        kind: "accepted" | "merged" = "accepted",
-        merge: MergeSummary | undefined;
+        evidence: Evaluated["evidence"] | null = null;
       if (prepared) {
         // Preflight already evaluated the exact no-concurrency case. Reuse only
         // when both material states and resolution keys still match; authority,
@@ -1721,10 +1643,6 @@ export class CanopyDaemon implements AsyncDisposable {
         // governed conflict is refused, not accepted.
         if (governed && conflicts.some((c) => c.path !== "/trees.yaml/access"))
           return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, policy.rejection!.message, policy.rejection!.kind, mergedRoot, conflicts);
-        if (merged.outcome === "merged") {
-          kind = "merged";
-          merge = merged.merge;
-        }
         // A merge keeps the candidate's version of a conflict for the client's
         // draft; acceptance shows the current material and retains the other.
         // A governed access conflict instead keeps the merge's restrictive
@@ -1786,9 +1704,9 @@ export class CanopyDaemon implements AsyncDisposable {
           result.object,
           now
         );
-      const { transition, changes } = await this.acceptedDiff(current.root, result.object);
+      const changes = await this.entryChanges(current.root, result.object);
       const profile = await this.profileFacts(result.object, proposed);
-      markPhase("transition");
+      markPhase("entry-changes");
       const accepted = this.acceptedStore.commit(
         {
           entryChanges: changes,
@@ -1796,21 +1714,15 @@ export class CanopyDaemon implements AsyncDisposable {
           root: result.object,
           previousRoot: current.root,
           expectedUpdate: current.id,
-          kind,
           acceptedAt: now,
           subject: policy.subject,
-          baseRoot,
-          candidateRoot: request.candidate,
-          remoteRoot: current.root,
-          ...(merge ? { merge } : {}),
           requestDigest,
-          transition,
           change: request.change,
           mergeState,
         },
         () => {
           commit.withinTransaction?.();
-          this.recordProfileFacts(result.object, profile);
+          recordProfileFacts(this.db, result.object, profile);
         }
       );
       if (!accepted) continue;
@@ -2036,10 +1948,7 @@ export class CanopyDaemon implements AsyncDisposable {
         try {
           const current = this.currentUpdate(tree);
           if (!current) continue;
-          // Resolve the state the first edit would use: a retained record, a
-          // cached checkpoint, or one rebuilt from the last retained ancestor.
-          const ref = await this.semantic.state(current, new Map());
-          if (!ref.state) continue;
+          const ref = this.semantic.state(current);
           const result = await this.mergeTool.warm(tree, { object: ref.object, state: ref.state });
           warmed++;
           if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, reads: result.reads, ms: Math.round(result.milliseconds) }));
@@ -2080,62 +1989,19 @@ export class CanopyDaemon implements AsyncDisposable {
     this.verifyDatabase();
     const roots = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
       .map(({ root }) => root);
-    await this.objects.verifyReachable([
-      // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-      ...new Set([...roots, ...new SourceIntentStore(this.db).roots()]),
-    ]);
-    // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-    for (const dependency of new ConflictStore(this.db).objectDependencies()) {
-      if (dependency.kind === "directory") await this.objects.verifyReachable([dependency.hash]);
-      else if (hashObject(await this.objects.load(dependency.hash)) !== dependency.hash) throw new Error("Invalid alternative object");
-    }
+    await this.objects.verifyReachable(roots);
     const { retentionAudit } = await import("@overstory/canopyd-merge/retention");
     const auditRetention = retentionAudit(hash => this.objects.load(hash));
-    const compactRoots = new Set<string>();
+    const stateRoots = new Set<string>();
     for (const { accepted, record } of this.semantic.store.entries()) {
       const owner = this.update(accepted);
       if (!owner || owner.conflicted !== (record.decisions.length > 0))
         throw new Error("Invalid merge state ownership");
-      if (record.retention?.version !== 1 ||
-        stableJSONString([...record.retention.roots].sort()) !== stableJSONString([...new Set([record.state, record.authored])].sort())) {
-        throw new Error("Invalid merge retention roots");
-      } else {
-        compactRoots.add(record.state); compactRoots.add(record.authored);
-      }
+      stateRoots.add(record.state); stateRoots.add(record.authored);
     }
-    await auditRetention([...compactRoots], true);
-    // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
-    for (const { accepted, state } of new ConflictStore(this.db).all()) {
-      const owner = this.update(accepted);
-      if (!owner || owner.conflicted !== (state.decisions.length > 0))
-        throw new Error("Invalid conflict state ownership");
-      const projected = decodeWireDirectory(await this.objects.load(owner.root));
-      for (const decision of state.decisions) {
-        let parent = projected;
-        for (const name of decision.parent ?? []) {
-          const directory = parent.entries.find(
-            (e) => e.name === name
-          )?.directory;
-          if (!directory) throw new Error("Invalid conflict parent path");
-          parent = decodeWireDirectory(await this.objects.load(directory));
-        }
-        const selected = decision.alternatives.find(
-          (a) => a.id === decision.selected
-        );
-        if (
-          !selected ||
-          JSON.stringify(selected.value) !==
-            JSON.stringify(
-              decision.root
-                ? { directory: owner.root }
-                : entryValue(
-                    parent.entries.find((e) => e.name === decision.name)
-                  )
-            )
-        )
-          throw new Error("Invalid conflict projection");
-      }
-    }
+    if (this.db.query("SELECT 1 FROM accepted_updates u WHERE NOT EXISTS (SELECT 1 FROM accepted_merge_states m WHERE m.accepted_id = u.ordinal) LIMIT 1").get())
+      throw new Error("Accepted update without a merge state");
+    await auditRetention([...stateRoots]);
   }
 
   /** The object route is gated on tree read access only. Objects are
@@ -2190,16 +2056,14 @@ export class CanopyDaemon implements AsyncDisposable {
         tree: id,
         root: snapshot.root,
         previousRoot: null,
-        kind: "initial",
         acceptedAt: now,
         subject: credentialSubject ?? null,
-        candidateRoot: requestDigest ? snapshot.root : undefined,
         requestDigest,
         change,
         entryChanges: initialChanges,
         mergeState,
       });
-      this.recordProfileFacts(snapshot.root, profile);
+      recordProfileFacts(this.db, snapshot.root, profile);
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) this.advanceParent(attachment, now, credentialSubject ?? null);
@@ -2209,8 +2073,8 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** Everything a server-side rewrite of a canonical parent's boundaries needs
-   * before its transaction: the stored objects, the transition and entry
-   * changes, and a merge state checkpointed onto the parent's current update. */
+   * before its transaction: the stored objects, the entry changes, and a merge
+   * state checkpointed onto the parent's current update. */
   private async prepareParentAdvance(rewrite: { parent: CanopyTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
@@ -2218,8 +2082,8 @@ export class CanopyDaemon implements AsyncDisposable {
     const mergeState = await this.semantic.checkpoint(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
     const profile = await this.profileFacts(rewrite.nextRoot, staged);
     await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
-    const { transition, changes } = await this.acceptedDiff(rewrite.parent.ref, rewrite.nextRoot);
-    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, transition, entryChanges: changes, mergeState, profile };
+    const changes = await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot);
+    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, entryChanges: changes, mergeState, profile };
   }
 
   /** Advance a canonical parent inside the caller's transaction, only from the
@@ -2227,10 +2091,10 @@ export class CanopyDaemon implements AsyncDisposable {
   private advanceParent(prepared: Awaited<ReturnType<CanopyDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
     const { expectedUpdate, profile, ...input } = prepared;
     const accepted = this.acceptedStore.current(input.tree)?.id === expectedUpdate
-      ? this.acceptedStore.advance({ ...input, kind: "accepted", acceptedAt, subject })
+      ? this.acceptedStore.advance({ ...input, acceptedAt, subject })
       : null;
     if (!accepted) throw new RefConflictError(this.get(input.tree)?.ref ?? null);
-    this.recordProfileFacts(input.root, profile);
+    recordProfileFacts(this.db, input.root, profile);
     return accepted;
   }
 
@@ -2359,60 +2223,22 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.memberHandlesFromRoot(this.community().ref);
   }
 
-  /**
-   * The stored profile facts of one immutable root: the `type` and authored
-   * member locators of its `_index.md` frontmatter, plus card fields from
-   * version 3. Only accepted person and group profile roots have a row, written
-   * with their acceptance; any other root has none. Rows written before this
-   * version may lack card fields (and older ones exist for every validated
-   * root), but their type and members stay authoritative.
-   */
-  private storedProfileFacts(root: ObjectHash): (Omit<RootProfileFacts, "version"> & { version?: unknown }) | null {
-    const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-    if (!row) return null;
-    const value = JSON.parse(row.value) as Record<string, unknown>;
-    return {
-      ...value,
-      type: value.type === "person" || value.type === "group" ? value.type : null,
-      members: Array.isArray(value.members) ? value.members.flatMap((member) => {
-        if (typeof member === "string") return [{ profile: member, legacy: true as const }];
-        if (!member || typeof member !== "object" || Array.isArray(member)) return [];
-        const candidate = member as Record<string, unknown>;
-        if (typeof candidate.profile !== "string") return [];
-        return [{
-          profile: candidate.profile,
-          ...(typeof candidate.handle === "string" ? { handle: candidate.handle } : {}),
-          ...(candidate.legacy === true ? { legacy: true as const } : {}),
-        }];
-      }) : [],
-    };
-  }
-
   /** A root's profile facts, when it is a person or group profile root. */
   private async profileFacts(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<RootProfileFacts | null> {
     const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
     return facts.type ? facts : null;
   }
 
-  /** Store a profile root's facts, inside the transaction that accepts it. */
-  private recordProfileFacts(root: ObjectHash, facts: RootProfileFacts | null): void {
-    if (!facts) return;
-    this.db.run(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [`profile:${root}`, JSON.stringify(facts)],
-    );
-  }
-
   /**
    * Authorization reads each accepted root's stored profile facts (see
-   * `storedProfileFacts`) by immutable root hash, so it never reparses mutable
+   * `storedProfileFacts` in profile.ts) by immutable root hash, so it never reparses mutable
    * filesystem state or treats display names as identity. A root without a
    * row declares no profile type.
    */
   private rootProfile(root: ObjectHash): RootProfile {
     const cached = this.rootProfiles.get(root);
     if (cached) return cached;
-    const profile = this.storedProfileFacts(root);
+    const profile = storedProfileFacts(this.db, root);
     // Not memoized: a profile root's facts are stored when it is accepted.
     if (!profile) return { type: null, members: [], handles: new Set(), profiles: new Set(), legacyHandles: new Set() };
     const facts: RootProfile = {

@@ -613,17 +613,17 @@ export async function serveCanopy(options: {
           const lastEventID = queryCursor ?? headerCursor;
           const keepaliveRequested = request.headers.get("arbor-watch-keepalive") === "1";
           /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
-          const refFrames = (records: ObservationRecord[]): string[] | null => {
-            const current = canopy.get(tree.id) ?? tree;
+          const refFrames = async (records: ObservationRecord[]): Promise<string[] | null> => {
             const transitions: AcceptedTransition[] = [];
             const cursors = new Map<string, string>();
             for (const record of records) {
               if (!record.updateID) continue;
               cursors.set(record.updateID, record.cursor);
-              const transition = canopy.acceptedTransition(record.updateID, credentialSubject);
+              const transition = await canopy.acceptedTransition(record.updateID, credentialSubject);
               if (!transition) return null;
               transitions.push(transition);
             }
+            const current = canopy.get(tree.id) ?? tree;
             const frame = (items: AcceptedTransition[]) => {
               const cursor = cursors.get(items.at(-1)!.update.id)!;
               return encodeSSEFrame({
@@ -705,7 +705,9 @@ export async function serveCanopy(options: {
                     await new Promise<void>(resolve => { wake = resolve; });
                     continue;
                   }
-                  const encoded = records.length > 1 ? null : refFrames(records);
+                  const encoded = records.length > 1 ? null : await refFrames(records);
+                  if (closed) return;
+                  if (!authorized()) return resync("Authorization was revoked");
                   if (!encoded) {
                     const net = await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
                     if (closed) return;

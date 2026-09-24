@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

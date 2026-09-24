@@ -8,7 +8,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "17";
+export const CANOPY_SCHEMA_VERSION = "18";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
 export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
@@ -16,23 +16,34 @@ export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
-    "ordinal", "id", "tree_id", "root", "previous_root", "previous_id", "conflicted", "kind", "accepted_at", "subject",
-    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json", "change_id",
+    "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id",
   ],
-  accepted_conflicts: ["accepted_id", "state_json"],
   accepted_merge_states: ["accepted_id", "record_json"],
-  authored_changes: ["accepted_id", "trace_json", "evidence_json"],
   accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
   resource_policy: ["account_id", "tree_id", "rules_json"],
-  access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
+  access: ["id", "tree_id", "subject_kind", "subject", "access"],
   tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
-  entry_metadata: ["tree_id", "path", "modified_at", "update_id", "data_json"],
+  entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   meta: ["key", "value"],
 } as const;
+
+/** The access table alone, under another name while an offline migration rebuilds it. */
+export function createAccessTable(db: Database, name = "access"): void {
+  db.run(`
+    CREATE TABLE ${name} (
+      id TEXT PRIMARY KEY,
+      tree_id TEXT NOT NULL REFERENCES trees(id),
+      subject_kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      access TEXT NOT NULL,
+      UNIQUE(tree_id, subject_kind, subject)
+    )
+  `);
+}
 
 export function createCanopySchema(db: Database): void {
   db.run(`CREATE TABLE resource_policy (account_id TEXT NOT NULL, tree_id TEXT NOT NULL, rules_json TEXT NOT NULL, PRIMARY KEY(account_id, tree_id))`);
@@ -105,17 +116,7 @@ export function createCanopySchema(db: Database): void {
       error TEXT
     )
   `);
-  db.run(`
-    CREATE TABLE access (
-      id TEXT PRIMARY KEY,
-      tree_id TEXT NOT NULL REFERENCES trees(id),
-      subject_kind TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      access TEXT NOT NULL,
-      claimed_profile TEXT,
-      UNIQUE(tree_id, subject_kind, subject)
-    )
-  `);
+  createAccessTable(db);
   db.run(`
     CREATE TABLE meta (
       key TEXT PRIMARY KEY,

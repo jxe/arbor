@@ -20,7 +20,6 @@ import {
   parseIntentRequest,
   traceOperations,
   type Effect,
-  type EffectEdit,
   type IntentRequest,
   type IntentRequestInput,
   type IntentDecision,
@@ -1202,6 +1201,7 @@ class Engine {
         : {}),
       before: {},
       after: {},
+      edits: {},
       undone: false,
     };
     for (const id of validatedBasisObject ? Object.keys(before) : new Set([
@@ -1218,7 +1218,7 @@ class Engine {
             removed: clone(slice(old.pieces!, ...edit.range)),
             inserted: clone(edit.pieces),
           }));
-          if (edits.length) (effect.edits ??= {})[id] = edits;
+          if (edits.length) effect.edits[id] = edits;
           const { pieces: _before, ...slimBefore } = old;
           const { pieces: _after, ...slimAfter } = clone(now);
           effect.before[id] = slimBefore;
@@ -1250,7 +1250,7 @@ class Engine {
     const realm = this.realms(state);
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
-      for (const [id, edits] of Object.entries(effectEdits(effect))) {
+      for (const [id, edits] of Object.entries(effect.edits)) {
         for (const edit of edits) {
           if (edit.inserted.length || edit.range[0] === edit.range[1]) continue;
           for (const node of Object.values(state.nodes))
@@ -1463,7 +1463,7 @@ class Engine {
   }
   /** Read history on demand when the basis is an editable state: its nodes
    * already reflect every deletion in its effects, so evaluation only needs
-   * the records it touches. Snapshot, imported and legacy states load eagerly. */
+   * the records it touches. Non-editable states (transported, kept-current, imported beside history) load eagerly. */
   async detectLazy(ref: { state?: string }): Promise<boolean> {
     this.lazy = !this.eager && !!ref.state &&
       await isEditableState(ref.state, (hash) => this.read(hash));
@@ -3044,7 +3044,7 @@ export async function checkpointIntent(
         for (const name of input.path!)
           node =
             engine.children(view, node.id).find((n) => n.name === name) ??
-            fail("Legacy alternative path absent");
+            fail("Checkpoint decision path is absent");
         return node;
       };
       const find = (view: View) => { try { return locate(view); } catch { return undefined; } };
@@ -3053,7 +3053,7 @@ export async function checkpointIntent(
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
         if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
-          throw new Error("Legacy existence alternative is not a file");
+          throw new Error("Checkpoint existence alternative is not a file");
         const kept = present.find((node) => node)!;
         let target = find(state);
         if (!target) {
@@ -3061,7 +3061,7 @@ export async function checkpointIntent(
           const parentPath = input.path.slice(0, -1);
           let parent = state.nodes[state.root]!;
           for (const name of parentPath)
-            parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Legacy alternative parent absent");
+            parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Checkpoint decision parent is absent");
           target = { ...clone(kept), id: `existence:${input.key}`, parent: parent.id, name: input.path.at(-1)!, active: false };
           state.nodes[target.id] = target;
         }
@@ -3090,13 +3090,13 @@ export async function checkpointIntent(
       }
       const selected = locate(state);
       if (!selected.pieces)
-        throw new Error("Legacy file decision has no file placement");
+        throw new Error("Checkpoint file decision has no file placement");
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
         const context = await engine.initial(a.object),
           material = clone(locate(context));
         if (!material.pieces)
-          throw new Error("Legacy file alternative is not a file");
+          throw new Error("Checkpoint file alternative is not a file");
         material.id = `legacy:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);
@@ -3258,21 +3258,4 @@ export async function validateIntentState(
     objects
   );
   return engine.load(ref, validation);
-}
-
-/** An `editSource` effect's piece edits per file node: stored on new records,
- * recomputed from the whole piece copies on legacy ones. */
-export function effectEdits(effect: Effect): Record<string, EffectEdit[]> {
-  if (effect.edits) return effect.edits;
-  const result: Record<string, EffectEdit[]> = {};
-  for (const [id, before] of Object.entries(effect.before)) {
-    const after = effect.after[id];
-    if (!before.pieces || !after?.pieces) continue;
-    result[id] = pieceEdits(before.pieces, after.pieces).map((edit) => ({
-      range: edit.range,
-      removed: slice(before.pieces!, ...edit.range),
-      inserted: edit.pieces,
-    }));
-  }
-  return result;
 }
