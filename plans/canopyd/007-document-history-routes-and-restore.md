@@ -36,7 +36,7 @@ recovery are separate repair tools and never appear as History.
   move. A row is written only when a key's content hash changes; a pure move is
   not a version, and deleted documents keep their rows. Duplicate IDs share one
   key: the routes must fail on them, not the index.
-  `EntryMetadataStore.documentVersions(tree, key)` reads it for tests.
+  Nothing reads it yet; the routes add the reader.
 - **Objects.** Every accepted root is retained, so `content_hash` always
   resolves through the object store.
 - **Clients.** `WorkspaceDocumentSession.history()` / `recover(revision:)` is the

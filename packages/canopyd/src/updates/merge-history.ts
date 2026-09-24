@@ -1,3 +1,4 @@
+import { ServerFaultError } from "../errors.ts";
 import {
   compareWireNames,
   decodeWireDirectory,
@@ -86,7 +87,7 @@ export class MergeHistory {
   async entryFor(update: AcceptedUpdate | string): Promise<{ hash: ObjectHash; entry: LogEntry }> {
     const updateID = typeof update === "string" ? update : update.id;
     const hash = this.updates.entryOf(updateID);
-    if (!hash) throw new Error(`Accepted update ${updateID} has no log entry`);
+    if (!hash) throw new ServerFaultError(`Accepted update ${updateID} has no log entry`);
     return { hash, entry: await this.entry(hash) };
   }
 

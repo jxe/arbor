@@ -11,9 +11,9 @@ export function updateOrdinal(id: string): number | null {
 /** One accepted update at its position in a tree's observation order. */
 export interface ObservationRecord {
   ordinal: number;
-  cursor: string;
+  /** The update's wire id, which is also its watch cursor. */
+  id: string;
   tree: string;
-  updateID: string;
 }
 
 interface ObservationRow {
@@ -24,7 +24,7 @@ interface ObservationRow {
 const COLUMNS = "ordinal, tree_id";
 
 function toRecord(row: ObservationRow): ObservationRecord {
-  return { ordinal: row.ordinal, cursor: String(row.ordinal), tree: row.tree_id, updateID: String(row.ordinal) };
+  return { ordinal: row.ordinal, id: String(row.ordinal), tree: row.tree_id };
 }
 
 /**
@@ -42,10 +42,6 @@ export class ObservationLog {
     if (ordinal === null) return null;
     const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE ordinal = ?`).get(ordinal) as ObservationRow | null;
     return row ? toRecord(row) : null;
-  }
-
-  forUpdate(update: string): ObservationRecord | null {
-    return this.get(update);
   }
 
   latestCursor(tree?: string): string | null {

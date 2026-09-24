@@ -76,14 +76,6 @@ export async function entryChanges(
   return changes;
 }
 
-interface DocumentVersion {
-  stableKey: string;
-  update: string;
-  entryPath: string;
-  contentHash: ObjectHash;
-  acceptedAt: number;
-}
-
 export class EntryMetadataStore {
   constructor(private readonly db: Database) {}
 
@@ -144,15 +136,5 @@ export class EntryMetadataStore {
     const rows = this.db.query("SELECT path, modified_at FROM entry_metadata WHERE tree_id = ?").all(tree) as
       Array<{ path: string; modified_at: number }>;
     return new Map(rows.map((row) => [row.path, { modifiedAt: row.modified_at }]));
-  }
-
-  /** Newest first. */
-  documentVersions(tree: string, stableKey: string): DocumentVersion[] {
-    const rows = this.db.query(`
-      SELECT stable_key, update_id, entry_path, content_hash, accepted_at FROM document_versions
-      WHERE tree_id = ? AND stable_key = ? ORDER BY rowid DESC
-    `).all(tree, stableKey) as Array<{ stable_key: string; update_id: string; entry_path: string; content_hash: string; accepted_at: number }>;
-    return rows.map((row) => ({ stableKey: row.stable_key, update: row.update_id, entryPath: row.entry_path,
-      contentHash: row.content_hash as ObjectHash, acceptedAt: row.accepted_at }));
   }
 }

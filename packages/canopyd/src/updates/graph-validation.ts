@@ -17,7 +17,9 @@ export interface ValidatedGraph {
 /** Validate new objects against a previously accepted Merkle graph. Unchanged
  * objects inherit their verified shape; only changed paths load/decode bytes.
  * Cross-kind checks remain even when subtrees are shared, moved, removed, or
- * reused as another kind. Storage accounting belongs in an offline audit. */
+ * reused as another kind. Storage accounting belongs in an offline audit.
+ * `load` returns verified bytes (the object store checks every read); each
+ * proposed object is hashed here exactly once. */
 export async function validateGraphChange(
   root: string,
   load: (hash: string) => Promise<Uint8Array>,
@@ -34,9 +36,10 @@ export async function validateGraphChange(
   const read = async (hash: string) => {
     const known = reads.get(hash);
     if (known) return known;
-    const bytes = proposed.get(hash) ?? (await load(hash));
-    if (hashObject(bytes) !== hash)
+    const overlay = proposed.get(hash);
+    if (overlay && hashObject(overlay) !== hash)
       throw Error(`Object hash mismatch: ${hash}`);
+    const bytes = overlay ?? (await load(hash));
     reads.set(hash, bytes);
     return bytes;
   };
@@ -47,9 +50,8 @@ export async function validateGraphChange(
       if (seen.kind !== kind) throw Error(`Object kind conflict: ${hash}`);
       continue;
     }
-    const overlay = proposed.get(hash);
-    if (overlay && hashObject(overlay) !== hash)
-      throw Error(`Object hash mismatch: ${hash}`);
+    // A proposed object is checked even where the basis proves its hash.
+    if (proposed.has(hash)) await read(hash);
     let proof = basis?.objects.get(hash);
     if (proof?.kind !== kind) proof = undefined;
     if (!proof) {

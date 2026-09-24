@@ -18,6 +18,11 @@ export function normalizeBoundaryPath(input: string): string {
   return segments.length ? `/${segments.join("/")}` : "/";
 }
 
+/** Whether `path` is `scope` or lies below it. */
+export function pathWithin(path: string, scope: string): boolean {
+  return scope === "/" || path === scope || path.startsWith(`${scope}/`);
+}
+
 export function pathSegments(path: string): string[] {
   return normalizeBoundaryPath(path).split("/").filter(Boolean);
 }

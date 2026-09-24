@@ -79,15 +79,15 @@ export class MergeTool {
     question: MergeQuestion,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
   ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
-    if (this.closing) throw new Error("Merge tool is closing");
+    if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
     if (this.waiting.length >= 64)
-      throw new Error("Merge worker queue is full");
+      throw new MergeWorkerError("Merge worker queue is full", "unavailable");
     const queuedAt = performance.now();
     if (this.active)
       await new Promise<void>((resolve) => this.waiting.push(resolve));
     else this.active++;
     try {
-      if (this.closing) throw new Error("Merge tool is closing");
+      if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
       try { this.options.onTiming?.("queue-wait", performance.now() - queuedAt); } catch { /* diagnostic only */ }
       const job = this.askJob(question, inputs);
       this.jobs.add(job);

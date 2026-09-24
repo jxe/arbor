@@ -1,3 +1,4 @@
+import { ServerFaultError } from "../errors.ts";
 import { Database } from "bun:sqlite";
 import type { AcceptedUpdate, ObjectHash, UpdateResult } from "@overstory/protocol";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
@@ -169,7 +170,7 @@ export class AcceptedUpdateStore {
   /** The accepted update's id is the decimal ordinal its row takes; AUTOINCREMENT never reuses one. */
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
     const prior = this.current(input.tree);
-    if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
+    if (input.previousRoot !== (prior?.root ?? null)) throw new ServerFaultError("Accepted predecessor does not match current state");
     const inserted = this.db.run(`
       INSERT INTO accepted_updates (tree_id, root, previous_ordinal, conflicted, accepted_at, subject, request_digest, change_id, entry)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -194,7 +195,7 @@ export class AcceptedUpdateStore {
    * update, inside the caller's transaction. Null when the ref has moved.
    */
   advance(input: AcceptedUpdateInput): AcceptedUpdate | null {
-    if (!this.db.inTransaction) throw new Error("Advancing a ref requires a transaction");
+    if (!this.db.inTransaction) throw new ServerFaultError("Advancing a ref requires a transaction");
     const moved = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
       input.root,
       input.acceptedAt,
@@ -212,7 +213,7 @@ export class AcceptedUpdateStore {
       withinTransaction?.();
       const accepted = this.advance(input);
       // The ref is the current row's root; disagreement is corruption, not a race.
-      if (!accepted) throw new Error("Tree ref does not match its current accepted update");
+      if (!accepted) throw new ServerFaultError("Tree ref does not match its current accepted update");
       return accepted;
     })();
   }

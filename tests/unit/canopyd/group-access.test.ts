@@ -9,7 +9,7 @@ const ROOT = `sha256:${"a".repeat(64)}` as ObjectHash;
 function tree(id: string, canonicalPath: string): CanopyTree {
   return {
     id, canonicalPath, parentTree: null, kind: "ordinary", ref: ROOT, publicAccess: "none",
-    updatedAt: 1, policy: "ordinary", status: "active", accountID: null,
+    policy: "ordinary", status: "active", accountID: null,
   };
 }
 

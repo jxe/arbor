@@ -1,10 +1,23 @@
 import type { Database } from "bun:sqlite";
 import { parseMarkdown, plainMarkdownTitle, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
 
+const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
 /** A Canopy-local account handle, the name in `/~handle`. */
-export const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+export const HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
+const HANDLE_PATH = new RegExp(`^/~(${HANDLE_SOURCE})/?$`);
+const HANDLE_PREFIX = new RegExp(`^/~(${HANDLE_SOURCE})(?:/|$)`);
 const PROFILE_LOCATOR = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/;
-const LEGACY_HANDLE_LOCATOR = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/;
+const LEGACY_HANDLE_LOCATOR = new RegExp(`/~(${HANDLE_SOURCE})/?$`);
+
+/** The handle a `/~handle` path names, exactly (a trailing slash allowed). */
+export function handleOfPath(path: string): string | undefined {
+  return HANDLE_PATH.exec(path)?.[1];
+}
+
+/** The handle in a path's leading `/~handle` segment, if it has one. */
+export function leadingHandle(path: string): string | undefined {
+  return HANDLE_PREFIX.exec(path)?.[1];
+}
 
 /** The Profile TreeID an `arbor://<TreeID>/` member locator names. */
 export function profileLocatorTree(locator: string): string | undefined {
@@ -14,6 +27,20 @@ export function profileLocatorTree(locator: string): string | undefined {
 /** The handle a legacy scalar member's `/~handle` locator names. */
 export function legacyMemberHandle(member: { profile: string; legacy?: true }): string | undefined {
   return member.legacy ? LEGACY_HANDLE_LOCATOR.exec(member.profile)?.[1] : undefined;
+}
+
+/** The handles a group's members reserve on this Canopy: each structured
+ * handle, with the Profile TreeID its locator names, and each legacy
+ * `/~handle` locator's handle, which names no profile. */
+export function memberReservations(members: RootProfileFacts["members"]): Map<string, { profileTree?: string }> {
+  const reservations = new Map<string, { profileTree?: string }>();
+  for (const member of members) {
+    const handle = member.handle ?? legacyMemberHandle(member);
+    if (!handle) continue;
+    const profileTree = member.legacy ? undefined : profileLocatorTree(member.profile);
+    reservations.set(handle, profileTree ? { profileTree } : {});
+  }
+  return reservations;
 }
 
 export interface RootProfileFacts {

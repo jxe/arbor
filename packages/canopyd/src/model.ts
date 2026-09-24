@@ -8,10 +8,9 @@ export interface CanopyTree {
   kind: TreeKind;
   ref: ObjectHash;
   publicAccess: AccessLevel;
-  updatedAt: number;
   policy: "ordinary" | "account-config-v2";
   /** Retired trees retain immutable update history but have no canonical boundary or access. */
-  status: "active" | "awaiting-initialization" | "error" | "retired";
+  status: "active" | "retired";
   accountID: string | null;
 }
 

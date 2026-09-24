@@ -9,6 +9,7 @@ import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableK
 import { serveCanopy } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
+import { ServerFaultError } from "../../../packages/canopyd/src/errors.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
@@ -879,4 +880,35 @@ describe("governed account-configuration Canopy server", () => {
     } finally {running.canopy.acceptedTransition=original;db.close();}
   });
 
+});
+
+describe("canopyd request failure classification", () => {
+  const post = (tree: string, update: string, root: string) => fetch(`${running.url}/.arbor/trees/${tree}/updates`, {
+    method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+    body: JSON.stringify({base: update, updates: [{change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], objects: [], deltas: []}]}),
+  });
+
+  test("a server fault is an internal error, not an invalid request", async () => {
+    const baseline = await currentConfig();
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new ServerFaultError("Invariant violated: test"));
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({error: "internal-error", retryable: false});
+      expect(logged).toHaveBeenCalled();
+    } finally { submit.mockRestore(); logged.mockRestore(); }
+  });
+
+  test("a failed system call is an internal error, but an absent object is the request's", async () => {
+    const baseline = await currentConfig();
+    const failure = (code: string) => Object.assign(new Error(`${code}: test`), { code, syscall: "open" });
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(failure("EIO"));
+    try {
+      expect((await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root)).status).toBe(500);
+      submit.mockRejectedValue(failure("ENOENT"));
+      expect((await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root)).status).toBe(400);
+    } finally { submit.mockRestore(); logged.mockRestore(); }
+  });
 });

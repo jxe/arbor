@@ -45,14 +45,14 @@ describe("accepted-update transaction store", () => {
       const page = log.page("tr_test",ordinal);
       expect(page.length).toBeLessThanOrEqual(64);
       if (!page.length) break;
-      seen.push(...page.map(row=>row.updateID!)); ordinal=page.at(-1)!.ordinal;
+      seen.push(...page.map(row=>row.id)); ordinal=page.at(-1)!.ordinal;
     }
     expect(seen).toHaveLength(150);
     expect(new Set(seen).size).toBe(150);
     expect(log.position("other-tree",anchor).retained).toBe(false);
     expect(log.position("tr_test",null).through).toBe(ordinal);
     const appended=store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(),tree:"tr_test",root:A,previousRoot:A,acceptedAt:999});
-    expect(log.page("tr_test",ordinal).map(row=>row.updateID)).toEqual([appended.id]);
+    expect(log.page("tr_test",ordinal).map(row=>row.id)).toEqual([appended.id]);
   });
 
   test("descriptor and observation lookups use their scoped indexes", () => {
@@ -127,7 +127,7 @@ describe("accepted-update transaction store", () => {
     expect(Object.hasOwn(next, "kind")).toBe(false);
     expect(new AcceptedUpdateStore(db).get(next.id)).toEqual(next);
     // The id is the row's ordinal, spelled canonically; the cursor is the same text.
-    expect(new ObservationLog(db).forUpdate(next.id)!.cursor).toBe(next.id);
+    expect(new ObservationLog(db).get(next.id)!.id).toBe(next.id);
     for (const spelling of [`0${next.id}`, `${next.id}.0`, "au_legacy"]) expect(store.get(spelling)).toBeNull();
   });
 
@@ -142,7 +142,7 @@ describe("accepted-update transaction store", () => {
     for (const cursor of [pruned.id, "legacy-status", "0", "01", "-1", `${initial.id}.0`])
       expect(observations.position("tr_test", cursor).retained).toBe(false);
     expect(observations.position("tr_test", initial.id)).toEqual({ retained: true, through: Number(initial.id) });
-    expect(observations.page("tr_test", Number(initial.id)).map((record) => record.updateID)).toEqual([next.id]);
+    expect(observations.page("tr_test", Number(initial.id)).map((record) => record.id)).toEqual([next.id]);
   });
   test("conflicted follows each row's own log entry", () => {
     const initial = store.current("tr_test")!;

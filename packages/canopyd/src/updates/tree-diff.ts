@@ -11,21 +11,21 @@ export type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
 /**
  * Reads each object once, checks its hash once, and decodes each directory
- * once, however many walks share it. One reader serves every diff of one
- * accepted update, so the transition and the entry changes of the same two
- * roots read the graph once.
+ * once, however many walks share it. A loader that already verifies what it
+ * returns, such as the object store's `read`, is passed as `verified` so its
+ * bytes are not hashed again; bytes a client proposed are always checked.
  */
 export class TreeReader {
   private readonly objects = new Map<ObjectHash, Promise<Uint8Array>>();
   private readonly directories = new Map<ObjectHash, Promise<WireDirectory>>();
 
-  constructor(private readonly load: Load) {}
+  constructor(private readonly load: Load, private readonly options: { verified?: boolean } = {}) {}
 
   bytes(hash: ObjectHash): Promise<Uint8Array> {
     let bytes = this.objects.get(hash);
     if (!bytes) {
       bytes = this.load(hash).then((value) => {
-        if (hashObject(value) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
+        if (!this.options.verified && hashObject(value) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
         return value;
       });
       this.objects.set(hash, bytes);
@@ -111,25 +111,4 @@ export async function walkTreeDiff(
     }
   };
   await walk(before, after, "", 0);
-}
-
-/** The paths whose entries differ between two roots. A changed file, nested
- * tree or entry kind stays at its entry; a directory whose own metadata
- * changed is named itself. Physical changes are evidence of a change, never
- * of an editor operation. */
-export async function changedEntryPaths(before: ObjectHash, after: ObjectHash, load: Load | TreeReader): Promise<string[]> {
-  const paths: string[] = [];
-  const metadata = ({ entries: _entries, ...rest }: WireDirectory) => JSON.stringify(rest);
-  const value = (entry?: WireDirectoryEntry) =>
-    entry?.file ? `file:${entry.file}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
-  await walkTreeDiff(before, after, load, {
-    directory: ({ path, before: old, after: next }) => {
-      if (old && next && metadata(old.directory) !== metadata(next.directory)) paths.push(path);
-    },
-    entry: ({ path, before: a, after: b }) => {
-      if (a?.directory && b?.directory) return true;
-      if (value(a) !== value(b)) paths.push(path);
-    },
-  });
-  return paths;
 }

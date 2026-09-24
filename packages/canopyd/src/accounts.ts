@@ -108,6 +108,8 @@ export class AccountDirectory {
     const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
     const now = Date.now();
     const expiresAt = now + 10 * 60 * 1000;
+    // An expired unclaimed pairing can never be claimed; a claimed one stays for exact replay.
+    this.db.run("DELETE FROM pairings WHERE claimed_at IS NULL AND expires_at <= ?", [now]);
     this.db.run(`
       INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?)

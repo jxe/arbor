@@ -1,5 +1,5 @@
 import { MergeRefusal } from "@overstory/merge-protocol";
-import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
+import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
@@ -16,6 +16,7 @@ import {
   type CanopyTree,
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
+import { handleOfPath } from "./profile.ts";
 import { encodeWatchFrames } from "./updates/watch-frames.ts";
 import type { ObservationRecord } from "./updates/observations.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
@@ -42,6 +43,12 @@ function json(value: unknown, status = 200, headers: Record<string, string> = {}
 function logUpdate(record: Record<string, unknown>): void {
   if (process.env.NODE_ENV === "test") return;
   console.log(JSON.stringify(record));
+}
+
+/** One structured line per request rejected as invalid; silent under the test runner. */
+function logRequestError(record: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "test") return;
+  console.warn(JSON.stringify({ event: "request-rejected", ...record }));
 }
 
 function immutableHeaders(request: Request, etag: string): HeadersInit {
@@ -95,8 +102,8 @@ function descriptorWithUpdate(
   access: ReadWriteAccess = "read",
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
-  if (!update) throw new Error(`Tree has no accepted update: ${tree.id}`);
-  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id, ...(update.conflicted === undefined ? {} : { conflicted: update.conflicted }) };
+  if (!update) throw new ServerFaultError(`Tree has no accepted update: ${tree.id}`);
+  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id, conflicted: update.conflicted };
 }
 
 function watchDescriptor(
@@ -107,13 +114,13 @@ function watchDescriptor(
   cursor: string,
 ): ObservationEvent<"tree.update", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
   const final = transitions.at(-1);
-  if (!final) throw new Error("Tree ref frame requires at least one accepted transition");
+  if (!final) throw new ServerFaultError("Tree ref frame requires at least one accepted transition");
   return {
     cursor,
     tree: tree.id,
     kind: "tree.update",
     change: {
-      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id, ...(final.update.conflicted === undefined ? {} : { conflicted: final.update.conflicted }) },
+      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id, conflicted: final.update.conflicted },
       transitions: transitions.map(encodeAcceptedTransitionJSON),
       ...(final.requestDigest ? { requestDigest: final.requestDigest } : {}),
     },
@@ -226,7 +233,6 @@ export async function serveCanopy(options: {
     handle: options.community?.handle ?? "community",
     name: options.community?.name ?? "Arbor Community",
     accounts: bootstrapAccounts,
-    ...(dynamicLoopbackOrigin ? {} : { communityHost: new URL(publicOrigin).host }),
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
@@ -615,17 +621,15 @@ export async function serveCanopy(options: {
           /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
           const refFrames = async (records: ObservationRecord[]): Promise<string[] | null> => {
             const transitions: AcceptedTransition[] = [];
-            const cursors = new Map<string, string>();
             for (const record of records) {
-              if (!record.updateID) continue;
-              cursors.set(record.updateID, record.cursor);
-              const transition = await canopy.acceptedTransition(record.updateID, credentialSubject);
+              const transition = await canopy.acceptedTransition(record.id, credentialSubject);
               if (!transition) return null;
               transitions.push(transition);
             }
             const current = canopy.get(tree.id) ?? tree;
             const frame = (items: AcceptedTransition[]) => {
-              const cursor = cursors.get(items.at(-1)!.update.id)!;
+              // An update's id is its watch cursor.
+              const cursor = items.at(-1)!.update.id;
               return encodeSSEFrame({
                 id: cursor,
                 event: "tree.update",
@@ -714,8 +718,8 @@ export async function serveCanopy(options: {
                     if (!authorized()) return resync("Authorization was revoked");
                     if (!net) return resync("The requested accepted basis is no longer retained");
                     delivered = net.record.ordinal;
-                    frames = [encodeSSEFrame({id: net.record.cursor, event: "tree.update",
-                      data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [net.transition], access, net.record.cursor)})];
+                    frames = [encodeSSEFrame({id: net.record.id, event: "tree.update",
+                      data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [net.transition], access, net.record.id)})];
                     continue;
                   }
                   delivered = records.at(-1)!.ordinal;
@@ -741,14 +745,14 @@ export async function serveCanopy(options: {
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
           const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
           if (!requestLocator || requestLocator.kind !== "local") return new Response("Not found", { status: 404 });
-          const pendingProfile = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(requestLocator.path);
-          if (pendingProfile && canopy.isReservedHandle(pendingProfile[1]!)) {
-            const profileURL = `${publicOrigin}/~${pendingProfile[1]!}`;
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`, 200, { "x-arbor-profile-state": "reserved" });
+          const pendingHandle = handleOfPath(requestLocator.path);
+          if (pendingHandle && canopy.isReservedHandle(pendingHandle)) {
+            const profileURL = `${publicOrigin}/~${pendingHandle}`;
+            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`, 200, { "x-arbor-profile-state": "reserved" });
           }
-          if (pendingProfile && canopy.accountByHandle(pendingProfile[1]!) && !canopy.boundary(requestLocator.path)) {
-            const claimed = canopy.accountByHandle(pendingProfile[1]!)!;
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.profileTree ?? "unbound")}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
+          if (pendingHandle && canopy.accountByHandle(pendingHandle) && !canopy.boundary(requestLocator.path)) {
+            const claimed = canopy.accountByHandle(pendingHandle)!;
+            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.profileTree ?? "unbound")}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
           }
           const resolved = canopy.resolve(requestLocator.path);
           if (!resolved) return new Response("Not found", { status: 404 });
@@ -896,6 +900,11 @@ export async function serveCanopy(options: {
         if (error instanceof AuthenticationRequiredError) return wireError("unauthenticated", message, 401);
         if (error instanceof PermissionDeniedError) return wireError("permission-denied", message, 403);
         if (error instanceof NotFoundError) return wireError("not-found", message, 404);
+        if (isServerFault(error)) {
+          console.error(`canopyd fault on ${request.method} ${url.pathname}`, error);
+          return wireError("internal-error", "The server failed to complete the request", 500);
+        }
+        logRequestError({ method: request.method, path: url.pathname, status: 400, message });
         return wireError("invalid-request", message, 400);
       }
       });
