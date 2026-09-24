@@ -1,11 +1,11 @@
-import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
 
 type ResourceRules = ReturnType<typeof parseResourceRules>;
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
-import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./model.ts";
+import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
@@ -16,6 +16,16 @@ export interface AccessHost {
   isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean;
   /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
   rootProfileType(treeID: string): "person" | "group" | null;
+}
+
+/** A stored access entry as the configuration rule that declares it. */
+export function accessRule(entry: CanopyAccessEntry): AccessRule {
+  return {
+    subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
+      : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
+        : { kind: "link", digest: entry.subject as `sha256:${string}` },
+    access: entry.access,
+  };
 }
 
 /** Tree access rules and the read/write/administer decisions derived from them. */
@@ -38,7 +48,8 @@ export class AccessControl {
   }
 
   entries(tree: string): CanopyAccessEntry[] {
-    return this.db.query("SELECT * FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
+    // access.claimed_profile is never written; the column stays only for the schema check.
+    return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {
         const value = row as {
@@ -47,7 +58,6 @@ export class AccessControl {
           subject_kind: CanopyAccessEntry["subjectKind"];
           subject: string;
           access: ReadWriteAccess;
-          claimed_profile: string | null;
         };
         return {
           id: value.id,
@@ -55,7 +65,6 @@ export class AccessControl {
           subjectKind: value.subject_kind,
           subject: value.subject,
           access: value.access,
-          ...(value.claimed_profile ? { claimedProfile: value.claimed_profile } : {}),
         };
       });
   }
@@ -72,6 +81,14 @@ export class AccessControl {
         "INSERT INTO access (id, tree_id, subject_kind, subject, access) VALUES (?, ?, ?, ?, ?)",
         [generateArborID("ax"), treeID, subjectKind, subject, access],
       );
+    }
+  }
+
+  /** Store each declared rule as an access entry; callers run this inside their own transaction. */
+  setRules(treeID: string, rules: readonly AccessRule[]): void {
+    for (const rule of rules) {
+      const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
+      this.set(treeID, rule.subject.kind, subject, rule.access);
     }
   }
 
@@ -137,10 +154,11 @@ export class AccessControl {
       || this.policyAllows(grant.account, callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest);
   }
 
-  canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    const tree = this.host.tree(treeID);
+  canRead(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
-    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
+    const treeID = tree.id;
+    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest)) return true;
     if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
@@ -148,10 +166,11 @@ export class AccessControl {
     return account ? this.effectiveAccess(account, treeID) !== "none" : false;
   }
 
-  canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    const tree = this.host.tree(treeID);
+  canWrite(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
-    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
+    const treeID = tree.id;
+    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest)) return true;
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) === "write") return true;
@@ -162,7 +181,7 @@ export class AccessControl {
   canAdminister(account: CanopyAccount, treeID: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree || !account.profileTree) return false;
-    if (tree.policy.startsWith("account-config-")) return tree.accountID === account.id;
+    if (isAccountConfigPolicy(tree.policy)) return tree.accountID === account.id;
     if (tree.accountID === account.id) return true;
     if (tree.id === account.profileTree) return true;
     if (tree.accountID && this.db.query("SELECT 1 FROM resource_policy WHERE account_id=? AND tree_id=?").get(tree.accountID, treeID)) return false;

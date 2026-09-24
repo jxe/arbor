@@ -55,15 +55,15 @@ import {
   type AccountConfigGraphV2,
 } from "./account-policy-v2.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
-import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
+import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { TreeReader } from "./updates/tree-diff.ts";
 import { ObjectStore } from "@overstory/object-store";
-import { AccessControl } from "./access.ts";
+import { AccessControl, accessRule } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
-import { rootProfileFacts, type RootProfileFacts } from "./profile.ts";
-import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
+import { HANDLE, legacyMemberHandle, profileLocatorTree, rootProfileFacts, type RootProfileFacts } from "./profile.ts";
+import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
@@ -94,8 +94,6 @@ export interface CanopyBootstrap {
   };
 }
 
-const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-
 /** The authorization-relevant profile facts of one immutable root. */
 interface RootProfile {
   type: "person" | "group" | null;
@@ -109,16 +107,11 @@ interface RootProfile {
 }
 const ROOT_PROFILE_LIMIT = 1024;
 
-function legacyHandle(member: RootProfile["members"][number]): string | undefined {
-  if (!member.legacy) return undefined;
-  return /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile)?.[1];
-}
-
 /** Structured handles, plus the handle of a legacy `/~handle` locator. */
 function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
   return new Set(members.flatMap((member) => {
     if (member.handle && HANDLE.test(member.handle)) return [member.handle];
-    const handle = legacyHandle(member);
+    const handle = legacyMemberHandle(member);
     return handle ? [handle] : [];
   }));
 }
@@ -126,9 +119,40 @@ function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
 /** The Profile TreeID of every `arbor://<TreeID>/` member locator. */
 function memberProfiles(members: RootProfile["members"]): ReadonlySet<string> {
   return new Set(members.flatMap((member) => {
-    const match = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile);
-    return match ? [match[1]!] : [];
+    const profile = profileLocatorTree(member.profile);
+    return profile ? [profile] : [];
   }));
+}
+
+/** One tree row with its boundary and public access, as `treeRow` reads it. */
+const TREE_SELECT = `
+  SELECT t.*, b.path, b.parent_tree,
+    COALESCE((SELECT access FROM access
+      WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
+  FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id`;
+
+/** One page of an accepted state's decisions: `after` resumes a page, `conflict` selects one decision. */
+function decisionPage<T extends { id: string }>(
+  decisions: T[],
+  tree: string,
+  state: string,
+  after: string | undefined,
+  conflict: string | undefined,
+): { selected: T[]; next: string | null } | null {
+  let offset = 0;
+  if (after !== undefined) {
+    try {
+      const token = JSON.parse(Buffer.from(after, "base64url").toString());
+      if (token.tree !== tree || token.state !== state || !Number.isSafeInteger(token.offset) || token.offset <= 0 || token.offset >= decisions.length) throw new Error();
+      offset = token.offset;
+    } catch { throw new Error("Invalid conflict page token"); }
+  }
+  const selected = conflict === undefined ? decisions.slice(offset, offset + 32) : decisions.filter((d) => d.id === conflict);
+  if (conflict !== undefined && !selected.length) return null;
+  const next = conflict === undefined && offset + selected.length < decisions.length
+    ? Buffer.from(JSON.stringify({ tree, state, offset: offset + selected.length })).toString("base64url")
+    : null;
+  return { selected, next };
 }
 
 function graphTrees(graph: AccountConfigGraphV2): Record<string, { canonicalPath: string; access: AccessRule[] }> {
@@ -377,7 +401,7 @@ export class CanopyDaemon implements AsyncDisposable {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: row.policy.startsWith("account-config-") ? "account-configuration" : "ordinary",
+      kind: isAccountConfigPolicy(row.policy) ? "account-configuration" : "ordinary",
       ref: row.ref,
       publicAccess: row.public_access ?? "none",
       updatedAt: row.updated_at,
@@ -388,24 +412,12 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private treeSelect(where: string, value?: string): CanopyTree | null {
-    const sql = `
-      SELECT t.*, b.path, b.parent_tree,
-        COALESCE((SELECT access FROM access
-          WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
-      FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
-      ${where}
-    `;
+    const sql = `${TREE_SELECT} ${where}`;
     return this.treeRow(value === undefined ? this.db.query(sql).get() : this.db.query(sql).get(value));
   }
 
   list(): CanopyTree[] {
-    return this.db.query(`
-      SELECT t.*, b.path, b.parent_tree,
-        COALESCE((SELECT access FROM access
-          WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
-      FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
-      ORDER BY b.path IS NULL, b.path
-    `).all().map((row) => this.treeRow(row)!);
+    return this.db.query(`${TREE_SELECT} ORDER BY b.path IS NULL, b.path`).all().map((row) => this.treeRow(row)!);
   }
 
   get(id: string): CanopyTree | null {
@@ -430,7 +442,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.acceptedStore.list(treeID);
   }
 
-  matchingRequestDigest(updateID: string, credentialSubject?: string): ObjectHash | null {
+  private matchingRequestDigest(updateID: string, credentialSubject?: string): ObjectHash | null {
     return credentialSubject ? this.acceptedStore.matchingRequestDigest(updateID, credentialSubject) : null;
   }
 
@@ -470,53 +482,14 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!update || update.tree !== tree) return null;
     const semantic = this.semantic.store.get(state);
     if (semantic) {
-      const decisions = semantic.decisions.map((d) => d.inspection);
-      let offset = 0;
-      if (after !== undefined) {
-      try {
-        const token = JSON.parse(Buffer.from(after, "base64url").toString());
-        if (token.tree !== tree || token.state !== state || !Number.isSafeInteger(token.offset) || token.offset <= 0 || token.offset >= decisions.length) throw new Error();
-        offset = token.offset;
-      } catch { throw new Error("Invalid conflict page token"); }
-    }
-      const selected =
-        conflict === undefined
-          ? decisions.slice(offset, offset + 32)
-          : decisions.filter((d) => d.id === conflict);
-      if (conflict !== undefined && !selected.length) return null;
-      return {
-        tree,
-        state,
-        root: update.root,
-        conflicted: update.conflicted,
-        decisions: selected,
-        next:
-          conflict === undefined && offset + selected.length < decisions.length
-            ? Buffer.from(
-                JSON.stringify({
-                  tree,
-                  state,
-                  offset: offset + selected.length,
-                })
-              ).toString("base64url")
-            : null,
-      };
+      const page = decisionPage(semantic.decisions.map((d) => d.inspection), tree, state, after, conflict);
+      if (!page) return null;
+      return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
     }
     const decisions = new ConflictStore(this.db).get(state)?.decisions ?? [];
     if (update.conflicted && !decisions.length) return null;
-    let offset = 0;
-    if (after !== undefined) {
-      try {
-        const token = JSON.parse(Buffer.from(after, "base64url").toString());
-        if (token.tree !== tree || token.state !== state || !Number.isSafeInteger(token.offset) || token.offset <= 0 || token.offset >= decisions.length) throw new Error();
-        offset = token.offset;
-      } catch { throw new Error("Invalid conflict page token"); }
-    }
-    const selected =
-      conflict === undefined
-        ? decisions.slice(offset, offset + 32)
-        : decisions.filter((d) => d.id === conflict);
-    if (conflict !== undefined && !selected.length) return null;
+    const page = decisionPage(decisions, tree, state, after, conflict);
+    if (!page) return null;
     const parentFor = (within: string[] = []) => ({
       material: { kind: "basis" as const, path: "/", object: update.root },
       ...(within.length ? { within } : {}),
@@ -526,7 +499,7 @@ export class CanopyDaemon implements AsyncDisposable {
       state,
       root: update.root,
       conflicted: update.conflicted,
-      decisions: selected.map((d) => {
+      decisions: page.selected.map((d) => {
         const parent = parentFor(d.parent);
         return {
           id: d.id,
@@ -541,8 +514,7 @@ export class CanopyDaemon implements AsyncDisposable {
           actions: ["resolveConflict"],
         };
       }),
-      next: conflict === undefined && offset + selected.length < decisions.length
-        ? Buffer.from(JSON.stringify({ tree, state, offset: offset + selected.length })).toString("base64url") : null,
+      next: page.next,
     };
   }
 
@@ -566,12 +538,15 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
 
+  /** The tree whose canonical boundary most closely encloses `path`, and the path within it. */
   resolve(path: string): { tree: CanopyTree; path: string } | null {
     const canonical = normalizeBoundaryPath(path);
-    const candidates = this.list()
-      .filter((tree) => tree.canonicalPath !== null && sameOrDescendant(canonical, tree.canonicalPath))
-      .sort((a, b) => b.canonicalPath!.length - a.canonicalPath!.length);
-    const tree = candidates[0];
+    // Only the path itself and its ancestors can enclose it; the longest wins.
+    const segments = canonical.split("/").filter(Boolean);
+    const enclosing = ["/", ...segments.map((_, index) => `/${segments.slice(0, index + 1).join("/")}`)];
+    const tree = this.treeRow(this.db.query(
+      `${TREE_SELECT} WHERE b.path IN (${enclosing.map(() => "?").join(", ")}) ORDER BY length(b.path) DESC LIMIT 1`,
+    ).get(...enclosing));
     if (!tree) return null;
     const remainder = canonical === tree.canonicalPath
       ? "/"
@@ -591,10 +566,6 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!authentication.device) return false;
     const device = this.accounts.device(authentication.device);
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
-  }
-
-  accountByToken(token: string | undefined): CanopyAccount | null {
-    return this.authenticateToken(token)?.account ?? null;
   }
 
   devices(account: CanopyAccount): ServerDevice[] {
@@ -773,14 +744,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return reservation ? { handle: match[1]!, ...reservation } : null;
   }
 
-  private firstWriterHandle(): string | null {
-    const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
-    return row?.value ?? null;
-  }
-
   /** The founder account's handle while it is still reserved for its profile and unclaimed; null once claimed or when the community was bootstrapped with token accounts. */
   unclaimedFounderHandle(): string | null {
-    return this.firstWriterHandle();
+    const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
+    return row?.value ?? null;
   }
 
   setCommunityHost(host: string, allowTestPortChange = false): void {
@@ -793,7 +760,7 @@ export class CanopyDaemon implements AsyncDisposable {
       && tree.canonicalPath !== null
       && tree.policy === "ordinary"
       && this.rootProfileType(tree.ref) !== null
-      && this.canWrite(account, tree.id)
+      && this.canWrite(account, tree)
     );
   }
 
@@ -811,25 +778,13 @@ export class CanopyDaemon implements AsyncDisposable {
         .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
         .map((tree) => [tree.id, {
           canonical: `${new URL(origin).origin}${tree.canonicalPath!}`,
-          access: this.accessEntries(tree.id).map((entry): AccessRule => ({
-            subject: entry.subjectKind === "everyone"
-              ? { kind: "everyone" }
-              : entry.subjectKind === "profile"
-                ? { kind: "profile", tree: entry.subject }
-                : { kind: "link", digest: entry.subject as `sha256:${string}` },
-            access: entry.access,
-          })),
+          access: this.accessEntries(tree.id).map(accessRule),
         }]));
       if (!declarations[account.profileTree]) {
         const profile = this.get(account.profileTree)!;
         declarations[profile.id] = {
           canonical: `${new URL(origin).origin}${profile.canonicalPath!}`,
-          access: this.accessEntries(profile.id).map((entry): AccessRule => ({
-            subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
-              : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
-                : { kind: "link", digest: entry.subject as `sha256:${string}` },
-            access: entry.access,
-          })),
+          access: this.accessEntries(profile.id).map(accessRule),
         };
       }
       const graph = {
@@ -848,7 +803,7 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
-        this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
+        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
     }
@@ -917,10 +872,7 @@ export class CanopyDaemon implements AsyncDisposable {
         declaration.canonicalPath, parent?.id ?? null, id,
       ]);
       this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
-      for (const rule of declaration.access) {
-        const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
-        this.access.set(id, rule.subject.kind, subject, rule.access);
-      }
+      this.access.setRules(id, declaration.access);
     }
   }
 
@@ -932,7 +884,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return readAccountConfigGraphV2(snapshot, tree.id);
   }
 
-  async activateTree(
+  private async activateTree(
     authentication: CanopyAuthentication,
     treeID: string,
     snapshot: TreeSnapshot,
@@ -959,7 +911,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
-    if (requiredType) await this.validateProfileSnapshot(snapshot, requiredType);
+    if (requiredType) await this.validateProfileRoot(snapshot.root, snapshot.objects, requiredType);
     const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
     if (!parent) throw new Error("Canonical parent is unavailable");
     const activated = await this.insertTree(
@@ -968,10 +920,7 @@ export class CanopyDaemon implements AsyncDisposable {
       "none",
       parent.id,
       (id) => {
-        for (const rule of declaration.access) {
-          const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
-          this.access.set(id, rule.subject.kind, subject, rule.access);
-        }
+        this.access.setRules(id, declaration.access);
         this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, authentication.account.id]);
       },
       authentication.subject,
@@ -1005,7 +954,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   readableGroupTrees(account: CanopyAccount): CanopyTree[] {
-    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree.id));
+    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree));
   }
 
   administeredTrees(account: CanopyAccount): CanopyTree[] {
@@ -1026,12 +975,13 @@ export class CanopyDaemon implements AsyncDisposable {
     return facts;
   }
 
-  canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.execution.current ? this.execution.allows(treeID, "/", "read") : this.access.canRead(account, treeID, linkDigest);
+  /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
+  canRead(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+    return this.execution.current ? this.execution.allows(idOf(tree), "/", "read") : this.access.canRead(account, tree, linkDigest);
   }
 
-  canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.execution.current ? this.execution.allows(treeID, "/", "write") : this.access.canWrite(account, treeID, linkDigest);
+  canWrite(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+    return this.execution.current ? this.execution.allows(idOf(tree), "/", "write") : this.access.canWrite(account, tree, linkDigest);
   }
 
   canAdminister(account: CanopyAccount, treeID: string): boolean {
@@ -1105,7 +1055,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Initial configuration must contain exactly the joining device and matching label");
     }
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
-    const firstWriter = this.firstWriterHandle() === input.handle;
+    const firstWriter = this.unclaimedFounderHandle() === input.handle;
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configurationChanges = await this.entryChanges(null, input.configurationSnapshot.root);
     const accountID = generateArborID("ac");
@@ -1128,7 +1078,7 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
         [input.configurationTree, input.configurationSnapshot.root, now, accountID],
       );
-      this.insertAcceptedUpdate({
+      this.acceptedStore.insert({
         tree: input.configurationTree,
         root: input.configurationSnapshot.root,
         previousRoot: null,
@@ -1153,10 +1103,6 @@ export class CanopyDaemon implements AsyncDisposable {
       }
     })();
     return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
-  }
-
-  private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
-    return this.acceptedStore.insert(input);
   }
 
   /** Attach the transition from the candidate root to the accepted root whenever the two differ. */
@@ -1187,10 +1133,6 @@ export class CanopyDaemon implements AsyncDisposable {
   /** The file entries an accepted update writes, read before its transaction. */
   private entryChanges(previousRoot: ObjectHash | null, root: ObjectHash): Promise<EntryChanges> {
     return entryChanges(previousRoot, root, (hash) => this.object(hash));
-  }
-
-  private acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
-    return this.acceptedStore.acceptedRequest(tree, subject, digest);
   }
 
   async submitUpdate(
@@ -1237,7 +1179,7 @@ export class CanopyDaemon implements AsyncDisposable {
     for (const [index, update] of request.updates.entries()) {
       if (
         (request.base === null ||
-          this.get(treeID)?.policy.startsWith("account-config-")) &&
+          isAccountConfigPolicy(this.get(treeID)?.policy ?? "ordinary")) &&
         update.trace !== null
       ) {
         throw new UpdateProtocolError(
@@ -1262,11 +1204,9 @@ export class CanopyDaemon implements AsyncDisposable {
     let recordedThrough = -1;
     const retainedTree = this.get(treeID);
     if (retainedTree && (this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) {
-      const policy = retainedTree.policy.startsWith("account-config-")
-        ? this.accountConfigPolicy(retainedTree, request.updates[0]!, baseRoot ?? retainedTree.ref, account, credentialSubject)
-        : this.ordinaryPolicy(retainedTree, request.updates[0]!, account, linkDigest, credentialSubject);
+      const subject = this.subjectFor(retainedTree, account, linkDigest, credentialSubject);
       for (let index = digests.length - 1; index >= 0; index--) {
-        if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
+        if (this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
     markPhase("receipts");
@@ -1278,25 +1218,10 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
-        const tree = this.get(treeID)!;
-        const subject = tree.policy.startsWith("account-config-")
-          ? this.accountConfigPolicy(
-              tree,
-              request.updates[0]!,
-              baseRoot!,
-              account,
-              credentialSubject
-            ).subject
-          : this.ordinaryPolicy(
-              tree,
-              request.updates[0]!,
-              account,
-              linkDigest,
-              credentialSubject
-            ).subject;
+        const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
         const results = [];
         for (let index = 0; index < request.updates.length; index++) {
-          const receipt = this.acceptedRequest(
+          const receipt = this.acceptedStore.acceptedRequest(
             treeID,
             subject,
             digests[index]!
@@ -1325,9 +1250,8 @@ export class CanopyDaemon implements AsyncDisposable {
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
         if (index <= recordedThrough) {
-          const tree = this.get(treeID)!;
-          const subject = this.ordinaryPolicy(tree, update, account, linkDigest, credentialSubject).subject;
-          const receipt = this.acceptedRequest(treeID, subject, digests[index]!);
+          const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
+          const receipt = this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!);
           const retained = receipt && this.semantic.store.get(receipt.result.update.id);
           // A receipt binds this exact prefix to its credential. Continue from
           // the author's candidate, not the possibly merged accepted projection.
@@ -1389,14 +1313,8 @@ export class CanopyDaemon implements AsyncDisposable {
           for (const [hash, bytes] of checkpoint.objects)
             objects.set(hash, bytes);
           basis = checkpoint.response.result;
-          const subject = this.ordinaryPolicy(
-            this.get(treeID)!,
-            update,
-            account,
-            linkDigest,
-            credentialSubject
-          ).subject;
-          const receipt = this.acceptedRequest(
+          const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
+          const receipt = this.acceptedStore.acceptedRequest(
             treeID,
             subject,
             digests[index]!
@@ -1517,7 +1435,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
     if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
-    const policy = tree.policy.startsWith("account-config-")
+    const policy = isAccountConfigPolicy(tree.policy)
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
@@ -1530,7 +1448,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
       if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     }
-    const replay = this.acceptedRequest(treeID, subject, requestDigest);
+    const replay = this.acceptedStore.acceptedRequest(treeID, subject, requestDigest);
     if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
     if (replay) {
       return {
@@ -1557,7 +1475,7 @@ export class CanopyDaemon implements AsyncDisposable {
     markPhase("validate-candidate");
     const semanticCurrent = this.currentUpdate(treeID)!;
     if (
-      !tree.policy.startsWith("account-config-") &&
+      !isAccountConfigPolicy(tree.policy) &&
       (preparedIntent ||
         this.semantic.store.get(semanticCurrent.id)?.decisions.length) &&
       (request.ifCurrent === undefined ||
@@ -1579,10 +1497,9 @@ export class CanopyDaemon implements AsyncDisposable {
       const remoteTree = this.get(treeID)!;
       const remoteUpdate = this.currentUpdate(treeID);
       if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
-        throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
+        throw new Error(`Invariant violated: tree ${treeID} ref does not match its current accepted update`);
       }
       const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
-      const history = null;
       const intentStore = new SourceIntentStore(this.db);
       let reconciled = preconditionFailed
         ? {
@@ -1605,7 +1522,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
       let resolutionGuardFailed = false;
-      if (tree.policy === "account-config-v2" && !preconditionFailed) {
+      if (isAccountConfigPolicy(tree.policy) && !preconditionFailed) {
         // Governed policy conflicts retain the conservative projection. Further
         // edits must explicitly resolve the complete current decision set; an
         // ordinary snapshot or stale device cannot silently restore authority.
@@ -1636,12 +1553,11 @@ export class CanopyDaemon implements AsyncDisposable {
       let origins:
         | Map<string, Array<{ change: string; operation: string | null }>>
         | undefined;
-      const contributions = new Map<string, Array<{ change: string; operation: string | null }>>();
       // A batch suffix is based on the preceding submitted candidate, not its
       // accepted projection. The validated/replayed prefix proves that relationship.
       // Retain differences introduced by acceptance as concurrent input; never
       // reinterpret their absence from the author's candidate as a deletion.
-      const ordinary = !tree.policy.startsWith("account-config-");
+      const ordinary = !isAccountConfigPolicy(tree.policy);
       const acceptedBasis = this.update(basisUpdate!);
       const authoredProjectionDiffers = acceptedBasis?.root !== baseRoot;
       const unresolved = reconciled.outcome === "rejected" ||
@@ -1649,7 +1565,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (
         ordinary && !preconditionFailed && (unresolved || authoredProjectionDiffers)
       ) {
-        const retained = history ?? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
+        const retained = this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
         const bridge = acceptedBasis?.root !== baseRoot && authoredChainBase
           ? this.acceptedStore.ancestry(authoredChainBase, basisUpdate!, Infinity) : null;
         if (
@@ -1722,7 +1638,6 @@ export class CanopyDaemon implements AsyncDisposable {
             baseState: baseConflicts,
             currentState: currentConflicts,
             origins,
-            contributions,
             merged:
               !authoredProjectionDiffers && reconciled.outcome === "merged"
                 ? {
@@ -2054,7 +1969,7 @@ export class CanopyDaemon implements AsyncDisposable {
     provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
     if (!authentication) throw new AuthenticationRequiredError("Account authentication is required to activate a tree");
-    const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
+    const replay = this.acceptedStore.acceptedRequest(treeID, authentication.subject, requestDigest);
     if (replay) return replay;
     if (this.acceptedStore.acceptedChange(treeID, request.change)) throw new Error("Authored change identity is already bound to a different accepted request");
     const existing = this.get(treeID);
@@ -2070,6 +1985,21 @@ export class CanopyDaemon implements AsyncDisposable {
     const update = this.currentUpdate(tree.id);
     if (!update) throw new Error("Activation recorded no accepted update");
     return { status: 201, result: { outcome: "accepted", update, requestDigest } };
+  }
+
+  /** The subject an update to `tree` is recorded and replayed under. */
+  private subjectFor(tree: CanopyTree, account: CanopyAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
+    if (isAccountConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
+    const execution = this.execution.current;
+    return execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
+  }
+
+  /** Only a device of the owning account may update its configuration tree. */
+  private configurationCaller(tree: CanopyTree, account: CanopyAccount | null, credentialSubject: string | undefined): { account: CanopyAccount; subject: string } {
+    if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
+      throw new PermissionDeniedError("An active account device is required for configuration updates");
+    }
+    return { account, subject: credentialSubject };
   }
 
   /** Ordinary trees: graph and boundary validation, the Wire three-way merge, and community reconciliation. */
@@ -2089,7 +2019,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     };
     return {
-      subject: execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
+      subject: this.subjectFor(tree, account, linkDigest, credentialSubject),
       validateCandidate: async (root, objects) => {
         if (execution && !request.ifCurrent) throw new Error("Execution updates require an exact-state guard");
         await checkEffects(tree.ref, root, objects);
@@ -2125,13 +2055,11 @@ export class CanopyDaemon implements AsyncDisposable {
     tree: CanopyTree,
     request: CandidateUpdate,
     baseRoot: ObjectHash,
-    account: CanopyAccount | null,
-    credentialSubject: string | undefined,
+    caller: CanopyAccount | null,
+    credential: string | undefined,
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
-    if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
-      throw new PermissionDeniedError("An active account device is required for configuration updates");
-    }
+    const { account, subject: credentialSubject } = this.configurationCaller(tree, caller, credential);
     const deviceID = credentialSubject.slice("device:".length);
     const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraphV2> => {
       const snapshot = await this.objects.completeSnapshot(root, objects);
@@ -2206,16 +2134,23 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
+  /**
+   * Changes whenever anything an authorization decision reads may have
+   * changed: an execution invalidation, a write through this connection, or a
+   * commit by any other connection to the database. Equal values mean an
+   * earlier decision over database state still holds.
+   */
+  authorizationEpoch(): string {
+    const row = this.db.query("SELECT total_changes() AS local, (SELECT data_version FROM pragma_data_version) AS shared").get() as { local: number; shared: number };
+    return `${this.execution.epoch}:${row.local}:${row.shared}`;
+  }
+
   /** Live observation records for one tree, delivered after each durable append. */
   subscribeObservations(tree: string, listener: (record: ObservationRecord) => void): () => void {
     const listeners = this.observationListeners.get(tree) ?? new Set();
     listeners.add(listener);
     this.observationListeners.set(tree, listeners);
     return () => listeners.delete(listener);
-  }
-
-  observationForUpdate(update: string): ObservationRecord | null {
-    return this.observations.forUpdate(update);
   }
 
   observationPosition(tree: string, cursor: string | null) { return this.observations.position(tree, cursor); }
@@ -2346,15 +2281,6 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  /**
-   * Whether `hash` may be served through the named tree: the caller must be able
-   * to read the tree, and the object must be reachable from its current root or
-   * from any retained accepted root of that tree (nested-tree entries stop the
-   * walk). This per-request directory-edge scan shares its frontier across retained roots.
-   * It remains the reachability boundary that
-   * Security "Bound unauthenticated object reachability checks" and Speed
-   * "Canopy object reachability index" (plans/README.md) will later bound.
-   */
   /** The object route is gated on tree read access only. Objects are
    * content-addressed and shared across trees, so a caller who can read any
    * tree may fetch any retained object whose hash they know; the route does not
@@ -2404,7 +2330,7 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
         [path, id, parentTree],
       );
-      this.insertAcceptedUpdate({
+      this.acceptedStore.insert({
         tree: id,
         root: snapshot.root,
         previousRoot: null,
@@ -2525,10 +2451,6 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private async validateProfileSnapshot(snapshot: TreeSnapshot, kind: "person" | "group"): Promise<void> {
-    await this.validateProfileRoot(snapshot.root, snapshot.objects, kind);
-  }
-
   private async validateProfileRoot(
     root: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
@@ -2596,7 +2518,7 @@ export class CanopyDaemon implements AsyncDisposable {
       ...profile,
       handles: memberHandles(profile.members),
       profiles: memberProfiles(profile.members),
-      legacyHandles: new Set(profile.members.flatMap((member) => legacyHandle(member) ?? [])),
+      legacyHandles: new Set(profile.members.flatMap((member) => legacyMemberHandle(member) ?? [])),
     };
     if (this.rootProfiles.size >= ROOT_PROFILE_LIMIT) this.rootProfiles.delete(this.rootProfiles.keys().next().value!);
     this.rootProfiles.set(root, facts);
@@ -2652,11 +2574,16 @@ export class CanopyDaemon implements AsyncDisposable {
    */
   private nameHeldByTree(name: string): boolean {
     const root = `/~${name}`;
-    const owner = this.accountByHandle(name)?.id;
-    if (this.list().some((tree) => tree.status === "active" && tree.canonicalPath !== null
-      && sameOrDescendant(tree.canonicalPath, root) && (!owner || tree.accountID !== owner))) return true;
-    const pending = this.db.query("SELECT account_id, canonical_path FROM tree_reservations").all() as Array<{ account_id: string; canonical_path: string }>;
-    return pending.some((row) => sameOrDescendant(row.canonical_path, root) && row.account_id !== owner);
+    const below = `${root}/`;
+    const owner = this.accountByHandle(name)?.id ?? null;
+    return this.db.query(`
+      SELECT 1 FROM trees t JOIN boundaries b ON b.tree_id = t.id
+      WHERE t.status = 'active' AND (b.path = ? OR substr(b.path, 1, ?) = ?) AND (? IS NULL OR t.account_id IS NOT ?)
+      UNION ALL
+      SELECT 1 FROM tree_reservations
+      WHERE (canonical_path = ? OR substr(canonical_path, 1, ?) = ?) AND (? IS NULL OR account_id IS NOT ?)
+      LIMIT 1
+    `).get(root, below.length, below, owner, owner, root, below.length, below, owner, owner) !== null;
   }
 
   /** A community update may not reserve a handle whose /~name a tree already holds. */
@@ -2674,12 +2601,9 @@ export class CanopyDaemon implements AsyncDisposable {
   private communityAccountReservations(): Map<string, { profileTree?: string }> {
     const reservations = new Map<string, { profileTree?: string }>();
     for (const member of this.rootProfile(this.community().ref).members) {
-      const legacyHandle = member.legacy ? /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile)?.[1] : undefined;
-      const handle = member.handle ?? legacyHandle;
+      const handle = member.handle ?? legacyMemberHandle(member);
       if (!handle || !HANDLE.test(handle)) continue;
-      const profile = !member.legacy
-        ? /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile)?.[1]
-        : undefined;
+      const profile = member.legacy ? undefined : profileLocatorTree(member.profile);
       reservations.set(handle, profile ? { profileTree: profile } : {});
     }
     return reservations;
@@ -2730,6 +2654,10 @@ export class CanopyDaemon implements AsyncDisposable {
     this.db.close();
     this.observationListeners.clear();
   }
+}
+
+function idOf(tree: string | CanopyTree): string {
+  return typeof tree === "string" ? tree : tree.id;
 }
 
 function dirnameURL(path: string): string {

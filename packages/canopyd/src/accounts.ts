@@ -4,6 +4,9 @@ import { generateArborID, sha256 } from "@overstory/protocol";
 import type { PairingOffer, ServerDevice } from "@overstory/protocol";
 import type { CanopyAccount, CanopyAuthentication } from "./model.ts";
 
+/** A device's last-use time is advisory; refresh it at most this often. */
+const LAST_USED_RESOLUTION_MS = 60_000;
+
 export interface PairingRecord {
   id: string;
   accountID: string;
@@ -38,12 +41,16 @@ export class AccountDirectory {
     if (!token) return null;
     const digest = sha256(token);
     const device = this.db.query(`
-      SELECT d.id AS device_id, d.account_id
+      SELECT d.id AS device_id, d.account_id, d.last_used_at
       FROM devices d JOIN accounts a ON a.id = d.account_id
       WHERE d.token_digest = ? AND d.revoked_at IS NULL AND a.enabled = 1
-    `).get(digest) as { device_id: string; account_id: string } | null;
+    `).get(digest) as { device_id: string; account_id: string; last_used_at: number | null } | null;
     if (!device) return null;
-    this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [Date.now(), device.device_id]);
+    // Skip the write on the hot path while the stored time is recent enough.
+    const now = Date.now();
+    if (device.last_used_at === null || now - device.last_used_at >= LAST_USED_RESOLUTION_MS) {
+      this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [now, device.device_id]);
+    }
     return { account: this.account(device.account_id)!, subject: `device:${device.device_id}`, device: device.device_id };
   }
 

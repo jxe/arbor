@@ -48,7 +48,7 @@ export function treeReader(load: Load | TreeReader): TreeReader {
 }
 
 /** One directory level of a walk: either side is absent where that side has no directory. */
-export interface DirectoryPair {
+interface DirectoryPair {
   path: string;
   depth: number;
   before: { hash: ObjectHash; directory: WireDirectory } | null;
@@ -56,7 +56,7 @@ export interface DirectoryPair {
 }
 
 /** One name whose entry differs between the two sides. */
-export interface EntryPair {
+interface EntryPair {
   /** `/`-joined from the walk's root, without a trailing slash; the root is `""`. */
   path: string;
   parent: string;
@@ -66,7 +66,7 @@ export interface EntryPair {
   after?: WireDirectoryEntry;
 }
 
-export interface TreeDiffVisitor {
+interface TreeDiffVisitor {
   directory?(pair: DirectoryPair): void | Promise<void>;
   /** Return true to walk into the entry's directory on each side that has one. */
   entry(pair: EntryPair): boolean | void | Promise<boolean | void>;

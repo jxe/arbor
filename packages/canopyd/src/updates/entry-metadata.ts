@@ -11,7 +11,7 @@ import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./tree-dif
 
 /** One file entry the accepted update wrote. Markdown entries carry their
  * document identity for the version index. */
-export interface EntryChange {
+interface EntryChange {
   path: string;
   hash: ObjectHash;
   document?: { key: string };
@@ -76,7 +76,7 @@ export async function entryChanges(
   return changes;
 }
 
-export interface DocumentVersion {
+interface DocumentVersion {
   stableKey: string;
   update: string;
   entryPath: string;

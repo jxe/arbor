@@ -1,10 +1,9 @@
 import type { MergeSummary } from "@overstory/canopyd-merge";
 export type { MergeSummary, SourceReconciliation } from "@overstory/canopyd-merge";
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
-import { decideUpdate } from "./decision.ts";
-import { mergeWireTrees, type MergeResult } from "@overstory/canopyd-merge";
+import type { MergeResult } from "@overstory/canopyd-merge";
 
-export type ReconciledUpdate =
+type ReconciledUpdate =
   | { outcome: "current" }
   | { outcome: "accepted"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> }
   | {
@@ -25,8 +24,11 @@ export type MergeStrategy = (
   load: (hash: ObjectHash) => Promise<Uint8Array>,
 ) => Promise<MergeResult>;
 
-export interface ReconcileOptions {
-  merge?: MergeStrategy;
+/** Identity-only snapshot fast paths; concurrent work always reconciles. */
+export function decideUpdate(base: ObjectHash, candidate: ObjectHash, current: ObjectHash): "current" | "accept" | "reconcile" {
+  if (candidate === current || candidate === base) return "current";
+  if (current === base) return "accept";
+  return "reconcile";
 }
 
 export async function reconcileUpdate(
@@ -34,12 +36,12 @@ export async function reconcileUpdate(
   candidate: ObjectHash,
   current: ObjectHash,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
-  options: ReconcileOptions = {},
+  options: { merge: MergeStrategy },
 ): Promise<ReconciledUpdate> {
   const decision = decideUpdate(base, candidate, current);
   if (decision === "current") return { outcome: "current" };
   if (decision === "accept") return { outcome: "accepted", root: candidate, generated: new Map() };
-  const merged = await (options.merge ?? mergeWireTrees)(base, candidate, current, load);
+  const merged = await options.merge(base, candidate, current, load);
   // A clean merge that lands exactly on the current root changed nothing.
   if (!merged.conflicts.length && merged.root === current) return { outcome: "current" };
   return {

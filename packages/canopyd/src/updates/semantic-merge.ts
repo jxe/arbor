@@ -25,7 +25,7 @@ const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
 export type StateRef = { object: string; state: string };
 export type Evaluated = Extract<IntentResponse, { outcome: "evaluated" }>;
-export function operationReferences(op: SourceOperation): MaterialRef[] {
+function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "addEntry") return [op.destination.parent];
   const refs = [op.source];
   if (op.kind === "editSource")

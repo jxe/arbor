@@ -12,6 +12,7 @@ import {
   UpdateProtocolError,
   CanopyDaemon,
   type CanopyAccount,
+  type CanopyAuthentication,
   type CanopyTree,
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
@@ -147,10 +148,6 @@ function bearer(request: Request): string | undefined {
   return value?.startsWith("Bearer ") ? value.slice("Bearer ".length) : undefined;
 }
 
-function accountFor(request: Request, canopy: CanopyDaemon): CanopyAccount | null {
-  return canopy.accountByToken(bearer(request));
-}
-
 function linkDigest(request: Request): string | undefined {
   const secret = request.headers.get("arbor-access-link") ?? undefined;
   return secret ? `sha256:${sha256(secret)}` : undefined;
@@ -183,10 +180,28 @@ function bodySnapshot(body: unknown): TreeSnapshot {
   return decodeTreeSnapshotJSON(body);
 }
 
-function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
-  const account = accountFor(request, canopy);
-  if (!account) throw new AuthenticationRequiredError("Account authentication is required");
-  return account;
+/**
+ * A long-lived stream's authorization check, re-evaluated only when
+ * `authorizationEpoch` shows the database or execution authority changed.
+ * Watches poll it often; between changes it costs one trivial query.
+ */
+function cachedAuthorization(canopy: CanopyDaemon, check: () => boolean): () => boolean {
+  let epoch: string | undefined;
+  let allowed = false;
+  return () => {
+    const current = canopy.authorizationEpoch();
+    if (current !== epoch) {
+      allowed = check();
+      epoch = current;
+    }
+    return allowed;
+  };
+}
+
+/** The request's device-authenticated account; execution tokens never qualify. */
+function requireAccount(authentication: CanopyAuthentication | null): CanopyAccount {
+  if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
+  return authentication.account;
 }
 
 export async function serveCanopy(options: {
@@ -226,24 +241,29 @@ export async function serveCanopy(options: {
       if (token?.startsWith("execution_") && !execution) return wireError("unauthenticated", "Execution authorization is unavailable", 401);
       const response = await canopy.execution.run(execution, async () => {
       const url = new URL(request.url);
-      const authentication = canopy.authenticateToken(bearer(request));
+      // The one authentication of this request; routes below reuse it.
+      const authentication = canopy.authenticateToken(token);
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       try {
         if (url.pathname === "/.arbor/execution/authority-watch" && request.method === "GET") {
           if (!execution) return wireError("unauthenticated", "Execution authorization is required", 401);
           server.timeout(request, 0);
           let cleanup = () => {};
+          // Token validity (revocation, expiry, its host callback) is checked
+          // every time; the grants' database-backed permissions only on change.
+          const permitted = cachedAuthorization(canopy, () => canopy.execution.covered(execution));
+          const covered = () => canopy.execution.valid(execution) && permitted();
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               let closed = false;
               const publish = () => {
                 if (closed) return;
-                const allowed = canopy.execution.covered(execution);
+                const allowed = covered();
                 controller.enqueue(new TextEncoder().encode(`event: ${allowed ? "refresh" : "revoked"}\ndata: {}\n\n`));
                 if (!allowed) { closed = true; cleanup(); controller.close(); }
               };
               const stop = canopy.execution.subscribe(publish);
-              const timer = setInterval(() => { if (!canopy.execution.covered(execution)) publish(); }, 250);
+              const timer = setInterval(() => { if (!covered()) publish(); }, 250);
               timer.unref?.();
               cleanup = () => { closed = true; stop(); clearInterval(timer); };
               request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
@@ -299,20 +319,20 @@ export async function serveCanopy(options: {
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
-          const authenticated = canopy.authenticateToken(bearer(request));
-          const currentDevice = authenticated?.device
-            ? canopy.devices(authenticated.account).find((device) => device.id === authenticated.device)
+          const authenticated = requireAccount(authentication);
+          const currentDevice = authentication?.device
+            ? canopy.devices(authenticated).find((device) => device.id === authentication.device)
             : undefined;
           return json({
             account: {
-              ...accountDescriptor(publicOrigin, canopy, requireAccount(request, canopy)),
+              ...accountDescriptor(publicOrigin, canopy, authenticated),
               ...(currentDevice ? { device: { id: currentDevice.id, label: currentDevice.label } } : {}),
             },
             observedThrough: canopy.observedThrough(),
           });
         }
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
-          return json(canopy.createPairing(requireAccount(request, canopy)), 201);
+          return json(canopy.createPairing(requireAccount(authentication)), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
           const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown };
@@ -370,7 +390,7 @@ export async function serveCanopy(options: {
         }
         if (url.pathname === "/.arbor/directory") {
           if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
-          const authenticated = requireAccount(request, canopy);
+          const authenticated = requireAccount(authentication);
           return json({
             snapshot: await buildDirectory(canopy, authenticated, publicOrigin),
             observedThrough: canopy.observedThrough(),
@@ -422,7 +442,7 @@ export async function serveCanopy(options: {
         if (access) {
           const treeID = decodeURIComponent(access[1]!);
           if (request.method === "GET") {
-            const authenticated = requireAccount(request, canopy);
+            const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
             const policy = canopy.resourcePolicy(authenticated, treeID);
             if (!administer && !policy) return wireError("not-found", "Tree not found", 404);
@@ -620,10 +640,12 @@ export async function serveCanopy(options: {
           let wake: (() => void) | undefined;
           let stop = () => {};
           let resync = (_reason: string) => {};
-          const authorized = () => {
+          const readable = cachedAuthorization(canopy, () => {
             const active = !authentication || canopy.authenticationIsActive(authentication);
             return active && canopy.execution.run(execution, () => canopy.canRead(account, tree.id, requestedLinkDigest));
-          };
+          });
+          // Execution token validity is not database state, so it is never cached.
+          const authorized = () => (!execution || canopy.execution.valid(execution)) && readable();
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               resync = (reason: string) => {
@@ -735,13 +757,7 @@ export async function serveCanopy(options: {
           }
           const tree = resolved.tree;
           const load = (hash: ObjectHash) => canopy.object(hash);
-          const wireProjection = new WireProjection({
-            tree: tree.id,
-            root: tree.ref,
-            load,
-            rootName: tree.canonicalPath?.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
-            observedThrough: "public",
-          });
+          const wireProjection = new WireProjection({ root: tree.ref, load });
           const resolution = await wireProjection.resolve(resolved.path, requestLocator.stableKey);
           if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
           const logicalPath = resolution.path;
