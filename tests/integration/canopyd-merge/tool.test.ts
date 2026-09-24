@@ -209,7 +209,9 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   await store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }]);
   expect((await stat(shard)).mtimeMs).toBe(timestamp.getTime());
   await writeFile(store.path(base.root), "corrupt");
-  await expect(store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
+  // Bytes this process made durable are not read again; a store that has not
+  // verified them (another process) checks them before trusting them.
+  await expect(new ObjectStore(join(directory, "objects")).store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {

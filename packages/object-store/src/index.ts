@@ -235,10 +235,18 @@ export class ObjectStore {
   /** Cumulative write-side counters for diagnostics; callers diff snapshots. */
   readonly writes: ObjectWriteCounters = { objects: 0, written: 0, fsyncs: 0 };
 
-  /** Hashes this process has already made durable, so a repeated durable
-   * publish of the same object re-verifies bytes but issues no further fsync.
-   * Bounded: forgetting an entry only costs one redundant sync. */
+  /** Hashes this process has already made durable. Re-storing one only
+   * freshens its time: its bytes were hash-checked when this process wrote or
+   * verified them, the file is immutable, and every read hash-checks it again.
+   * Bounded: forgetting an entry only costs one redundant verification. */
   private readonly durable = new Set<ObjectHash>();
+
+  /** Shard directories whose entry in the root this process has synced.
+   * Shards are never removed (the collector deletes only object files), so
+   * one root sync per shard per process covers a shard made by any writer,
+   * including one another batch created and has not yet synced. */
+  private readonly durableShards = new Set<string>();
+  private rootEntryDurable = false;
 
   private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean): Promise<void> {
     const unique = new Map<ObjectHash, Uint8Array>();
@@ -254,14 +262,16 @@ export class ObjectStore {
     await mapLimit(unique, WRITE_CONCURRENCY, async ([hash, bytes]) => {
       const path = this.path(hash);
       const directory = dirname(path);
-      // Stored bytes are always re-checked; only the fsync is skipped once
-      // this process has made the object durable. An existing object is
-      // freshened, as git does, so a collector treats it as new; one that
-      // vanishes in between is written again.
-      if (await this.verifyExisting(path, hash) && await touch(path)) {
+      // An existing object is freshened, as git does, so a collector treats
+      // it as new; one that vanishes in between is written again. One this
+      // process already made durable is only freshened; any other has its
+      // stored bytes checked first.
+      if (this.durable.has(hash)) {
+        if (await touch(path)) return;
+      } else if (await this.verifyExisting(path, hash) && await touch(path)) {
         // An existing object may have been published as scratch data. Complete
         // file and directory durability without rewriting identical bytes.
-        if (durable && !this.durable.has(hash)) { await this.sync(path); directories.add(directory); }
+        if (durable) { await this.sync(path); directories.add(directory); }
         return;
       }
       await mkdir(directory, { recursive: true });
@@ -294,9 +304,16 @@ export class ObjectStore {
     if (!durable) return;
     // Bytes are on disk before any directory entry is synced, and every entry
     // is synced before this resolves, so a subsequent database commit only
-    // names durable objects. Shards may themselves be new, so flush the root.
+    // names durable objects. A shard whose own entry in the root is not yet
+    // known durable (new, or first seen by this process) also flushes the root.
     await mapLimit(directories, WRITE_CONCURRENCY, (directory) => this.sync(directory));
-    if (directories.size) await this.sync(this.root);
+    // The root's own entry in its parent is synced the same way, once.
+    const shards = [...directories].filter((directory) => !this.durableShards.has(directory));
+    if (shards.length) {
+      await this.sync(this.root);
+      if (!this.rootEntryDurable) { await this.sync(dirname(this.root)); this.rootEntryDurable = true; }
+      for (const shard of shards) this.durableShards.add(shard);
+    }
     for (const hash of unique.keys()) this.durable.add(hash);
     if (this.durable.size > DURABLE_MEMORY) {
       for (const hash of this.durable) {

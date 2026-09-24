@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, stat, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { holdsObject, ObjectStore } from "@overstory/object-store";
@@ -20,8 +20,9 @@ test("a durable batch syncs each new file once and each directory once", async (
   const shards = new Set(objects.map((o) => dirname(store.path(o.hash))));
   await store.store(objects);
   expect(store.writes.written).toBe(40);
-  // One fsync per file, one per shard directory, one for the root.
-  expect(store.writes.fsyncs).toBe(40 + shards.size + 1);
+  // One fsync per file, one per new shard directory, one for the root, and
+  // once per process one for the root's own entry in its parent.
+  expect(store.writes.fsyncs).toBe(40 + shards.size + 2);
   for (const o of objects) expect(await store.read(o.hash)).toEqual(o.bytes);
   for (const shard of shards) {
     for (const name of await readdir(shard)) expect(name).not.toContain(".tmp");
@@ -46,10 +47,10 @@ test("staged objects become durable on the first durable store without rewriting
   expect(store.writes.fsyncs).toBe(0);
   await store.store([a]);
   expect(store.writes.written).toBe(1);
-  // File, shard directory, root.
-  expect(store.writes.fsyncs).toBe(3);
+  // File, shard directory, root, root entry.
+  expect(store.writes.fsyncs).toBe(4);
   await store.store([a]);
-  expect(store.writes.fsyncs).toBe(3);
+  expect(store.writes.fsyncs).toBe(4);
 });
 
 test("objects present from another process are synced once, then remembered", async () => {
@@ -59,9 +60,80 @@ test("objects present from another process are synced once, then remembered", as
   const second = new ObjectStore(join(directory, "objects"));
   await second.store([a]);
   expect(second.writes.written).toBe(0);
-  expect(second.writes.fsyncs).toBe(3);
+  expect(second.writes.fsyncs).toBe(4);
   await second.store([a]);
-  expect(second.writes.fsyncs).toBe(3);
+  expect(second.writes.fsyncs).toBe(4);
+});
+
+/** Distinct objects whose hashes share one shard directory. */
+const sameShard = (count: number, prefix: string) => {
+  const found: Array<ReturnType<typeof object>> = [];
+  for (let i = 0; found.length < count; i++) {
+    const candidate = object(`${prefix} ${i}`);
+    if (!found.length || candidate.hash.slice(7, 9) === found[0]!.hash.slice(7, 9)) found.push(candidate);
+  }
+  return found;
+};
+
+test("the root is synced only for a shard whose entry is not yet known durable", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const [a, b] = sameShard(2, "shard");
+  await store.store([a!]);
+  // File, new shard directory, root, root entry.
+  expect(store.writes.fsyncs).toBe(4);
+  await store.store([b!]);
+  // File and its already rooted shard directory only.
+  expect(store.writes.fsyncs).toBe(6);
+  let c = object("elsewhere");
+  for (let i = 0; c.hash.slice(7, 9) === a!.hash.slice(7, 9); i++) c = object(`elsewhere ${i}`);
+  await store.store([c]);
+  expect(store.writes.fsyncs).toBe(9);
+});
+
+test("a shard a staged publish or another store made is rooted on its first durable use", async () => {
+  const [a, b, c] = sameShard(3, "foreign");
+  const first = new ObjectStore(join(directory, "objects"));
+  await first.stage([a!]);
+  await first.store([b!]);
+  // File, shard directory, root, root entry: staging synced no directory.
+  expect(first.writes.fsyncs).toBe(4);
+  const second = new ObjectStore(join(directory, "objects"));
+  await second.store([c!]);
+  expect(second.writes.fsyncs).toBe(4);
+});
+
+test("re-storing an object this process made durable freshens it without reading it", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const value = object("durable here");
+  await store.store([value]);
+  const path = store.path(value.hash);
+  // Bytes changed behind the store's back show the repeat store never reads
+  // them; every read still hash-checks, so the damage is caught there.
+  await writeFile(path, "damaged");
+  await utimes(path, twoDaysAgo(), twoDaysAgo());
+  await store.store([value]);
+  expect(await recent(path)).toBe(true);
+  expect(store.writes.written).toBe(1);
+  expect(store.writes.fsyncs).toBe(4);
+  await expect(new ObjectStore(join(directory, "objects")).read(value.hash)).rejects.toThrow("Stored object hash mismatch");
+});
+
+test("re-storing a durable object the collector removed writes it again", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const value = object("collected");
+  await store.store([value]);
+  await rm(store.path(value.hash));
+  await store.store([value]);
+  expect(await store.read(value.hash)).toEqual(value.bytes);
+  expect(store.writes.written).toBe(2);
+});
+
+test("an object not known to this process has its stored bytes checked", async () => {
+  const value = object("checked");
+  await new ObjectStore(join(directory, "objects")).store([value]);
+  const other = new ObjectStore(join(directory, "objects"));
+  await writeFile(other.path(value.hash), "tampered");
+  await expect(other.store([value])).rejects.toThrow("Stored object hash mismatch");
 });
 
 test("durable store still rejects mismatched existing bytes", async () => {
