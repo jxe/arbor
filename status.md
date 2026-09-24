@@ -41,7 +41,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status` | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
-| One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | implemented, not deployed; migration 016 not rehearsed or run | [merge tool](docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states), [migration 016](packages/canopyd/migrations/016-squash-history/README.md), [canopyd 015](plans/canopyd/015-squash-history-and-one-merge-state-model.md) |
+| One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | [merge tool](docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states), [migration 016](packages/canopyd/migrations/016-squash-history/README.md) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
 
 ## In progress
@@ -67,7 +67,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Migration 016 (implemented, not run) cuts the database's accepted history to each tree's head but deletes no objects: squashed roots and states stay in `objects/`, unreferenced. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Migration 016 (run 2026-09-24) cut the database's accepted history to each tree's head but deleted no objects: squashed roots and states stay in `objects/`, unreferenced. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome of resource policy** fails before mutation until a policy-transfer contract is reviewed.
@@ -86,19 +86,34 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## One merge-state model and history squash — 2026-09-24
 
-Implemented on `claude/canopyd-code-review-pvrk0p`, not deployed. Stage 1 of
-[canopyd 015](plans/canopyd/015-squash-history-and-one-merge-state-model.md): every acceptance
-records a merge state, and nothing writes whole-entry conflict rows. Stage 2 requires schema 18
-and deletes the code that served older rows: the conflict and authored-intent stores and their
-fallbacks, checkpoint replay with `checkpoint-batch`, the whole-piece effect fallback and other
-legacy defaults: about 600 fewer lines of host and merge-tool code, and 1,500 lines of retired
-migrations 013 to 015.
-[Migration 016](packages/canopyd/migrations/016-squash-history/README.md) keeps each tree's head
-(root, ordinal and so wire id, receipt), gives it a fresh editable merge state, drops everything
-older, and keeps entry dates and document versions. It refuses while any head has an unresolved
-decision. Its replay check re-accepts a backup's recent updates through this build and compares
-roots and conflict flags; neither it nor the migration has been run on a backup yet. The history
-cut date is recorded here when migration 016 runs.
+Deployed 2026-09-24 at schema 18 by migration 016, from schema 17 (build `3d3ebc98`).
+**Accepted history was cut on 2026-09-24:** each tree keeps only its head update, so
+cursors and states older than a head answer as not retained.
+
+Stage 1: every acceptance records a merge state (tree creation, pairing, account
+configuration and boundary rewrites checkpoint their root), and nothing writes whole-entry
+conflict rows. Stage 2 requires schema 18 and deletes the code that served older rows: the
+conflict and authored-intent stores and their fallbacks, checkpoint replay with
+`checkpoint-batch`, the whole-piece effect fallback and other legacy defaults (about 600
+fewer lines of host and merge-tool code, and 1,500 lines of retired migrations 013 to 015).
+[Migration 016](packages/canopyd/migrations/016-squash-history/README.md) kept each tree's
+head (root, ordinal and so wire id, receipt), gave it a fresh editable merge state, dropped
+everything older, and kept entry dates and document versions.
+
+Evidence: the replay check re-accepted the backup's last 30 client updates on the three
+ordinary trees through this build with every root and conflict flag matching. The live
+run matched the rehearsal exactly (5 heads, roots unchanged, 2,742 updates removed,
+`nextOrdinal` 4329); `verify.ts` passed against the live host with the Mac's sync; the Mac
+resumed at its heads without re-placing, with an empty authored-manifest diff; a round-trip
+edit was accepted as 4329 on the head 4328 and its deletion as 4330, restoring the root.
+
+Costs carried forward: a snapshot now costs a checkpoint linear in the tree's nodes (on a
+synthetic 1,000-file tree a snapshot fast-forward went from about 90 ms to about 380 ms,
+`tests/performance/snapshot-acceptance-cost.ts`); an incremental checkpoint that
+path-copies the active state, as the traced fast path does, is the follow-up if folder
+sync of large trees matters. An unavailable merge worker refuses every acceptance,
+including tree creation, pairing and account claims, with a retryable 503. Squashed
+objects stay in `objects/`, unreferenced (see Known gaps).
 
 ## Accepted-history compaction — 2026-09-22
 

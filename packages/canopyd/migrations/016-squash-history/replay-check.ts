@@ -6,7 +6,7 @@ import type { CandidateUpdate, ObjectHash, SourceTraceFrame } from "@overstory/p
 import { CanopyDaemon } from "../../../../packages/canopyd/src/canopy.ts";
 import { migrateSquashHistory } from "./run.ts";
 
-/** Rehearsal check for the one merge-state model (plans/canopyd/015, stage 1).
+/** Rehearsal check for the one merge-state model (canopyd 015, stage 1; the plan is in git history).
  *
  * Takes a restored pre-migration copy (schema 17, written by the deployed
  * build) and never writes to it. On a scratch copy it cuts each ordinary
