@@ -1,20 +1,11 @@
 import { encodeJSON, loadSharedValue, OBJECT_HASH, storeSharedValue } from "./state-value.ts";
 import { hashObject } from "@overstory/protocol";
-import {
-  parseIntentHistoryRecord,
-  intentHistoryReferences,
-  intentReferences,
-  parseIntentState,
-  type IntentState,
-} from "./intent-model.ts";
+import { parseIntentState, type IntentState } from "./intent-model.ts";
 import {
   getStateMap,
   loadStateMap,
   storeStateMap,
   updateStateMap,
-  loadValidatedStateMap,
-  type StateMapValidationCache,
-  type MapProof,
 } from "./state-map.ts";
 import { lazyHistory, storeHistory } from "./history-view.ts";
 
@@ -89,50 +80,18 @@ export function loadActiveIntentState(
 }
 
 /** Reads an indexed (v3) state. Every chunk is hash checked, bounded, and
- * reported to the retention walker; references are never inferred from text. */
+ * reported to `retained`; references are never inferred from text. */
 export async function loadIntentState(
   hash: string,
   load: Load,
   retained?: (hash: string) => void,
-  historyCache?: StateMapValidationCache,
-  summary?: {
-    bytes: (count: number) => void;
-    references: (refs: ReadonlySet<string>) => void;
-    /** Opt into shared history ownership instead of flattening its dependencies. */
-    history?: (proofs: readonly MapProof[]) => void;
-  },
 ): Promise<IntentState> {
   const reads = budgetedReads(load, retained);
   const indexed = indexedRoot(decode(await reads.checked(hash)));
   const value = await loadActive(indexed.active, reads);
-  const activeBytes = reads.bytes;
-  const proofs: MapProof[] = [];
-  const references = intentReferences(value);
-  for (const field of historyFields) {
-    if (historyCache) {
-      const proof = await loadValidatedStateMap(indexed.maps[field], load, {
-        cache: historyCache,
-        role: field,
-        validate: (raw) => parseIntentHistoryRecord(field, raw),
-        references: (record) => intentHistoryReferences(field, record),
-        maxBytes: MAX_EXPANDED_BYTES - reads.bytes,
-      });
-      reads.charge(proof.bytes);
-      proofs.push(proof);
-      if (!summary?.history) {
-        for (const ref of proof.references) references.add(ref);
-        for (const hash of proof.objects) retained?.(hash);
-      }
-      value[field] = proof.values as never;
-    } else
-      value[field] = (await loadStateMap(indexed.maps[field], reads.raw)) as never;
-  }
-  // Active state and each history record have already passed the same schema.
-  // Cached history is immutable; this mode is only for authority validation.
-  summary?.history?.(proofs);
-  summary?.bytes(summary?.history && historyCache ? activeBytes : reads.bytes);
-  summary?.references(historyCache ? references : intentReferences(value));
-  return historyCache ? value : parseIntentState(value);
+  for (const field of historyFields)
+    value[field] = (await loadStateMap(indexed.maps[field], reads.raw)) as never;
+  return parseIntentState(value);
 }
 
 const historyFields = [

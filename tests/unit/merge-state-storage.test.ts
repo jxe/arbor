@@ -103,45 +103,13 @@ test("retention includes every shared chunk, not only logical file dependencies"
   expect(visited).toEqual(new Set(f.objects.keys()));
 });
 
-test("cached history validation equals full validation and reports all retained objects", async () => {
-  const { StateMapValidationCache } = await import(
-    "../../packages/canopyd-merge/src/state-map.ts"
-  );
+test("loading rejects malformed history records and retained node identities", async () => {
   const f = store(),
-    cache = new StateMapValidationCache();
-  const original = state(1000);
-  for (let i = 0; i < 3; i++) {
-    original.changes[`new-${i}`] = hashObject(bytes(`new-${i}`));
-    const root = storeIntentState(original, f.put);
-    const fullObjects = new Set<string>(),
-      cachedObjects = new Set<string>();
-    const full = await loadIntentState(root, f.load, (h) => fullObjects.add(h));
-    const cached = await loadIntentState(
-      root,
-      f.load,
-      (h) => cachedObjects.add(h),
-      cache,
-    );
-    expect(cached).toEqual(full);
-    expect(cachedObjects).toEqual(fullObjects);
-  }
+    original = state(1);
+  await loadIntentState(storeIntentState(original, f.put), f.load);
   original.changes.invalid = "not-a-hash";
-  const malformed = storeIntentState(original, f.put);
-  await expect(
-    loadIntentState(malformed, f.load, undefined, cache),
-  ).rejects.toThrow();
-  await expect(loadIntentState(malformed, f.load)).rejects.toThrow();
-});
-
-test("cached validation retains history node-identity checks", async () => {
-  const { StateMapValidationCache } = await import(
-    "../../packages/canopyd-merge/src/state-map.ts"
-  );
-  const f = store(),
-    original = state(1),
-    cache = new StateMapValidationCache();
-  const valid = storeIntentState(original, f.put);
-  await loadIntentState(valid, f.load, undefined, cache);
+  await expect(loadIntentState(storeIntentState(original, f.put), f.load)).rejects.toThrow();
+  delete original.changes.invalid;
   original.outputs.bad = {
     node: "root",
     view: {
@@ -149,11 +117,7 @@ test("cached validation retains history node-identity checks", async () => {
       nodes: { root: { ...original.nodes.root!, id: "another" } },
     },
   };
-  const malformed = storeIntentState(original, f.put);
-  await expect(
-    loadIntentState(malformed, f.load, undefined, cache),
-  ).rejects.toThrow("Invalid retained node identity");
-  await expect(loadIntentState(malformed, f.load)).rejects.toThrow(
+  await expect(loadIntentState(storeIntentState(original, f.put), f.load)).rejects.toThrow(
     "Invalid retained node identity",
   );
 });

@@ -1,4 +1,4 @@
-import { validateIntentState } from "../../../packages/canopyd-merge/src/intent-engine.ts";
+import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
@@ -2054,16 +2054,22 @@ test("nested enclosures retain readable alternatives as a source branch advances
     key: "copy", kind: "copySource", source: f.ref("/a.txt", "two", [1, 3]),
     at: f.ref("/c.txt", "end", [3, 3]), side: "after",
   }], "copy2"));
-  const objects = { read: async (hash: string) => f.objects.get(hash)!, store: async () => {} };
-  await validateIntentState(twice.result, "tree", objects);
+  // Eager evaluation fully loads and validates the basis state it starts from.
+  const eager = async (request: ReturnType<typeof f.request>) => {
+    const response = await mergeIntent(request, {
+      read: async (hash: string) => f.objects.get(hash)!,
+      store: async (values) => { for (const v of values) f.objects.set(v.hash, v.bytes); },
+    }, { eager: true });
+    if (response.outcome !== "evaluated") throw new Error(JSON.stringify(response));
+    return response;
+  };
   // Both enclosing decisions can alias the same root. Updating the nested
   // choice must not leave either newly recorded context with a stale alias.
-  const edited = await f.run(f.request(twice.result, tree("THREE", "endwo", "endwo"),
+  const edited = await eager(f.request(twice.result, tree("THREE", "endwo", "endwo"),
     edit("two", "THREE"), "later"));
   expect(f.content(edited.result.object, "a.txt")).toBe("THREE");
   expect(edited.decisions.map(d => d.key)).toEqual(twice.decisions.map(d => d.key));
-  await validateIntentState(edited.result, "tree", objects);
-  const next = await f.run(f.request(edited.result, tree("FOUR", "endwo", "endwo"),
+  const next = await eager(f.request(edited.result, tree("FOUR", "endwo", "endwo"),
     edit("THREE", "FOUR"), "again"));
   expect(f.content(next.result.object, "a.txt")).toBe("FOUR");
   expect(next.decisions.map(d => d.key)).toEqual(edited.decisions.map(d => d.key));

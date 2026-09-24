@@ -1,7 +1,6 @@
 import { isEditableState, loadEditableIntentState, loadIntentState, loadLazyIntentState, storeLazyIntentState } from "./state-storage.ts";
 import { decisionReports } from "./reports.ts";
 import { cloneHistory, need, since, union } from "./history-view.ts";
-import type { MapProof, StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@overstory/protocol";
 import { encodeJSON } from "./state-value.ts";
 import {
@@ -120,20 +119,11 @@ const components = (path: string): string[] => {
   return path === "/" ? [] : path.slice(1).split("/");
 };
 
-/** Per-validation material proof, inherited only from a fully validated state.
- * No bytes or global hash cache: compare file nodes against the preceding state. */
-export type ValidatedMaterial = Map<string, {node: Node; object: string}>;
-type StateValidation = {
-  /** Wall-clock budget for validation; defaults to the evaluator's 5 s. */
-  maxMillis?: number;
-  historyCache: StateMapValidationCache;
-  retained: (hash: string) => void;
-  summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void; history?: (proofs: readonly MapProof[]) => void};
-  material?: {previous?: ValidatedMaterial; next: ValidatedMaterial};
-};
+/** Projected file objects by node, reused while a node is unchanged. Seeded
+ * from an accepted root's directory metadata, never from a client assertion. */
+type ProjectedMaterial = Map<string, {node: Node; object: string}>;
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
-  private validation?: StateValidation;
   private appliedDeletions?: Record<string, unknown>;
   private lazy = false;
   /** Load the history records this request names: its change identity, its
@@ -183,7 +173,7 @@ class Engine {
     return (await since(state.effects, this.appliedDeletions, same)) as Record<string, Effect>;
   }
   eager = false;
-  private projection?: StateValidation["material"];
+  private projection?: {previous?: ProjectedMaterial; next: ProjectedMaterial};
   authoredResult?: { object: string; state: string };
   readonly pendingEnclosures = new Set<string>();
   readonly formatEvidence: FormatEvidence[] = [];
@@ -329,14 +319,13 @@ class Engine {
     await this.importNode(state, root, "directory", state.root, null, "");
     return state;
   }
-  async load(ref: { object: string; state?: string }, validation?: StateValidation): Promise<IntentState> {
-    this.validation = validation;
+  async load(ref: { object: string; state?: string }): Promise<IntentState> {
     if (!ref.state) return this.initial(ref.object);
     let state: IntentState;
     try {
-      state = this.lazy && !validation
+      state = this.lazy
         ? await loadLazyIntentState(ref.state, (hash) => this.read(hash))
-        : await loadIntentState(ref.state, (hash) => this.read(hash), validation?.retained, validation?.historyCache, validation?.summary);
+        : await loadIntentState(ref.state, (hash) => this.read(hash));
     } catch (error) {
       if (error instanceof IntentError) throw error;
       return fail("Invalid material state");
@@ -344,7 +333,7 @@ class Engine {
     // An accepted input pair was validated by the host when it was accepted,
     // as the exact-basis path already relies on. Recover its file hashes from
     // the root's directory metadata instead of rebuilding every file.
-    const trusted = this.lazy && !validation;
+    const trusted = this.lazy;
     if (trusted) {
       const material = await this.trustedProjection(state, ref.object);
       this.projection ??= {previous: new Map(), next: new Map()};
@@ -472,7 +461,7 @@ class Engine {
     visiting.add(root);
     try {
       if (node.kind === "file") {
-        const material = this.projection ?? this.validation?.material;
+        const material = this.projection;
         const previous = material?.previous?.get(node.id);
         const object = previous && same(previous.node, node)
           ? previous.object
@@ -2656,9 +2645,9 @@ class Engine {
   }
   /** Recover projected file hashes from accepted directory metadata, without
    * rereading file bodies or re-proving the host-validated state/root relation. */
-  private async trustedProjection(state: IntentState, object: string): Promise<ValidatedMaterial> {
+  private async trustedProjection(state: IntentState, object: string): Promise<ProjectedMaterial> {
     const index = this.childIndex(state);
-    const material: ValidatedMaterial = new Map();
+    const material: ProjectedMaterial = new Map();
     const visit = async (id: string, hash: string, depth: number): Promise<void> => {
       this.checkBudget();
       if (depth > 256) return fail("Directory depth budget exceeded");
@@ -3192,30 +3181,6 @@ export async function checkpointIntent(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );
   return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions: decisionReports(state) };
-}
-
-/** Validate a worker-owned graph at the authority boundary without running edits. */
-export async function validateIntentState(
-  ref: { object: string; state: string },
-  tree: string,
-  objects: MergeObjects,
-  validation?: StateValidation
-): Promise<IntentState> {
-  const engine = new Engine(
-    {
-      kind: "tree",
-      tree,
-      base: ref,
-      current: ref,
-      incoming: { change: "validate", object: ref.object, trace: [] },
-      // Validation walks every history record on a cold cache; the evaluator's
-      // 32 MiB read budget is for one edit. The state loader caps expansion at
-      // 128 MiB itself, so allow that much here.
-      rules: { id: "tree-default", revision: 1, ...(validation ? { config: { maxBytes: 128 * 1024 * 1024, ...(validation.maxMillis ? { maxMillis: validation.maxMillis } : {}) } } : {}) },
-    },
-    objects
-  );
-  return engine.load(ref, validation);
 }
 
 /** An `editSource` effect's piece edits per file node: stored on new records,
