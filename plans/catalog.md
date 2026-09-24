@@ -20,9 +20,9 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Client state machines
 
-`clients/` — The portable client state machines and the runners that execute them.
+`clients/` — The portable update machine, the change log, and the runners and sources that use them.
 
-- [Clients 001 — Reconcile the client state machines with the clients that run them](clients/001-reconcile-client-state-machines.md) — **NEEDS DESIGN.** Neither TypeScript reducer runs in production, and the Swift runners bypass their machines' effects and phases; decide per behaviour whether the machine or the runner is right, revise spec 09 and the vectors, make the runners effect-driven, and add runner conformance before Web 025 needs them.
+- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **DESIGN AGREED; Swift first.** Editors (traced frames) and folders (`trace: null`) append local changes to one durable `ChangeLog`, and one `UpdateMachine` runner publishes them; the document admission machine, editor recovery journal and daemon conflict workspace are deleted, rejection is `held`, and shared runner vectors pin Swift and TypeScript before Web 025.
 
 ## Web client
 
