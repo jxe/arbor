@@ -393,7 +393,7 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
   max-width: min(520px, calc(100% - 180px));
   min-height: 28px;
 }
-.editor-status button, .collection > button, .recovery button {
+.editor-status button, .collection > button {
   padding: 5px 9px;
   border: 1px solid var(--arbor-border);
   border-radius: 6px;
@@ -850,25 +850,6 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
   white-space: nowrap;
 }
 .arbor-pointer-dragging, .arbor-pointer-dragging * { cursor: grabbing !important; user-select: none !important; }
-
-.recovery {
-  position: fixed;
-  z-index: 100;
-  right: 18px;
-  bottom: 18px;
-  width: min(520px, calc(100vw - 36px));
-  max-height: 65vh;
-  padding: 14px;
-  overflow: auto;
-  border: 1px solid var(--arbor-border);
-  border-radius: 10px;
-  background: var(--arbor-menu);
-  box-shadow: 0 16px 60px var(--arbor-shadow);
-}
-.recovery-title, .recovery-entry { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
-.recovery-entry { padding: 10px 0; border-top: 1px solid var(--arbor-border); }
-.recovery-entry span { color: var(--arbor-warning); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
-.recovery-entry pre { margin: 4px 0; white-space: pre-wrap; }
 
 .backlinks {
   width: min(708px, calc(100% - 40px));

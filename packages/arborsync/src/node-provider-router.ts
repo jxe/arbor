@@ -1,7 +1,6 @@
-import type { ChildrenPage, Hash, JSONValue, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSummary, TreeRef } from "@overstory/protocol";
+import type { ChildrenPage, Hash, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSummary, TreeRef } from "@overstory/protocol";
 import { canonicalNodePath, revisionOf } from "@overstory/protocol";
 import { ProjectionProviderHost, type ProjectionReadSession } from "./state/index.ts";
-import { type ProjectionPropertyPreparation, type ProjectionWriteTarget } from "@overstory/apps-runtime/collections";
 export interface PhysicalNodeSurface {
   readonly tree: TreeRef;
   enclosingTree?(): LocalTreeDescriptor | undefined;
@@ -127,26 +126,6 @@ export class NodeProviderRouter implements AsyncDisposable {
       return mount.session.children(path, parent, await this.context(path, observedThrough), cursor, table);
     }
     return this.physical.children({ ...ref, path }, cursor, observedThrough);
-  }
-  async writeTarget(ref: NodeRef): Promise<ProjectionWriteTarget | null> {
-    const path = canonicalNodePath(ref.path);
-    const mount = await this.mount(path);
-    if (!mount || mount.relative.length === 0) return null;
-    const table = await mount.session.tableFor(mount.relative);
-    const parentPath = table ? `${mount.mountPath === "/" ? "" : mount.mountPath}/${table}` : mount.mountPath;
-    const target = await mount.session.writeTarget(parentPath, { path, stableKey: ref.stableKey }, table);
-    if (!target) return null;
-    return { ...target, writable: target.writable && await this.physical.writable(parentPath) };
-  }
-  async preparePropertyWrite(
-    target: ProjectionWriteTarget,
-    basePropertiesRevision: string,
-    properties: Record<string, JSONValue>,
-    mutation: { scope: string; id: string },
-  ): Promise<ProjectionPropertyPreparation> {
-    const session = await this.providers.open(target.directory);
-    if (!session) throw new Error("The projection provider disappeared while the write was being prepared");
-    return session.preparePropertyWrite(target, basePropertiesRevision, properties, mutation);
   }
   collectionFileDescriptor(directory: string, sourceName: string) {
     return this.providers.collectionFileDescriptor(directory, sourceName);

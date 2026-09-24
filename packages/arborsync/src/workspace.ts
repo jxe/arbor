@@ -67,7 +67,7 @@ export class Workspace implements AsyncDisposable {
       }),
     });
 
-    this.editor = new WorkspaceEditor(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor(), options.faultInjector);
+    this.editor = new WorkspaceEditor(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
   }
   async [Symbol.asyncDispose](): Promise<void> {

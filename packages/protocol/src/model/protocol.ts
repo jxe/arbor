@@ -209,27 +209,6 @@ export interface BacklinkEntry {
   context: string;
 }
 
-export interface BlockRecoveryEntry {
-  kind: "block";
-  ref: NodeRef;
-  hash: string;
-  markdown: string;
-  parent: string | null;
-  status: "lost" | "purged";
-  changedAt: number;
-}
-
-export interface TrashRecoveryEntry {
-  kind: "trash";
-  ref: NodeRef;
-  originalPath: LogicalPath;
-  /** Physical recovery classification, not a logical node kind. */
-  nodeKind: "markdown" | "directory" | "file";
-  changedAt: number;
-}
-
-export type RecoveryEntry = BlockRecoveryEntry | TrashRecoveryEntry;
-
 export interface LocatorResolution {
   ref: NodeRef;
   enclosingTree?: TreeDescriptor;
@@ -354,12 +333,6 @@ export type ContentWorkspaceOperation =
     source: string;
     /** Optional editor provenance; the complete `source` remains authoritative. */
     sourceEdits?: SourceEdit[];
-  }
-  | {
-    op: "restoreRecovery";
-    ref: NodeRef;
-    hash: string;
-    baseContentRevision?: ContentRevision;
   }
   | {
     op: "ensureDocumentIdentity";

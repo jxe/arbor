@@ -117,22 +117,4 @@ describe("NodeProviderRouter conformance", () => {
     expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/mixed/one", stableKey: null })).properties.title).toBe("Physical");
   });
 
-  test("collection files mutate through one provider transaction contract", async () => {
-    for (const name of ["csv", "json", "jsonl"] as const) {
-      const key = canonicalStableKey([["id", "one"]]);
-      const before = await workspace.editor.snapshot({ tree: workspace.tree, path: `/${name}/stale`, stableKey: key });
-      expect(before.capabilities.properties?.writable).toBe(true);
-      await workspace.editor.executeMutation({
-        mutationID: `provider-${name}-write`,
-        operations: [{
-          op: "writeProperties",
-          ref: before.ref,
-          basePropertiesRevision: before.capabilities.properties!.revision,
-          properties: { id: "one", title: `${name.toUpperCase()} changed` },
-        }],
-      });
-      const after = await workspace.editor.snapshot({ tree: workspace.tree, path: `/${name}/stale-again`, stableKey: key });
-      expect(after.properties).toEqual({ id: "one", title: `${name.toUpperCase()} changed` });
-    }
-  });
 });

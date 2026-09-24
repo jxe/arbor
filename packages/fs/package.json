@@ -1,7 +1,7 @@
 {
   "name": "@overstory/fs",
   "version": "0.1.0",
-  "description": "Materializing Overstory trees on a filesystem: write journal, discovery, atomic file operations, and watching. Used by Arbor Sync and by the client library.",
+  "description": "Materializing Overstory trees on a filesystem: discovery, atomic file operations, and watching. Used by Arbor Sync and by the client library.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

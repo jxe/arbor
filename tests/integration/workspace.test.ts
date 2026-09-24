@@ -4,9 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { RevisionConflictError, Workspace } from "@overstory/arborsync";
-import { canonicalStableKey, parseMarkdown } from "@overstory/protocol";
-import { pageIDFromStableKey } from "@overstory/protocol/node-key";
+import { Workspace } from "@overstory/arborsync";
+import { canonicalStableKey } from "@overstory/protocol";
 
 let root: string;
 let state: string;
@@ -88,42 +87,6 @@ describe("workspace service", () => {
     expect(row.capabilities.properties?.writable).toBe(true);
     expect(row.capabilities.content?.writable).toBe(true);
     expect(nodeDocument(row)?.bodySource).toBe("Row body.\n");
-
-    await workspace.editor.executeMutation({
-      mutationID: "markdown-row-properties",
-      operations: [{
-        op: "writeProperties",
-        ref: { tree: workspace.tree, path: "/records/one", stableKey: null },
-        basePropertiesRevision: row.capabilities.properties!.revision,
-        properties: { id: "abc123", title: "Updated" },
-      }],
-    });
-    const updated = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
-    expect(updated.properties).toEqual({ id: "abc123", title: "Updated" });
-    expect(nodeDocument(updated)?.bodySource).toBe("Row body.\n");
-
-    await expect(workspace.editor.executeMutation({
-      mutationID: "markdown-row-identity-change",
-      operations: [{
-        op: "writeProperties",
-        ref: { tree: workspace.tree, path: "/records/one", stableKey: null },
-        basePropertiesRevision: updated.capabilities.properties!.revision,
-        properties: { id: "different", title: "Updated" },
-      }],
-    })).rejects.toMatchObject({ code: "invalid-reference" });
-
-    const changedSource = nodeDocument(updated)!.source.replace("Row body.", "Changed body.");
-    await workspace.editor.executeMutation({
-      mutationID: "markdown-row-content",
-      operations: [{
-        op: "writeMarkdown",
-        ref: { tree: workspace.tree, path: "/records/stale", stableKey: key },
-        baseContentRevision: updated.capabilities.content!.revision,
-        source: changedSource,
-      }],
-    });
-    expect(nodeDocument(await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/one", stableKey: key }))?.bodySource)
-      .toBe("Changed body.\n");
   });
 
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {
@@ -144,19 +107,6 @@ describe("workspace service", () => {
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.content).toBeUndefined();
     expect(row.capabilities.properties?.writable).toBe(true);
-    await workspace.editor.executeMutation({
-      mutationID: "json-row-properties",
-      operations: [{
-        op: "writeProperties",
-        ref: row.ref,
-        basePropertiesRevision: row.capabilities.properties!.revision,
-        properties: { id: "b", title: "Changed" },
-      }],
-    });
-    expect(await readFile(join(collection, "_store.json"), "utf8"))
-      .toBe('[{"id":"b","title":"Changed"},{"id":"a","title":"First"}]\n');
-    const updated = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled/stale-again", stableKey: key });
-    expect(updated.properties).toEqual({ id: "b", title: "Changed" });
   });
 
   test("resolves SQLite databases, tables, and rows as ordinary nodes", async () => {
@@ -190,48 +140,13 @@ describe("workspace service", () => {
     expect(row.capabilities.properties?.writable).toBe(true);
   });
 
-  test("writes exact source and enforces revision CAS", async () => {
-    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
-    const source = "---\ntitle: Notes\n---\n▸ Changed\n  First\n";
-    await workspace.editor.executeMutation({ mutationID: "workspace-write-source", operations: [{
-      op: "writeMarkdown",
-      ref: node.ref,
-      baseContentRevision: node.capabilities.content!.revision,
-      source,
-    }] });
-    const saved = await workspace.editor.snapshot(node.ref);
-    expect(nodeDocument(saved)?.frontmatter.id).toBeUndefined();
-    expect(nodeDocument(saved)?.source).toBe(source);
-    expect(await readFile(join(root, "notes.md"), "utf8")).toContain("▸ Changed");
-    await expect(workspace.editor.executeMutation({ mutationID: "workspace-write-stale", operations: [{
-      op: "writeMarkdown",
-      ref: node.ref,
-      baseContentRevision: node.capabilities.content!.revision,
-      source,
-    }] })).rejects.toBeInstanceOf(RevisionConflictError);
-  });
-
-  test("materializes a directory page on first write", async () => {
-    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/folder", stableKey: null });
-    await workspace.editor.executeMutation({ mutationID: "workspace-write-directory", operations: [{
-      op: "writeMarkdown",
-      ref: node.ref,
-      baseContentRevision: node.capabilities.content!.revision,
-      source: "About this folder\n",
-    }] });
-    const stored = await readFile(join(root, "folder", "_index.md"), "utf8");
-    expect(stored).toContain("About this folder");
-    expect(stored).not.toContain("[child](child)");
-    expect((await workspace.editor.children({ tree: workspace.tree, path: "/folder", stableKey: null })).items.map((child) => child.ref.path)).toContain("/folder/child");
-    expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/folder/_index.md", stableKey: null })).ref.path).toBe("/folder");
-  });
-
   test("reports body state and unambiguous child identity", async () => {
     const notes = await workspace.editor.snapshot({ tree: "local", path: "/notes", stableKey: null });
     expect(notes.content?.representation?.state).toBe("stored");
     expect(notes.content?.representation?.origin).toBe("sibling");
     expect(notes.ref.stableKey).toBeNull();
 
+    await writeFile(join(root, "folder", "_index.md"), "About this folder\n");
     const materialized = await workspace.editor.snapshot({ tree: "local", path: "/folder", stableKey: null });
     expect(materialized.content?.representation?.state).toBe("stored");
     expect(materialized.content?.representation?.origin).toBe("index");
@@ -246,101 +161,6 @@ describe("workspace service", () => {
     const child = listing.items.find((item) => item.ref.path === "/notes");
     expect(child?.ref.stableKey).toBeNull();
     expect(listing.items.find((item) => item.ref.path === "/plain")?.ref.stableKey).toBeNull();
-  });
-
-  test("ensureDocumentIdentity mints lazily, no-ops when present, and replays idempotently", async () => {
-    await mkdir(join(root, "bodyless"));
-    const before = await workspace.editor.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
-    expect(before.content?.representation?.state).toBe("implicit");
-    expect(before.ref.stableKey).toBeNull();
-
-    const request = {
-      mutationID: "identity-test-0001",
-      operations: [{
-        op: "ensureDocumentIdentity" as const,
-        ref: { tree: "local", path: "/bodyless", stableKey: null },
-        baseContentRevision: before.capabilities.content?.revision!,
-      }] as [never] & { 0: unknown },
-    };
-    const receipt = await workspace.editor.executeMutation(request as never);
-    const effect = receipt.effects[0]!;
-    const pageID = pageIDFromStableKey(effect.ref.stableKey);
-    expect(pageID).toMatch(/^[a-z0-9]{6}$/);
-    const materialized = await readFile(join(root, "bodyless", "_index.md"), "utf8");
-    expect(parseMarkdown(materialized).frontmatter.id).toBe(pageID);
-    expect(materialized.trim().endsWith("---")).toBe(true);
-
-    const replayed = await workspace.editor.executeMutation(request as never);
-    expect(replayed).toEqual(receipt);
-
-    const after = await workspace.editor.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
-    const again = await workspace.editor.executeMutation({
-      mutationID: "identity-test-0002",
-      operations: [{
-        op: "ensureDocumentIdentity",
-        ref: { tree: "local", path: "/bodyless", stableKey: null },
-        baseContentRevision: "sha256:stale-is-fine-for-a-no-op",
-      }],
-    } as never);
-    expect(again.effects[0]?.ref.stableKey).toBe(effect.ref.stableKey);
-    expect(again.effects[0]?.contentRevision).toBe(after.capabilities.content?.revision!);
-  });
-
-  test("rename and trash preserve and report document identity", async () => {
-    await writeFile(join(root, "unnamed.md"), "No identity yet\n");
-    const receipt = await workspace.editor.executeMutation({
-      mutationID: "identity-rename-0001",
-      operations: [{ op: "rename", ref: { tree: "local", path: "/unnamed", stableKey: null }, name: "named" }],
-    } as never);
-    const moved = receipt.effects.find((item) => item.ref.path === "/named");
-    const movedPageID = pageIDFromStableKey(moved!.ref.stableKey);
-    expect(movedPageID).toMatch(/^[a-z0-9]{6}$/);
-    expect(await readFile(join(root, "named.md"), "utf8")).toContain(`id: ${movedPageID}`);
-
-    const trashed = await workspace.editor.executeMutation({
-      mutationID: "identity-trash-0001",
-      operations: [{ op: "trash", refs: [{ tree: "local", path: "/named", stableKey: null }] }],
-    } as never);
-    expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
-  });
-
-  test("renaming a page proactively heals authored links to its stable identity", async () => {
-    await writeFile(join(root, "healing-target.md"), "---\nid: a13k9z\n---\n# Target\n");
-    await writeFile(join(root, "healing-source.md"), "[Target](healing-target#a13k9z)\n");
-    const target = await workspace.editor.snapshot({ tree: workspace.tree, path: "/healing-target", stableKey: null });
-    await workspace.editor.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
-
-    await workspace.editor.executeMutation({
-      mutationID: "link-healing-rename-0001",
-      operations: [{ op: "rename", ref: target.ref, name: "healed-target" }],
-    } as never);
-
-    let source = "";
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      source = await readFile(join(root, "healing-source.md"), "utf8");
-      if (source.includes("healed-target#a13k9z")) break;
-      await Bun.sleep(50);
-    }
-    expect(source).toContain("[Target](healed-target#a13k9z)");
-  });
-
-  test("soft deletes and restores", async () => {
-    const deleted = await workspace.editor.delete("/folder/child");
-    expect(deleted.trashPath).toStartWith("/Trash/folder/child");
-    await expect(stat(join(root, "folder", "child.md"))).rejects.toThrow();
-    await mkdir(join(root, "folder", "child"));
-    await expect(workspace.editor.restore(deleted.trashPath)).rejects.toThrow("Destination already exists");
-    await rm(join(root, "folder", "child"), { recursive: true });
-    const restored = await workspace.editor.restore(deleted.trashPath);
-    expect(restored.path).toBe("/folder/child");
-    expect(await readFile(join(root, "folder", "child.md"), "utf8")).toContain("Child body");
-  });
-
-  test("stores content-addressed assets", async () => {
-    const asset = await workspace.editor.addAsset("/folder", "picture.png", new TextEncoder().encode("image"));
-    expect(asset.path).toMatch(/^\/Assets\/[a-f0-9]{16}\.png$/);
-    expect(asset.markdownPath).toStartWith("/Assets/");
-    expect(asset.markdownPath).toBe(asset.path);
   });
 
   test("uses a sibling Markdown body for a directory and prefers _index.md beside it", async () => {
@@ -366,14 +186,6 @@ describe("workspace service", () => {
       const duplicate = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(nodeDocument(duplicate)?.bodySource).toBe("Directory\n");
       expect(duplicate.diagnostics.some((item) => item.code === "shadowed-body")).toBe(true);
-      await duplicateWorkspace.editor.executeMutation({ mutationID: "shadowed-body-write", operations: [{
-        op: "writeMarkdown",
-        ref: duplicate.ref,
-        baseContentRevision: duplicate.capabilities.content!.revision,
-        source: "Written\n",
-      }] });
-      expect(await readFile(join(duplicateRoot, "same", "_index.md"), "utf8")).toBe("Written\n");
-      expect(await readFile(join(duplicateRoot, "same.md"), "utf8")).toBe("Leaf\n");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;

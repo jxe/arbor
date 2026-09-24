@@ -6,7 +6,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock, BacklinkEntry, NodeSummary, RecoveryEntry } from "@overstory/protocol";
+import type { ArborBlock, BacklinkEntry, NodeSummary } from "@overstory/protocol";
 import { canonicalArborLocator, isPersonProfileTreeID, placeDirectoryChildren, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@overstory/protocol";
 import type {
   NodeRef,
@@ -474,7 +474,6 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
   const [, renderCoordinator] = useState(0);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({ ...(markdownDocument?.frontmatter ?? {}) });
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
-  const [recovery, setRecovery] = useState<RecoveryEntry[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [creating, setCreating] = useState<"directory" | "markdown" | null>(null);
@@ -1393,10 +1392,6 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
       <div role="menu">
         <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
         <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
-        {node.ref.tree !== "local" && <button role="menuitem" onClick={async () => {
-          closePageActions();
-          setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
-        }}>{isDirectory ? "Recover subtree…" : "Recover…"}</button>}
         {isDirectory && <>
           <div className="menu-separator" />
           <button role="menuitem" title="New Markdown Page (⌘N)" onClick={() => { closePageActions(); setCreating("markdown"); setCreateValue(""); }}>New Page</button>
@@ -1503,26 +1498,5 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
         <small>{entry.context}</small>
       </button>)}
     </section>}
-    {recovery && <div className="recovery">
-      <div className="recovery-title"><strong>{isDirectory ? "Recover subtree" : "Recover blocks"}</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>
-      {!recovery.length && <p>Nothing recoverable here.</p>}
-      {recovery.map((entry) => entry.kind === "block"
-        ? <div className="recovery-entry" key={`block:${entry.ref.path}:${entry.hash}`}>
-          <div><span>{entry.status} · {entry.ref.path}</span><pre>{entry.markdown}</pre></div>
-          <button onClick={async () => {
-            await sapiRef.current.restoreBlock(entry.ref, entry.hash);
-            onSavedPreservingScroll(await sapiRef.current.node(nodeReference));
-            setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
-          }}>Restore</button>
-        </div>
-        : <div className="recovery-entry" key={`trash:${entry.ref.path}`}>
-          <div><span>Trash · {entry.nodeKind}</span><p>{entry.originalPath}</p></div>
-          <button onClick={async () => {
-            await sapiRef.current.restoreTrash(entry.ref);
-            onSavedPreservingScroll(await sapiRef.current.node(nodeReference));
-            setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
-          }}>Restore</button>
-        </div>)}
-    </div>}
   </div>;
 }

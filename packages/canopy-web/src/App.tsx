@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
-import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@overstory/protocol";
+import type { AccessEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@overstory/protocol";
 import type { PairingOffer, LocalAccountSummary, ProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@overstory/arborsync-client";
 import { canonicalNodePath } from "@overstory/protocol/logical-path";
 import { canonicalArborLocator, canonicalHTTPURL } from "@overstory/protocol";
@@ -263,7 +263,6 @@ export function App() {
   const [searchScope, setSearchScope] = useState<"root" | "all">("root");
   const [trees, setTrees] = useState<TreeDescriptor[]>([]);
   const [visits, setVisits] = useState<VisitedTreeSummary[]>([]);
-  const [recoverable, setRecoverable] = useState<Array<{ tree: TreeDescriptor; entry: RecoveryEntry }>>([]);
   const [home, setHome] = useState<string | null>(null);
   const [systemCursor, setSystemCursor] = useState<string | null>(null);
   const [server, setServer] = useState<{
@@ -350,12 +349,7 @@ export function App() {
         .sort((left, right) => right.osPath!.length - left.osPath!.length)[0];
       setHome((current) => activePlacement?.osPath ?? current);
       setTrees(nextTrees);
-      const recoveryPages = await Promise.all(nextTrees.filter((tree) => tree.osPath && !tree.missing).map(async (tree) => {
-        try { return (await api.scoped(tree.id).recovery("/", true)).map((entry) => ({ tree, entry })); }
-        catch { return []; }
-      }));
       if (request !== systemRequest.current) return;
-      setRecoverable(recoveryPages.flat().sort((a, b) => b.entry.changedAt - a.entry.changedAt));
       const visitedChildren = hasChildren(visitedDirectory)
         ? (await api.children(visitedDirectory.ref)).items
         : [];
@@ -1248,25 +1242,6 @@ export function App() {
                 : <button className="quiet" onClick={() => void placeRemoteTree(remoteTree)}>Add to workspace…</button>}
             </div>;
           })}
-        </div>}
-        {recoverable.length > 0 && <div className="home-visits">
-          <h2>Recoverable across your workspace</h2>
-          {recoverable.map(({ tree, entry }) => <div className="home-root" key={`${tree.id}:${entry.kind}:${entry.ref.path}:${entry.kind === "block" ? entry.hash : entry.changedAt}`}>
-            <button className="home-root-open" onClick={() => tree.osPath && navigate(`${tree.osPath}${entry.kind === "trash" ? entry.originalPath : entry.ref.path}`)}>
-              <strong>{entry.kind === "trash" ? entry.originalPath : entry.ref.path}</strong>
-              <small>{tree.name} · {entry.kind === "trash" ? `Trash · ${entry.nodeKind}` : `${entry.status} block`}</small>
-            </button>
-            <button className="quiet" onClick={async () => {
-              try {
-                const scoped = api.scoped(tree.id);
-                if (entry.kind === "trash") await scoped.restoreTrash(entry.ref);
-                else await scoped.restoreBlock(entry.ref, entry.hash);
-                await refreshSystem();
-              } catch (restoreError) {
-                setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
-              }
-            }}>Restore</button>
-          </div>)}
         </div>}
         {home && <button className="quiet home-browse" onClick={() => navigate(home)}>Browse home directory (~)</button>}
         {lastLocation && lastLocation !== path && <button className="quiet home-browse" onClick={() => navigate(lastLocation)}>Continue where you left off: {home && lastLocation.startsWith(home) ? `~${lastLocation.slice(home.length)}` : lastLocation}</button>}
