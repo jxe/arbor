@@ -96,10 +96,11 @@ test("typed evaluation refusals match library and executable modes", async () =>
   invalid.incoming.object = base;
   const missing = structuredClone(valid);
   missing.base.object = "sha256:" + "0".repeat(64);
+  missing.incoming.trace[0]!.before = missing.base.object;
   const limited = structuredClone(valid);
   limited.rules.config = { maxBytes: 1 };
   const unsupported = structuredClone(valid);
-  (unsupported.incoming.operations![0] as { kind: string }).kind =
+  (unsupported.incoming.trace[0]!.operations[0] as { kind: string }).kind =
     "futureOperation";
   const requests = [invalid, missing, limited, unsupported, valid];
   const expected = await Promise.all(requests.map((r) => f.evaluate(r)));

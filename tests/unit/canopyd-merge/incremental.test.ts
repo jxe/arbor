@@ -338,9 +338,9 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
   }};
   expect((await mergeIntent(request, damaged)).outcome).toBe("invalid");
   expect((await mergeIntent({...request, incoming: {...request.incoming, object: base}}, objects)).outcome).toBe("invalid");
-  expect((await mergeIntent({...request, incoming: {...request.incoming, operations: [
+  expect((await mergeIntent({...request, incoming: {...request.incoming, trace: [{...request.incoming.trace[0]!, operations: [
     {kind: "editSource", key: "bad", source: f.ref("/a.md", "wrong", [1, 2]), text: "B"},
-  ]}}, objects)).outcome).toBe("invalid");
+  ]}]}}, objects)).outcome).toBe("invalid");
 });
 
 test("a multi-frame trace of exact-basis edits takes the fast path", async () => {

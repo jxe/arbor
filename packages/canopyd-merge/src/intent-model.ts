@@ -20,10 +20,8 @@ const schema = z
       .object({
         change: token,
         object: hash,
-        // Exactly one of these arrives: `trace` is the frame chain; a bare
-        // `operations` array is the deployed wire's single frame and is adapted
-        // below. `parseIntentRequest` rejects both and neither.
-        operations: z.array(z.unknown()).max(1024).optional(),
+        // The authored frame chain. A snapshot carries no evidence and
+        // arrives as an empty chain.
         trace: z
           .array(
             z
@@ -34,8 +32,7 @@ const schema = z
               })
               .strict()
           )
-          .max(64)
-          .optional(),
+          .max(64),
         resolves: z.array(z.string().min(1)).max(1024).optional(),
       })
       .strict(),
@@ -143,18 +140,8 @@ export type IntentRequest = Omit<
     value: { object: string; kind: "file" | "directory" };
   }>;
 };
-/** What a caller may hand the engine: a `trace` of frames, which is what the
- * wire carries, or a flat `operations` list for a caller that has only one
- * step to state. `parseIntentRequest` returns the frame form either way. */
-export type IntentRequestInput = Omit<IntentRequest, "incoming"> & {
-  incoming: {
-    change: string;
-    object: string;
-    operations?: SourceOperation[];
-    trace?: Frame[];
-    resolves?: string[];
-  };
-};
+/** What a caller hands the engine, before `parseIntentRequest` checks it. */
+export type IntentRequestInput = IntentRequest;
 export function parseIntentRequest(raw: unknown): IntentRequest {
   if (
     raw &&
@@ -164,24 +151,8 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
   )
     throw new IntentError("unsupported", "Unknown rule revision");
   const value = schema.parse(raw);
-  const incoming = value.incoming;
-  if ((incoming.operations === undefined) === (incoming.trace === undefined))
-    throw new IntentError(
-      "invalid",
-      "An incoming change carries either operations or a trace"
-    );
-  // A caller with one step to state may send a flat operation list. It is
-  // exactly one frame from the base tree to the candidate; everything below
-  // sees frames, which is also what the wire hands in.
-  const trace =
-    incoming.trace ??
-    [
-      {
-        before: value.base.object,
-        after: incoming.object,
-        operations: incoming.operations!,
-      },
-    ];
+  const incoming = value.incoming,
+    trace = incoming.trace;
   if (trace.reduce((sum, frame) => sum + frame.operations.length, 0) > 1024)
     throw new IntentError("limit", "Trace exceeds the operation limit");
   const keys = new Set<string>();
@@ -191,10 +162,9 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
       throw new IntentError("invalid", "Trace does not follow its basis");
     if (index === trace.length - 1 && frame.after !== incoming.object)
       throw new IntentError("invalid", "Trace does not end at the candidate");
-    // Only the single adapted frame may be empty: that is a snapshot candidate
-    // or a bare resolution, which carries no operations at all. A trace states
-    // its steps, so each of its frames contributes something.
-    if (!frame.operations.length && incoming.trace)
+    // A trace states its steps, so each of its frames contributes something.
+    // A snapshot or a bare resolution carries no frames at all.
+    if (!frame.operations.length)
       throw new IntentError("invalid", "Frame carries no operations");
     for (const op of frame.operations)
       if (
@@ -213,13 +183,12 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         ].includes(String(op.kind))
       )
         throw new IntentError("unsupported", "Unknown operation kind");
-    if (frame.operations.length || !incoming.resolves?.length)
-      decodeAuthoredCandidateIntent({
-        change: incoming.change,
-        candidate: frame.after,
-        trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
-        resolves: [],
-      });
+    decodeAuthoredCandidateIntent({
+      change: incoming.change,
+      candidate: frame.after,
+      trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
+      resolves: [],
+    });
     // An operation key names one authored contribution of this change, so it
     // stays unique across the whole trace, not merely within a frame.
     for (const op of frame.operations as Array<{ key: string }>) {
@@ -235,10 +204,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         "Alternative bindings require a complete alternative reference"
       );
   }
-  // The adapted list is dropped, never carried beside the chain it became: a
-  // change's identity must not depend on which of the two shapes stated it.
-  const { operations: _adapted, ...rest } = incoming;
-  return { ...value, incoming: { ...rest, trace } } as IntentRequest;
+  return value as IntentRequest;
 }
 /** The request's semantic identity, hashed into `changes[change]`. The frame
  * chain is the authored claim, so it is what the signature covers: the same
@@ -572,10 +538,7 @@ export function parseIntentResponse(
     value.evidence.change !== request.incoming.change ||
     JSON.stringify(value.evidence.operations) !==
       JSON.stringify(
-        (request.incoming.trace
-          ? traceOperations({ trace: request.incoming.trace })
-          : request.incoming.operations ?? []
-        ).map((op) => op.key)
+        traceOperations(request.incoming).map((op) => op.key)
       ) ||
     new Set(value.objects).size !== value.objects.length
   )
@@ -662,7 +625,7 @@ export function isIntentRequest(raw: unknown): raw is IntentRequestInput {
     "incoming" in raw &&
     !!raw.incoming &&
     typeof raw.incoming === "object" &&
-    // Either the deployed wire's flat operation list or a frame trace.
-    ("operations" in raw.incoming || "trace" in raw.incoming)
+    // A frame trace, possibly empty, marks an intent request.
+    "trace" in raw.incoming
   );
 }

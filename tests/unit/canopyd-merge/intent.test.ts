@@ -839,7 +839,7 @@ test("malformed intent, unavailable objects, unsupported operations and resource
     },
   ]);
   const bad = structuredClone(request);
-  (bad.incoming.operations![0] as { kind: string }).kind = "unknown";
+  (bad.incoming.trace[0]!.operations[0] as { kind: string }).kind = "unknown";
   expect((await f.evaluate(bad)).outcome).toBe("unsupported");
   const limited = structuredClone(request);
   limited.rules.config = { maxBytes: 1 };
@@ -1957,18 +1957,19 @@ test("a later frame refers to an earlier frame's operation result", async () => 
   expect(f.content(framed.result.object, "a.md")).toBe("aOLDbc");
 });
 
-test("a change's identity is its frame chain, however the caller stated it", async () => {
+test("a change's identity is its frame chain", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.md": "abc" }),
     candidate = f.tree({ "a.md": "Abc" });
   const edit = { key: "a", kind: "editSource" as const, source: f.ref("/a.md", "abc", [0, 1]), text: "A" };
-  // One flat list and the single frame it adapts to are the same claim, so
-  // they must hash alike: the adapted list never survives beside the chain.
+  // A one-step request is the single frame it states, so the two hash alike.
   const flat = stableJSONString(changeIdentity(parseIntentRequest(f.request(base, candidate, [edit]))));
   const framed = f.trace(base, [{ after: candidate, operations: [edit] }]);
   expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(flat);
   expect(flat).toContain('"trace"');
-  expect(Object.keys(parseIntentRequest(f.request(base, candidate, [edit])).incoming)).not.toContain("operations");
+  // A flat operation list is not a request shape the engine accepts.
+  const { trace: _trace, ...rest } = f.request(base, candidate, [edit]).incoming;
+  expect(() => parseIntentRequest({ ...f.request(base, candidate, [edit]), incoming: { ...rest, operations: [edit] } })).toThrow();
   // The same operations divided into two frames are a different claim, so two
   // changes can never share an identity by regrouping their steps.
   const two = f.trace(base, [
