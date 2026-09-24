@@ -13,8 +13,8 @@ has no database connection or credentials.
 - `merge.ts`, `pieces.ts`, `state-map.ts`, `state-storage.ts`, `state-value.ts`,
   `history-view.ts`, `retention.ts`: retained state, shared history pages,
   lazy history, and retention closure.
-- `checkpoint.ts`, `checkpoint-batch.ts`: reconstructing legacy semantic
-  states.
+- `checkpoint.ts`: the checkpoint request, which records an accepted root
+  (and its choices) onto a tree's retained state.
 - `account-v2.ts`: account-configuration merge rules.
 - `cli.ts`, `worker-objects.ts`: the JSON-lines `serve` worker and staged
   objects.

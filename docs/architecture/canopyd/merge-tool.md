@@ -58,8 +58,8 @@ clients emit additional operations.
 
 For operation-bearing tree requests, the host supplies already validated
 `base` and `current` state/root pairs within the named tree. canopyd derives them
-from accepted records, validated legacy checkpoints, or validated earlier batch
-results. They are not client-provided assertions. This is the worker contract;
+from the merge states of accepted records or from states validated earlier in
+the same request. They are not client-provided assertions. This is the worker contract;
 there is no trust flag or optional untrusted-basis mode.
 
 Exact-basis source execution loads active state and directory metadata to obtain
@@ -78,8 +78,9 @@ makes itself its own checkpoint of the new root onto the tree's current state:
 a tree's first root (imported with no prior state), pairing, account
 configuration, and the boundary rewrite of a canonical parent. The row's
 `conflicted` flag is that state's open decisions, and inspection pages read
-them. Nothing writes the older whole-entry conflict rows any more; readers keep
-serving the rows written before.
+them. There is no other conflict record: migration 016 (schema 18) removed the
+whole-entry conflict rows and the updates accepted before this model, keeping
+each tree's head with a fresh first-import state.
 
 A `checkpoint` request may set `authored: true` with a `candidate`: one job
 then returns, beside the accepted projection's `result`, the author's own
@@ -88,25 +89,18 @@ basis a later batch suffix continues from. When no decision is added or
 enclosed the two are the same request, and the worker returns the one state
 twice. canopyd validates both states and their retention before acceptance.
 
+A checkpoint decision is a choice between whole alternative roots. With a
+`path` it concerns one file below the root: a content choice when every
+alternative holds a file there, an existence choice when one lacks it; the
+choice is placed on that file's node, so edits elsewhere leave it alone.
+Without a `path` it is one choice about the whole root. A directory scope below
+the root is not implemented yet.
+
 A first import is editable (it has no effects to enforce), so a new tree's
 first edit fast-forwards. A checkpoint names new material by its change and
 path rather than by the projected root, so the accepted projection and the
 author's candidate agree wherever their bytes agree.
 
-## Historical checkpoints
-
-Updates accepted before every acceptance recorded a merge state have none, so
-canopyd reconstructs their semantic states with `checkpoint-batch` requests containing an initial material reference and up to 64 ordered accepted
-projections, change identities and legacy decisions. The worker applies the same
-checkpoint semantics at each step and returns every intermediate state reference.
-canopyd checks each against its accepted projection, then validates their combined
-retention closure once before persisting objects and caching references.
-
-Each batch retains at most 128 MiB of generated objects and 32 MiB of cached input
-bytes. Exceeding the generated-object budget returns the error code
-`checkpoint-batch-too-large`; canopyd retries a smaller slice against the same
-basis. Other failures remain failures. These are
-internal worker requests, with no public Overstory or database schema change.
 Bun uses native SHA-256 with the same object identities as the portable fallback.
 
 ## Incremental retained state
@@ -130,7 +124,7 @@ of staged dependencies before acceptance.
 History validation proofs mirror the immutable radix tree. A parent references
 child proofs instead of copying every descendant record, object hash, and
 reference into flat collections. Synchronous lookup follows that tree; complete
-enumeration remains available for audits and legacy consumers. The input's
+enumeration remains available for audits. The input's
 expanded-byte and visit limits still apply, including on cache hits.
 
 The history cache accounts for each reachable proof allocation once. Accepted
@@ -201,10 +195,9 @@ answers `unsupported` if it sees the kind. Clients compact a debounced burst of
 plain `editSource` frames before admission: `compactTrace` in
 `packages/client/src/source-admission-queue.ts` (and the Swift queue) composes
 them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/document-admission.md#trace-compaction)).
-The evaluator does not compact; it checks the trace it receives. canopyd's
-`composeFrames` in `packages/canopyd/src/updates/source-edits.ts` implements
-the same rule by executing the composition, and serves as a test reference
-for it.
+The evaluator does not compact; it checks the trace it receives.
+`composeFrames` in `tests/support/source-edits.ts` implements the same rule by
+executing the composition, and serves as a test reference for it.
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a
@@ -319,14 +312,16 @@ nodes. Transported results, results kept under `conflictProjection:
 take one complete scan, after which their result is editable. A tree's first
 import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
-their enforced pieces, and replaced files get fresh origins. Reading a record that was
+their enforced pieces, and replaced files get fresh origins. Every state root
+records its `editable` flag; a root without one is invalid. Reading a record that was
 not loaded is an evaluator error, never "absent".
 
-An `editSource` effect records its piece delta per file node (`edits`: each
-edit's `range`, `removed` and `inserted` pieces), and its `before`/`after` node
-copies omit `pieces`. Deletion enforcement and retention read only the delta.
-Records written before the delta keep whole piece copies and are read by
-recomputing the same edits; there is no migration of stored history.
+Every effect records `edits`: for an `editSource` effect its piece delta per
+file node (each edit's `range`, `removed` and `inserted` pieces), and nothing
+for other kinds. An edited file's `before`/`after` node copies omit `pieces`.
+Deletion enforcement and retention read only the delta. Records with whole
+piece copies and no delta were written only into history that migration 016
+squashed, and are no longer read.
 
 ### Limits
 

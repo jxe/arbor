@@ -6,8 +6,12 @@
 - **Effort:** M
 - **Risk:** HIGH. The migration rewrites live history, and a mistake in the
   unification step changes conflict behavior on every ordinary tree.
-- **State:** Stage 1 DONE in code, 2026-09-24 (not deployed); stage 2
-  PLANNED. Joe accepts losing accepted history to retire legacy storage, keeps
+- **State:** Stages 1 and 2 DONE in code, 2026-09-24, on
+  `claude/canopyd-code-review-pvrk0p`; not deployed. Remaining: the rehearsal
+  (replay check, migration on restored copies) and the live run, both in the
+  [migration 016 runbook](../../packages/canopyd/migrations/016-squash-history/README.md).
+  Delete this plan once 016 has run and its evidence is in `status.md`. Joe
+  accepts losing accepted history to retire legacy storage, keeps
   `document_versions` and entry dates, and resolves open conflicts first.
 - **Depends on:** the no-migration cleanup of the same review, which removed
   dead readers, the one-shot merge mode, the source-proposal request and other
@@ -52,8 +56,9 @@ person and group roots, inside the accepting transaction. The behavior is in
 the [merge tool](../../docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states).
 
 Not yet done: the rehearsal on a restored backup, replaying its last N
-accepted updates through the new path and comparing roots and decisions. Run
-it before deploying stage 1.
+accepted updates through the new path and comparing roots and conflict flags.
+`packages/canopyd/migrations/016-squash-history/replay-check.ts` does it; the
+runbook runs it before the migration. Stage 1 deploys with stage 2.
 
 Stage 2 must know:
 
@@ -76,6 +81,28 @@ Stage 2 must know:
   person and group heads.
 
 ## Stage 2: migration 016 squashes history (schema 18)
+
+**Implemented (2026-09-24), not run.** As planned, with these choices:
+
+- Each head keeps its old ordinal, so its wire id and cursor are unchanged and
+  placements only resume. Its `previous` becomes `null`.
+- `previous_ordinal` is a foreign key; the wire `previous.root` is joined from
+  the predecessor.
+- `document_versions.update_id` stays as opaque text without a foreign key;
+  `entry_metadata` keeps only `modified_at`.
+- The merge-state record drops `retention` but keeps `request` (after the
+  squash it is the only stored copy of an authored candidate and trace) and
+  the engine's `evidence`, whose input roots the tests read.
+- The engine's checkpoint `path` branch was not legacy-only: stage 1's
+  per-file snapshot choices use it. It stays, with its errors reworded. A
+  directory-scoped checkpoint decision would build on its `locate` of `path`,
+  on the whole-root branch's `directory` decision (alternatives recorded from
+  whole roots, `affected` naming one node), on `snapshotDecisions` in
+  `canopy.ts`, and on `SemanticMerge.record`'s inspection of `affected`.
+- `storedProfileFacts` reads only version-3 rows, since the migration rebuilt
+  every row.
+
+The plan as written:
 
 **Preconditions, checked by `run.ts`, which refuses to run otherwise:**
 
@@ -132,7 +159,7 @@ Stage 2 must know:
 them to [canopyd 001](001-pack-object-storage.md)'s packing, which then only
 packs live data.
 
-## Decisions for Joe before stage 2
+## Decisions for Joe before stage 2 (decided)
 
 1. **Document versions and entry dates.** `document_versions` feeds
    [canopyd 007](007-document-history-routes-and-restore.md) (P1) and
