@@ -219,7 +219,7 @@ accepted profile inputs; compare to the baseline rather than inventing performan
 ## Final gates and completion
 
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
-`bun run test:performance`, `swift test --package-path swift/Packages/ArborSyncClient`,
+`bun run test:performance`, `xcodebuild test -project swift/Canopy.xcodeproj -scheme Canopy -destination platform=macOS -only-testing:CanopyAppTests/ArborSyncClientTests -only-testing:CanopyAppTests/LoopbackServicesTests`,
 `bun run check:links`, and `git diff --check` → all exit 0. Run affected packaging
 checks (`bun run build:cli:package`, `bun run test:cli:package`) if their inputs changed.
 Use `swift/scripts/test-canopy-editor-local.sh` if editor tests are affected; never

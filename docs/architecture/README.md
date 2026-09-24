@@ -25,7 +25,7 @@ package lives under `swift/Packages/<Name>`.
 | Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
 | Host | `canopyd`, `canopyd-merge`, `merge-protocol`, `tree-merge`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar, its JSON contract and the snapshot tree merge; the executable-document runtime and collection sandbox |
 | Client stack | `client`, `fs` | `OverstoryClient`, `CanopyWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
-| Arbor local tools | `arborsync`, `arborsync-client`, `cli` | `ArborSyncClient` | The per-user daemon, its loopback REST API and clients, the `arbor` command |
+| Arbor local tools | `arborsync`, `cli` | the `Canopy` app target's `ArborSync/` (macOS) | The per-user daemon, its loopback REST API and clients, the `arbor` command |
 | Canopy browsers | `canopy-web` | `CanopyAppKit`, `CanopyEditor`, the `Canopy` app target | The human interface |
 
 Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
@@ -36,8 +36,11 @@ neither imports the other (only the sidecar and Arbor Sync recovery use
 and client packages never depend on `arborsync*`; `cli` and `canopy-web` may
 depend on anything. Swift mirrors
 this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
-`CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient`,
-`ArborSyncClient`, and `CanopyEditor` sit above.
+`CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient` and
+`CanopyEditor` sit above. Each daemon client lives with its only caller: the
+TypeScript one in `packages/cli/src/daemon-client.ts`, the Swift one (REST
+client, loopback credential provider and object store, process supervisor,
+models) in `swift/CanopyApp/ArborSync/`, compiled for macOS only.
 
 ### TypeScript packages
 
@@ -53,9 +56,8 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `tree-merge` | The three-way snapshot tree merge with its Markdown and collection-file rules and model hashes ([README](../../packages/tree-merge/README.md)) | protocol, apps-runtime |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
 | `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index); `recovery/`, the separate tree-recovery tool, which merges candidates with `tree-merge` | protocol, client, fs, apps-runtime, tree-merge |
-| `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |
-| `cli` | `arbor`: daemon supervision, identity, placement, moves, cloud sessions | arborsync, arborsync-client, protocol, fs |
-| `canopy-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/canopy-web/025-arbor-web.md) rebuilds it as a working-tree client | arborsync-client, protocol |
+| `cli` | `arbor`: daemon supervision, identity, placement, moves, cloud sessions; `daemon-client.ts` is its `ArborSyncRESTClient` for the daemon's loopback surface | arborsync, protocol, fs |
+| `canopy-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/canopy-web/025-arbor-web.md) rebuilds it as a working-tree client; its stale imports of the deleted `@overstory/arborsync-client` are Web 025's to replace | protocol |
 
 ### Swift packages
 
@@ -66,8 +68,7 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the editor source, the browser tab controller | |
 | `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
 | `OverstoryClient` | Credentials, the placement service, `CanopyWatchRunner`, account configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
-| `ArborSyncClient` | The loopback REST client for the daemon and its process supervisor | CanopyAppKit, OverstoryObjectStore, Overstory |
-| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec | ArborSyncClient, CanopyAppKit, Quagmire |
+| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec | CanopyAppKit, Quagmire |
 
 `swift/Canopy.xcodeproj` is generated from `swift/project.yml`
 by xcodegen and committed; see [swift/README.md](../../swift/README.md).

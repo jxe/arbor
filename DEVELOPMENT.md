@@ -137,7 +137,6 @@ bun run test:protocol
 bun run build
 bun run test:performance
 bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
-swift test --package-path swift/Packages/ArborSyncClient
 bun run check:links
 git diff --check
 ```
@@ -152,8 +151,11 @@ discovery. Run the migration-specific suite during its rehearsal with
 `bun run test:protocol` checks the language-neutral fixtures, reference REST
 fixtures, and disposable live Arbor Sync/canopyd behavior against the Swift
 clients, including operation grammar/digests, accepted-root bootstrap, and
-independent working-tree durability. Standalone `swift test` checks decoding; live-server cases skip when
-their test URLs are absent. Postgres integration is opt-in:
+independent working-tree durability. The Mac app's daemon client lives in
+`swift/CanopyApp/ArborSync/`, so its suites (`ArborSyncClientTests`,
+`LoopbackServicesTests`) run in the app-hosted `CanopyAppTests` bundle through
+`xcodebuild`, which the protocol gate invokes on a Mac. Standalone `swift test`
+checks decoding; live-server cases skip when their test URLs are absent. Postgres integration is opt-in:
 
 ```sh
 ARBOR_TEST_POSTGRES_DSN='postgresql://user:password@127.0.0.1:5432/postgres' \

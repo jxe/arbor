@@ -212,7 +212,7 @@ baseline; record limits and results without unsupported performance claims.
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
 `bun run test:performance`,
 `bun test tests/unit/canopyd-merge tests/integration/canopyd-merge`,
-`swift test --package-path swift/Packages/ArborSyncClient`, `bun run check:links`,
+`xcodebuild test -project swift/Canopy.xcodeproj -scheme Canopy -destination platform=macOS -only-testing:CanopyAppTests/ArborSyncClientTests -only-testing:CanopyAppTests/LoopbackServicesTests`, `bun run check:links`,
 and `git diff --check` → exit 0. Run affected Swift model suites if wire shapes changed;
 CanopyEditor testing uses the repository wrapper. Verify changed packaging through
 `bun run build:cli:package` and `bun run test:cli:package` when applicable; root

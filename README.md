@@ -33,8 +33,8 @@ as `@overstory/<name>`; Swift packages live under `swift/Packages/`.
   between the two), `tree-merge` (the snapshot tree merge), `apps-runtime`.
 - **Arbor Sync, the local daemon**, with the `arbor` command: keeps placed
   folders on a Mac synchronized with their hosts and serves them to local
-  clients over loopback. `arborsync`, `arborsync-client`, `cli`;
-  Swift `ArborSyncClient`.
+  clients over loopback. `arborsync`, `cli` (whose `daemon-client.ts` is the
+  TypeScript client); the Mac app's own client in `swift/CanopyApp/ArborSync`.
 - **Canopy, the browsers**: the human interface. The Mac and iOS app edits
   working trees directly against a host; on the Mac it also uses the daemon
   for the placed folder. The browser editor is being rebuilt to talk to a
@@ -59,11 +59,11 @@ flowchart TB
   subgraph arbor["Arbor Sync, the local daemon (loopback)"]
     direction LR
     AS["arborsync"]
-    CLI["cli (arbor)<br/>arborsync-client"]
+    CLI["cli (arbor)<br/>daemon client"]
   end
   subgraph canopy["Canopy, the browsers"]
     direction LR
-    APP["Mac and iOS app<br/><i>CanopyAppKit · CanopyEditor · ArborSyncClient</i>"]
+    APP["Mac and iOS app<br/><i>CanopyAppKit · CanopyEditor · Mac daemon client</i>"]
     WEB["canopy-web"]
   end
   D --- MP

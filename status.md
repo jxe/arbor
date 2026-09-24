@@ -16,7 +16,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 | Area | State | Where to read |
 |---|---|---|
-| Canopy first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/arborsync-api.md#4-account-bootstrap-forget-and-conflict-review) |
+| Canopy first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-held-changes) |
 | Bun CLI distribution: publishable package, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](docs/overstory-spec/01-tree-operations.md), [conformance](docs/overstory-spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](docs/overstory-spec/01-tree-operations.md) |
@@ -87,6 +87,46 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## Native 011 daemon-client folds — 2026-09-24
+
+Implemented, not installed. Both daemon clients now live with their only
+caller: the TypeScript `ArborSyncRESTClient` is `packages/cli/src/daemon-client.ts`
+(the `@overstory/arborsync-client` package, its workspace entry and root
+dependency are deleted; `tests/unit/protocol.test.ts`,
+`tests/integration/{server,self-sync,cli-sync}.test.ts` import the CLI module
+and `swift/scripts/hosted-smoke.ts` posts its claim directly), and the Swift
+client is Mac app code in `swift/CanopyApp/ArborSync/` behind `#if os(macOS)`
+(the `ArborSyncClient` package is deleted and dropped from `project.yml` and
+`CanopyEditor/Package.swift`; its tests are in `CanopyAppTests`, the provider
+contract in `CanopyWorkingTreeTests`, and the protocol gate runs the moved
+suites through `xcodebuild`). The daemon no longer serves
+`POST /v1/bootstrap/pairings` or `POST /v1/local/forget`; the Mac creates
+pairing offers on the host with the account credential, as iOS does. The
+Mac's data-home identity, claim and pairing-claim routes, `GET /v1/accounts`,
+`GET /v1/credential`, `POST /v1/placements/move` and `POST /v1/held/discard`
+are kept after the source audit;
+[Native 011](plans/soon/011-unify-mac-accounts-and-fold-daemon-clients.md)
+records why and the decision that remains.
+
+Verified on Linux with Bun 1.3.14 on top of `5145569`: `bun run typecheck`
+passes. `bun run test` has 1,163 passes and 19 failures against 1,168 and 14
+at `5145569` in the same environment (libsecret, iCloud, sidecar timing). The
+five extra failures are in files this change does not touch (canopyd-merge
+tool, child provider, protocol objects, tree-merge, Wire client transfer)
+and those files pass 89/89 run alone. With `ARBOR_CREDENTIAL_STORE=file`
+the server, self-sync, cli-sync, cli-mv, cli-rehome, local-handlers,
+protocol and community-hosting suites pass 74/74 both before and after.
+`bun run build`, `bun run build:cli:package`, `bun run test:cli:package`
+(12 passes), `bun run check:links` and `git diff --check` pass.
+`bun run test:protocol` (file credential store) passes its TypeScript suites
+and live daemon setup and stops at the first Swift step: this machine has no
+Swift toolchain or `xcodebuild`.
+
+Not verified: every Swift edit is uncompiled. `swift/Canopy.xcodeproj` was
+edited by hand to match `project.yml` and must be regenerated with xcodegen on
+a Mac; `CanopyEditor/Package.resolved` was left unchanged. The remaining Mac
+gates are in [release and verification](plans/verification/release-and-soak.md#native-011-mac-gates).
 
 ## Arbor Sync downloads iCloud placeholders — 2026-09-24
 

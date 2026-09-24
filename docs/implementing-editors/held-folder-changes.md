@@ -2,7 +2,7 @@
 
 How a client of the daemon presents a placed folder whose changes the host
 refused. The daemon's route is described in
-[the Arbor Sync REST API](../implementing-sync-services/arborsync-api.md#4-account-bootstrap-forget-and-held-changes);
+[the Arbor Sync REST API](../implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-held-changes);
 the Canopy app's review of accepted-state choices is a different surface,
 described in [Native 010](../../plans/swift/010-inline-choice-context.md).
 

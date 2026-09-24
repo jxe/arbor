@@ -170,7 +170,7 @@ include:
 - `packages/arborsync/src/workspace.ts`, `service.ts`, `node-sampling.ts`, and
   `filesystem-node-surface.ts`;
 - `packages/fs/src/discovery.ts` and `workspace-fs.ts`;
-- `packages/arborsync-client/src/index.ts`;
+- `packages/cli/src/daemon-client.ts`;
 - `swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift`;
 - `swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/WorkingTreeSemantics.swift`;
 - shared conformance fixtures and focused TypeScript/Swift tests.
@@ -199,7 +199,7 @@ Run focused suites first, then the complete matrix:
 bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts tests/unit/discovery.test.ts tests/integration/workspace.test.ts tests/integration/server.test.ts tests/integration/canopyd/update-host.test.ts
 bun run typecheck
 bun run test:protocol
-swift test --package-path swift/Packages/ArborSyncClient
+xcodebuild test -project swift/Canopy.xcodeproj -scheme Canopy -destination platform=macOS -only-testing:CanopyAppTests/ArborSyncClientTests -only-testing:CanopyAppTests/LoopbackServicesTests
 swift test --package-path swift/Packages/CanopyWorkingTree
 bun test
 bun run build

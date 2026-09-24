@@ -1,5 +1,5 @@
 # Local Arbor Sync REST API
-*Reference API for the current local daemon and its TypeScript and Swift clients. It is not part of the portable Overstory specification.*
+*Reference API for the current local daemon and its two clients: the CLI's `packages/cli/src/daemon-client.ts` and the Mac app's `swift/CanopyApp/ArborSync/`. It is not part of the portable Overstory specification.*
 
 The current version is Arbor Sync REST v1.
 
@@ -22,10 +22,12 @@ working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
 `GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`,
 `POST /v1/sync`, `POST /v1/placements/move`,
 `GET /v1/bootstrap` and `GET /v1/credential` (§3b),
-`GET /v1/objects/{hash}` (§3a), the account bootstrap routes (§4), and
-`GET /v1/events` (§5). The Swift package `ArborSyncClient` launches or
-attaches to the control-mode daemon (`arborsync --control`) and uses exactly
-these routes. The former node, children, search, backlinks, recovery, file,
+`GET /v1/objects/{hash}` (§3a), the data-home identity and account
+bootstrap routes (§4), and `GET /v1/events` (§5). The Mac app's client in
+`swift/CanopyApp/ArborSync/` launches or attaches to the control-mode daemon
+(`arborsync --control`) and uses exactly these routes. Pairing offers are not
+a daemon route: a client with the account credential creates one on the host
+(`POST /.arbor/pairings`), as the Mac app and the CLI's cloud sessions do. The former node, children, search, backlinks, recovery, file,
 mutation, document, asset, and import routes were deleted with the
 daemon's editor path (Native 022 Phase 7): editors run the update machine
 against their own working tree, as the daemon does for each placed folder. Those paths now answer
@@ -86,7 +88,7 @@ type LocatorResolution = {
 - Arbor Sync speaks the protocol vocabulary wherever the two overlap. `TreeDescriptor`,
   `LocatorResolution`, `PairingOffer`, `LocalAccountSummary`, and
   `ProfileIdentity` are single definitions in `@overstory/protocol` (Swift:
-  `Overstory` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
+  `Overstory` and the Mac app's daemon client share `WireCanonicalDescriptor`); a
   local descriptor adds only what a local daemon knows.
 - `GET /v1/trees` returns `LocalTreeDescriptor`s. Hosted ordinary trees have
   non-null canonical data and the private account-configuration tree has
@@ -144,7 +146,12 @@ need a readiness boundary must inspect the exact `GET /v1/trees` descriptors
 and reject missing, offline, conflicting, errored, or still-syncing targets.
 `POST /v1/placements/move` (`{ source, destination, check? }`)
 relocates one placed root on disk and in `placements.yaml` after an explicit
-synchronization boundary; `check: true` validates without moving.
+synchronization boundary; `check: true` validates without moving. It stays
+a daemon operation rather than a client-side checkout edit plus
+`POST /v1/sync`: the daemon holds synchronization, relocates the watched root
+together with its workspace state, and rolls the placement back if the move
+fails, which a client editing `placements.yaml` under a running watcher cannot
+do.
 New TreeIDs are minted by the client (`generateArborID` in `@overstory/protocol`,
 `generateArborID(prefix:)` in `OverstoryClient`): `tr_` plus 26 lowercase base32
 characters encoding 128 random bits. Minting edits no file and reserves no
@@ -167,19 +174,13 @@ The same response carries `identity`: the local self-certifying person
 identity (`profileTree`, `profilePath`, `keyAvailable`) or `null` before
 `arbor me create`. `POST /v1/me` creates that identity at a profile path.
 
-Fresh v2 account bootstrap and account-qualified pairing use:
-
-```text
-POST /v1/bootstrap/accounts
-POST /v1/bootstrap/pairings
-```
-
-The first accepts `{ account, path, displayName? }`, where `account` is the
-complete canopyd-allocated account URL and `path` is the local person-profile
-root already bound by `arbor me create` to the current self-certifying identity.
-It creates no profile identity or tree placement. The pairing route accepts
-`{ configurationTree? }`; the field is mandatory when more than one account
-exists. There is no handle-shaped account-claim route.
+Fresh v2 account bootstrap uses `POST /v1/bootstrap/accounts` (§4). It
+accepts `{ account, path, displayName? }`, where `account` is the complete
+canopyd-allocated account URL and `path` is the local person-profile root
+already bound by `arbor me create` to the current self-certifying identity. It
+creates no profile identity or tree placement. There is no handle-shaped
+account-claim route and no pairing-offer route: an authorized device creates
+the offer on the host with its account credential.
 
 Resolution returns `LocatorResolution`. A local path resolves only when it
 lies inside a placed or session root (else `404 not-found`); an `arbor://tree/`
@@ -283,16 +284,28 @@ local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
-## 4. Account bootstrap, forget, and held changes
+## 4. Identity, account bootstrap, and held changes
 
-Narrow operations remain for states that cannot yet be represented by editing
-an authenticated configuration tree:
+Narrow operations remain for data-home state that cannot yet be represented by
+editing an authenticated configuration tree: the local person identity and a
+new device's first credential. They are the Mac app's onboarding, and they
+write the same stores the CLI and the daemon read (the profile identity, the
+account connection record and its credential in the operating-system store,
+and the account checkout):
 
 ```text
+POST /v1/me
+POST /v1/me/restore
+POST /v1/me/backup
 POST /v1/bootstrap/accounts
-POST /v1/bootstrap/pairings
-POST /v1/local/forget
+POST /v1/bootstrap/accounts/cancel
+POST /v1/bootstrap/pairings/claim
 ```
+
+The former `POST /v1/bootstrap/pairings` (create a pairing offer) and
+`POST /v1/local/forget` routes are gone (Native 011): an offer is created on
+the host with the account credential, and nothing called forget. Both answer
+`405 unsupported-operation` like any unknown `/v1/` route.
 
 Mac onboarding reads `GET /v1/accounts`, whose envelope contains `accounts`,
 `identity`, `pendingClaim`, and `pendingPairing` (each nullable). A pending claim exposes
@@ -332,9 +345,8 @@ locally, stores the raw credential in the operating-system credential store,
 constructs the initial configuration snapshots, signs the canopyd challenge
 with the profile key, and submits the account claim. It is restart-idempotent
 and never rewrites user-authored YAML to insert IDs or normalize it. Pairing
-creates or claims the server pairing while similarly keeping the raw
-new-device credential local. Local forget disconnects this data home without
-revoking the server device or deleting user files.
+claims the server pairing while similarly keeping the raw new-device
+credential local.
 
 Steady-state placement, ACL, canonical-boundary, profile/community,
 administrator, and device-revocation changes are not arborsync operations.
@@ -414,7 +426,7 @@ readable through the daemon.
 
 ## 7. Reference fixtures
 
-The TypeScript and Swift reference clients consume the REST JSON and SSE
+The TypeScript and Swift daemon clients consume the REST JSON and SSE
 fixtures under [`tests/fixtures/arborsync`](../../tests/fixtures/arborsync):
 `status.json`, `error.json` and `errors.json`,
 `cursors.json`, and the `events.sse` / `malformed-event.sse` frames. Their

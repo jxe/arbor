@@ -1,144 +1,98 @@
-# Native 011: Unify Mac account management and fold daemon clients into their callers
+# Native 011: Unify Mac account management with iOS
 
-Status: NEEDS DESIGN REVIEW; approved in principle 2026-09-20. Sole user; no
-compatibility shims. Depends on nothing; Web 025 should build on the result.
+Status: NEEDS DECISION. The client folds, the pairing-offer route and the
+forget route are done (see [status](../../status.md#native-011-daemon-client-folds--2026-09-24));
+what remains is blocked on one design choice about where the Mac keeps its
+identity and account credentials. Sole user; no compatibility shims.
 
-## Source audit, 2026-09-21
+## What is done
 
-Still unimplemented. Mac source publication and watch are already direct, but
-`ArborAppModel` still calls daemon `accounts` and `createCommunityPairing`,
-`CanopyOnboarding` still calls daemon `claimAccount` and `credential`, and both
-`packages/arborsync-client` and `swift/Packages/ArborSyncClient` remain standalone.
-Cleanup 002 removed the singleton account model; it did not change ownership of
-these v2 account routes. Reconcile the removal list with the newer onboarding
-identity/recovery routes before execution, preserving their tested behavior.
+- The TypeScript daemon client is CLI code (`packages/cli/src/daemon-client.ts`);
+  `@overstory/arborsync-client` is deleted and the four disposable-daemon
+  tests import the CLI module.
+- The Swift daemon client (REST client, loopback credential provider and
+  object store, process supervisor, models) is app code in
+  `swift/CanopyApp/ArborSync/` behind `#if os(macOS)`; the
+  `ArborSyncClient` package is deleted, its tests moved to `CanopyAppTests`
+  (and the platform-neutral provider contract to `CanopyWorkingTreeTests`),
+  and `tests/protocol/conformance.ts` runs them through `xcodebuild`.
+- `POST /v1/bootstrap/pairings` (create a pairing offer) and
+  `POST /v1/local/forget` are removed. The Mac creates a pairing offer on the
+  host with the account credential, as iOS does.
+- Accepted-choice review already runs through `CanopyWorkingTree` on both
+  platforms (`ArborConflictReviewModel(coordinator:)`); a placed folder's
+  held changes stay a daemon concern (`POST /v1/held/discard`,
+  [Native 012](../swift/012-show-held-folders.md)).
+- The daemon's filesystem-sync conflict routes (`GET /v1/conflicts`,
+  `POST /v1/conflicts/resolve`) and their client methods were already removed
+  with the daemon editor's mutation path; the TypeScript client also drops
+  `discardHeld`, which only the Mac calls.
 
-## Why
+## Source audit, 2026-09-24 (on `5145569`): why the rest did not execute
 
-The Mac app and the iOS app run the same working tree, update machine, and
-change log, but they reach accounts, placements, and conflicts by
-different roads. iOS is a direct client of the host through `OverstoryClient`
-and `CanopyWorkingTree`. The Mac asks the daemon over its loopback API for
-the same things, so the daemon carries a second copy of host-facing
-behavior, `ArborSyncClient` mirrors half of the host API, and the two apps
-diverge in exactly the places that are hardest to test (claiming, pairing,
-conflict handling).
+The original removal list predates the onboarding identity and recovery work.
+Reconciled against the source:
 
-The daemon is still essential on the Mac for one thing: the placed folder is
-the source of truth there, and only the daemon turns a folder into a
-working tree (hashes it, serves objects by hash, materializes accepted host
-changes into it, watches external edits). That dependency, and the app's
-ability to install and supervise the daemon, stay.
-
-## The four surfaces
-
-| Surface | Mac today | iOS today | After |
-|---|---|---|---|
-| Bootstrap and objects | `GET /v1/bootstrap` seeds the in-memory working tree; `GET /v1/objects` is the platform object store | Durable working tree on disk, objects from the host through `CanopyObjectStore` | Unchanged on the Mac: the daemon is the folder's object store |
-| Accounts and credentials | `GET /v1/accounts`, `GET /v1/credential`, claim and pair through `/v1/bootstrap/*` | `Credentials` in the platform store, claim and pair through `OverstoryClient` against the host, YAML edited in the checkout | The Mac uses the iOS path. The app edits `~/.arbor/accounts/<cfg>/*.yaml` on disk (it already does for `trees.yaml`) and holds the credential in the same platform store the daemon reads. The daemon only observes the checkout and pushes it |
-| Placements | `GET /v1/trees` and `POST /v1/placements/move` | `WorkingTreePlacementService` over `placements.yaml` and the checkout | The Mac uses `WorkingTreePlacementService`; moves become a checkout edit plus a request to the daemon to re-place, not a daemon-owned operation |
-| Conflicts | `POST /v1/held/discard` for a placed folder's refused changes; accepted-choice review in the app | Accepted-choice review through `CanopyWorkingTree` (`ConflictReview`) against the host | Accepted-choice review is the iOS path on both platforms. A placed folder's held changes stay a daemon concern and keep their route, shown by the Mac only because it has a folder |
-
-Publication and watch are already direct: the Mac's `UpdateCoordinator`
-publishes durable heads to the host and follows the host's watch, not the
-daemon's events.
-
-## What the daemon keeps and what it loses
-
-Routes the Mac app still needs, and that the CLI or tests also use:
-
-| Route | Keeps because |
-|---|---|
-| `GET /v1/status`, `GET /v1/trees` | CLI status and placement inventory (`arbor status`, `arbor place`, `arbor mv`) |
-| `GET /v1/bootstrap` | Seeds the Mac's in-memory working tree from the placed folder |
-| `GET /v1/objects` | The folder as object store, for the Mac app and for visits (`?origin=`) |
-| `GET /v1/credential` | The CLI's cloud sessions read the stored credential; the Mac app stops needing it once it holds the credential itself |
-| `POST /v1/sync` | `arbor sync`, and the app's "re-place after a checkout edit" request |
-| `GET /v1/events` | CLI and tests observe the daemon |
-| `POST /v1/held/discard` | Discarding a placed folder's held changes |
-| `POST /v1/resolve` | CLI locator resolution |
-
-Routes that become Mac-unused and are candidates for removal once the CLI is
-checked:
-
-| Route | Today's consumers after this plan | Recommendation |
+| Route | Consumer | Outcome |
 |---|---|---|
-| `GET /v1/accounts` | `arbor` (one call) | Keep for the CLI, or have the CLI read the checkout directly the way the app will; then remove |
-| `POST /v1/bootstrap/accounts` (claim), `POST /v1/bootstrap/pairings` (pair) | None: the Mac claims and pairs through `OverstoryClient`; iOS already does; the CLI does not claim | Remove, with `account-http.ts` and the claim/pair half of `account-service.ts` |
-| `POST /v1/me` (create profile identity) | `arbor me create` runs in-process; the app can create identity through the shared `ProfileIdentityStore` | Remove |
-| `POST /v1/local/forget` | `arbor` does not use it; the app forgets an account by editing the checkout | Remove |
-| `POST /v1/placements/move` | `arbor mv` (one call) | Keep for the CLI unless `arbor mv` becomes a checkout edit plus `POST /v1/sync`, which is the app's new path anyway; then remove |
+| `POST /v1/me`, `/v1/me/restore`, `/v1/me/backup` | Mac onboarding create, recover, back up, and legacy-key adoption; `tools/test-sync-helper.ts` | Kept. There is no Swift writer for the data-home `ProfileIdentityStore`; the iOS `KeychainProfileIdentityStore` is a different store (the "legacy" identity the Mac reconciles). |
+| `POST /v1/bootstrap/accounts`, `/accounts/cancel` | Mac onboarding claim, resume, cancel; `swift/scripts/hosted-smoke.ts`; integration fixtures (`cli-sync`, `cli-mv`, `cli-rehome`, `community-hosting`) through `LocalAccountService.claimCanopyAccount` | Kept. The CLI has no claim command, so this is the only way to claim into a data home. |
+| `POST /v1/bootstrap/pairings/claim` | Mac onboarding pair and resume pairing | Kept, for the same reason. |
+| `GET /v1/accounts` (with `identity`, `pendingClaim`, `pendingPairing`) | Mac overview and onboarding; `arbor status`, which may target a cloud-session daemon, so it cannot read the local disk instead | Kept. |
+| `GET /v1/credential` | Mac `ArborSyncCredentialProvider`; CLI cloud sessions | Kept (the plan kept it too). |
+| `POST /v1/placements/move` | `arbor mv` | Kept. The daemon pauses synchronization, relocates the watched root with its workspace state, and rolls back on failure; a client-side `placements.yaml` edit plus `POST /v1/sync` under a running watcher would first see the source vanish. The Mac app never moved placements, so step 3's Mac half had nothing to change. |
 
-`ArborSyncClient` (Swift) shrinks to `status`, `trees`, `bootstrap`,
-`object`, `conflict`, `resolveConflict`, `synchronize`, and the process
-supervisor. `createCommunityPairing`, `claimAccount`, `credential`, and
-`accounts` go, along with their models, which then live only in
-`OverstoryClient`. The TypeScript `arborsync-client` keeps whatever the CLI
-still calls (`status`, `trees`, `resolve`, `synchronizeNow`, `movePlacement`,
-and `accounts` until the CLI reads the checkout) and drops the rest;
-`canopy-web`'s imports are Web 025's problem and are not a reason to keep any
-method.
+Step 1's check fails: the daemon and the iOS path do **not** share a
+credential entry. The daemon's `CanopyAccountStore` keeps a connection record
+under the data home's private root and the token in the platform store under
+service `org.arbor.community-account`, name `account-<sha256(dataRoot, cfg)>`
+(`Bun.secrets`), plus pending claim and pairing journals; iOS keeps
+`KeychainDeviceCredentialStore` (`org.nxhx.Arbor.device`, `account:<cfg>`,
+metadata under `.accounts`) and `KeychainProfileIdentityStore`
+(`org.nxhx.Arbor.profile`). Routing the Mac through `NativeAccountService`
+would put its accounts where the daemon and CLI cannot see them.
 
-The daemon's `account-service.ts` keeps only what observing and pushing the
-checkout needs: watching `accounts/<cfg>/`, validating candidates, and the
-credential store. Its claim, pair, forget, and identity-creation code paths
-are deleted rather than kept as adapters.
+## Decision needed
 
-## Steps
+Pick one owner for a Mac's identity and account credentials:
 
-1. **Credential ownership.** Confirm the daemon and the app read the same
-   platform credential entry (scoped by data home and configuration TreeID,
-   [data home](../../docs/architecture/arborsync/data-home.md)). If the app already can,
-   nothing changes; if the daemon holds it under a different key, pick one
-   and migrate once.
-2. **Accounts on the Mac.** Route claim, pair, forget, and account listing
-   through `OverstoryClient` and the checkout, sharing the iOS code. Delete
-   the Mac-only branches in `ArborAppModel.swift` that call the daemon for
-   these. Gate: claim a fresh account and pair a second device from the Mac
-   against a disposable host with the daemon running but never asked.
-3. **Placements on the Mac.** Use `WorkingTreePlacementService` for the
-   inventory and for moves; after a checkout edit, ask the daemon to
-   synchronize (`POST /v1/sync`) so it re-places. Gate: `arbor mv` and an
-   app-initiated move produce identical checkout and `placements.yaml`
-   results.
-4. **Accepted-choice review on the Mac.** Drive it through `CanopyWorkingTree`
-   exactly as iOS does; held folders (refused folder changes,
-   [Native 012](../swift/012-show-held-folders.md)) stay the only daemon-fed surface. Gate: the same conflict fixture resolves
-   identically on both platforms, and `swift/CanopyAppTests` covers both.
-5. **Remove the unused routes and client methods** listed above, in one
-   commit per side (daemon, Swift client, TypeScript client), each with the
-   CLI suite, `bun run test:protocol`, and a Mac app build green.
-6. **Docs.** Update [the Arbor Sync REST API](../../docs/implementing-sync-services/arborsync-api.md)
-   to the reduced surface, [architecture](../../docs/architecture/README.md)'s client
-   mechanics, and [Canopy local state](../../docs/architecture/canopy-browser/local-state.md)
-   where it says the app "asks the daemon" for accounts. Note in
-   [Web 025](../canopy-web/025-arbor-web.md) that the browser's `LocalHost`
-   should target the reduced surface.
-7. **Fold the TypeScript client into the CLI.** After step 5 the only
-   caller of `@overstory/arborsync-client` is `packages/cli`. Move the client
-   to `packages/cli/src/daemon-client.ts`, delete the package, its workspace
-   entry, and its root dependency, and point the four tests that drive a
-   disposable daemon through it (`tests/unit/protocol.test.ts`,
-   `tests/integration/{server,self-sync,cli-sync}.test.ts`) at the CLI
-   package. Web 025's `LocalHost` writes its own browser-safe client against
-   the reduced surface; it does not reuse this one.
-8. **Fold the Swift client into the app.** Nothing under `swift/Packages`
-   imports `ArborSyncClient`; `CanopyEditor` lists it as a dependency but
-   never imports it. The REST client, the process supervisor, the loopback
-   services, and their models are macOS-only in practice (launchctl,
-   `SMAppService`), so they are app code. Move the four files to
-   `swift/CanopyApp/ArborSync/` behind `#if os(macOS)`, remove the package
-   from `project.yml` and from `CanopyEditor/Package.swift`, regenerate the
-   Xcode project, and move `ArborSyncClientTests` into `CanopyAppTests` (or
-   into a `tests/protocol/conformance.ts` scenario, which today runs them by
-   package path and must be updated either way). Gate: `bun run
-   test:protocol` and a macOS app build green; six platform-neutral Swift
-   packages remain.
+1. **The data home stays the owner (the Mac keeps the daemon's onboarding
+   routes).** Nothing more to remove; close this plan and record the
+   remaining routes as the Mac's data-home onboarding. Lowest risk.
+2. **The app becomes the owner.** Port `claimCanopyAccountBootstrap`,
+   `claimLocalPairing`, cancellation, and identity create/restore/backup to
+   Swift writing the data-home format (connection record, platform-store
+   entry, pending journals, checkout, `placements.yaml`, current device), then
+   delete the routes, `account-http.ts`, the claim/pair half of
+   `account-service.ts`, and the TypeScript bootstrap code. Requires a Mac
+   check that a Keychain item written by the signed app is readable by the
+   Bun daemon without a prompt (and the reverse), one migration of existing
+   entries, and a replacement fixture for the four integration tests
+   (`tests/helpers/account-home.ts` already installs a home directly).
+3. **iOS stores on both platforms, the daemon reads them.** Teach
+   `CanopyAccountStore` to read `org.nxhx.Arbor.device` entries and migrate
+   once; the Mac then uses `NativeAccountService` unchanged. Same Keychain
+   access question as option 2, plus the CLI's own identity commands.
+
+## Remaining steps (options 2 or 3)
+
+1. Resolve the Keychain access question on a Mac and migrate existing
+   entries once.
+2. Route claim, pair, identity and account listing through the chosen
+   store, sharing the iOS code; delete the Mac onboarding's daemon calls in
+   `CanopyOnboarding.swift` and the corresponding `ArborSyncRESTClient`
+   methods (`onboardingState`, `createIdentity`, `restoreIdentity`,
+   `backupIdentity`, `claimPairing`, `cancelPendingClaim`, `claimAccount`,
+   and `credential` once the app holds the credential). Gate: claim a fresh
+   account and pair a second device from the Mac against a disposable host
+   with the daemon running but never asked.
+3. Remove the routes above, `account-http.ts`, and the claim/pair/identity
+   half of `account-service.ts`; update [the Arbor Sync REST API](../../docs/implementing-sync-services/arborsync-api.md)
+   and [Canopy local state](../../docs/architecture/canopy-browser/local-state.md).
 
 ## Out of scope
 
 - Making the Mac keep a durable on-disk working tree with the folder as a
-  projection. That is the larger unification and overlaps with what Web 025
-  needs for the browser; decide it there.
+  projection (Web 025 decides it).
 - Changing the daemon's folder materialization, watcher, or journal.
 - Linux and Windows supervision.

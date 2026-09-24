@@ -4,7 +4,7 @@ Historical identifier: **Native 024**. The filename number is preserved; this pl
 
 > **Executor instructions**: Give the Mac app and Canopy for the web a plain disk editor for folders that are not placed Overstory trees. No update machine, no admission fence, no journal, no recovery: read, write with an etag check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead.
 >
-> **Drift check**: `git diff --stat c134a85..HEAD -- packages/arborsync packages/arborsync-client packages/canopy-web swift/Packages/CanopyAppKit swift/CanopyApp docs`
+> **Drift check**: `git diff --stat c134a85..HEAD -- packages/arborsync packages/cli/src/daemon-client.ts packages/canopy-web swift/Packages/CanopyAppKit swift/CanopyApp docs`
 
 ## Status
 

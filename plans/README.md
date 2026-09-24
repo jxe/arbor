@@ -15,7 +15,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Cleanup [006](soon/006-overstory-identifiers.md) | Rename `Wire*`/`Canopy*` identifiers and UI copy to the Overstory vocabulary |
 | Apps [007](soon/007-cddl-collection-schemas.md) | CDDL collection schemas; QuickJS out of canopyd and merge |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
-| Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) | Mac accounts, placements and review through the iOS path; fold the daemon clients into their callers |
+| Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) | Decide who owns a Mac's identity and account credentials (data home or app); the client folds and unused daemon routes are done |
 | canopyd [014](soon/014-merge-moved-text.md) | Merge moved and copied text beyond paragraphs |
 | canopyd [018](soon/018-profile-facts-per-tree.md) | Profile facts stored once per tree (migration 020) |
 
@@ -23,7 +23,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 
 | Outcome | What remains | Start here |
 |---|---|---|
-| Unify Mac account management | Share account and placement paths with iOS, remove unused daemon routes, and fold the daemon clients into the CLI and Mac app | Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) |
+| Unify Mac account management | Decide who owns a Mac's identity and account credentials (the data home or the app); the client folds and unused daemon routes are done | Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) |
 | Extend Native editing and conflict review | Additional move/copy/undo cases and accepted choices shown in their editor context; the core capture, sync and review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md) and [010](swift/010-inline-choice-context.md); server transfer policy in canopyd [014](soon/014-merge-moved-text.md) |
 | Show held folders in the Mac app | List placed folders whose changes the host refused and offer Discard Refused Changes | Native [012](swift/012-show-held-folders.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |

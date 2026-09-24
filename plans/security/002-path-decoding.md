@@ -129,7 +129,7 @@ that test meaningful.
 Repo conventions:
 
 - `packages/protocol` is the browser-safe shared layer; the Swift client mirrors it
-  (`swift/Packages/ArborSyncClient`). Prefer keeping `normalizeTreePath`'s exported
+  (`swift/CanopyApp/ArborSync`). Prefer keeping `normalizeTreePath`'s exported
   signature unchanged.
 - Unit tests: `tests/unit/path.test.ts` and `tests/unit/logical-url.test.ts` are
   the existing exemplars for this area. `bun:test`, plain function calls.
@@ -339,7 +339,7 @@ Stop and report back (do not improvise) if:
 
 - The step 1 script already shows correct behavior.
 - After step 2, typecheck errors appear in files outside the In-scope list
-  (particularly `packages/canopy-web/` or `packages/arborsync-client/`) — that means another
+  (particularly `packages/canopy-web/` or `packages/cli/src/daemon-client.ts`) — that means another
   caller depends on the decoding behavior and the change needs re-scoping.
 - You find a **third** decode of the same path on any single request path that
   you cannot confidently attribute to one boundary. Report the call chain
@@ -357,7 +357,7 @@ Stop and report back (do not improvise) if:
   path (a new route, a new CLI argument, a new client) must decode at its own
   boundary and must run traversal rejection there.
 - `packages/protocol/src/model/logical-path.ts` is mirrored in Swift under
-  `swift/Packages/ArborSyncClient`. If the Swift `normalizeTreePath` equivalent
+  `swift/CanopyApp/ArborSync`. If the Swift `normalizeTreePath` equivalent
   also decodes, it now diverges from TypeScript — flag that in your report as
   follow-up work; the conformance suite may or may not catch it.
 - A reviewer should scrutinize step 3 hardest: the traversal rejection moving

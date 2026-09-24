@@ -10,11 +10,14 @@ the TypeScript workspace, and the Canopy app for macOS and iOS.
 | [`CanopyAppKit`](Packages/CanopyAppKit/README.md) | Workspace models and coordinator, the editor source, logical URLs and titles, the browser tab controller | | |
 | [`CanopyWorkingTree`](Packages/CanopyWorkingTree/README.md) | The durable working tree, update machine and coordinator, admission queue, entry actions, conflict review | `client` | CanopyAppKit, OverstoryObjectStore, Overstory |
 | [`OverstoryClient`](Packages/OverstoryClient/README.md) | Credentials, placement service, watch runner, account YAML, resource consent | `client` | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
-| [`ArborSyncClient`](Packages/ArborSyncClient/README.md) | The loopback REST client for the daemon and its process supervisor | `arborsync-client` | CanopyAppKit, OverstoryObjectStore, Overstory |
-| [`CanopyEditor`](Packages/CanopyEditor/README.md) | The Quagmire editor host, document binding, Markdown codec | | ArborSyncClient, CanopyAppKit, Quagmire |
+| [`CanopyEditor`](Packages/CanopyEditor/README.md) | The Quagmire editor host, document binding, Markdown codec | | CanopyAppKit, Quagmire |
 
 `CanopyApp/` is the app target (SwiftUI, the arborsync helper service, the
-launchd plist, entitlements) and `CanopyAppTests/` its test bundle. The app
+launchd plist, entitlements) and `CanopyAppTests/` its test bundle.
+`CanopyApp/ArborSync/` is the Mac's client of the daemon (the loopback REST
+client, credential provider and object store, the process supervisor, and
+their models), compiled only for macOS; its twin is the CLI's
+`packages/cli/src/daemon-client.ts`. The packages above are platform-neutral. The app
 is named Canopy; its bundle identifier stays `org.nxhx.Arbor`, as do the
 launchd label and the support directory, so installed data is found.
 

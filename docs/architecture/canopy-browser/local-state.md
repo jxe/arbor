@@ -54,7 +54,17 @@ written beneath the app's support directory:
 The daemon's per-tree state, the folder itself, and the configuration checkout
 stay under the data home; the app edits `~/.arbor/accounts/<cfg>/trees.yaml`
 and `devices.yaml` on disk exactly as the CLI does and asks the daemon to
-synchronize. The control-mode daemon is the only launchd process: the app
+synchronize. The Mac's identity and account credentials are data-home state
+shared with the CLI and the daemon (the profile identity, each account's
+connection record and credential in the operating-system store), not the
+iOS app's Keychain stores; the app reads them through the daemon's
+`GET /v1/accounts` and `GET /v1/credential`, and creates or recovers the
+identity and claims or pairs an account through the daemon's onboarding
+routes, which write those stores. Pairing offers for another device go to the
+host directly with the account credential, as on iOS. Unifying the two
+platforms' stores is the remaining decision of
+[Native 011](../../../plans/soon/011-unify-mac-accounts-and-fold-daemon-clients.md).
+The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree
 following that tree's Overstory watch, anonymous unless an account at the same

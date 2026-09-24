@@ -8,13 +8,13 @@ When the host refuses a placed folder's changes, the Mac app says so and
 offers the one way out. Arbor Sync already holds the refused request and every
 change made on top of it, reports the tree as `sync: "conflict"`, and discards
 on `POST /v1/held/discard`
-([the Arbor Sync REST API](../../docs/implementing-sync-services/arborsync-api.md#4-account-bootstrap-forget-and-held-changes),
+([the Arbor Sync REST API](../../docs/implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-held-changes),
 [held folder changes](../../docs/implementing-editors/held-folder-changes.md)).
 Today the app reads that state and shows nothing actionable.
 
 ## What exists
 
-- `ArborSyncClient.discardHeld(tree:)` calls the route.
+- `ArborSyncRESTClient.discardHeld(tree:)` (`swift/CanopyApp/ArborSync/`) calls the route.
 - `ArborAppModel` receives each daemon tree's `sync` in
   `LocalArborSyncTreePresentation`.
 - `editAccountConfigurationFile` refuses to edit a configuration tree in

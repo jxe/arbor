@@ -112,7 +112,7 @@ Expected files include:
 
 - `packages/cli/src/index.ts`;
 - `packages/canopy-web/src/App.tsx`;
-- `packages/arborsync-client/src/index.ts`;
+- `packages/cli/src/daemon-client.ts`;
 - `packages/arborsync/src/server.ts` and `service.ts`;
 - `packages/protocol/src/client.ts` if its request helper needs a link header;
 - `packages/arborsync/src/state/visits.ts`;

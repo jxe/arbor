@@ -22,6 +22,24 @@ Owners: Native [008](../soon/008-complete-native-move-copy-undo-capture.md) for 
 Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [editor sources](../../docs/implementing-editors/editor-source.md), and [Native 010](../swift/010-inline-choice-context.md).
 Passing builds and automated tests do not establish interactive acceptance.
 
+## Native 011 Mac gates
+
+Owner: Native [011](../soon/011-unify-mac-accounts-and-fold-daemon-clients.md). The client folds and
+route removals were made on Linux without a Swift toolchain; none of these has run.
+
+- [ ] Regenerate `swift/Canopy.xcodeproj` with `xcodegen generate --spec swift/project.yml --project swift`
+  and commit it if it differs from the hand-edited project.
+- [ ] Build the `Canopy` scheme for macOS and for iOS (the iOS build proves nothing outside
+  `#if os(macOS)` still needs the folded daemon client).
+- [ ] Run `swift/scripts/test-canopy-editor-local.sh` and `swift package resolve` for
+  `CanopyEditor` after dropping its unused `ArborSyncClient` dependency; commit
+  `Package.resolved` only if SwiftPM rewrites it (Quagmire stays at the pinned release).
+- [ ] `bun run test:protocol` on a Mac, including the new `xcodebuild` run of
+  `CanopyAppTests/ArborSyncClientTests` and `LoopbackServicesTests` against the live daemon
+  and `ProviderContractTests` inside `CanopyWorkingTree`; then `swift/scripts/hosted-smoke.ts`.
+- [ ] From the Mac app against a disposable host, create a pairing offer (now made on the host
+  with the account credential) and pair a second device with it.
+
 ## Server refinements
 
 Owner: canopyd [014](../soon/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
