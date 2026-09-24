@@ -20,8 +20,9 @@ has no database connection or credentials.
   over traces of frames, choices, and retained state.
 - `merge-rules.ts`, `format-rules.ts`, `markdown-format.ts`, `web-formats.ts`:
   the format support rules (see the [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)).
-- `merge.ts`, `pieces.ts`, `state-map.ts`, `state-storage.ts`, `state-value.ts`,
-  `history-view.ts`: retained state, shared history pages and lazy history.
+- `merge.ts`: the snapshot tree merge.
+- `pieces.ts`, `retained-state.ts`: source pieces, and the engine's recorded
+  states: frozen and interned values in persistent maps, identified by content.
 - `cli.ts`: the JSON-lines `serve` process.
 
 It has no account-configuration rule: canopyd merges its own policy files.

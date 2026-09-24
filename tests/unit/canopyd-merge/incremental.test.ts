@@ -1,9 +1,6 @@
 import { test, expect } from "bun:test";
 import { engineDiagnostics, mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import {
-  loadIntentState,
-  storeIntentState,
-} from "../../../packages/canopyd-merge/src/state-storage.ts";
+import { retainState } from "../../../packages/canopyd-merge/src/retained-state.ts";
 import { Fixture } from "./fixture.ts";
 import { keyOf } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
@@ -27,13 +24,10 @@ test("exact-basis execution preserves complete state and does not read unrelated
         "first-change",
       ),
     );
-    const state = await loadIntentState(
-      initial.result.state,
-      async (hash) => f.objects.get(hash)!,
-    );
+    const state = structuredClone(f.state(initial.result));
     const envelope = state.changes["first-change"]!;
     for (let i = 0; i < count; i++) state.changes[`historic-${i}`] = envelope;
-    const indexed = storeIntentState(state, (bytes) => f.put(bytes), true);
+    const indexed = retainState(f.states, state, initial.result.object, true).id;
     const request = f.request(
       { object: initial.result.object, state: indexed },
       f.tree({ "a.md": "Aα!C\r\n" }),
@@ -56,6 +50,7 @@ test("exact-basis execution preserves complete state and does not read unrelated
         readBytes += bytes.length;
         return bytes;
       },
+      states: f.states,
       store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
         for (const value of values) f.objects.set(value.hash, value.bytes);
       },
@@ -70,7 +65,7 @@ test("exact-basis execution preserves complete state and does not read unrelated
       throw Error("Evaluation failed");
     expect(fast.result).toEqual(full.result);
     expect(fast.authored).toEqual(full.authored);
-    const retained = await loadIntentState(fast.result.state, objects.read);
+    const retained = f.state(fast.result);
     expect(Object.keys(retained.changes)).toHaveLength(count + 2);
     expect(retained.effects[keyOf("first-change", "first")]).toBeDefined();
   }
@@ -103,6 +98,7 @@ test("incremental replacements and deletions match full execution across snapsho
   ).result;
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
@@ -159,15 +155,16 @@ test("a stored state whose pieces do not project its files is refused", async ()
   const initial = await f.run(f.request(root, root, [
     { kind: "editSource", key: "same", source: f.ref("/file-0", "body-0"), text: "body-0" },
   ], "start"));
-  const state = await loadIntentState(initial.result.state, async (hash) => f.objects.get(hash)!);
+  const state = structuredClone(f.state(initial.result));
   const file = Object.values(state.nodes).find((node) => node.name === "file-0")!;
   file.pieces![0]!.length += 100;
-  const malformed = { ...initial.result, state: storeIntentState(state, (bytes) => f.put(bytes)) };
+  const malformed = { ...initial.result, state: retainState(f.states, state, initial.result.object, false).id };
   const candidate = f.tree({ "file-0": "body-0", "file-1": "BODY-1" });
   const next = (basis: { object: string; state: string }) => mergeIntent(f.request(basis, candidate, [
     { kind: "editSource", key: "next", source: f.ref("/file-1", "body-1"), text: "BODY-1" },
   ], "next"), {
     read: async (hash) => f.objects.get(hash)!,
+    states: f.states,
     store: async () => {},
   }, { eager: true });
   expect((await next(initial.result)).outcome).toBe("evaluated");
@@ -226,6 +223,7 @@ test("worker-local projection reuse and targeted effects match full evaluation f
   );
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
@@ -238,7 +236,7 @@ test("worker-local projection reuse and targeted effects match full evaluation f
     throw Error("Evaluation failed");
   expect(fast.result).toEqual(full.result);
   expect(fast.authored).toEqual(full.authored);
-  const state = await loadIntentState(fast.result.state, objects.read);
+  const state = f.state(fast.result);
   for (const operation of ["one", "two", "three"])
     expect(
       Object.keys(state.effects[keyOf("second", operation)]!.before),
@@ -257,6 +255,7 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
   ], "second");
   const full = await mergeIntent(request, {
     read: async hash => f.objects.get(hash)!,
+    states: f.states,
     store: async values => { for (const value of values) f.objects.set(value.hash, value.bytes); },
   }, {incremental: false});
   expect(full.outcome).toBe("evaluated");
@@ -270,6 +269,7 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
       if (!bytes) throw Error("missing");
       return bytes;
     },
+    states: f.states,
     store: async (values: Array<{hash: string; bytes: Uint8Array}>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
@@ -336,6 +336,7 @@ test("a multi-frame trace of exact-basis edits takes the fast path", async () =>
       if (!bytes) throw new Error("missing");
       return bytes;
     },
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },

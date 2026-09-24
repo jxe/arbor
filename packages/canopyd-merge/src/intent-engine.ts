@@ -1,8 +1,6 @@
-import { isEditableState, loadEditableIntentState, loadIntentState, loadLazyIntentState, storeLazyIntentState } from "./state-storage.ts";
 import { decisionReports } from "./reports.ts";
-import { cloneHistory, need, since, union } from "./history-view.ts";
+import { cloneState, copy, loadState, lookup, own, retainState, same, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
 import { stableJSONString } from "@overstory/protocol";
-import { encodeJSON } from "./state-value.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
@@ -13,8 +11,7 @@ import {
 } from "@overstory/protocol";
 import type { MergeObjects } from "./index.ts";
 import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse } from "./engine-contract.ts";
-import { MergeRefusal } from "@overstory/merge-protocol";
-import { OBJECT_HASH } from "./state-value.ts";
+import { MergeRefusal, OBJECT_HASH } from "@overstory/merge-protocol";
 import {
   IntentError,
   alternativeKey,
@@ -55,19 +52,9 @@ import {
 
 const encoder = new TextEncoder(),
   decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-const clone = <T>(value: T): T => structuredClone(value);
-/** Lazy history maps are shared views; everything else is copied. */
-const cloneState = (state: IntentState): IntentState => {
-  const { outputs, effects, origins, alternatives, changes, ...rest } = state;
-  return {
-    ...clone(rest),
-    outputs: cloneHistory(outputs, clone),
-    effects: cloneHistory(effects, clone),
-    origins: cloneHistory(origins, clone),
-    alternatives: cloneHistory(alternatives, clone),
-    changes: cloneHistory(changes, clone),
-  };
-};
+const clone = copy;
+/** Canonical JSON bytes, as every object the engine generates is encoded. */
+const encodeJSON = (value: unknown): Uint8Array => encoder.encode(stableJSONString(value));
 /** Whether `id` is an active node reached from `view.root` through active parents. */
 const displayed = (view: View, id: string): boolean => {
   const seen = new Set<string>();
@@ -85,40 +72,6 @@ const displayed = (view: View, id: string): boolean => {
 const folderDecision = (decision: IntentDecision): boolean =>
   decision.kind === "directory" && decision.subject?.material.kind === "basis" &&
   decision.subject.material.path !== "/";
-/** Whether `a` and `b` have one `stableJSONString` form, decided without
- * building either string (evaluation compares whole node maps with it).
- * Evaluation data is JSON, so equal references and primitives serialize
- * alike, and each member of an array or record serializes unambiguously and
- * can be compared alone. The one collision between different shapes, an
- * array of one unserializable member against an empty array, is left to the
- * full form. */
-function same(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  const objectA = a !== null && typeof a === "object",
-    objectB = b !== null && typeof b === "object";
-  if (!objectA || !objectB)
-    return !objectA && !objectB && JSON.stringify(a) === JSON.stringify(b);
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a)) {
-    const other = b as unknown[];
-    if (a.length !== other.length)
-      return stableJSONString(a) === stableJSONString(other);
-    for (let index = 0; index < a.length; index++)
-      if (!same(a[index], other[index])) return false;
-    return true;
-  }
-  const left = a as Record<string, unknown>,
-    right = b as Record<string, unknown>;
-  let count = 0;
-  for (const key of Object.keys(left)) {
-    if (left[key] === undefined) continue;
-    if (right[key] === undefined || !Object.hasOwn(right, key) || !same(left[key], right[key]))
-      return false;
-    count++;
-  }
-  for (const key of Object.keys(right)) if (right[key] !== undefined) count--;
-  return count === 0;
-}
 const fail = (message: string): never => {
   throw new IntentError("invalid", message);
 };
@@ -169,55 +122,25 @@ const components = (path: string): string[] => {
 type ProjectedMaterial = Map<string, {node: Node; object: string}>;
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
+  /** The effects an editable basis already enforced, when evaluation may
+   * enforce only newer ones. */
   private appliedDeletions?: Record<string, unknown>;
-  private lazy = false;
-  /** Load the history records this request names: its change identity, its
-   * operation identities and the operation or alternative material it cites. */
-  private async prefetch(...states: IntentState[]) {
-    const change = this.request.incoming.change,
-      operations = traceOperations(this.request.incoming),
-      refs: MaterialRef[] = [];
-    const walk = (value: unknown): void => {
-      if (!value || typeof value !== "object") return;
-      if ("material" in value) refs.push(value as MaterialRef);
-      for (const child of Object.values(value)) walk(child);
-    };
-    walk(operations);
-    walk(this.request.alternatives ?? []);
-    const outputs = refs.flatMap((ref) =>
-      ref.material.kind === "operation" ? [keyOf(ref.material.change, ref.material.operation)] : []);
-    const alternatives = refs.flatMap((ref) =>
-      ref.material.kind === "alternative" ? [alternativeKey(ref)] : []);
-    for (const state of states) {
-      await need(state.changes, [change]);
-      await need(state.effects, operations.map((op) => keyOf(change, op.key)));
-      await need(state.outputs, outputs);
-      await need(state.alternatives, alternatives);
-    }
-  }
-  /** Load every origin record reachable from `pieces`, as far as the bounded
-   * synchronous walks in `evolved` and contribution grouping can go. */
-  private async originChains(states: IntentState[], pieces: Iterable<Piece>) {
-    let frontier = new Set([...pieces].map((p) => p.origin));
-    const seen = new Set<string>();
-    while (frontier.size && seen.size < 65_536) {
-      const next = new Set<string>();
-      for (const origin of frontier) seen.add(origin);
-      for (const state of states) {
-        await need(state.origins, frontier);
-        for (const origin of frontier)
-          for (const parent of state.origins[origin] ?? [])
-            if (!seen.has(parent.origin)) next.add(parent.origin);
-      }
-      frontier = next;
-    }
-  }
   /** Effects whose deletions the state's nodes may not reflect yet. */
-  private async pendingDeletions(state: IntentState): Promise<Record<string, Effect>> {
+  private pendingDeletions(state: IntentState): Record<string, Effect> {
     if (!this.appliedDeletions) return state.effects;
-    return (await since(state.effects, this.appliedDeletions, same)) as Record<string, Effect>;
+    return since(state.effects, this.appliedDeletions as Record<string, Effect>);
   }
+  /** Trust nothing derived: re-project every loaded state against its root
+   * and enforce every deletion in its effects. The reference the tests
+   * compare the incremental path against. */
   eager = false;
+  /** States recorded by this evaluation, kept by the caller only if it
+   * completes. Lookups see them first. */
+  readonly generatedStates = new Map<string, RetainedState>();
+  private readonly states: RetainedStates = {
+    get: (id) => this.generatedStates.get(id) ?? this.store.states.get(id),
+    set: (id, value) => this.generatedStates.set(id, value),
+  };
   private projection?: {previous?: ProjectedMaterial; next: ProjectedMaterial};
   /** Byte lengths of file objects already known from projected material, so
    * an import need not read them again. */
@@ -303,17 +226,12 @@ class Engine {
       } catch {
         return fail("Source target is not UTF-8 text");
       }
-      node.pieces = b.length
-        ? [
-            {
-              origin: node.id,
-              start: 0,
-              object: node.object,
-              offset: 0,
-              length: b.length,
-            },
-          ]
+      const pieces = b.length
+        ? [{ origin: node.id, start: 0, object: node.object, offset: 0, length: b.length }]
         : [];
+      // A recorded state's node (an operation result's view) is frozen.
+      if (Object.isFrozen(node)) return pieces;
+      node.pieces = pieces;
     }
     return node.pieces;
   }
@@ -374,21 +292,18 @@ class Engine {
     await this.importNode(state, root, "directory", state.root, null, "");
     return state;
   }
+  /** A state this process recorded; `missing-context` when it holds none. */
+  retained(id: string): RetainedState {
+    return this.states.get(id) ?? missing(`Missing state ${id}`);
+  }
+  /** A recorded state (or a root's initial state) as a copy to edit. */
   async load(ref: { object: string; state?: string }): Promise<IntentState> {
     if (!ref.state) return this.initial(ref.object);
-    let state: IntentState;
-    try {
-      state = this.lazy
-        ? await loadLazyIntentState(ref.state, (hash) => this.read(hash))
-        : await loadIntentState(ref.state, (hash) => this.read(hash));
-    } catch (error) {
-      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
-      return fail("Invalid material state");
-    }
-    // An accepted input pair was validated by the host when it was accepted,
-    // as the exact-basis path already relies on. Recover its file hashes from
-    // the root's directory metadata instead of rebuilding every file.
-    const trusted = this.lazy;
+    const state = loadState(this.retained(ref.state));
+    // The engine recorded this state beside the root it projects to. Unless
+    // eager, recover its file objects from the root's directory metadata
+    // instead of rebuilding every file from its pieces.
+    const trusted = !this.eager;
     if (trusted) {
       const material = await this.trustedProjection(state, ref.object);
       this.projection ??= {previous: new Map(), next: new Map()};
@@ -401,18 +316,7 @@ class Engine {
     return this.validateState(state, ref, trusted);
   }
   async validateState(state: IntentState, ref: {object: string}, trusted = false): Promise<IntentState> {
-    if (
-      state.format !== "arbor-merge-intent-state" ||
-      state.tree !== this.request.tree ||
-      !state.nodes ||
-      !state.outputs ||
-      !state.effects ||
-      !state.origins ||
-      !state.alternatives ||
-      !state.changes ||
-      !Array.isArray(state.decisions)
-    )
-      return fail("Invalid material state envelope");
+    if (state.tree !== this.request.tree) return fail("Material state belongs to another tree");
     const nodes = Object.entries(state.nodes);
     if (nodes.length > (this.request.rules.config?.maxNodes ?? 20_000))
       throw new IntentError("limit", "Evaluation node budget exceeded");
@@ -472,8 +376,7 @@ class Engine {
   }
   /** A copy of `id` and its active descendants: everything a later operation
    * can read through an entry operation's result (`binding` descends with
-   * `within`; `copy`, `copyEntry` and `selection` read the subtree). Older
-   * records carry the whole tree; readers accept both. */
+   * `within`; `copy`, `copyEntry` and `selection` read the subtree). */
   subtree(view: View, id: string): View {
     const index = this.childIndex(view);
     const nodes: Record<string, Node> = {};
@@ -711,7 +614,6 @@ class Engine {
     current: Piece[],
     selected: Piece[]
   ): Promise<[number, number]> {
-    await this.originChains([state], current);
     if (current.length * selected.length > 2_000_000)
       throw new IntentError("limit", "Source transport work budget exceeded");
     const contained = (p: Piece) =>
@@ -1275,7 +1177,6 @@ class Engine {
   async edits(base: Piece[], changed: Piece[], state: IntentState): Promise<PieceEdit[]> {
     const edits = pieceEdits(base, changed);
     // Only an insertion's own pieces decide whether it is an attachment.
-    await need(state.effects, new Set(edits.flatMap((e) => e.pieces.map((p) => p.origin))));
     return edits.map((edit) => ({
       ...edit,
       attachment:
@@ -1317,7 +1218,6 @@ class Engine {
       if (index !== decision.selected)
         for (const c of alternative.contributions) { const k = key(c); if (k) declined.add(k); }
     for (const c of decision.alternatives[decision.selected]?.contributions ?? []) { const k = key(c); if (k) declined.delete(k); }
-    await need(state.effects, declined);
     for (const k of declined) {
       const effect = Object.hasOwn(state.effects, k) ? state.effects[k] : undefined;
       if (effect?.kind !== "editSource") continue;
@@ -1459,8 +1359,8 @@ class Engine {
               context.decisions[index] = clone(latest);
           }
           for (const map of ["origins", "effects", "outputs"] as const)
-            for (const [key, value] of Object.entries(await since(authored[map], base[map], same)))
-              (context[map] as Record<string, unknown>)[key] = clone(value);
+            for (const [key, value] of Object.entries(since(authored[map], base[map])))
+              (context[map] as Record<string, unknown>)[key] = own(value);
           // Continuing one fragment can displace an overlapping sibling.
           // Keep that sibling in the prior valid context instead of storing a
           // live placement that a later edit or redo cannot read.
@@ -1529,40 +1429,36 @@ class Engine {
   private async contextView(hash: string): Promise<IntentState> {
     let context = this.contexts.get(hash);
     if (!context) {
-      const state = await loadIntentState(hash, (hash) => this.read(hash));
-      context = await this.load({ object: await this.project(state), state: hash });
+      context = await this.load({ object: this.retained(hash).object, state: hash });
       this.contexts.set(hash, context);
     }
     return context;
   }
-  /** Read history on demand when the basis is an editable state: its nodes
-   * already reflect every deletion in its effects, so evaluation only needs
-   * the records it touches. Non-editable states (transported, imported beside history, or kept from a non-editable current) load eagerly. */
-  async detectLazy(ref: { state?: string }): Promise<boolean> {
-    this.lazy = !this.eager && !!ref.state &&
-      await isEditableState(ref.state, (hash) => this.read(hash));
-    return this.lazy;
+  /** Whether `ref` names an editable state: its nodes already reflect every
+   * deletion in its effects. Non-editable states (transported, imported
+   * beside history, or kept from a non-editable current) take a complete
+   * scan, as every state does when eager. */
+  editable(ref: { state?: string }): boolean {
+    return !this.eager && !!ref.state && this.retained(ref.state).editable;
   }
   async record(state: IntentState, editable = false): Promise<{ object: string; state: string }> {
-    const object = await this.project(state),
-      stored = await storeLazyIntentState(state, (hash) => this.read(hash), (bytes) => this.put(bytes), editable);
-    return { object, state: stored };
+    const object = await this.project(state);
+    return { object, state: retainState(this.states, state, object, editable).id };
   }
   // What `current` recorded under keys `base` lacks. An evaluation compares
   // one fixed current/base pair that neither side edits, so each list is
   // read once however many operations or alternatives ask for it.
-  private addedEffectList?: Promise<Effect[]>;
+  private addedEffectList?: Effect[];
   private addedChangeList?: Promise<Array<{ change: string; checkpoint?: { affected: string[] } }>>;
-  private addedEffects(current: IntentState, base: IntentState): Promise<Effect[]> {
-    return (this.addedEffectList ??= since(current.effects, base.effects, same).then((effects) =>
-      Object.entries(effects as Record<string, Effect>)
-        .filter(([key]) => !Object.hasOwn(base.effects, key))
-        .map(([, effect]) => effect)));
+  private addedEffects(current: IntentState, base: IntentState): Effect[] {
+    return (this.addedEffectList ??= Object.entries(since(current.effects, base.effects))
+      .filter(([key]) => !Object.hasOwn(base.effects, key))
+      .map(([, effect]) => effect));
   }
   private addedChanges(current: IntentState, base: IntentState) {
     return (this.addedChangeList ??= (async () => {
       const added: Array<{ change: string; checkpoint?: { affected: string[] } }> = [];
-      for (const [change, hash] of Object.entries(await since(current.changes, base.changes, same) as Record<string, string>)) {
+      for (const [change, hash] of Object.entries(since(current.changes, base.changes) as Record<string, string>)) {
         if (Object.hasOwn(base.changes, change)) continue;
         added.push({ change, checkpoint: JSON.parse(decoder.decode(await this.read(hash))).checkpoint });
       }
@@ -1575,7 +1471,7 @@ class Engine {
     id: string
   ): Promise<Array<{ change: string; operation: string | null }>> {
     const result: Array<{ change: string; operation: string | null }> =
-      (await this.addedEffects(current, base))
+      this.addedEffects(current, base)
         .filter((e) => e.before[id] || e.after[id])
         .map((e) => ({ change: e.change, operation: e.operation }));
     for (const { change, checkpoint } of await this.addedChanges(current, base))
@@ -1590,9 +1486,6 @@ class Engine {
     engineDiagnostics.path = fastForward ? 1 : 0;
     if (fastForward) return fastForward;
     const startedLoad = performance.now();
-    // An editable base's nodes reflect every deletion in its effects, so only
-    // newer effects are enforced and history is read on demand.
-    await this.detectLazy(this.request.base);
     const request = this.request,
       base = await this.load(request.base),
       sameBasis = request.base.object === request.current.object && request.base.state === request.current.state,
@@ -1602,9 +1495,10 @@ class Engine {
       current = sameBasis
         ? (!base.decisions.length && !request.alternatives?.length ? base : cloneState(base))
         : await this.load(request.current);
-    await this.prefetch(base, current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
-    if (this.lazy) this.appliedDeletions = base.effects;
+    // An editable base's nodes reflect every deletion in its effects, so only
+    // newer effects are enforced.
+    if (this.editable(request.base)) this.appliedDeletions = base.effects;
     const signature = this.put(encodeJSON(changeIdentity(request)));
     const prior = Object.hasOwn(current.changes, request.incoming.change)
       ? current.changes[request.incoming.change]
@@ -1629,7 +1523,7 @@ class Engine {
           !base.nodes[alternative.node] ||
           (await this.project(base, alternative.node)) !== alternative.object)
       ) {
-        const context = await loadIntentState(decision.context, (hash) => this.read(hash));
+        const context = viewState(this.retained(decision.context));
         const retained = context.decisions.find((d) => d.key === decision.key)
           ?.alternatives[binding.alternative];
         if (!retained?.node)
@@ -1818,7 +1712,7 @@ class Engine {
       }
     }
     await this.propagateDecisions(authored, base);
-    this.enforceDeletions(authored, await this.pendingDeletions(authored));
+    this.enforceDeletions(authored, this.pendingDeletions(authored));
     const authoredRoot = await this.project(authored);
     if (authoredRoot !== request.incoming.object)
       return fail("Operations do not reproduce the complete candidate");
@@ -1905,7 +1799,7 @@ class Engine {
         operations.some((op) =>
           ["moveSource", "copySource"].includes(op.kind)
         ) ||
-        (await this.addedEffects(current, base)).some((e) =>
+        this.addedEffects(current, base).some((e) =>
           ["moveSource", "copySource"].includes(e.kind)
         );
       let transported: IntentState | undefined;
@@ -1958,7 +1852,7 @@ class Engine {
                 frameBasis,
                 authored
               );
-              for (const effect of await this.addedEffects(current, base))
+              for (const effect of this.addedEffects(current, base))
                 if (
                   effect.kind === "moveSource" &&
                   Object.values(effect.before).some((n) =>
@@ -2337,7 +2231,6 @@ class Engine {
                     request.rules.config?.formats?.[basePath(id)];
                   if (start === end) {
                     const basisOrigins = new Set(b.pieces.map((p) => p.origin));
-                    await this.originChains([current, authored], versions.flat());
                     const origins = (origin: string) =>
                       Object.hasOwn(authored.origins, origin)
                         ? authored.origins[origin]
@@ -2482,8 +2375,8 @@ class Engine {
         "origins",
         "alternatives",
       ] as const) {
-        for (const [key, value] of Object.entries(await since(authored[map], base[map], same)))
-          (merged[map] as Record<string, unknown>)[key] = clone(value);
+        for (const [key, value] of Object.entries(since(authored[map], base[map])))
+          (merged[map] as Record<string, unknown>)[key] = own(value);
       }
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
@@ -2491,7 +2384,7 @@ class Engine {
       for (const decision of contentDecisions)
         await this.declineDeletions(merged, decision,
           decision.placement?.pieces ?? merged.nodes[decision.affected[0]!]?.pieces ?? []);
-      this.enforceDeletions(merged, await this.pendingDeletions(merged));
+      this.enforceDeletions(merged, this.pendingDeletions(merged));
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
@@ -2616,8 +2509,7 @@ class Engine {
         // not reflect are the candidate's, whose deletions this choice
         // declines (narrowed below), so a complete scan would change nothing:
         // the result is exactly as editable as current was.
-        enforced = !request.current.state ||
-          await isEditableState(request.current.state, (hash) => this.read(hash));
+        enforced = !request.current.state || this.retained(request.current.state).editable;
         rootChoice.selected = 0;
         for (const map of [
           "outputs",
@@ -2626,7 +2518,7 @@ class Engine {
           "changes",
           "alternatives",
         ] as const)
-          resultState[map] = (await union(current[map], resultState[map], same)).map as never;
+          resultState[map] = union(current[map], resultState[map]) as never;
         for (const old of current.decisions) {
           const index = resultState.decisions.findIndex(
             (d) => d.key === old.key
@@ -2736,8 +2628,8 @@ class Engine {
     const result = await this.record(resultState, enforced);
     return this.response(result, resultState);
   }
-  /** Recover projected file hashes from accepted directory metadata, without
-   * rereading file bodies or re-proving the host-validated state/root relation. */
+  /** Recover projected file hashes from a root's directory metadata, without
+   * rereading file bodies or re-proving that a recorded state projects to it. */
   private async trustedProjection(state: IntentState, object: string): Promise<ProjectedMaterial> {
     const index = this.childIndex(state);
     const material: ProjectedMaterial = new Map();
@@ -2762,14 +2654,14 @@ class Engine {
   }
 
   /** Exact-basis source replacements and entry additions cannot import
-   * historical material (an added entry brings only fresh objects). Read
-   * current nodes and identity keys, then append records by path-copying their
-   * maps. Existing history remains reachable without being decoded or copied. */
+   * historical material (an added entry brings only fresh objects). Apply them
+   * to the current nodes, enforce only their own deletions, and add their
+   * records to the retained history, which is shared rather than copied. */
   private async editFastForward(): Promise<IntentResponse | undefined> {
     const request = this.request;
     // Decline reasons are diagnostics only (see engineDiagnostics.decline):
     // 1 divergent or stateless basis, 2 alternatives/resolutions, 3 no operations,
-    // 4 non-basis or lineage-bearing operation, 5 unreadable state, 6 decisions,
+    // 4 non-basis or lineage-bearing operation, 5 non-editable state, 6 decisions,
     // 7 change already recorded, 8 trace not rooted at the basis.
     const decline = (reason: number) => { engineDiagnostics.decline = reason; return undefined; };
     if (!request.base.state || request.base.state !== request.current.state ||
@@ -2782,15 +2674,16 @@ class Engine {
           op.kind === "editSource" ? op.source.material.kind === "basis" && !op.lineage?.length
           : op.kind === "addEntry" && op.destination.parent.material.kind === "basis")) return decline(4);
     if (trace[0]!.before !== request.base.object) return decline(8);
-    const partial = await loadEditableIntentState(request.base.state, hash => this.read(hash));
-    if (!partial) return decline(5);
-    if (partial.value.decisions.length) return decline(6);
-    // The identity lookup must consult retained history, not the empty write set.
-    if (await partial.get("changes", request.incoming.change) !== undefined) return decline(7);
-    // The host supplies a previously validated state/root pair. Recover file
-    // hashes from directory metadata; do not revalidate accepted file bodies.
-    const basis = partial.value;
-    if (basis.tree !== request.tree) return fail("Invalid material state tree");
+    // Snapshot and imported states do not establish that historical deletions
+    // have already been applied. Their next edit uses the full evaluator first.
+    const retained = this.retained(request.base.state);
+    if (!retained.editable) return decline(5);
+    if (retained.decisions.length) return decline(6);
+    if (lookup(retained.history.changes, request.incoming.change) !== undefined) return decline(7);
+    if (retained.tree !== request.tree) return fail("Material state belongs to another tree");
+    // The state is the engine's own record beside its root. Recover file
+    // hashes from directory metadata; do not rebuild files from their pieces.
+    const basis = loadState(retained);
     const projected = await this.trustedProjection(basis, request.base.object);
     this.projection = {previous: projected, next: new Map()};
     const authored = cloneState(basis);
@@ -2800,15 +2693,12 @@ class Engine {
     let frameBasis: View = basis;
     let object = request.base.object;
     for (const frame of trace) {
-      for (const operation of frame.operations) {
-        if (await partial.get("effects", keyOf(request.incoming.change, operation.key)) !== undefined)
-          return fail("Operation identity reused");
+      for (const operation of frame.operations)
         await this.apply(authored, frameBasis, operation, request.incoming.change, frame.before);
-      }
       // Historical deletions have already been applied to this exact basis. These
-      // operations introduce only fresh source origins, so only new deletion
-      // effects can remove any additional material.
-      this.enforceDeletions(authored);
+      // operations introduce only fresh source origins, so only this change's
+      // deletion effects can remove any additional material.
+      this.enforceDeletions(authored, since(authored.effects, basis.effects));
       object = await this.project(authored);
       if (object !== frame.after)
         return fail(trace.length > 1
@@ -2825,8 +2715,7 @@ class Engine {
     }
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
     authored.changes[request.incoming.change] = this.put(encodeJSON(changeIdentity(request)));
-    const state = await partial.store(authored, bytes => this.put(bytes));
-    return this.response({object, state}, authored);
+    return this.response({object, state: retainState(this.states, authored, object, true).id}, authored);
   }
   response(
     result: { object: string; state: string },
@@ -2867,13 +2756,12 @@ export async function mergeIntent(
 ): Promise<IntentResponse> {
   try {
     const engine = new Engine(parseIntentRequest(raw), objects);
-    // Eager evaluation reads and re-enforces all history. It is the reference
-    // the differential suite compares the history-proportional path against.
+    // Eager evaluation re-projects every state and re-enforces all history.
+    // It is the reference the differential suite compares the incremental
+    // path against.
     engine.eager = options.eager ?? false;
     const result = await engine.run(options.incremental);
-    await objects.store(
-      [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
-    );
+    await keep(engine, objects);
     return result;
   } catch (error) {
     // A typed refusal is an outcome; anything else, including a failure to
@@ -2882,6 +2770,12 @@ export async function mergeIntent(
       return { outcome: error.code, message: error.message };
     throw error;
   }
+}
+
+/** Keep what a completed evaluation generated: its objects and its states. */
+async function keep(engine: Engine, objects: MergeObjects): Promise<void> {
+  await objects.store([...engine.generated].map(([hash, bytes]) => ({ hash, bytes })));
+  for (const [id, state] of engine.generatedStates) objects.states.set(id, state);
 }
 
 /** Rebind an accepted snapshot without asserting a move, copy or source lineage.
@@ -2906,12 +2800,10 @@ export async function checkpointIntent(
     },
     objects
   );
-  // A checkpoint of an editable state needs its active material and the
-  // records it writes, never the whole history: the trusted projection seeds
-  // per-file objects from the accepted root, and lazy views path-copy on store.
-  // A first import has no effects, so it vacuously enforces every deletion
-  // they name: it is editable, and the tree's first edit can fast-forward.
-  const editable = (await engine.detectLazy(request.current)) || !request.current.state;
+  // The trusted projection seeds per-file objects from the accepted root. A
+  // first import has no effects, so it vacuously enforces every deletion they
+  // name: it is editable, and the tree's first edit can fast-forward.
+  const editable = !request.current.state || engine.retained(request.current.state).editable;
   const previous = await engine.load(request.current);
   const state = cloneState(previous);
   // The previous state as a record: a wrapped decision's context and the kept
@@ -3202,7 +3094,7 @@ export async function checkpointIntent(
           const recorded = await engine.record(contexts[index]!), node = present[index];
           if (!node) { alternatives.push({ ...recorded, contributions: a.contributions }); continue; }
           const material = clone(node);
-          material.id = `legacy:${input.key}:${index}`;
+          material.id = `imported:${input.key}:${index}`;
           material.parent = null;
           if (index === input.selected && target.active) material.pieces = clone(target.pieces);
           state.nodes[material.id] = material;
@@ -3260,7 +3152,7 @@ export async function checkpointIntent(
           material = clone(locate(context));
         if (!material.pieces)
           return fail("Checkpoint file alternative is not a file");
-        material.id = `legacy:${input.key}:${index}`;
+        material.id = `imported:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);
         state.nodes[material.id] = material;
@@ -3378,9 +3270,7 @@ export async function checkpointIntent(
   // therefore editable too, so the next edit fast-forwards instead of taking
   // the complete scan an imported or transported state needs.
   const result = await engine.record(state, editable);
-  await objects.store(
-    [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
-  );
+  await keep(engine, objects);
   const decisions = decisionReports(state);
   return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
 }

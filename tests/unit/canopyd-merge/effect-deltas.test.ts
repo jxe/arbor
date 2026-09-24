@@ -1,8 +1,7 @@
 import { test, expect } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
 import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { intentDependencies, type Effect, type IntentState } from "../../../packages/canopyd-merge/src/intent-model.ts";
-import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
+import { type Effect, type IntentState } from "../../../packages/canopyd-merge/src/intent-model.ts";
 import { pieceEdits, pieceSlice } from "../../../packages/canopyd-merge/src/pieces.ts";
 import { Fixture } from "./fixture.ts";
 
@@ -11,6 +10,7 @@ type State = { object: string; state: string };
 function objects(f: Fixture) {
   return {
     read: async (hash: string) => f.objects.get(hash)!,
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
@@ -18,7 +18,7 @@ function objects(f: Fixture) {
 }
 
 async function load(f: Fixture, state: State): Promise<IntentState> {
-  return loadIntentState(state.state, async (hash) => f.objects.get(hash)!);
+  return f.state(state);
 }
 
 /** Edits that grow one file's piece count: inserts spread through the text,
@@ -88,20 +88,4 @@ test("effect records stay flat as a file's piece count grows", async () => {
   expect(pieces).toBeGreaterThan(30);
   // Whole copies would grow with the piece count; the delta does not.
   expect(late).toBeLessThan(early * 2);
-});
-
-test("delta records retain the same objects as whole piece copies would", async () => {
-  const f = new Fixture();
-  const steps = await history(f, 30);
-  const states = await Promise.all(steps.map((step) => load(f, step.state)));
-  const last = states.at(-1)!;
-  const legacy: IntentState = { ...last, effects: { ...last.effects } };
-  for (let i = 1; i < steps.length; i++) {
-    const [key, effect] = Object.entries(last.effects).find(([, e]) => e.change === steps[i]!.effect)!;
-    const rebuilt: Effect = { ...effect, edits: {}, before: {}, after: {} };
-    for (const id of Object.keys(effect.before)) rebuilt.before[id] = states[i - 1]!.nodes[id]!;
-    for (const id of Object.keys(effect.after)) rebuilt.after[id] = states[i]!.nodes[id]!;
-    legacy.effects[key] = rebuilt;
-  }
-  expect(intentDependencies(last)).toEqual(intentDependencies(legacy));
 });

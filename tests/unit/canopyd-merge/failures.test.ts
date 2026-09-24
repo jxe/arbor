@@ -25,6 +25,7 @@ test("an absent object is missing context; any other store failure propagates", 
       if (error) throw error;
       return f.objects.get(hash)!;
     },
+    states: f.states,
     store: async () => {},
   });
   const enoent = Object.assign(new Error("no such file"), { code: "ENOENT" });
@@ -47,6 +48,7 @@ test("an engine bug is not reported as an invalid request", async () => {
   const f = new Fixture(), { request } = edit(f);
   const broken = mergeIntent(request, {
     read: async (hash) => f.objects.get(hash)!,
+    states: f.states,
     store: async () => { throw new TypeError("store bug"); },
   });
   await expect(broken).rejects.toThrow("store bug");
@@ -57,6 +59,7 @@ test("running out of evaluation time is a failure with the limit code, not a ref
   request.rules.config = { maxMillis: 1 };
   const slow = mergeIntent(request, {
     read: async (hash) => { await sleep(5); return f.objects.get(hash)!; },
+    states: f.states,
     store: async () => {},
   });
   const error = await slow.then(() => undefined, (error: unknown) => error);

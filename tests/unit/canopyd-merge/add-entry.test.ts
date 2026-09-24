@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
 import { engineDiagnostics } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { Fixture } from "./fixture.ts";
 
 const add = (f: Fixture, root: string, name: string, value: { file: string } | { directory: string }, key = "add"): SourceOperation =>
@@ -68,7 +67,7 @@ test("an entry operation's result keeps only its subtree, and later operations r
       destination: { parent: f.root(base), name: "copy.md" } },
   ], "create"));
   expect(created.result.object).toBe(copied);
-  const state = await loadIntentState(created.result.state, async (hash) => f.objects.get(hash)!);
+  const state = f.state(created.result);
   const output = Object.values(state.outputs).find((material) => material.view && state.nodes[material.node]?.name === "dir")!;
   const names = Object.values(output.view!.nodes).map((node) => node.name).sort();
   expect(output.view!.root).toBe(output.node);

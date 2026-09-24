@@ -13,11 +13,13 @@ import { Fixture } from "./fixture.ts";
 type State = { object: string; state: string };
 type Step = { text: string; result: State };
 
-/** Eager evaluation reads and re-enforces all history; the default path uses
- * only what an edit touches. Every accepted outcome must be identical. */
+/** Eager evaluation re-projects every state and re-enforces all history; the
+ * default path trusts recorded projections and enforces only deletions newer
+ * than an editable basis. Every accepted outcome must be identical. */
 async function differential(f: Fixture, request: IntentRequestInput) {
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
@@ -63,6 +65,7 @@ async function history(f: Fixture, count = 60): Promise<Step[]> {
       text = `snapshot${i} ${text}`;
       const objects = {
         read: async (hash: string) => f.objects.get(hash)!,
+        states: f.states,
         store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
           for (const value of values) f.objects.set(value.hash, value.bytes);
         },
@@ -105,6 +108,7 @@ beforeAll(async () => {
 function preparedFixture() {
   const f = new Fixture();
   f.objects = new Map(prepared.objects);
+  f.states = new Map(prepared.states);
   return f;
 }
 
@@ -201,38 +205,9 @@ test.each([undefined, "current"] as const)("a live decision is created and resol
   expect(resolved.decisions).toEqual([]);
 });
 
-test("a divergent merge reads history in proportion to the edit, not its length", async () => {
-  const reads: Record<string, number[]> = { eager: [], lazy: [] };
-  for (const count of [30, 90]) {
-    const f = preparedFixture();
-    const steps = preparedSteps.slice(0, count);
-    const old = steps.at(-4)!, head = steps.at(-1)!;
-    const { op, next } = edit(f, old.text, [0, 0], "OLD ");
-    const request = f.request(old.result, f.tree({ "a.md": next }), [op], "divergent", head.result);
-    for (const eager of [true, false]) {
-      let bytes = 0;
-      const response = await mergeIntent(request, {
-        read: async (hash) => {
-          const value = f.objects.get(hash)!;
-          bytes += value.length;
-          return value;
-        },
-        store: async () => {},
-      }, { incremental: false, eager });
-      expect(response.outcome).toBe("evaluated");
-      reads[eager ? "eager" : "lazy"]!.push(bytes);
-    }
-  }
-  // Measured: eager 162 KB -> 556 KB, lazy 32 KB -> 57 KB. What the lazy path
-  // still grows by is the file itself (95 -> 238 bytes, one piece per append),
-  // whose piece lists every effect record carries.
-  expect(reads.lazy![1]!).toBeLessThan(reads.eager![1]! / 5);
-  expect(reads.lazy![1]! / reads.lazy![0]!).toBeLessThan(2.5);
-});
-
-test("a checkpoint of an editable state reads active material, not its history", async () => {
+test("a checkpoint reads the roots and the files it rebinds, not history", async () => {
   // A snapshot of a long-edited tree (a page created beside a traced edit)
-  // once loaded every history record before it could rebind one file.
+  // reads the accepted roots and the files it rebinds, never more as history grows.
   const reads: number[] = [];
   const results: string[] = [];
   for (const count of [30, 90]) {
@@ -247,6 +222,7 @@ test("a checkpoint of an editable state reads active material, not its history",
           bytes += value.length;
           return value;
         },
+        states: f.states,
         store: async () => {},
       },
     );
@@ -254,30 +230,29 @@ test("a checkpoint of an editable state reads active material, not its history",
     reads.push(bytes);
     results.push(checkpoint.result.object);
   }
-  // Measured: eager 152 KB -> 540 KB; lazy 7 KB -> 15 KB, where the growth is
-  // the file's own piece list (one piece per append), read once to rebind it.
+  // What grows is the file itself, read once to rebind it.
   expect(reads[1]!).toBeLessThan(60_000);
   expect(reads[1]! / reads[0]!).toBeLessThan(2.5);
   expect(results[0]).not.toBe(results[1]);
 });
 
 test("a checkpoint of an editable state is editable, so the next edit fast-forwards", async () => {
-  const { isEditableState } = await import("../../../packages/canopyd-merge/src/state-storage.ts");
   const f = preparedFixture();
   const head = preparedSteps.slice(0, 30).at(-1)!;
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,
+    states: f.states,
     store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
   };
-  expect(await isEditableState(head.result.state, objects.read)).toBe(true);
+  expect(f.states.get(head.result.state)!.editable).toBe(true);
   const checkpoint = await checkpointIntent(
     { kind: "checkpoint", tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: "page", decisions: [] },
     objects,
   );
   if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
-  expect(await isEditableState(checkpoint.result.state, objects.read)).toBe(true);
+  expect(f.states.get(checkpoint.result.state)!.editable).toBe(true);
   const { op, next } = edit(f, head.text, [0, 0], "AFTER ");
   const evaluated = await differential(f, f.request(checkpoint.result, f.tree({ "a.md": next, "b.md": "new page\n" }), [op], "after-page"));
   expect(f.content(evaluated.result.object, "a.md")).toBe(next);

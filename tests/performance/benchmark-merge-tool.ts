@@ -29,7 +29,8 @@ for (let index = 0; index < 32; index++) {
   times.push(performance.now() - started);
   current = result.result;
   text = next;
-  stateBytes = f.objects.get(result.result.state)!.length;
+  // The estimated memory the last recorded state added.
+  stateBytes = f.states.get(result.result.state)!.bytes;
 }
 const sorted = times.toSorted((a, b) => a - b);
 console.log(

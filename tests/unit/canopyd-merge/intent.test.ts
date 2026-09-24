@@ -1,5 +1,4 @@
 import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
 import { Fixture } from "./fixture.ts";
@@ -1669,7 +1668,7 @@ test("retained effects include exact authored copy intent and its basis", async 
       "copy",
     ),
   );
-  const state = await loadIntentState(result.result.state, async (hash) => f.objects.get(hash)!);
+  const state = f.state(result.result);
   const effect = Object.values(state.effects)[0] as {
     authored: { basis: string; operation: string };
   };
@@ -2058,6 +2057,7 @@ test("nested enclosures retain readable alternatives as a source branch advances
   const eager = async (request: ReturnType<typeof f.request>) => {
     const response = await mergeIntent(request, {
       read: async (hash: string) => f.objects.get(hash)!,
+      states: f.states,
       store: async (values) => { for (const v of values) f.objects.set(v.hash, v.bytes); },
     }, { eager: true });
     if (response.outcome !== "evaluated") throw new Error(JSON.stringify(response));

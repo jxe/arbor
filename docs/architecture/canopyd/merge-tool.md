@@ -114,8 +114,8 @@ state.
 
 ### Cache and replay
 
-The sidecar keeps an engine state per log entry, in memory only, and the objects those
-states are made of in the same memory (never in canopyd's store). To answer a question
+The sidecar keeps an engine state per log entry, decoded in memory only, and the objects
+its answers generate in the same memory (never in canopyd's store). To answer a question
 it needs the states of `base` and `head`; it walks `previous` from each to the nearest
 cached entry, or to the chain's start, and replays forward:
 
@@ -130,8 +130,9 @@ cached entry, or to the chain's start, and replays forward:
 
 Replay is how every state is built, warm or cold, so a cache wipe changes no answer.
 The last 32 solved questions are kept, so replaying the entry canopyd just recorded from
-an answer reuses that answer's state. The cache is dropped whole when its objects exceed
-`ARBOR_MERGE_CACHE_MB` (default 512); rebuilds are bounded by each chain's start.
+an answer reuses that answer's state. The cache is dropped whole when its objects and
+the estimated size of its states exceed `ARBOR_MERGE_CACHE_MB` (default 512); rebuilds
+are bounded by each chain's start.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
@@ -293,11 +294,18 @@ grammar modules are cached; parsed trees are disposed after evaluation.
 Neither authored source nor parser IDs execute with host IO authority, and
 collection schema evaluation stays in the QuickJS sandbox.
 
-### Retained state and lazy history
+### Retained state
 
 Retained state has active material (nodes, decisions) and five history maps
-(`outputs`, `effects`, `origins`, `alternatives`, `changes`), each a
-hash-partitioned map of immutable records. A state is `editable` when the
+(`outputs`, `effects`, `origins`, `alternatives`, `changes`) of immutable
+records. The engine records a state decoded, in memory: every record, node and
+decision is frozen and interned, so equal values are one object, and its nodes
+and history maps are persistent maps (buckets split by key hash) that share
+every bucket an edit did not touch. A plain edit adds what it wrote and the
+buckets on its path; nothing is serialized or read back. A state's identity
+is a digest of its content and its `editable` flag, so equal states recorded
+on any path are one state, and its objects keep their keys in an order that
+depends on content alone. A state is `editable` when the
 evaluation that recorded it enforced every deletion in its effects map on its
 nodes. Transported results and states imported beside existing history are
 not editable and take one complete scan, after which their result is
@@ -306,9 +314,8 @@ editable as the current state it keeps: its nodes are current's, and the
 effects they do not reflect are the declined candidate's. A tree's first
 import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
-their enforced pieces, and replaced files get fresh origins. Every state root
-records its `editable` flag; a root without one is invalid. Reading a record that was
-not loaded is an evaluator error, never "absent".
+their enforced pieces, and replaced files get fresh origins. An evaluation on
+an editable state enforces only the deletions of newer effects.
 
 Every effect records `edits`: for an `editSource` effect its piece delta per
 file node (each edit's `range`, `removed` and `inserted` pieces), and nothing
@@ -401,8 +408,8 @@ acceptance suites, `tests/support/replay-check.ts` asks each accepted entry's re
 question again, from one warm cache across the history and from a cold one, and
 requires the entry's root and decisions. `reference-sidecar.test.ts` runs canopyd's
 rule-agnostic acceptance against the cache-free reference sidecar in test support.
-`tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded result
-against an eager reference that reads all history.
+`tests/unit/canopyd-merge/history-differential.test.ts` compares every incremental result
+against an eager reference that re-projects every state and enforces all history.
 
 Ordinary plain list edits, including splitting, removing, and rearranging list
 items, may merge with disjoint prose changes. This allowance checks the affected

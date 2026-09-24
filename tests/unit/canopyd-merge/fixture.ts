@@ -8,10 +8,12 @@ import {
 } from "@overstory/protocol";
 import { MergeRefusal } from "@overstory/merge-protocol";
 import { mergeIntent } from "@overstory/canopyd-merge";
+import { viewState, type RetainedState } from "../../../packages/canopyd-merge/src/retained-state.ts";
 import type {
   Frame,
   IntentRequestInput,
   IntentResponse,
+  IntentState,
 } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
 /** The frame chain of a one-step change: a single frame from the basis to the
@@ -27,6 +29,14 @@ export function singleStep(
 
 export class Fixture {
   objects = new Map<string, Uint8Array>();
+  /** The engine states recorded so far, as the sidecar keeps them. */
+  states = new Map<string, RetainedState>();
+  /** The recorded state a result names. */
+  state(ref: { state: string }): IntentState {
+    const retained = this.states.get(ref.state);
+    if (!retained) throw new Error(`No recorded state ${ref.state}`);
+    return viewState(retained);
+  }
   put(text: string | Uint8Array) {
     const bytes =
       typeof text === "string" ? new TextEncoder().encode(text) : text;
@@ -133,6 +143,7 @@ export class Fixture {
         if (hashObject(b) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
         return b;
       },
+      states: this.states,
       store: async (objects) => {
         for (const o of objects) this.objects.set(o.hash, o.bytes);
       },

@@ -17,6 +17,7 @@ import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeWireTrees } from "./merge.ts";
+import type { RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
@@ -47,12 +48,15 @@ const CLIENT_CHANGE = /^[A-Za-z0-9_-]{1,128}$/;
  * function of objects and its rules. Everything it keeps is a cache: engine
  * states for log entries, rebuilt by replaying entries from each chain's
  * start (trace, then align to the accepted root and decisions), and the
- * objects those states are made of, held in memory only. A cache wipe
+ * objects its answers generate, all held in memory only. A cache wipe
  * changes no answer.
  */
 export class Sidecar {
   private memory = new Map<string, Uint8Array>();
   private memoryBytes = 0;
+  /** Engine states by identity, decoded; each is counted in `memoryBytes`
+   * by its estimated size. */
+  private recorded = new Map<string, RetainedState>();
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
   /** Paths each entry changed from its previous entry's root. Entries are
@@ -76,6 +80,7 @@ export class Sidecar {
   clear(): void {
     this.memory.clear();
     this.memoryBytes = 0;
+    this.recorded.clear();
     this.states.clear();
     this.entries.clear();
     this.changed.clear();
@@ -90,6 +95,14 @@ export class Sidecar {
     },
     store: async (values) => {
       for (const { hash, bytes } of values) this.remember(hash, bytes);
+    },
+    states: {
+      get: (id) => this.recorded.get(id),
+      set: (id, value) => {
+        if (this.recorded.has(id)) return;
+        this.recorded.set(id, value);
+        this.memoryBytes += value.bytes;
+      },
     },
   };
 

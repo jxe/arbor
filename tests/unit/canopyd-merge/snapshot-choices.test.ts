@@ -1,13 +1,12 @@
 import { expect, test } from "bun:test";
 import { checkpointIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { Fixture } from "./fixture.ts";
 
 type State = { object: string; state: string };
 
 /** A state reference with its retained decisions, readable like an evaluation. */
 async function read(f: Fixture, ref: State) {
-  const state = await loadIntentState(ref.state, async (hash) => f.objects.get(hash)!);
+  const state = f.state(ref);
   return { ...ref, result: ref, decisions: state.decisions };
 }
 
@@ -19,6 +18,7 @@ async function snapshot(f: Fixture, current: State, files: Record<string, string
       continueSelected: true, conflictProjection: "current", change, decisions },
     {
       read: async (hash) => f.objects.get(hash)!,
+      states: f.states,
       store: async (values) => { for (const value of values) f.objects.set(value.hash, value.bytes); },
     },
   );
@@ -99,6 +99,7 @@ async function checkpoint(f: Fixture, current: { object: string; state?: string 
       continueSelected: true, conflictProjection: "current", change, decisions },
     {
       read: async (hash) => f.objects.get(hash)!,
+      states: f.states,
       store: async (values) => { for (const value of values) f.objects.set(value.hash, value.bytes); },
     },
   );

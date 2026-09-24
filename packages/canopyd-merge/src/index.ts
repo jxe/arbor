@@ -4,7 +4,7 @@ export { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 export type { CheckpointRequest, CheckpointResponse, MergeSummary } from "./engine-contract.ts";
 export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export { mergeWireTrees, type MergeResult } from "./merge.ts";
-export { loadIntentState } from "./state-storage.ts";
+import type { RetainedStates } from "./retained-state.ts";
 
 /** Immutable object IO for the engine: no accepted-state or database access.
  * `read` reports an absent object as a `missing-context` `MergeRefusal` (as
@@ -14,4 +14,6 @@ export { loadIntentState } from "./state-storage.ts";
 export interface MergeObjects {
   read(hash: ObjectHash): Promise<Uint8Array>;
   store: ObjectStore["store"];
+  /** The engine states recorded so far, kept by identity. */
+  states: RetainedStates;
 }

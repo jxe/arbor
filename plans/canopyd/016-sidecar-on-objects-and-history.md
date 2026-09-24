@@ -30,7 +30,8 @@ entries) and one merge question, and plain edits on the head no longer ask a sid
    the schema-18 code it shipped with) or write it against this build's acceptance path. The pre-cutover
    backup `.backups/railway/20260924T131328Z/volume.tar` is the copy to use.
 2. **The sidecar's cache per file.** Step 6 kept the engine's tree-wide state: every
-   replayed plain edit loads, clones and stores the whole active state, so the cost
+   replayed plain edit clones the whole active state and compares every node to record
+   its result (unchanged nodes and history records are shared, not copied), so the cost
    moves from canopyd's request to the next question. Split the retained state so a plain
    edit touches only its file's state and its directories. Measure with
    `FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts` and the `replayed`
