@@ -8,8 +8,10 @@ import {
   type AcceptedTransitionPayload,
   type AcceptedUpdate,
   type ObjectHash,
+  type SourceTraceFrame,
   type UpdateResult,
 } from "@overstory/protocol";
+import type { SourceEditEvidence } from "./source-edits.ts";
 import { SourceIntentStore } from "./source-intent-store.ts";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
 
@@ -36,6 +38,10 @@ export interface AcceptedUpdateInput {
   change?: string;
   conflicts?: ConflictState;
   mergeState?: MergeStateRecord;
+  /** A traced edit canopyd verified and accepted without the merge worker:
+   * its frames and per-operation evidence, kept so the worker's retained state
+   * can replay it later. */
+  authored?: { trace: SourceTraceFrame[]; evidence: SourceEditEvidence[] };
   /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
    * computed before the transaction because object reads are async. */
   entryChanges: EntryChanges;
@@ -247,6 +253,7 @@ export class AcceptedUpdateStore {
     new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
     if (state && !input.mergeState) conflicts.insert(id, state);
     if (input.mergeState) new MergeStateStore(this.db).insert(id, input.mergeState);
+    if (input.authored) new SourceIntentStore(this.db).insert(id, input.authored.trace, input.authored.evidence);
     return this.get(id)!;
   }
 

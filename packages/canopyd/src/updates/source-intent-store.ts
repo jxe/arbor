@@ -13,11 +13,13 @@ interface StoredSourceIntent {
   candidateRoot: string;
 }
 
-/** Read-only access to retained authored intent. Nothing writes new rows; the
- * rows that exist still attribute past changes and pin their basis and
- * candidate roots. Never translates snapshot correspondence into asserted
- * operations. The tree, change identity, basis and candidate are the owning
- * accepted update's own columns; this table adds only the trace and its evidence.
+/** Retained authored intent: the frames and evidence of a traced edit that
+ * canopyd verified and accepted itself, without the merge worker (older rows
+ * came from an earlier host-side executor). They attribute past changes, pin
+ * their basis and candidate roots, and let the worker's state replay the edit.
+ * Never translates snapshot correspondence into asserted operations. The tree,
+ * change identity, basis and candidate are the owning accepted update's own
+ * columns; this table adds only the trace and its evidence.
  */
 export class SourceIntentStore {
   constructor(private readonly db: Database) {}
@@ -46,6 +48,14 @@ export class SourceIntentStore {
 
   get(tree: string, change: string): StoredSourceIntent | null {
     return this.one("u.tree_id = ? AND u.change_id = ?", tree, change);
+  }
+
+  /** Inside the accepted transaction that owns the row. */
+  insert(accepted: string, trace: SourceTraceFrame[], evidence: SourceEditEvidence[]): void {
+    if (!this.db.inTransaction) throw new Error("Authored intent requires accepted transaction");
+    this.db.run("INSERT INTO authored_changes (accepted_id, trace_json, evidence_json) VALUES (?, ?, ?)", [
+      accepted, JSON.stringify(trace), JSON.stringify(evidence),
+    ]);
   }
 
   forAccepted(update: string): StoredSourceIntent | null {

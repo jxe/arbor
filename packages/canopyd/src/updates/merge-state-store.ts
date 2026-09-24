@@ -40,6 +40,13 @@ export class MergeStateStore {
       JSON.stringify(record),
     ]);
   }
+  /** Record the worker state of an update canopyd accepted without the
+   * worker, once the worker has caught up with it. A concurrent catch-up of
+   * the same update produced the same state; the first row stands. */
+  insertCaughtUp(id: string, record: MergeStateRecord) {
+    if (record.decisions.length) throw new Error("A fast-forwarded update has no decisions");
+    this.db.run("INSERT OR IGNORE INTO accepted_merge_states VALUES (?,?)", [id, JSON.stringify(record)]);
+  }
   /** Audit one retained record at a time, bounded to the initial high-water mark. */
   *entries(): Generator<{accepted: string; record: MergeStateRecord}> {
     const last = this.db.query("SELECT MAX(rowid) AS n FROM accepted_merge_states").get() as {n: number | null};

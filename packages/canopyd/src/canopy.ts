@@ -10,6 +10,8 @@ import { decisionDependencies, ConflictStore, type ConflictState } from "./updat
 import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
 import type { DecisionPage } from "@overstory/protocol";
 import { SourceIntentStore } from "./updates/source-intent-store.ts";
+import { validateSourceTrace, type SourceEditEvidence } from "./updates/source-edits.ts";
+import type { SourceTraceFrame } from "@overstory/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -1151,6 +1153,58 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
+  /**
+   * A single traced edit on the current head, with no decisions open there,
+   * whose every frame canopyd reproduces exactly from plain basis edits: it is
+   * accepted without the merge worker, whose state later replays its trace.
+   * Null means "evaluate as usual" and never rejects: anything canopyd cannot
+   * verify itself, including an invalid trace, goes to the worker.
+   */
+  private async hostFastForward(
+    treeID: string,
+    request: UpdateRequest,
+  ): Promise<{ trace: SourceTraceFrame[]; evidence: SourceEditEvidence[] } | null> {
+    if (request.base === null || request.updates.length !== 1 || this.execution.current) return null;
+    const tree = this.get(treeID), update = request.updates[0]!;
+    if (!tree || isAccountConfigPolicy(tree.policy) || !update.trace?.length || update.resolves.length) return null;
+    const current = this.currentUpdate(treeID);
+    if (!current || current.id !== request.base || update.trace[0]!.before !== current.root || update.trace.at(-1)!.after !== update.candidate) return null;
+    if (update.ifCurrent !== undefined && update.ifCurrent !== current.id) return null;
+    // An edit that leaves the bytes as they are still records intent; only the
+    // worker can accept it as its own update.
+    if (update.candidate === current.root) return null;
+    if (this.semantic.store.get(current.id)?.decisions.length || new ConflictStore(this.db).get(current.id)?.decisions.length) return null;
+    if (!update.trace.every((frame) => frame.operations.every((operation) => operation.kind === "editSource"))) return null;
+    if (this.acceptedStore.acceptedChange(treeID, update.change)) return null;
+    const objects = new Map(update.objects.map(({ hash, bytes }) => [hash, bytes]));
+    try {
+      for (const { hash, bytes } of await this.objects.reconstructDeltas(current.root, update.deltas, objects)) objects.set(hash, bytes);
+      const verified = await validateSourceTrace(update.trace, (hash) => this.objects.load(hash, objects));
+      // Intermediate frame roots are immutable objects the replay will read.
+      await this.objects.store([...verified.generated].map(([hash, bytes]) => ({ hash, bytes })));
+      return { trace: update.trace, evidence: verified.evidence };
+    } catch {
+      return null;
+    }
+  }
+
+  private readonly catchUps = new Set<Promise<unknown>>();
+  /** Settle every background catch-up started so far, including any a
+   * settling one starts. For shutdown, audits and tests. */
+  async caughtUp(): Promise<void> {
+    while (this.catchUps.size) await Promise.allSettled([...this.catchUps]);
+  }
+  /** Bring the merge worker's state up to a fast-forwarded update in the
+   * background, so a later merge need not replay it first. Never fatal: a
+   * later request replays whatever is still missing. */
+  private catchUp(update: AcceptedUpdate): void {
+    const job = this.semantic.state(update, new Map()).catch((error) => {
+      if (process.env.NODE_ENV !== "test") console.warn(JSON.stringify({ event: "catch-up", tree: update.tree, update: update.id, error: error instanceof Error ? error.message.split("\n")[0] : String(error) }));
+    });
+    this.catchUps.add(job);
+    void job.finally(() => this.catchUps.delete(job));
+  }
+
   private async submitUpdatesLocked(
     treeID: string,
     request: UpdateRequest,
@@ -1197,11 +1251,12 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     markPhase("receipts");
     const intents = new Map<number, { basis: StateRef; evaluated: Evaluated; guards: string[] }>();
-    if (
-      request.base &&
-      request.updates.some((update) => update.trace !== null)
-    ) {
-      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    const traced = request.base !== null && request.updates.some((update) => update.trace !== null);
+    if (traced && !(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    // A verified plain edit on the current head skips the merge worker.
+    const fastForward = traced && recordedThrough === -1 ? await this.hostFastForward(treeID, request) : null;
+    markPhase("fast-forward-check");
+    if (traced && !fastForward) {
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
         const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
@@ -1229,7 +1284,7 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       const objects = new Map<ObjectHash, Uint8Array>();
       let basis = await this.semantic.state(
-        this.update(request.base)!,
+        this.update(request.base!)!,
         objects
       );
       markPhase("preflight-state");
@@ -1376,7 +1431,8 @@ export class CanopyDaemon implements AsyncDisposable {
         basisUpdate!,
         intents.get(index),
         submittedConflicts,
-        index > 0 ? request.base ?? completed[0]!.update.id : undefined
+        index > 0 ? request.base ?? completed[0]!.update.id : undefined,
+        index === 0 ? fastForward ?? undefined : undefined
       );
       if ("error" in result.result) {
         result.result.details.completed = completed;
@@ -1412,7 +1468,8 @@ export class CanopyDaemon implements AsyncDisposable {
     basisUpdate?: string,
     preparedIntent?: { basis: StateRef; evaluated: Evaluated; guards: string[] },
     submittedConflicts?: ConflictState | null,
-    authoredChainBase?: string
+    authoredChainBase?: string,
+    fastForward?: { trace: SourceTraceFrame[]; evidence: SourceEditEvidence[] }
   ): Promise<{
     status: number;
     result: UpdateResult | UpdateConflictResult;
@@ -1485,6 +1542,10 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
         throw new Error(`Invariant violated: tree ${treeID} ref does not match its current accepted update`);
       }
+      // A fast-forward was verified against this exact head; a traced edit is
+      // never merged as a snapshot. The client retries and is evaluated anew.
+      if (fastForward && remoteUpdate.id !== basisUpdate)
+        throw new UpdateProtocolError("server-busy", "The tree advanced while a fast-forward was verified");
       const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
       const intentStore = new SourceIntentStore(this.db);
       let reconciled = preconditionFailed
@@ -1669,6 +1730,8 @@ export class CanopyDaemon implements AsyncDisposable {
         };
       }
       const nextRoot = reconciled.root;
+      if (fastForward && (reconciled.outcome !== "accepted" || nextRoot !== request.candidate || conflictState))
+        throw new Error("A verified fast-forward must accept its own candidate");
       const kind: "accepted" | "merged" = reconciled.outcome === "merged" ? "merged" : "accepted";
       const merge = reconciled.outcome === "merged" ? reconciled.merge : undefined;
       const objects = new Map([...proposed, ...reconciled.generated]);
@@ -1727,6 +1790,7 @@ export class CanopyDaemon implements AsyncDisposable {
           transition,
           change: request.change,
           conflicts: conflictState,
+          ...(fastForward ? { authored: fastForward } : {}),
         },
         prepared.withinTransaction
       );
@@ -1734,6 +1798,7 @@ export class CanopyDaemon implements AsyncDisposable {
       markPhase("commit");
       prepared.afterCommit?.(accepted);
       this.notifyAccepted(accepted);
+      if (fastForward) this.catchUp(accepted);
       markPhase("notify");
       return {
         status: 201,
@@ -2675,6 +2740,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await this.caughtUp();
     await this.mergeTool[Symbol.asyncDispose]();
     await this.wireSchemas[Symbol.asyncDispose]();
     this.db.close();

@@ -15,6 +15,7 @@ import { MergeTool } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
+import { SourceIntentStore } from "./source-intent-store.ts";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
@@ -134,7 +135,25 @@ export class SemanticMerge {
     if (this.checkpoints.size > 256)
       this.checkpoints.delete(this.checkpoints.keys().next().value!);
   }
+  /** The worker state after an accepted update. Missing states are rebuilt
+   * from the nearest retained or cached ancestor, in accepted order: an update
+   * canopyd fast-forwarded without the worker replays its own trace, and any
+   * other update is checkpointed as its accepted projection. */
   async state(
+    update: AcceptedUpdate,
+    objects: Map<string, Uint8Array>
+  ): Promise<StateRef> {
+    // One build per tree at a time: a later build then starts from the states
+    // an earlier one recorded instead of replaying the same history again.
+    const previous = this.building.get(update.tree) ?? Promise.resolve();
+    const built = previous.catch(() => {}).then(() => this.build(update, objects));
+    const tail = built.catch(() => {});
+    this.building.set(update.tree, tail);
+    void tail.then(() => { if (this.building.get(update.tree) === tail) this.building.delete(update.tree); });
+    return built;
+  }
+  private readonly building = new Map<string, Promise<unknown>>();
+  private async build(
     update: AcceptedUpdate,
     objects: Map<string, Uint8Array>
   ): Promise<StateRef> {
@@ -155,7 +174,16 @@ export class SemanticMerge {
     let current: {object: string; state?: string} = prior ?? {object: pending[0]!.root};
     let offset = 0;
     while (offset < pending.length) {
-      let size = Math.min(MAX_CHECKPOINT_BATCH, pending.length - offset);
+      const replayed = current.state ? await this.replay(update.tree, current as StateRef, pending[offset]!, objects) : null;
+      if (replayed) {
+        current = replayed;
+        offset++;
+        continue;
+      }
+      // Checkpoint the run of updates up to the next replayable one.
+      let end = offset + 1;
+      while (end < pending.length && end - offset < MAX_CHECKPOINT_BATCH && !this.fastForwarded(pending[end]!)) end++;
+      let size = end - offset;
       for (;;) {
         const slice = pending.slice(offset, offset + size);
         const inputs = new Map(objects), steps = [];
@@ -180,6 +208,48 @@ export class SemanticMerge {
       }
     }
     return current as StateRef;
+  }
+
+  /** An update whose retained trace explains it exactly: accepted on its own
+   * basis, at its own candidate. */
+  private fastForwarded(update: AcceptedUpdate) {
+    const intent = new SourceIntentStore(this.db).forAccepted(update.id);
+    return intent && update.previous?.root === intent.basisRoot && update.root === intent.candidateRoot && intent.trace.length
+      ? intent : null;
+  }
+
+  /** Replay a fast-forwarded update's own trace on the worker state before
+   * it, and record the result. Null when it is not one, or when the worker
+   * cannot reproduce the accepted root; the caller then checkpoints it. */
+  private async replay(
+    tree: string,
+    basis: StateRef,
+    update: AcceptedUpdate,
+    objects: Map<string, Uint8Array>
+  ): Promise<StateRef | null> {
+    const intent = this.fastForwarded(update);
+    if (!intent) return null;
+    const request = { change: intent.change, candidate: update.root, trace: intent.trace, resolves: [] } as unknown as CandidateUpdate;
+    let evaluated: Evaluated;
+    const local = new Map(objects);
+    try {
+      evaluated = await this.evaluate(tree, basis, basis, request, local);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "test") console.warn(JSON.stringify({ event: "catch-up-replay", update: update.id, error: error instanceof Error ? error.message.split("\n")[0] : String(error) }));
+      return null;
+    }
+    if (evaluated.result.object !== update.root || evaluated.decisions.length) {
+      if (process.env.NODE_ENV !== "test") console.warn(JSON.stringify({ event: "catch-up-replay", update: update.id, error: "Replay does not reproduce the accepted root" }));
+      return null;
+    }
+    // Only what the replay generated: the caller's inputs are not accepted.
+    const generated = [...local].filter(([hash]) => !objects.has(hash));
+    await this.persist(generated.map(([hash, bytes]) => ({ hash, bytes })));
+    for (const [hash, bytes] of generated) objects.set(hash, bytes);
+    const record = await this.record(tree, evaluated.result, evaluated.authored, [], request, objects, evaluated.evidence);
+    this.store.insertCaughtUp(update.id, record);
+    this.remember(update.id, evaluated.result);
+    return evaluated.result;
   }
 
   async evaluate(

@@ -45,7 +45,10 @@ async function editAt(path: string, text: string, basis = root, range: [number, 
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
   return { change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: basis, after: executed.root, operations }], resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
 }
-function records() {
+/** Merge-state rows with a trace, once background catch-up of any
+ * fast-forwarded edit has recorded its state. */
+async function records() {
+  await running.canopy.caughtUp();
   const db = new Database(`${dir}/canopy.sqlite3`);
   try { return db.query("SELECT u.change_id, u.base_root AS basis_root, u.candidate_root, m.record_json FROM accepted_merge_states m JOIN accepted_updates u ON u.id=m.accepted_id WHERE u.tree_id = ? AND json_extract(m.record_json, '$.request.trace') IS NOT NULL").all(tree); } finally { db.close(); }
 }
@@ -54,13 +57,13 @@ test("accepts exact source, retains evidence across restart, and replays after s
   const accepted = await client.submitUpdates(tree, request);
   expect(accepted.results[0]!.outcome).toBe("accepted");
   expect(accepted.results[0]!.update.root).toBe(update.candidate);
-  expect(records()).toHaveLength(1);
+  expect(await records()).toHaveLength(1);
   const snapshot = await edit("XYZ", update.candidate);
   await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...snapshot, trace: null }] });
   await stop(); await start();
   const replay = await client.submitUpdates(tree, request);
   expect(replay.results[0]!.update.id).toBe(accepted.results[0]!.update.id);
-  expect(records()).toHaveLength(1);
+  expect(await records()).toHaveLength(1);
   await running.canopy.verifyIntegrity();
 });
 test("equal-byte edits create accepted provenance and subsequent batch edits use preceding candidates", async () => {
@@ -69,7 +72,7 @@ test("equal-byte edits create accepted provenance and subsequent batch edits use
   expect(response.results.map(r => r.outcome)).toEqual(["accepted", "accepted"]);
   expect(response.results[0]!.update.root).toBe(root);
   expect(response.results[0]!.update.id).not.toBe(base);
-  expect(records()).toHaveLength(2);
+  expect(await records()).toHaveLength(2);
 });
 test("preflight is reused only for the same retained material; divergent heads still merge", async () => {
   const first = await edit("ABC");
@@ -81,14 +84,17 @@ test("preflight is reused only for the same retained material; divergent heads s
   const peer = await edit("BBB", first.candidate);
   const forward = (await client.submitUpdates(tree, {base: accepted.id, updates: [next]})).results[0]!.update;
   expect(forward.root).toBe(next.candidate);
+  // canopyd verified and accepted the plain edit itself; the worker's only
+  // call is the background replay that brings its state up to date.
+  await running.canopy.caughtUp();
   expect(workers).toBe(1);
   workers = 0;
   const merged = (await client.submitUpdates(tree, {base: accepted.id, updates: [peer]})).results[0]!.update;
   expect(merged.conflicted).toBe(true);
   expect(workers).toBe(2);
-  const count = records().length;
+  const count = (await records()).length;
   await expect(client.submitUpdates(tree, {base: accepted.id, updates: [{...await edit("CCC", first.candidate), ifCurrent: accepted.id}]})).rejects.toThrow();
-  expect(records()).toHaveLength(count);
+  expect(await records()).toHaveLength(count);
   await running.canopy.verifyIntegrity();
 });
 test("concurrent range edits retain both accepted alternatives", async () => {
@@ -102,7 +108,7 @@ test("concurrent range edits retain both accepted alternatives", async () => {
     { file: hashObject(new TextEncoder().encode("AAA\r\n")) },
     { file: hashObject(new TextEncoder().encode("BBB\r\n")) },
   ]));
-  expect(records()).toHaveLength(2);
+  expect(await records()).toHaveLength(2);
   await running.canopy.verifyIntegrity();
 });
 test("a stale equal-root basis cannot erase newer intent", async () => {
@@ -111,7 +117,7 @@ test("a stale equal-root basis cannot erase newer intent", async () => {
   expect(accepted.conflicted).toBe(true);
   expect(accepted.root).toBe(root);
   expect((await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!.alternatives).toHaveLength(2);
-  expect(records()).toHaveLength(2);
+  expect(await records()).toHaveLength(2);
 });
 
 type RangeEdit = { range: [number, number]; text: string };
@@ -152,7 +158,7 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
     await stop(); await start();
     expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
     expect((await client.submitUpdates(tree, { base, updates: [second] })).results[0]!.update).toEqual(accepted);
-    expect(records()).toHaveLength(2);
+    expect(await records()).toHaveLength(2);
     await running.canopy.verifyIntegrity();
   });
 }
@@ -181,7 +187,7 @@ test("nested range collisions create a decision at the physical file", async () 
   const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
   expect(decision.affected).toEqual([{ material: { kind: "basis", path: "/", object: accepted.root }, within: ["nested"] }]);
   expect(decision.alternatives.map(a => a.placement?.name)).toEqual(["note.md", "note.md"]);
-  expect(records()).toHaveLength(2);
+  expect(await records()).toHaveLength(2);
   await running.canopy.verifyIntegrity();
 });
 test("candidate mismatch and dynamic unsupported forms reject before any prefix commits", async () => {
@@ -198,7 +204,7 @@ test("candidate mismatch and dynamic unsupported forms reject before any prefix 
   const overlapping = { ...second, trace: [{ ...second.trace![0]!, operations: [...authored(second), { ...authored(second)[0]!, key: "overlap" }] }] };
   await expect(client.submitUpdates(tree, { base, updates: [first, overlapping] })).rejects.toThrow();
   expect(running.canopy.currentUpdate(tree)).toEqual(before);
-  expect(records()).toHaveLength(0);
+  expect(await records()).toHaveLength(0);
 });
 test("reusing a retained change for another operation or snapshot cannot mutate authority", async () => {
   const first = await edit("ABC");
@@ -207,16 +213,18 @@ test("reusing a retained change for another operation or snapshot cannot mutate 
   for (const trace of [next.trace, null]) {
     await expect(client.submitUpdates(tree, { base: response.results[0]!.update.id, updates: [{ ...next, change: first.change, trace }] })).rejects.toThrow(/identity.*(bound|reused)/);
   }
-  expect(records()).toHaveLength(1);
+  expect(await records()).toHaveLength(1);
 });
 test("injected provenance write failure rolls back acceptance and permits exact retry", async () => {
   const db = new Database(`${dir}/canopy.sqlite3`);
+  // A fast-forward's provenance is its authored row; a merged edit's is its merge state.
   db.run("CREATE TRIGGER fail_source AFTER INSERT ON accepted_merge_states BEGIN SELECT RAISE(ABORT, 'injected source failure'); END");
+  db.run("CREATE TRIGGER fail_authored AFTER INSERT ON authored_changes BEGIN SELECT RAISE(ABORT, 'injected source failure'); END");
   const request = { base, updates: [await edit("ABC")] };
   await expect(client.submitUpdates(tree, request)).rejects.toThrow("injected source failure");
   expect(running.canopy.currentUpdate(tree)!.id).toBe(base);
-  expect(records()).toHaveLength(0);
-  db.run("DROP TRIGGER fail_source"); db.close();
+  expect(await records()).toHaveLength(0);
+  db.run("DROP TRIGGER fail_source"); db.run("DROP TRIGGER fail_authored"); db.close();
   expect((await client.submitUpdates(tree, request)).results[0]!.outcome).toBe("accepted");
 });
 
@@ -232,7 +240,7 @@ test("guard failure preserves a completed prefix and exact retries do not duplic
       expect(conflict.details.failedIndex).toBe(1);
       expect(conflict.details.current.root).toBe(first.candidate);
     }
-    expect(records()).toHaveLength(1);
+    expect(await records()).toHaveLength(1);
   }
 });
 test("unauthorized clients and foreign accepted bases cannot submit authored edits", async () => {
@@ -242,7 +250,7 @@ test("unauthorized clients and foreign accepted bases cannot submit authored edi
   const foreign = await client.descriptor(account.account.configuration.id);
   await expect(client.submitUpdates(tree, { base: foreign.tree.update, updates: [update] })).rejects.toThrow();
   expect(running.canopy.currentUpdate(tree)!.id).toBe(base);
-  expect(records()).toHaveLength(0);
+  expect(await records()).toHaveLength(0);
 });
 
 test("same-basis independent source edits merge across restart and retain replay receipts", async () => {
@@ -255,7 +263,7 @@ test("same-basis independent source edits merge across restart and retain replay
   const expected = await edit("ABC");
   expect(accepted.results[0]!.update.root).toBe(expected.candidate);
   expect(accepted.results[0]!.update.conflicted).toBe(false);
-  expect(records()).toHaveLength(3);
+  expect(await records()).toHaveLength(3);
   const db = new Database(`${dir}/canopy.sqlite3`);
   const row = db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(accepted.results[0]!.update.id) as { record_json: string };
   const retained=JSON.parse(row.record_json);
@@ -264,12 +272,12 @@ test("same-basis independent source edits merge across restart and retain replay
   db.close();
   const replay = await client.submitUpdates(tree, request);
   expect(replay.results[0]!.update).toEqual(accepted.results[0]!.update);
-  expect(records()).toHaveLength(3);
+  expect(await records()).toHaveLength(3);
   // A baseline snapshot client can edit the merged projection normally.
   const next = await edit("snapshot", expected.candidate);
   const snapshot = await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...next, trace: null }] });
   expect(snapshot.results[0]!.update.root).toBe(next.candidate);
-  expect(records()).toHaveLength(3);
+  expect(await records()).toHaveLength(3);
   await running.canopy.verifyIntegrity();
 });
 test("a merged predecessor's disjoint successor merges without rebasing authored intent", async () => {
@@ -283,7 +291,7 @@ test("a merged predecessor's disjoint successor merges without rebasing authored
   expect(accepted.conflicted).toBe(false);
   const page = await client.conflicts(tree, accepted.id, accepted.root);
   expect(page.decisions).toEqual([]);
-  const retained = records() as Array<{ change_id: string; basis_root: string; candidate_root: string }>;
+  const retained = await records() as Array<{ change_id: string; basis_root: string; candidate_root: string }>;
   expect(retained.find(r => r.change_id === second.change)).toMatchObject({ basis_root: first.candidate, candidate_root: second.candidate });
   await stop(); await start();
   expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
@@ -782,7 +790,7 @@ test.each([false, true])("a source successor preserves an independently created 
   ]));
   await stop(); await start();
   expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
-  const retained = records() as Array<{ change_id: string; basis_root: string }>;
+  const retained = await records() as Array<{ change_id: string; basis_root: string }>;
   expect(retained.find(r => r.change_id === second.change)!.basis_root).toBe(first.candidate);
   await running.canopy.verifyIntegrity();
 });
@@ -861,14 +869,47 @@ test("authorized hidden alternative edits retain projection and public identity"
 });
 
 
-test("an exact accepted retry does not need an available worker",async()=>{
+test("an exact retry and a plain edit on the head do not need an available worker",async()=>{
  const update=await edit("ACKNOWLEDGED");const request={base,updates:[update]};
  const response=await client.submitUpdates(tree,request);
  await stop();await start({command:[`${dir}/missing-worker`]});
  expect((await client.submitUpdates(tree,request)).results).toEqual(response.results);
+ // canopyd verifies a plain edit on its current head itself.
  const next=await edit("next",update.candidate,[0,12]);
- await expect(client.submitUpdates(tree,{base:response.results[0]!.update.id,updates:[next]})).rejects.toThrow();
- expect((await client.descriptor(tree)).tree.update).toBe(response.results[0]!.update.id);
+ const forward=(await client.submitUpdates(tree,{base:response.results[0]!.update.id,updates:[next]})).results[0]!.update;
+ expect(forward.root).toBe(next.candidate);
+ // A concurrent edit must be merged, which needs the worker.
+ const peer=await edit("peer",update.candidate,[0,12]);
+ await expect(client.submitUpdates(tree,{base:response.results[0]!.update.id,updates:[peer]})).rejects.toThrow();
+ expect((await client.descriptor(tree)).tree.update).toBe(forward.id);
+});
+
+test("a plain edit on the head with a stale ifCurrent guard is a conflict, not a fast-forward",async()=>{
+ const first=await edit("ONE");
+ const one=(await client.submitUpdates(tree,{base,updates:[first]})).results[0]!.update;
+ const second=await edit("TWO",first.candidate);
+ await expect(client.submitUpdates(tree,{base:one.id,updates:[{...second,ifCurrent:base}]})).rejects.toThrow(WireUpdateConflict);
+ expect((await client.descriptor(tree)).tree.update).toBe(one.id);
+});
+
+test("fast-forwards made while the worker is down are replayed when it returns",async()=>{
+ await stop();await start({command:[`${dir}/missing-worker`]});
+ const first=await edit("ONE"),second=await edit("TWO",first.candidate);
+ const one=(await client.submitUpdates(tree,{base,updates:[first]})).results[0]!.update;
+ const two=(await client.submitUpdates(tree,{base:one.id,updates:[second]})).results[0]!.update;
+ expect(two.root).toBe(second.candidate);
+ // Both carry their authored trace; the worker has recorded nothing yet.
+ const authoredRows=()=>{const db=new Database(`${dir}/canopy.sqlite3`);try{return db.query("SELECT accepted_id FROM authored_changes").all();}finally{db.close();}};
+ expect(authoredRows()).toHaveLength(2);
+ expect(await records()).toHaveLength(0);
+ await stop();await start();
+ // A merge against the older head needs the worker's state at the current
+ // head, so the missed edits are replayed from their traces first.
+ const peer=await edit("PEER",first.candidate);
+ const merged=(await client.submitUpdates(tree,{base:one.id,updates:[peer]})).results[0]!.update;
+ expect(merged.conflicted).toBe(true);
+ expect((await records()).length).toBeGreaterThanOrEqual(3);
+ await running.canopy.verifyIntegrity();
 });
 
 test("competing Markdown prose insertions are accepted without review",async()=>{
@@ -926,6 +967,8 @@ test("cold history reads durable checkpoints without restaging its growing prefi
   const update = await edit("new", current);
   const result = await client.submitUpdates(tree, { base: accepted, updates: [update] });
   expect(result.results[0]!.update.root).toBe(update.candidate);
+  // The edit fast-forwards; catching the worker up rebuilds the history.
+  await running.canopy.caughtUp();
   expect(checkpointInputs).toHaveLength(2);
   expect(sizes[0]).toBe(64);
   expect(sizes.reduce((a,b)=>a+b,0)).toBeGreaterThan(70);
@@ -957,6 +1000,7 @@ test("large historical batches split without changing their accepted basis", asy
   }) as typeof tool.evaluate;
   const update=await edit("new",current),request={base:accepted,updates:[update]};
   const result=await client.submitUpdates(tree,request);
+  await running.canopy.caughtUp();
   expect(splits).toBeGreaterThan(0);expect(successfulSteps).toBeGreaterThan(10);
   expect(result.results[0]!.update.root).toBe(update.candidate);
   await stop();await start();
