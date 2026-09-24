@@ -1,13 +1,13 @@
 import Foundation
 
-/// Direct Canopy synchronization: the state machine a durable replica runs
-/// against Arbor Wire (Reliability 005, machine B).
+/// Working-tree updates: the state machine a working tree runs against an
+/// Overstory host (spec 09).
 ///
 /// The reducer is pure and language-neutral: roots, updates, cursors, and
 /// request digests are opaque tokens. `UpdateCoordinator` maps its
 /// `UpdateControl` onto these states, persists what each state retains,
 /// and executes the effects the reducer returns. It executes the same fixture
-/// scenarios as the TypeScript reducer in `@arbor/canopy-client`.
+/// scenarios as the TypeScript reducer in `@overstory/client`.
 public enum UpdateMachine {
     /// Trailing delay before unsent durable local work is published.
     public static let publicationDelay: Duration = .milliseconds(250)

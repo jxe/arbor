@@ -738,7 +738,7 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "resolves": [],
       "objects": [],
@@ -754,7 +754,7 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "resolves": [],
       "objects": [],
@@ -762,7 +762,7 @@ same time:
     },
     {
       "change": "change-two",
-      "operations": null,
+      "trace": null,
       "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
       "resolves": [],
       "objects": [],
@@ -1045,9 +1045,9 @@ directly. The normative client behavior is the update machine in
 0. The working tree is installed from an accepted snapshot. On a device that
    shares an installation with the folder's daemon it installs a **sparse
    spine** (directories and Markdown inline, other files by hash and lazily
-   fetched from the loopback object route) and, when the daemon holds a
-   pending request, **adopts** that request verbatim as its first attempt;
-   elsewhere it installs from the host. Either way it records the confirmed
+   fetched from the loopback object route) rooted at the host's accepted
+   root; the daemon's pending request is never adopted. Elsewhere it
+   installs from the host. Either way it records the confirmed
    `{ root, update, cursor }` watchpoint.
 1. Each authored generation is admitted into the working tree and becomes
    locally durable at once (the document admission machine); unsent

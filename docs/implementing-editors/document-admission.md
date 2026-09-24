@@ -1,5 +1,10 @@
 # The document admission machine
 
+> Superseded by [Clients 001](../../plans/clients/001-reconcile-client-state-machines.md):
+> editors will append each generation straight to the working tree's change
+> log and this machine will be deleted. Until that lands, this page describes
+> the Swift editor host as it runs today.
+
 The document admission machine runs between an editor's undo history and its
 working tree's document session. This is its reference: its states, the data
 each retains, its transitions, and the rules a new editor host must follow.
@@ -10,8 +15,9 @@ The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
 (Swift) and `reduceAdmission` in `@overstory/client` (TypeScript). Both are
 pure reducers that execute every `document-admission` scenario in
 [`docs/overstory-spec/conformance/client-state-machines.json`](../overstory-spec/conformance/client-state-machines.json);
-the editor host (`ArborDocumentBinding` today; the web editor later) runs the
-effects.
+the Swift editor host (`ArborDocumentBinding`) runs the effects. No TypeScript
+host exists: `packages/canopy-web/src/editor-coordinator.ts` is out of the
+build and targets APIs that no longer exist.
 
 The target admission policy is [exact authored basis](../overstory-spec/09-client-synchronization.md#exact-authored-basis).
 Both reducers capture base source and revision in each admission effect. The
@@ -134,7 +140,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
    awaits it, and submits one coalesced successor if edits arrived
    meanwhile. Navigation, focus loss, backgrounding, eviction, and close call
    `flush` and surface failure. Disposal never starts an unobservable save:
-   the web coordinator drains the machine before closing and exposes its
+   a web host must drain the machine before closing and expose its
    state until then; browsers have no reliable synchronous drain on unload,
    so pending state stays visible instead of being claimed durable.
 

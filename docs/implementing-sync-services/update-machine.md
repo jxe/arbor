@@ -2,9 +2,11 @@
 
 This guide describes the reference implementation, not additional portable requirements.
 
-The update machine runs inside every working tree against an Overstory host:
-the daemon's folder synchronizer and the Canopy app's `CanopyWorkingTree`
-both run it. Its states and transitions are specified in
+The update machine is specified for every working tree, but today only the
+Canopy app's `CanopyWorkingTree` runs it; the daemon's folder synchronizer
+(`TreeSynchronizer` in `@overstory/client`) runs its own loop, and
+[Clients 001](../../plans/clients/001-reconcile-client-state-machines.md)
+brings it onto the shared machine. Its states and transitions are specified in
 [working-tree updates](../overstory-spec/09-client-synchronization.md); this document
 describes its runner, the update coordinator, and what the coordinator adds
 around the reducer: the durable head, recovery, and watching. The editor-side
@@ -12,7 +14,7 @@ machine above it is [the document admission machine](../implementing-editors/doc
 
 
 The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
-and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
+and `reduceUpdate` (`@overstory/client`; exercised only by tests today). Both execute the `working-tree-updates` scenarios in
 [`docs/overstory-spec/conformance/client-state-machines.json`](../overstory-spec/conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
