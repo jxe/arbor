@@ -159,4 +159,20 @@ without an owner and their rules only in `access`, the bootstrap configurations 
 
 ## Rehearsal log
 
-Not rehearsed yet.
+**2026-09-24, green.** Backup `.backups/railway/20260924T155600Z/volume.tar` (sha256
+`d8d83892…`, matches `/data/backups/019-one-access-store/volume.tar`; live and vacuumed
+copy both 5 trees, 4 `access` rows, 2 `resource_policy` rows, 1 account, 54 accepted
+updates, schema 19). Build: this branch at `77d97222`.
+
+- Focused suite: 3 pass.
+- `run.ts migrated`: 1 account configuration (2 resources); `adopted` empty,
+  `policyRewritten` empty, `accessRowsDeleted` 2, `accessDifferences` empty. The
+  community root stays unowned (Joe's configuration does not host it) and keeps its two
+  `access` rows: `everyone` read and Joe's profile write. The other four trees were
+  already Joe's. A second run reported `migrated: false`.
+- `compare-canopy-roots`: every tree `root unchanged`; migration-specific differences only.
+- Served with this build: `/.arbor/integrity` once, `{"status":"ok"}`; `verify.ts --no-sync`
+  ok with no failures.
+- Unauthenticated `/`, `/~joe`, `/~joe/todos`, `/.arbor/trees`, each tree route and each
+  `access` route: status and body byte-identical to the live schema-19 server (public
+  pages 200, the private tree and the configuration tree 404, `access` 401).
