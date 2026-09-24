@@ -98,7 +98,9 @@ a question you cannot evaluate with one line:
   canopyd answers a retryable 503 only for those two codes.
 
 Stay running between questions. canopyd starts one process, sends one question at a
-time, clears staging between them, and restarts you if you exit or exceed its timeout.
+time, clears staging between them, and restarts you if you exit, exceed its timeout, or
+send a line that is not a well-formed answer, refusal or error, or an answer that fails
+its checks. A refusal or an error keeps you running with your cache.
 Stderr lines starting `{"timings":` are read as diagnostics; anything else is ignored.
 
 ## What canopyd does without you

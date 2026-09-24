@@ -12,6 +12,9 @@ import {
   type WireDirectory,
 } from "@overstory/protocol";
 import type { MergeObjects } from "./index.ts";
+import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse } from "./engine-contract.ts";
+import { MergeRefusal } from "@overstory/merge-protocol";
+import { OBJECT_HASH } from "./state-value.ts";
 import {
   IntentError,
   alternativeKey,
@@ -122,6 +125,32 @@ const fail = (message: string): never => {
 const missing = (message: string): never => {
   throw new IntentError("missing-context", message);
 };
+/** The guard of every "try this, else fall back" in the engine. Material that
+ * no longer corresponds (an `invalid` or `unsupported` refusal, or the
+ * engine's own control-flow errors) lets the caller fall back. A budget, a
+ * missing object and a failure to evaluate at all propagate: falling back on
+ * them would make the answer depend on load or on what is cached. */
+const rethrowUnlessFallback = (error: unknown): void => {
+  if (
+    error instanceof EvaluationFailure ||
+    (error instanceof IntentError && (error.code === "limit" || error.code === "missing-context"))
+  )
+    throw error;
+};
+/** Whether a store's read failure means the object is absent: the sidecar's
+ * reader refuses with `missing-context`, a plain object store reports ENOENT. */
+const absent = (error: unknown): boolean =>
+  ((error instanceof MergeRefusal || error instanceof IntentError) && error.code === "missing-context") ||
+  (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+/** A directory object's contents. Bytes that are not one are invalid
+ * material (a candidate can name any object), not an evaluator failure. */
+const directoryOf = (bytes: Uint8Array): WireDirectory => {
+  try {
+    return decodeWireDirectory(bytes);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Invalid directory object");
+  }
+};
 const components = (path: string): string[] => {
   if (
     !path.startsWith("/") ||
@@ -207,20 +236,26 @@ class Engine {
       performance.now() - this.started >
       (this.request.rules.config?.maxMillis ?? 5000)
     )
-      throw new IntentError("limit", "Evaluation time budget exceeded");
+      throw new EvaluationFailure("Evaluation time budget exceeded", "limit");
   }
   constructor(readonly request: IntentRequest, readonly store: MergeObjects) {}
   async read(hash: string): Promise<Uint8Array> {
     this.checkBudget();
     const known = this.generated.get(hash) ?? this.cache.get(hash);
     if (known) return known;
+    if (!OBJECT_HASH.test(hash)) return fail("Invalid object reference");
     let bytes: Uint8Array;
     try {
+      // Every store the engine reads through verifies what it returns (see
+      // MergeObjects), so the bytes are not hashed again here.
       bytes = await this.store.read(hash);
-    } catch {
-      return missing(`Missing object ${hash}`);
+    } catch (error) {
+      if (absent(error)) return missing(`Missing object ${hash}`);
+      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
+      throw new EvaluationFailure(
+        `Object store failed reading ${hash}: ${error instanceof Error ? error.message : String(error)}`,
+        undefined, { cause: error });
     }
-    if (hashObject(bytes) !== hash) return fail("Object hash mismatch");
     this.readBytes += bytes.length;
     if (
       this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
@@ -307,7 +342,7 @@ class Engine {
         : [];
     }
     if (kind === "directory") {
-      const directory = decodeWireDirectory(await this.read(object));
+      const directory = directoryOf(await this.read(object));
       node.directory = { ...directory, entries: [] };
       for (const entry of directory.entries) {
         await this.importNode(
@@ -347,7 +382,7 @@ class Engine {
         ? await loadLazyIntentState(ref.state, (hash) => this.read(hash))
         : await loadIntentState(ref.state, (hash) => this.read(hash));
     } catch (error) {
-      if (error instanceof IntentError) throw error;
+      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
       return fail("Invalid material state");
     }
     // An accepted input pair was validated by the host when it was accepted,
@@ -1050,8 +1085,7 @@ class Engine {
               };
               decision.affected = [destination.id];
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit")
-                throw error;
+              rethrowUnlessFallback(error);
               /* A partial choice is enclosed by the lifecycle pass. */
             }
           }
@@ -1416,7 +1450,7 @@ class Engine {
               const at = this.locate(target.pieces, child.placement.pieces, [0, length(child.placement.pieces)]);
               child.placement.anchor = at[0];
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit") throw error;
+              rethrowUnlessFallback(error);
               child.context = oldState;
             }
           }
@@ -1448,8 +1482,7 @@ class Engine {
               )
                 parent.placement.pieces = clone(fragment.pieces);
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit")
-                throw error;
+              rethrowUnlessFallback(error);
             }
           } else if (parent.kind !== "content") {
             branch.object = result.object;
@@ -1733,8 +1766,7 @@ class Engine {
             placement.pieces = clone(node.pieces);
             placement.anchor = at[0];
           } catch (error) {
-            if (error instanceof IntentError && error.code === "limit")
-              throw error;
+            rethrowUnlessFallback(error);
             wrapped.add(decision.key);
             continue;
           }
@@ -1953,11 +1985,7 @@ class Engine {
           await this.project(attempt);
           transported = attempt;
         } catch (error) {
-          if (
-            error instanceof IntentError &&
-            ["limit", "missing-context"].includes(error.code)
-          )
-            throw error;
+          rethrowUnlessFallback(error);
         }
       }
       const merged = cloneState(current),
@@ -2048,7 +2076,7 @@ class Engine {
               let at: [number, number];
               try { at = this.locate(before.pieces, node.pieces, [0, length(node.pieces)]); }
               catch (error) {
-                if (error instanceof IntentError && error.code === "limit") throw error;
+                rethrowUnlessFallback(error);
                 continue;
               }
               if (!changed.length || changed.some(e => e.range[0] < at[0] || e.range[1] > at[1])) continue;
@@ -2399,7 +2427,7 @@ class Engine {
                             : [d.placement.anchor, d.placement.anchor];
                           return overlap({range: [start, end], pieces: []}, {range: [at[0]!, at[1]!], pieces: []});
                         } catch (error) {
-                          if (error instanceof IntentError && error.code === "limit") throw error;
+                          rethrowUnlessFallback(error);
                           return true;
                         }
                       })
@@ -2445,7 +2473,7 @@ class Engine {
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
-        if (error instanceof IntentError && error.code === "limit") throw error;
+        rethrowUnlessFallback(error);
         affected.push(merged.root);
       }
       if (affected.length) {
@@ -2610,8 +2638,7 @@ class Engine {
           ]);
           decision.placement.anchor = at[0];
         } catch (error) {
-          if (error instanceof IntentError && error.code === "limit")
-            throw error;
+          rethrowUnlessFallback(error);
           continuedContext ??= await recordCurrent();
           decision.context = continuedContext.state;
         }
@@ -2653,8 +2680,7 @@ class Engine {
             ]);
             matches.push({ node, range });
           } catch (error) {
-            if (error instanceof IntentError && error.code === "limit")
-              throw error;
+            rethrowUnlessFallback(error);
           }
         }
         if (matches.length !== 1)
@@ -2692,7 +2718,7 @@ class Engine {
       const node = state.nodes[id] ?? fail("Missing validated node");
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
-      const entries = new Map(decodeWireDirectory(await this.read(hash)).entries.map(e => [e.name, e]));
+      const entries = new Map(directoryOf(await this.read(hash)).entries.map(e => [e.name, e]));
       for (const child of this.children(state, id, index)) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
@@ -2821,13 +2847,11 @@ export async function mergeIntent(
     );
     return result;
   } catch (error) {
+    // A typed refusal is an outcome; anything else, including a failure to
+    // evaluate, is the caller's to report.
     if (error instanceof IntentError)
       return { outcome: error.code, message: error.message };
-    return {
-      outcome: "invalid",
-      message:
-        error instanceof Error ? error.message : "Invalid intent request",
-    };
+    throw error;
   }
 }
 
@@ -2835,9 +2859,9 @@ export async function mergeIntent(
  * Unchanged occurrences retain origins; changed bytes are an opaque barrier.
  * Existing decisions whose projection disappears are enclosed, never erased. */
 export async function checkpointIntent(
-  request: import("./checkpoint.ts").CheckpointRequest,
+  request: CheckpointRequest,
   objects: MergeObjects
-): Promise<import("./checkpoint.ts").CheckpointResponse> {
+): Promise<CheckpointResponse> {
   const engine = new Engine(
     {
       kind: "tree",
@@ -2868,13 +2892,13 @@ export async function checkpointIntent(
   const resolved = new Set(request.resolves ?? []);
   for (const key of resolved) {
     const decision = state.decisions.find((d) => d.key === key);
-    if (!decision) throw new Error("Resolution decision is unavailable");
+    if (!decision) return fail("Resolution decision is unavailable");
     if (
       !request.align &&
       request.projection !== request.current.object &&
       decision.dependencies.some((d) => !resolved.has(d))
     )
-      throw new Error("Snapshot resolution must guard dependent decisions");
+      return fail("Snapshot resolution must guard dependent decisions");
   }
   state.decisions = state.decisions.filter((d) => !resolved.has(d.key));
   for (const decision of state.decisions)
@@ -2983,7 +3007,9 @@ export async function checkpointIntent(
             length(decision.placement.pieces),
           ]);
           continue;
-        } catch {}
+        } catch (error) {
+          rethrowUnlessFallback(error);
+        }
         // A current-basis snapshot edits the selected whole-file alternative. It
         // does not resolve the sibling, nor claim lineage for its replacement bytes.
         const old = previous.nodes[decision.placement.node];
@@ -3088,7 +3114,7 @@ export async function checkpointIntent(
       let node = state.nodes[state.root]!;
       for (const name of input.path)
         node = engine.children(state, node.id).find((n) => n.name === name) ?? fail("Checkpoint decision path is absent");
-      if (!node.pieces) throw new Error("Checkpoint source choice is not a file");
+      if (!node.pieces) return fail("Checkpoint source choice is not a file");
       const [start, end] = input.range;
       const context = (await previousRecord()).state;
       const alternatives = [];
@@ -3122,13 +3148,15 @@ export async function checkpointIntent(
             fail("Checkpoint decision path is absent");
         return node;
       };
-      const find = (view: View) => { try { return locate(view); } catch { return undefined; } };
+      const find = (view: View) => {
+        try { return locate(view); } catch (error) { rethrowUnlessFallback(error); return undefined; }
+      };
       const contexts = await Promise.all(input.alternatives.map((a) => engine.initial(a.object)));
       if (contexts.some((context) => !find(context))) {
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
         if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
-          throw new Error("Checkpoint existence alternative is not a file");
+          return fail("Checkpoint existence alternative is not a file");
         const kept = present.find((node) => node)!;
         let target = find(state);
         if (!target) {
@@ -3173,10 +3201,10 @@ export async function checkpointIntent(
         for (const [index, a] of input.alternatives.entries()) {
           const folder = locate(contexts[index]!);
           if (folder.kind !== "directory")
-            throw new Error("Checkpoint folder alternative is not a directory");
+            return fail("Checkpoint folder alternative is not a directory");
           const recorded = await engine.record(await engine.initial(folder.object));
           if (index === input.selected && recorded.object !== shown)
-            throw new Error("Checkpoint projection does not show the selected folder");
+            return fail("Checkpoint projection does not show the selected folder");
           alternatives.push({
             ...recorded,
             ...(index === input.selected ? { node: selected.id } : {}),
@@ -3196,13 +3224,13 @@ export async function checkpointIntent(
         continue;
       }
       if (!selected.pieces)
-        throw new Error("Checkpoint file decision has no file placement");
+        return fail("Checkpoint file decision has no file placement");
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
         const context = await engine.initial(a.object),
           material = clone(locate(context));
         if (!material.pieces)
-          throw new Error("Checkpoint file alternative is not a file");
+          return fail("Checkpoint file alternative is not a file");
         material.id = `legacy:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);
@@ -3325,20 +3353,5 @@ export async function checkpointIntent(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );
   const decisions = decisionReports(state);
-  if (!request.authored)
-    return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
-  // The author's checkpoint of the same projection differs from this one only
-  // where a decision is added or enclosed (the conflict projection, the
-  // candidate alternative): with neither, both requests yield the same state.
-  const own = request.candidate ?? request.projection;
-  if (!wrapped.length && !request.decisions.length && own === request.projection)
-    return { kind: "checkpoint", result, authored: result, objects: [...engine.generated.keys()], decisions };
-  const author = await checkpointIntent({
-    kind: "checkpoint", tree: request.tree, current: request.current, projection: own,
-    change: request.change, decisions: [], ...(request.resolves ? { resolves: request.resolves } : {}),
-  }, objects);
-  return {
-    kind: "checkpoint", result, authored: author.result,
-    objects: [...new Set([...engine.generated.keys(), ...author.objects])], decisions,
-  };
+  return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
 }

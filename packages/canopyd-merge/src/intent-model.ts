@@ -8,21 +8,30 @@ import type { MaterialRef } from "@overstory/protocol";
 import {
   IntentError,
   intentRequestSchema,
-  isIntentRequest,
   traceOperations,
   type DecisionReport,
   type Frame,
   type IntentEvaluation,
   type IntentRequest,
 } from "./engine-contract.ts";
-export { IntentError, isIntentRequest, traceOperations, type Frame, type IntentRequest };
+export { IntentError, traceOperations, type Frame, type IntentRequest };
 
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
 const schema = intentRequestSchema;
 /** What a caller hands the engine, before `parseIntentRequest` checks it. */
 export type IntentRequestInput = IntentRequest;
+/** Check a request's shape and decode every operation. Anything wrong with it
+ * is the request's fault, so every failure here is a typed refusal. */
 export function parseIntentRequest(raw: unknown): IntentRequest {
+  try {
+    return checkIntentRequest(raw);
+  } catch (error) {
+    if (error instanceof IntentError) throw error;
+    throw new IntentError("invalid", error instanceof Error ? error.message : "Invalid intent request");
+  }
+}
+function checkIntentRequest(raw: unknown): IntentRequest {
   if (
     raw &&
     typeof raw === "object" &&
@@ -325,20 +334,6 @@ export function parseIntentState(raw: unknown): IntentState {
   return state as IntentState;
 }
 
-/** History records have no cross-record schema constraints. Use the same full
- * schema and retained-node checks for a new record as for a complete state. */
-export function parseIntentHistoryRecord(
-  field: "outputs" | "effects" | "origins" | "alternatives" | "changes",
-  raw: unknown,
-): unknown {
-  const state = parseIntentState({
-    format: "arbor-merge-intent-state", tree: "validation", root: "root",
-    nodes: {}, outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {}, decisions: [],
-    [field]: {record: raw},
-  });
-  return state[field].record;
-}
-
 /** Object dependencies only: change digests and nested TreeIDs are not objects. */
 export function intentDependencies(state: IntentState): Set<string> {
   const hashes = new Set<string>();
@@ -376,30 +371,4 @@ export function intentDependencies(state: IntentState): Set<string> {
       hashes.add(decision.subject.material.object);
   }
   return hashes;
-}
-
-/** Typed retained edges, deduplicated independently of repeated historical
- * piece occurrences. Hashes of change requests are metadata, not file objects. */
-export function intentReferences(state: IntentState): Set<string> {
-  const refs = new Set([...intentDependencies(state)].map(hash => "object:" + hash));
-  const add = (kind: string, hash: string) => refs.add(kind + ":" + hash);
-  const nodes = (values: Record<string, Node>) => {
-    for (const node of Object.values(values))
-      if (node.kind === "directory") add("directory", node.object);
-  };
-  nodes(state.nodes);
-  for (const material of Object.values(state.outputs)) if (material.view) nodes(material.view.nodes);
-  for (const effect of Object.values(state.effects)) {
-    nodes(effect.before); nodes(effect.after); add("directory", effect.authored.basis);
-  }
-  for (const hash of Object.values(state.changes)) add("change", hash);
-  for (const decision of state.decisions) {
-    if (decision.context) add("state", decision.context);
-    for (const alternative of decision.alternatives) add("state", alternative.state);
-  }
-  return refs;
-}
-export function intentHistoryReferences(field: "outputs" | "effects" | "origins" | "alternatives" | "changes", record: unknown): Set<string> {
-  return intentReferences({format: "arbor-merge-intent-state", tree: "", root: "", nodes: {}, decisions: [],
-    outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {}, [field]: {record}} as IntentState);
 }

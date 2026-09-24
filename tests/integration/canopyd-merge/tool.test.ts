@@ -303,3 +303,24 @@ test("a sidecar failure surfaces its own message, and refusals keep their code",
   expect(refusal).toBeInstanceOf(MergeRefusal);
   expect((refusal as MergeRefusal).code).toBe("invalid");
 });
+
+test("a refusal or an error line keeps the worker and its cache; malformed output retires it", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {MergeWorkerError}=await import("../../../packages/canopyd/src/merge-tool.ts");
+  const base=snapshot("base"), { question } = await prepare(base, base, base);
+  const script=join(directory,"answers.ts"), starts=join(directory,"starts.log");
+  const lines=[{refusal:{code:"invalid",message:"Trace does not follow its basis"}},{error:{message:"Evaluation time budget exceeded",code:"limit"}},{refusal:{code:"bogus",message:"?"}}];
+  await writeFile(script, `import {appendFileSync} from "node:fs"; appendFileSync(${JSON.stringify(starts)}, process.pid + "\\n");
+    const lines = ${JSON.stringify(lines.map((line) => JSON.stringify(line)))}; let next = 0;
+    ${lineWorker("console.log(lines[next++ % lines.length]);")}`);
+  await using answering=new MergeTool(directory,{command:[process.execPath,script]});
+  const ask=()=>answering.ask(question,new Map()).then(()=>null,(error:unknown)=>error as Error);
+  expect(await ask()).toBeInstanceOf(MergeRefusal);
+  expect(await ask()).toBeInstanceOf(MergeWorkerError);
+  expect((await readFile(starts,"utf8")).trim().split("\n")).toHaveLength(1);
+  // A refusal with an unknown code is malformed: the worker is replaced.
+  expect(await ask()).not.toBeInstanceOf(MergeRefusal);
+  expect(await ask()).toBeInstanceOf(MergeRefusal);
+  expect((await readFile(starts,"utf8")).trim().split("\n")).toHaveLength(2);
+  await expectNoStaging();
+});

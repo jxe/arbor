@@ -14,6 +14,7 @@ import {
 import type { MergeObjects } from "./index.ts";
 import type { CheckpointRequest, IntentRequest } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
+import { IntentError } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeWireTrees } from "./merge.ts";
 import { snapshotDecisions } from "./snapshot.ts";
@@ -28,7 +29,9 @@ interface Cached {
 }
 
 /** Where the sidecar reads accepted objects and writes an answer's new ones.
- * `shared` is canopyd's store (read-only); `staging` is this question's. */
+ * `shared` is canopyd's store (read-only); `staging` is this question's.
+ * `find` returns an object's verified bytes, or null when it is absent; a
+ * corrupt object is an error, never bytes (as `ObjectStore.find` does). */
 export interface SidecarStores {
   shared: { find(hash: string): Promise<Uint8Array | null>; has(hash: string): Promise<boolean> };
   staging: { find(hash: string): Promise<Uint8Array | null>; stage(values: Array<{ hash: string; bytes: Uint8Array }>): Promise<void> };
@@ -52,6 +55,9 @@ export class Sidecar {
   private memoryBytes = 0;
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
+  /** Paths each entry changed from its previous entry's root. Entries are
+   * immutable, so this is a cache; it is counted in `memoryBytes`. */
+  private changed = new Map<string, string[]>();
   /** Recently solved questions. The next question's head is usually the entry
    * canopyd recorded from the last answer, and replaying it asks the same
    * question again: the same inputs give the same state, so it is reused. */
@@ -72,6 +78,7 @@ export class Sidecar {
     this.memoryBytes = 0;
     this.states.clear();
     this.entries.clear();
+    this.changed.clear();
     this.solved.clear();
   }
 
@@ -104,9 +111,9 @@ export class Sidecar {
   private async entry(hash: string): Promise<LogEntry> {
     let entry = this.entries.get(hash);
     if (!entry) {
-      const bytes = await this.objects.read(hash);
-      if (hashObject(bytes) !== hash) throw new Error(`Log entry hash mismatch: ${hash}`);
-      entry = decodeLogEntry(bytes);
+      // Not hashed again: stores verify what they return, and memory holds
+      // only objects this process generated under their own hash.
+      entry = decodeLogEntry(await this.objects.read(hash));
       this.entries.set(hash, entry);
     }
     return entry;
@@ -208,8 +215,13 @@ export class Sidecar {
         const solved = await this.solve(question, asked ? this.rules(asked) : rules);
         state = { ...solved.result, decisions: await logDecisions(this.io, solved.result.object, solved.reports) };
       }
-    } catch {
-      // An entry its question no longer explains is aligned to as a fact.
+    } catch (error) {
+      // An entry its question no longer explains (a refusal, which is a
+      // property of the question) is aligned to as a fact. A failure to
+      // evaluate is not: a time budget or a store failure could pass on a
+      // retry, and aligning past it would make the cached state depend on
+      // load. Those, and anything unexpected, fail this question instead.
+      if (!(error instanceof MergeRefusal || error instanceof IntentError)) throw error;
     }
     return this.align(entry, state);
   }
@@ -297,11 +309,12 @@ export class Sidecar {
         merged = { root: head.root, conflicts: [{ path: "/" }], folders: ["/"] };
       }
     }
-    const concurrent = await this.concurrentChanges(question.base, question.head);
     const conflictProjection = (question.rules.config as { conflictProjection?: "current" | "incoming" } | undefined)?.conflictProjection ?? "current";
+    // Attribution is needed only for a choice.
     const { projection, decisions, replaces } = !merged.conflicts.length && !merged.folders.length
       ? { projection: merged.root, decisions: [], replaces: [] }
-      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders, concurrent);
+      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders,
+        await this.concurrentChanges(question.base, question.head));
     const response = await checkpointIntent({
       kind: "checkpoint", tree: head.tree, current: { object: current.object, state: current.state }, projection,
       candidate: candidate.root, continueSelected: baseRoot === head.root, conflictProjection,
@@ -320,11 +333,21 @@ export class Sidecar {
       if (!entry.previous) break;
       const previous = await this.entry(entry.previous);
       if (CLIENT_CHANGE.test(entry.change))
-        touched.unshift({ change: entry.change, paths: await changedEntryPaths(this.io, previous.root, entry.root) });
+        touched.unshift({ change: entry.change, paths: await this.changedPaths(at, previous.root, entry.root) });
       at = entry.previous;
     }
     const related = (a: string, b: string) => a === "/" || b === "/" || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
     return (path: string) => touched.filter((t) => t.paths.some((p) => related(p, path))).map((t) => ({ change: t.change, operation: null }));
+  }
+
+  private async changedPaths(hash: string, before: string, after: string): Promise<string[]> {
+    let paths = this.changed.get(hash);
+    if (!paths) {
+      paths = await changedEntryPaths(this.io, before, after);
+      this.changed.set(hash, paths);
+      this.memoryBytes += paths.reduce((bytes, path) => bytes + 2 * path.length + 32, 64);
+    }
+    return paths;
   }
 
   /** Stage every object the answer names that canopyd does not hold. */

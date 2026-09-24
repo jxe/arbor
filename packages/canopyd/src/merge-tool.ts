@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hashObject, type ObjectHash } from "@overstory/protocol";
 import { absentFrom, ObjectStore } from "@overstory/object-store";
-import { parseAnswer, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
+import { MergeRefusal, parseAnswer, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
 export interface MergeToolOptions {
   /** Executable and fixed arguments, run as `<command> serve --objects DIR
@@ -121,6 +121,10 @@ export class MergeTool {
       phaseStart = now;
     };
     let worker: PersistentMergeWorker | undefined;
+    // Whether the worker stays in service, keeping its cache: it answered in
+    // form (a verified answer, a refusal or an `{error}` line). A transport
+    // failure, unparseable or malformed output, or an answer that fails
+    // verification retires it.
     let healthy = false;
     try {
       const unavailable = (error: unknown) => new MergeWorkerError(
@@ -140,13 +144,24 @@ export class MergeTool {
       const raw = JSON.parse(stdout);
       if (raw && typeof raw === "object" && "error" in raw) {
         // The worker reports evaluation failures as {error}; never let that
-        // shape reach the response schema, whose complaint would hide it.
+        // shape reach the response schema, whose complaint would hide it. A
+        // well-formed one is the worker answering, so it stays in service
+        // with its cache; a malformed one retires it.
+        const { message, code } = (raw.error ?? {}) as { message?: unknown; code?: unknown };
+        if (typeof message === "string" && (code === undefined || typeof code === "string")) healthy = true;
         throw new MergeWorkerError(
-          typeof raw.error?.message === "string" ? raw.error.message : "Merge evaluation failed",
-          typeof raw.error?.code === "string" ? raw.error.code : undefined,
+          typeof message === "string" ? message : "Merge evaluation failed",
+          typeof code === "string" ? code : undefined,
         );
       }
-      const answer = parseAnswer(raw);
+      let answer: MergeAnswer;
+      try {
+        answer = parseAnswer(raw);
+      } catch (error) {
+        // A typed refusal is an answer too; a malformed one retires the worker.
+        if (error instanceof MergeRefusal) healthy = true;
+        throw error;
+      }
       const objects = new Map<ObjectHash, Uint8Array>();
       // Generated objects are hash-checked as they are read back.
       for (const hash of answer.objects)

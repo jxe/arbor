@@ -1,4 +1,3 @@
-import { MergeRefusal } from "@overstory/merge-protocol";
 import { ObjectStore } from "@overstory/object-store";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -10,6 +9,7 @@ import { serveCanopy } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
 import { ServerFaultError } from "../../../packages/canopyd/src/errors.ts";
+import { MergeWorkerError } from "../../../packages/canopyd/src/merge-tool.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
@@ -102,14 +102,14 @@ describe("governed account-configuration Canopy server", () => {
   test("evaluation time exhaustion is retryable, not an invalid request", async () => {
     const baseline = await currentConfig();
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
-    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new MergeRefusal("limit", "Evaluation time budget exceeded"));
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new MergeWorkerError("Evaluation time budget exceeded", "limit"));
     try {
       const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
         method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
         body: JSON.stringify({base: baseline.current.tree.update, updates: [{change: crypto.randomUUID(), candidate: baseline.current.tree.root, trace: null, resolves: [], objects: [], deltas: []}]}),
       });
       expect(response.status).toBe(503);
-      expect(await response.json()).toMatchObject({error: "internal-error", retryable: true, message: "Evaluation time budget exceeded"});
+      expect(await response.json()).toMatchObject({error: "merge-failed", retryable: true, message: "Evaluation time budget exceeded"});
       expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(count);
     } finally { submit.mockRestore(); }
   });

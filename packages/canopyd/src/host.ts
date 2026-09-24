@@ -1,4 +1,3 @@
-import { MergeRefusal } from "@overstory/merge-protocol";
 import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
@@ -864,9 +863,6 @@ export async function serveCanopy(options: {
         }
         return wireError("not-found", "Route not found", 404);
       } catch (error) {
-        if (error instanceof MergeRefusal && error.code === "limit" && error.message === "Evaluation time budget exceeded") {
-          return wireError("internal-error", error.message, 503, true);
-        }
         if (error instanceof RefConflictError) {
           return wireError("conflict", "The tree ref changed before the mutation committed", 409, false, {
             kind: "server-update",
