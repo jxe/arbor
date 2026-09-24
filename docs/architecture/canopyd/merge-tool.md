@@ -303,8 +303,7 @@ nodes. Transported results and states imported beside existing history are
 not editable and take one complete scan, after which their result is
 editable. A result kept under `conflictProjection: "current"` is exactly as
 editable as the current state it keeps: its nodes are current's, and the
-effects they do not reflect are the declined candidate's, whose deletions a
-complete scan would wrongly enforce on the kept tree. A tree's first
+effects they do not reflect are the declined candidate's. A tree's first
 import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
 their enforced pieces, and replaced files get fresh origins. Every state root
@@ -317,6 +316,15 @@ for other kinds. An edited file's `before`/`after` node copies omit `pieces`.
 Deletion enforcement and retention read only the delta. Records with whole
 piece copies and no delta were written only into history that migration 016
 squashed, and are no longer read.
+
+A choice declines the deletions its unselected alternatives contributed. When
+it is made, those effects' `removed` pieces are narrowed to spare what the
+choice shows: the selected source range for a content choice, the kept file
+for an existence choice, and every live piece for a root choice kept under
+`conflictProjection: "current"`. Enforcing every effect therefore never cuts
+kept material, whether in a complete scan, in a merge from a basis before the
+choice, or after the choice is resolved. A resolution that installs another
+alternative removes the kept material by its own operations.
 
 These states live in the sidecar's memory; canopyd never stores, reads or audits them.
 

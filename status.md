@@ -171,8 +171,10 @@ together with the merge boundary below (canopyd 016 steps 1 to 7 and the documen
   candidate" (the pre-cutover build `0fa5c565` too). Cause, in the sidecar: with an
   entry-kind choice open, the delete/edit became a root choice keeping the current
   tree, recorded as not editable, so the next evaluation's complete scan enforced the
-  declined deletion on the kept tree. Fixed after this deploy (a kept result is as
-  editable as current), with an acceptance test; not yet deployed.
+  declined deletion on the kept tree. Fixed after this deploy, not yet deployed: a
+  kept result is as editable as current, and every choice narrows the deletions it
+  declines so that no complete scan, merge from a basis before the choice, or later
+  edit after its resolution cuts what it kept (acceptance and differential tests).
 - Not deployed with it: the iPhone app (no wire change was required).
 
 - **Log entries.** Every acceptance path (client updates, tree creation, pairing,

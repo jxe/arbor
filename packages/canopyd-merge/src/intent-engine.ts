@@ -1284,10 +1284,8 @@ class Engine {
         edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
     }));
   }
-  /** Enforce the deletions of `effects` (by default all of the state's).
-   * `kept` names, per node, pieces a new choice selected: a deletion that
-   * choice retains as its other alternative must not cut into them. */
-  enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects, kept: ReadonlyMap<string, Piece[]> = new Map()) {
+  /** Enforce the deletions of `effects` (by default all of the state's). */
+  enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects) {
     const realm = this.realms(state);
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
@@ -1299,12 +1297,37 @@ class Engine {
               node.active &&
               node.pieces &&
               realm(node.id) === realm(id)
-            ) {
-              const removed = subtractPieces(edit.removed, kept.get(node.id) ?? []);
-              node.pieces = normalize(subtractPieces(node.pieces, removed));
-            }
+            )
+              node.pieces = normalize(subtractPieces(node.pieces, edit.removed));
         }
       }
+    }
+  }
+  /** A choice that shows `kept` declines the deletions its unselected
+   * alternatives contributed. Narrow those effects' recorded deletions to
+   * spare the kept pieces, so that no later enforcement cuts them: not a
+   * complete scan, nor a merge from a basis before the choice, nor anything
+   * after the choice is resolved. Whichever alternative a resolution
+   * installs, its own operations record what it removes. */
+  async declineDeletions(state: IntentState, decision: IntentDecision, kept: Piece[]) {
+    if (!kept.length) return;
+    const declined = new Set<string>(),
+      key = (c: { change: string; operation: string | null }) => c.operation === null ? undefined : keyOf(c.change, c.operation);
+    for (const [index, alternative] of decision.alternatives.entries())
+      if (index !== decision.selected)
+        for (const c of alternative.contributions) { const k = key(c); if (k) declined.add(k); }
+    for (const c of decision.alternatives[decision.selected]?.contributions ?? []) { const k = key(c); if (k) declined.delete(k); }
+    await need(state.effects, declined);
+    for (const k of declined) {
+      const effect = Object.hasOwn(state.effects, k) ? state.effects[k] : undefined;
+      if (effect?.kind !== "editSource") continue;
+      let narrowed = false;
+      const edits = Object.fromEntries(Object.entries(effect.edits).map(([id, list]) => [id, list.map((edit) => {
+        const removed = subtractPieces(edit.removed, kept);
+        if (!same(removed, edit.removed)) narrowed = true;
+        return { ...edit, removed };
+      })]));
+      if (narrowed) state.effects[k] = { ...effect, edits };
     }
   }
   // A structural alternative can alias a root whose children have just changed.
@@ -2465,11 +2488,10 @@ class Engine {
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
         if (node.deletions?.length) node.active = false;
-      const kept = new Map<string, Piece[]>();
       for (const decision of contentDecisions)
-        if (decision.placement)
-          kept.set(decision.placement.node, [...(kept.get(decision.placement.node) ?? []), ...decision.placement.pieces]);
-      this.enforceDeletions(merged, await this.pendingDeletions(merged), kept);
+        await this.declineDeletions(merged, decision,
+          decision.placement?.pieces ?? merged.nodes[decision.affected[0]!]?.pieces ?? []);
+      this.enforceDeletions(merged, await this.pendingDeletions(merged));
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
@@ -2591,8 +2613,8 @@ class Engine {
         resultState.nodes = clone(current.nodes);
         resultState.root = current.root;
         // The kept nodes are current's. The effects added below that they do
-        // not reflect are the candidate's, which this choice declined: a
-        // complete scan would enforce those deletions on the kept tree. So
+        // not reflect are the candidate's, whose deletions this choice
+        // declines (narrowed below), so a complete scan would change nothing:
         // the result is exactly as editable as current was.
         enforced = !request.current.state ||
           await isEditableState(request.current.state, (hash) => this.read(hash));
@@ -2611,6 +2633,8 @@ class Engine {
           );
           if (index >= 0) resultState.decisions[index] = clone(old);
         }
+        await this.declineDeletions(resultState, rootChoice,
+          Object.values(resultState.nodes).flatMap((node) => node.active && node.pieces ? node.pieces : []));
         for (const decision of resultState.decisions)
           for (const alternative of decision.alternatives)
             if (

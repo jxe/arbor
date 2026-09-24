@@ -282,3 +282,86 @@ test("a checkpoint of an editable state is editable, so the next edit fast-forwa
   const evaluated = await differential(f, f.request(checkpoint.result, f.tree({ "a.md": next, "b.md": "new page\n" }), [op], "after-page"));
   expect(f.content(evaluated.result.object, "a.md")).toBe(next);
 });
+
+// A delete/edit of one block, kept on the edited side: the block's deletion is
+// retained but declined, so no later scan (eager, a non-editable base, or a
+// merge from a base before the choice) may cut the kept block.
+const listed = "top\n\n- Once\n  - Run\n  - Tips 40\n  - Groceries\n\nbottom\n";
+const block = "- Once\n  - Run\n  - Tips 40\n  - Groceries\n\n";
+const tipped = listed.replace("Tips 40", "Tips 50");
+function keepingCurrent(f: Fixture) {
+  const request = f.request.bind(f);
+  f.request = (...args: Parameters<Fixture["request"]>) => {
+    const r = request(...args);
+    r.rules.config = { ...r.rules.config, conflictProjection: "current" };
+    return r;
+  };
+  return f;
+}
+const sourceEdit = (f: Fixture, path: string, text: string, find: string, inserted: string, key = "edit"): SourceOperation => {
+  const at = text.indexOf(find);
+  return { kind: "editSource", key, source: f.ref(path, text, [at, at + find.length]), text: inserted };
+};
+async function keptDeleteEdit(f: Fixture) {
+  const root = f.tree({ "a.md": listed, "b.md": "other\n" });
+  const start = await differential(f, f.request(root, root, [sourceEdit(f, "/a.md", listed, "", "")], "start"));
+  const edited = await differential(f, f.request(start.result, f.tree({ "a.md": tipped, "b.md": "other\n" }),
+    [sourceEdit(f, "/a.md", listed, "Tips 40", "Tips 50")], "tip"));
+  const kept = await differential(f, f.request(start.result, f.tree({ "a.md": listed.replace(block, ""), "b.md": "other\n" }),
+    [sourceEdit(f, "/a.md", listed, block, "")], "drop", edited.result));
+  expect(kept.decisions.map(d => [d.kind, d.selected])).toEqual([["content", 0]]);
+  expect(f.content(kept.result.object, "a.md")).toBe(tipped);
+  return { start, kept };
+}
+const elsewhere = (f: Fixture, a: string, key: string): [string, SourceOperation[], string] =>
+  [f.tree({ "a.md": a, "b.md": "other!\n" }), [sourceEdit(f, "/b.md", "other\n", "\n", "!\n")], key];
+
+test("an edit after a kept delete/edit choice leaves the declined deletion unapplied", async () => {
+  const f = keepingCurrent(new Fixture());
+  const { kept } = await keptDeleteEdit(f);
+  const later = await differential(f, f.request(kept.result, ...elsewhere(f, tipped, "later")));
+  expect(f.content(later.result.object, "a.md")).toBe(tipped);
+});
+
+test("a concurrent edit from before a kept delete/edit choice leaves the declined deletion unapplied", async () => {
+  const f = keepingCurrent(new Fixture());
+  const { start, kept } = await keptDeleteEdit(f);
+  const merged = await differential(f, f.request(start.result, ...elsewhere(f, listed, "concurrent"), kept.result));
+  expect(f.content(merged.result.object, "a.md")).toBe(tipped);
+  expect(f.content(merged.result.object, "b.md")).toBe("other!\n");
+});
+
+test("a resolved delete/edit choice keeps its declined deletion unapplied", async () => {
+  const f = keepingCurrent(new Fixture());
+  const { start, kept } = await keptDeleteEdit(f);
+  const resolve = f.request(kept.result, kept.result.object, [], "resolve");
+  resolve.incoming.resolves = [kept.decisions[0]!.key];
+  const resolved = await differential(f, resolve);
+  expect(resolved.decisions).toEqual([]);
+  const later = await differential(f, f.request(resolved.result, ...elsewhere(f, tipped, "later")));
+  expect(f.content(later.result.object, "a.md")).toBe(tipped);
+  const merged = await differential(f, f.request(start.result, ...elsewhere(f, listed, "concurrent"), resolved.result));
+  expect(f.content(merged.result.object, "a.md")).toBe(tipped);
+});
+
+test("an edit after a kept root choice leaves the declined candidate's deletion unapplied", async () => {
+  // Both sides add c.md differently, so the whole candidate is one root
+  // choice; keeping current declines the candidate's block deletion too.
+  const f = keepingCurrent(new Fixture());
+  const root = f.tree({ "a.md": listed, "b.md": "other\n" });
+  const start = await differential(f, f.request(root, root, [sourceEdit(f, "/a.md", listed, "", "")], "start"));
+  const add = (value: string): SourceOperation =>
+    ({ key: "add", kind: "addEntry", destination: { parent: f.root(root), name: "c.md" }, value: { file: f.put(value) } });
+  const left = await differential(f, f.request(start.result, f.tree({ "a.md": listed, "b.md": "other\n", "c.md": "left\n" }),
+    [add("left\n")], "left"));
+  const kept = await differential(f, f.request(start.result,
+    f.tree({ "a.md": listed.replace(block, ""), "b.md": "other\n", "c.md": "right\n" }),
+    [add("right\n"), sourceEdit(f, "/a.md", listed, block, "", "drop")], "right", left.result));
+  expect(kept.decisions.map(d => [d.key, d.selected])).toEqual([["change:right", 0]]);
+  expect(kept.result.object).toBe(left.result.object);
+  const later = await differential(f, f.request(kept.result,
+    f.tree({ "a.md": listed, "b.md": "other!\n", "c.md": "left\n" }), [sourceEdit(f, "/b.md", "other\n", "\n", "!\n")], "later"));
+  expect(f.content(later.result.object, "a.md")).toBe(listed);
+  const merged = await differential(f, f.request(start.result, ...elsewhere(f, listed, "concurrent"), kept.result));
+  expect(f.content(merged.result.object, "a.md")).toBe(listed);
+});
