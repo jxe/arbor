@@ -1,4 +1,4 @@
-import { IntentError } from "@overstory/merge-protocol";
+import { MergeRefusal } from "@overstory/merge-protocol";
 import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
@@ -507,7 +507,7 @@ export async function serveCanopy(options: {
               (after !== null && (!after || selected !== null)) || selected === "") {
             return wireError("invalid-request", "Invalid conflict inspection query", 400);
           }
-          const page = canopy.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
+          const page = await canopy.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
           return page ? json(page) : new Response("Not found", { status: 404 });
         }
         const acceptedSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
@@ -860,7 +860,7 @@ export async function serveCanopy(options: {
         }
         return wireError("not-found", "Route not found", 404);
       } catch (error) {
-        if (error instanceof IntentError && error.code === "limit" && error.message === "Evaluation time budget exceeded") {
+        if (error instanceof MergeRefusal && error.code === "limit" && error.message === "Evaluation time budget exceeded") {
           return wireError("internal-error", error.message, 503, true);
         }
         if (error instanceof RefConflictError) {

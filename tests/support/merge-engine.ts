@@ -1,0 +1,30 @@
+import { hashObject } from "@overstory/protocol";
+import { mergeIntent } from "../../packages/canopyd-merge/src/intent-engine.ts";
+import type { IntentRequestInput } from "../../packages/canopyd-merge/src/intent-model.ts";
+import type { IntentEvaluation } from "../../packages/canopyd-merge/src/engine-contract.ts";
+
+/** Run the sidecar's engine in process over a map of objects: an authored
+ * evaluation, as the sidecar makes one for a traced question. New objects go
+ * into the returned map; the input map is left alone. */
+export async function evaluateIntent(
+  request: IntentRequestInput,
+  inputs: ReadonlyMap<string, Uint8Array>,
+): Promise<{ response: IntentEvaluation; objects: Map<string, Uint8Array> }> {
+  const objects = new Map<string, Uint8Array>();
+  const response = await mergeIntent(request, {
+    read: async (hash) => {
+      const bytes = objects.get(hash) ?? inputs.get(hash);
+      if (!bytes) throw new Error(`Missing object ${hash}`);
+      return bytes;
+    },
+    store: async (values) => {
+      for (const { hash, bytes } of values) {
+        if (hashObject(bytes) !== hash) throw new Error("Object hash mismatch");
+        objects.set(hash, bytes);
+      }
+    },
+  });
+  if (response.outcome !== "evaluated") throw new Error(`${response.outcome}: ${response.message}`);
+  const { decisions: _records, reports, ...rest } = response;
+  return { response: { ...rest, decisions: reports }, objects };
+}

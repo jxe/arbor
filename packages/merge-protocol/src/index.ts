@@ -1,163 +1,18 @@
 import { z } from "zod";
-import { decodeMaterialRef, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+import { decodeMaterialRef, hashObject, stableJSONString, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+
+/** The contract between canopyd and a merge sidecar: the log entries canopyd
+ * writes into the object store, the one question it asks, and the answer.
+ * No merge logic lives here. */
 
 export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
+export type ObjectHash = string;
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
-const path = z.string().refine(
-  (value) =>
-    value === "/" ||
-    (value.startsWith("/") &&
-      value.slice(1).split("/").every((part) => part && part !== "." && part !== ".." && !/[\\\0]/.test(part)))
-);
+const name = z.string().min(1).refine((part) => part !== "." && part !== ".." && !/[\\/\0]/.test(part));
 const contribution = z.object({ change: z.string(), operation: z.string().nullable() }).strict();
+export type Contribution = z.infer<typeof contribution>;
 
-/** Rule evidence the worker reports beside a snapshot merge. canopyd persists
- * it, so the schema accepts no arbitrary executable output. */
-export const mergeSummarySchema = z.discriminatedUnion("version", [
-  z.object({ version: z.literal("markdown-additive-v1"), approximatePlacements: z.number().int().nonnegative() }).strict(),
-  z.object({ version: z.literal("collection-file-rows-v1"), mergedRows: z.number().int().nonnegative() }).strict(),
-]);
-export type MergeSummary = z.infer<typeof mergeSummarySchema>;
-
-// ---- Snapshot tree merge -------------------------------------------------
-
-const projectionMaterial = z.object({ object: hash }).strict();
-const rule = z.object({ id: z.string().min(1), revision: z.literal(1) }).strict();
-export const projectionRequestSchema = z
-  .object({ base: projectionMaterial, current: projectionMaterial, rules: rule, kind: z.literal("tree"), incoming: projectionMaterial })
-  .strict();
-export type ProjectionRequest = z.infer<typeof projectionRequestSchema>;
-
-const conflictReason = z.enum([
-  "node-conflict",
-  "binary-conflict",
-  "path-kind-conflict",
-  "nested-boundary-conflict",
-  "page-id-move-conflict",
-  "collection-file-row-conflict",
-  "collection-file-schema-conflict",
-  "collection-file-constraint-conflict",
-  "frontmatter-conflict",
-  "invalid-markdown-fence",
-]);
-const projectionResponseSchema = z
-  .object({
-    result: projectionMaterial,
-    decisions: z.array(z.object({ kind: z.literal("conflict"), path, reason: conflictReason, scope: z.enum(["entry", "directory"]) }).strict()),
-    objects: z.array(hash),
-    evidence: z.object({ rule, summary: mergeSummarySchema.optional() }).strict(),
-  })
-  .strict();
-export type ProjectionResponse = z.infer<typeof projectionResponseSchema>;
-
-// ---- Decision reports ----------------------------------------------------
-
-/** One retained decision as canopyd needs it: the worker resolves its own
- * node identities into logical paths, so its retained state stays opaque.
- * `placement` is present when the decision has a placement; its `path` names
- * the placed file when that node still exists, and `range` is its affected
- * byte range when the node is active and the decision has no context. */
-export const decisionReportSchema = z
-  .object({
-    key: z.string().min(1),
-    kind: z.enum(["content", "placement", "existence", "directory"]),
-    reason: z.string(),
-    selected: z.number().int().nonnegative(),
-    dependencies: z.array(z.string()),
-    alternatives: z
-      .array(z.object({ object: hash, state: hash, present: z.boolean(), contributions: z.array(contribution) }).strict())
-      .min(2),
-    subject: z.unknown().optional(),
-    placement: z
-      .object({
-        path: path.optional(),
-        range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-export type DecisionReport = Omit<z.infer<typeof decisionReportSchema>, "subject"> & { subject?: MaterialRef };
-const decisionReports = z.array(decisionReportSchema).superRefine((reports, context) => {
-  if (new Set(reports.map((d) => d.key)).size !== reports.length) context.addIssue({ code: "custom", message: "Duplicate decision key" });
-  for (const d of reports) {
-    if (d.selected >= d.alternatives.length) context.addIssue({ code: "custom", message: "Invalid selected alternative" });
-    if (d.subject !== undefined)
-      try { decodeMaterialRef(d.subject); } catch { context.addIssue({ code: "custom", message: "Invalid decision subject" }); }
-  }
-});
-
-// ---- Authored (intent) evaluation ---------------------------------------
-
-const stateRef = z.object({ object: hash, state: hash.optional() }).strict();
-const formatName = z.enum([
-  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
-  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
-]);
-/** The shape of an authored tree request. The worker additionally decodes
- * every operation; canopyd only builds these. */
-export const intentRequestSchema = z
-  .object({
-    kind: z.literal("tree"),
-    tree: token,
-    // Host-supplied state/root pairs come from canopyd's accepted records,
-    // never from client assertions.
-    base: stateRef,
-    current: stateRef,
-    incoming: z
-      .object({
-        change: token,
-        object: hash,
-        // The authored frame chain. A snapshot carries no evidence and
-        // arrives as an empty chain.
-        trace: z.array(z.object({ before: hash, after: hash, operations: z.array(z.unknown()).max(1024) }).strict()).max(64),
-        resolves: z.array(z.string().min(1)).max(1024).optional(),
-      })
-      .strict(),
-    rules: z
-      .object({
-        id: z.literal("tree-default"),
-        revision: z.literal(1),
-        config: z
-          .object({
-            contentChoices: z.enum(["source", "file"]).optional(),
-            conflictProjection: z.enum(["current", "incoming"]).optional(),
-            maxMillis: z.number().int().positive().max(30_000).optional(),
-            maxBytes: z.number().int().positive().max(128 * 1024 * 1024).optional(),
-            formats: z
-              .record(
-                z.string(),
-                z
-                  .object({
-                    format: formatName.optional(),
-                    recordKey: z.string().min(1).optional(),
-                    proseInsertions: z.enum(["review", "preserve-both"]).optional(),
-                  })
-                  .strict()
-              )
-              .optional(),
-            maxNodes: z.number().int().positive().max(100_000).optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict(),
-    alternatives: z
-      .array(
-        z
-          .object({
-            ref: z.unknown(),
-            decision: z.string().min(1),
-            alternative: z.number().int().nonnegative(),
-            value: z.object({ object: hash, kind: z.enum(["file", "directory"]) }).strict(),
-          })
-          .strict()
-      )
-      .max(1024)
-      .optional(),
-  })
-  .strict();
 /** One tree-root to tree-root step of authored evidence. Basis references
  * inside a frame name objects in that frame's `before` tree; operation
  * references name an earlier key in the same change. */
@@ -166,175 +21,278 @@ export interface Frame {
   after: string;
   operations: SourceOperation[];
 }
-export type IntentRequest = Omit<z.infer<typeof intentRequestSchema>, "incoming" | "alternatives"> & {
-  incoming: { change: string; object: string; trace: Frame[]; resolves?: string[] };
-  alternatives?: Array<{
-    ref: MaterialRef;
-    decision: string;
-    alternative: number;
-    value: { object: string; kind: "file" | "directory" };
-  }>;
-};
+const frame = z.object({ before: hash, after: hash, operations: z.array(z.unknown()).max(1024) }).strict();
+const trace = z.array(frame).max(64).nullable();
 
-/** Every operation of a change in authored order. */
-export function traceOperations(incoming: { trace: Frame[] }): SourceOperation[] {
-  return incoming.trace.flatMap((frame) => frame.operations);
+// ---- Log entries -----------------------------------------------------------
+
+export const LOG_ENTRY_FORMAT = "overstory-log-entry-v1";
+
+/** A decision open after an accepted update. Without `path` it is one choice
+ * about the whole root and each alternative object is a root. With `path` and
+ * no `range` it concerns that entry: each alternative object is a root whose
+ * entry at `path` is that alternative's version (absent for a deletion). With
+ * `range` it is a source choice about those bytes of the file at `path`
+ * (`at` names that file when it is not the one in the entry's root), and each
+ * alternative object is that alternative's bytes for the range. */
+export interface LogDecision {
+  key: string;
+  path?: string[];
+  range?: [number, number];
+  at?: ObjectHash;
+  dependencies: string[];
+  selected: number;
+  alternatives: Array<{ object: ObjectHash; contributions: Contribution[] }>;
 }
-
-/** A frame trace, possibly empty, marks an authored request. */
-export function isIntentRequest(raw: unknown): raw is IntentRequest {
-  return !!raw && typeof raw === "object" && "kind" in raw && raw.kind === "tree" &&
-    "incoming" in raw && !!raw.incoming && typeof raw.incoming === "object" && "trace" in raw.incoming;
-}
-
-/** A typed inability to evaluate: neither a conflict resolution nor an
- * accepted receipt. canopyd decides admission and fallback. */
-export class IntentError extends Error {
-  constructor(readonly code: "invalid" | "missing-context" | "unsupported" | "limit", message: string) {
-    super(message);
-  }
-}
-
-const formatEvidence = z
-  .object({ id: token, revision: z.literal(1), outcome: z.enum(["resolved", "unresolved"]), reason: z.string(), config: z.record(z.string(), z.unknown()) })
-  .strict();
-const intentResponseSchema = z
+export const logDecisionSchema = z
   .object({
-    outcome: z.literal("evaluated"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict(),
-    objects: z.array(hash),
-    decisions: decisionReports,
-    evidence: z
-      .object({
-        rule: z.object({ id: z.literal("tree-default"), revision: z.literal(1) }).strict(),
-        inputs: z.object({ base: hash, current: hash, incoming: hash }).strict(),
-        change: token,
-        operations: z.array(token),
-        validation: z.literal("verified"),
-        formats: z.array(formatEvidence),
-      })
-      .strict(),
+    key: token,
+    path: z.array(name).min(1).optional(),
+    range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
+    at: hash.optional(),
+    dependencies: z.array(token),
+    selected: z.number().int().nonnegative(),
+    alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),
+  })
+  .strict()
+  .superRefine((d, context) => {
+    if (d.selected >= d.alternatives.length) context.addIssue({ code: "custom", message: "Invalid selected alternative" });
+    if ((d.range || d.at) && !d.path) context.addIssue({ code: "custom", message: "A range choice names its file" });
+    if (d.range && d.range[1] < d.range[0]) context.addIssue({ code: "custom", message: "Invalid range" });
+    if (d.at && !d.range) context.addIssue({ code: "custom", message: "Only a range choice names a file object" });
+    if (d.dependencies.includes(d.key)) context.addIssue({ code: "custom", message: "A decision cannot depend on itself" });
+  });
+const logDecisions = z.array(logDecisionSchema).superRefine((decisions, context) => {
+  if (new Set(decisions.map((d) => d.key)).size !== decisions.length)
+    context.addIssue({ code: "custom", message: "Duplicate decision key" });
+});
+
+/** One accepted update, stored by canopyd as a canonical JSON object. Its
+ * hash is its identity; `previous` makes a tree's history a hash chain. */
+export interface LogEntry {
+  format: typeof LOG_ENTRY_FORMAT;
+  tree: string;
+  /** The entry before; null for a tree's first retained entry. */
+  previous: ObjectHash | null;
+  /** The accepted projection. */
+  root: ObjectHash;
+  change: string;
+  /** The authored frames; null for a snapshot. */
+  trace: Frame[] | null;
+  /** Decision keys this update resolved. */
+  resolves: string[];
+  /** Decisions open after this update. */
+  decisions: LogDecision[];
+  /** How the sidecar was asked, when it was: what a replay needs, beyond the
+   * fields above, to ask the same question again with `previous` as its head. */
+  asked?: Asked;
+  /** The sidecar's evidence, recorded and never interpreted by canopyd. */
+  evidence?: unknown;
+}
+export interface Asked {
+  /** The question's base, when it is not `previous`. */
+  base?: ObjectHash;
+  prefix?: Candidate[];
+  /** The candidate root, when neither the trace's end nor `root`. */
+  candidate?: ObjectHash;
+  alternatives?: AlternativeBinding[];
+  rules: MergeRules;
+}
+const logEntrySchema = z
+  .object({
+    format: z.literal(LOG_ENTRY_FORMAT),
+    tree: token,
+    previous: hash.nullable(),
+    root: hash,
+    change: token,
+    trace,
+    resolves: z.array(token),
+    decisions: logDecisions,
+    asked: z.lazy(() => askedSchema).optional(),
+    evidence: z.unknown().optional(),
   })
   .strict();
-export type IntentEvaluation = Omit<z.infer<typeof intentResponseSchema>, "decisions"> & { decisions: DecisionReport[] };
-export type IntentResponse = IntentEvaluation | { outcome: IntentError["code"]; message: string };
 
-// ---- Checkpoints ---------------------------------------------------------
+const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-/** Trusted caller supplies an accepted projection and its decisions, never
- * authored operations. */
-export const checkpointSchema = z
+/** The canonical bytes of an entry (`stableJSONString`), which name it. */
+export function encodeLogEntry(entry: LogEntry): Uint8Array {
+  return encoder.encode(stableJSONString(logEntrySchema.parse(entry)));
+}
+
+/** Parse an entry's bytes. Only canonical bytes are an entry. */
+export function decodeLogEntry(bytes: Uint8Array): LogEntry {
+  const text = decoder.decode(bytes);
+  const entry = logEntrySchema.parse(JSON.parse(text)) as LogEntry;
+  if (stableJSONString(entry) !== text) throw new Error("Log entry is not canonical");
+  return entry;
+}
+
+/** An entry's object name. */
+export function logEntryHash(entry: LogEntry): ObjectHash {
+  return hashObject(encodeLogEntry(entry));
+}
+
+// ---- The merge question ----------------------------------------------------
+
+/** An alternative a client's operation names as material: canopyd resolves
+ * the client's public identities to the sidecar's decision key and index. */
+export interface AlternativeBinding {
+  ref: MaterialRef;
+  decision: string;
+  alternative: number;
+  value: { object: ObjectHash; kind: "file" | "directory" };
+}
+const binding = z
   .object({
-    kind: z.literal("checkpoint"),
-    tree: z.string().min(1),
-    current: stateRef,
-    projection: hash,
+    ref: z.unknown(),
+    decision: token,
+    alternative: z.number().int().nonnegative(),
+    value: z.object({ object: hash, kind: z.enum(["file", "directory"]) }).strict(),
+  })
+  .strict();
+
+export interface Candidate {
+  root: ObjectHash;
+  change: string;
+  trace: Frame[] | null;
+  /** Decision keys whose guards canopyd checked. */
+  resolves: string[];
+  alternatives?: AlternativeBinding[];
+}
+const candidate = z
+  .object({
+    root: hash,
+    change: token,
+    trace,
+    resolves: z.array(token).max(1024),
+    alternatives: z.array(binding).max(1024).optional(),
+  })
+  .strict();
+
+const rulesSchema = z.object({ id: token, revision: z.number().int().positive(), config: z.unknown().optional() }).strict();
+const askedSchema = z
+  .object({
+    base: hash.optional(),
+    prefix: z.array(candidate).max(64).optional(),
     candidate: hash.optional(),
-    continueSelected: z.boolean().optional(),
+    alternatives: z.array(binding).max(1024).optional(),
+    rules: rulesSchema,
+  })
+  .strict();
+
+const formatName = z.enum([
+  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
+  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
+]);
+/** The reference sidecar's rules. Another sidecar may define its own. */
+export const treeDefaultConfig = z
+  .object({
+    contentChoices: z.enum(["source", "file"]).optional(),
     conflictProjection: z.enum(["current", "incoming"]).optional(),
-    change: z.string().min(1),
-    resolves: z.array(z.string()).optional(),
-    /** Also checkpoint the author's own candidate (`candidate`, else
-     * `projection`) without decisions, returned as `authored`: the basis a
-     * later batch suffix continues from. One request instead of two. */
-    authored: z.literal(true).optional(),
-    decisions: z
-      .array(
+    maxMillis: z.number().int().positive().max(30_000).optional(),
+    maxBytes: z.number().int().positive().max(128 * 1024 * 1024).optional(),
+    formats: z
+      .record(
+        z.string(),
         z
           .object({
-            key: z.string().min(1),
-            path: z.array(z.string()).optional(),
-            dependencies: z.array(z.string()).optional(),
-            selected: z.number().int().nonnegative(),
-            alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),
+            format: formatName.optional(),
+            recordKey: z.string().min(1).optional(),
+            proseInsertions: z.enum(["review", "preserve-both"]).optional(),
           })
           .strict()
       )
-      .default([]),
+      .optional(),
+    maxNodes: z.number().int().positive().max(100_000).optional(),
   })
   .strict();
-export type CheckpointRequest = z.infer<typeof checkpointSchema>;
-const checkpointResponseSchema = z
+export type TreeDefaultConfig = z.infer<typeof treeDefaultConfig>;
+
+export interface MergeRules { id: string; revision: number; config?: unknown }
+
+/** The one question canopyd asks. `base` is the entry the candidate was
+ * authored on, `head` the tree's current entry. `prefix` lists candidates
+ * authored on `base` before this one (earlier elements of the same batch);
+ * applied in order, they give the author's own basis. */
+export interface MergeQuestion {
+  base: ObjectHash;
+  head: ObjectHash;
+  prefix?: Candidate[];
+  candidate: Candidate;
+  rules: MergeRules;
+}
+export const mergeQuestionSchema = z
   .object({
-    kind: z.literal("checkpoint"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict().optional(),
-    objects: z.array(hash),
-    decisions: decisionReports,
+    base: hash,
+    head: hash,
+    prefix: z.array(candidate).max(64).optional(),
+    candidate,
+    rules: rulesSchema,
   })
   .strict();
-export type CheckpointResponse = Omit<z.infer<typeof checkpointResponseSchema>, "decisions"> & { decisions: DecisionReport[] };
 
-// ---- Retention audit -----------------------------------------------------
-
-/** Walk the complete retained closure of these states in the shared store.
- * The worker owns the state format, so it owns the walk; canopyd's integrity
- * audit asks for it. At most 10,000 roots per request. */
-export const MAX_AUDIT_ROOTS = 10_000;
-export const retentionAuditSchema = z
-  .object({ kind: z.literal("retention-audit"), roots: z.array(hash).max(MAX_AUDIT_ROOTS) })
-  .strict();
-export type RetentionAuditRequest = z.infer<typeof retentionAuditSchema>;
-const retentionAuditResponseSchema = z
-  .object({ kind: z.literal("retention-audit"), checked: z.number().int().nonnegative() })
-  .strict();
-export type RetentionAuditResponse = z.infer<typeof retentionAuditResponseSchema>;
-
-// ---- The serve protocol --------------------------------------------------
-
-export type MergeRequest = ProjectionRequest | IntentRequest | CheckpointRequest | RetentionAuditRequest;
-/** The transport carries references only. Generated bytes live in staging. */
-export type MergeResponse = ProjectionResponse | IntentResponse | CheckpointResponse | RetentionAuditResponse;
-
-function parseIntentResponse(raw: unknown, request: IntentRequest): IntentEvaluation {
-  if (
-    raw && typeof raw === "object" && "outcome" in raw &&
-    ["invalid", "missing-context", "unsupported", "limit"].includes(String(raw.outcome)) &&
-    "message" in raw && typeof raw.message === "string"
-  )
-    throw new IntentError(raw.outcome as IntentError["code"], raw.message);
-  const value = intentResponseSchema.parse(raw);
-  if (
-    value.authored.object !== request.incoming.object ||
-    value.evidence.change !== request.incoming.change ||
-    JSON.stringify(value.evidence.operations) !== JSON.stringify(traceOperations(request.incoming).map((op) => op.key)) ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Intent response does not match request");
-  return value as IntentEvaluation;
+/** Check a question's shape and every material reference it carries. */
+export function parseQuestion(raw: unknown): MergeQuestion {
+  const question = mergeQuestionSchema.parse(raw) as MergeQuestion;
+  for (const c of [...(question.prefix ?? []), question.candidate])
+    for (const alternative of c.alternatives ?? []) {
+      const ref = decodeMaterialRef(alternative.ref);
+      if (ref.material.kind !== "alternative" || ref.within || ref.range)
+        throw new Error("Alternative bindings require a complete alternative reference");
+    }
+  return question;
 }
 
-/** Check a worker response's shape and its correspondence to the request.
- * It does not look inside the worker's retained state. */
-export function parseResponse(raw: unknown, request: RetentionAuditRequest): RetentionAuditResponse;
-export function parseResponse(raw: unknown, request: CheckpointRequest): CheckpointResponse;
-export function parseResponse(raw: unknown, request: ProjectionRequest): ProjectionResponse;
-export function parseResponse(raw: unknown, request: IntentRequest): IntentEvaluation;
-export function parseResponse(raw: unknown, request: MergeRequest): Exclude<MergeResponse, { outcome: IntentError["code"] }>;
-export function parseResponse(raw: unknown, request: MergeRequest): Exclude<MergeResponse, { outcome: IntentError["code"] }> {
-  if (request.kind === "retention-audit") {
-    const value = retentionAuditResponseSchema.parse(raw);
-    if (value.checked !== new Set(request.roots).size) throw new Error("Retention audit does not match request");
-    return value;
+export interface MergeAnswer {
+  /** The projection to accept. */
+  root: ObjectHash;
+  /** New objects the sidecar put into staging; everything the root and the
+   * decisions name that the shared store lacks. */
+  objects: ObjectHash[];
+  /** Decisions open after this update. */
+  decisions: LogDecision[];
+  evidence: unknown;
+}
+const answerSchema = z
+  .object({ root: hash, objects: z.array(hash), decisions: logDecisions, evidence: z.unknown() })
+  .strict();
+
+// ---- Refusals and failures -------------------------------------------------
+
+/** A typed inability to answer: neither a conflict resolution nor an
+ * accepted receipt. canopyd decides admission and fallback. */
+export class MergeRefusal extends Error {
+  constructor(readonly code: "invalid" | "missing-context" | "unsupported" | "limit", message: string) {
+    super(message);
+    this.name = "MergeRefusal";
   }
-  if (request.kind === "checkpoint") {
-    const value = checkpointResponseSchema.parse(raw);
-    if (value.result.object !== request.projection && !(request.conflictProjection === "current" && value.result.object === request.current.object))
-      throw new Error("Checkpoint projection mismatch");
-    if (request.authored
-      ? value.authored?.object !== (request.candidate ?? request.projection)
-      : value.authored !== undefined)
-      throw new Error("Checkpoint authored state mismatch");
-    return value as CheckpointResponse;
+}
+export const REFUSAL_CODES = ["invalid", "missing-context", "unsupported", "limit"] as const;
+
+/** One response line: an answer, `{ refusal: { code, message } }`, or
+ * `{ error: { message, code? } }` for a failure to evaluate. */
+export type MergeResponse =
+  | MergeAnswer
+  | { refusal: { code: MergeRefusal["code"]; message: string } }
+  | { error: { message: string; code?: string } };
+
+/** Check an answer's shape. Throws `MergeRefusal` for a refusal line. It does
+ * not look inside the sidecar's reasoning. */
+export function parseAnswer(raw: unknown): MergeAnswer {
+  if (raw && typeof raw === "object" && "refusal" in raw) {
+    const refusal = (raw as { refusal?: { code?: unknown; message?: unknown } }).refusal;
+    if (refusal && REFUSAL_CODES.includes(refusal.code as never) && typeof refusal.message === "string")
+      throw new MergeRefusal(refusal.code as MergeRefusal["code"], refusal.message);
+    throw new Error("Invalid merge refusal");
   }
-  if (isIntentRequest(request)) return parseIntentResponse(raw, request);
-  const value = projectionResponseSchema.parse(raw);
-  if (
-    value.evidence.rule.id !== request.rules.id ||
-    value.evidence.rule.revision !== request.rules.revision ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Merge response does not match request");
-  return value;
+  const answer = answerSchema.parse(raw) as MergeAnswer;
+  if (new Set(answer.objects).size !== answer.objects.length) throw new Error("Duplicate answer object");
+  return answer;
+}
+
+/** Every operation of a trace in authored order. */
+export function traceOperations(frames: Frame[] | null): SourceOperation[] {
+  return (frames ?? []).flatMap((f) => f.operations);
 }

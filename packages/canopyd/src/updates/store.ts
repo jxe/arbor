@@ -1,4 +1,3 @@
-import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { Database } from "bun:sqlite";
 import type { AcceptedUpdate, ObjectHash, UpdateResult } from "@overstory/protocol";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
@@ -18,9 +17,9 @@ export interface AcceptedUpdateInput {
   subject?: string | null;
   requestDigest?: string;
   change?: string;
-  /** Every accepted update records its merge state; its decisions are the
-   * update's open conflicts. */
-  mergeState: MergeStateRecord;
+  /** The update's log entry, already durable in the object store, and
+   * whether it leaves decisions open. */
+  entry: { hash: ObjectHash; conflicted: boolean };
   /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
    * computed before the transaction because object reads are async. */
   entryChanges: EntryChanges;
@@ -57,7 +56,8 @@ export class AcceptedUpdateStore {
         accepted_at INTEGER NOT NULL,
         subject TEXT,
         request_digest TEXT,
-        change_id TEXT
+        change_id TEXT,
+        entry TEXT NOT NULL
       )
     `);
   }
@@ -73,7 +73,6 @@ export class AcceptedUpdateStore {
     // `ordinal` is the rowid, so the tree index alone serves `(tree_id, ordinal)` order.
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_root ON accepted_updates(tree_id, root)");
-    MergeStateStore.createSchema(db);
     EntryMetadataStore.createSchema(db);
   }
 
@@ -141,25 +140,17 @@ export class AcceptedUpdateStore {
     return row ? String(row.ordinal) : null;
   }
 
+  /** The log entry an accepted update recorded. */
+  entryOf(update: string): ObjectHash | null {
+    const ordinal = updateOrdinal(update);
+    if (ordinal === null) return null;
+    const row = this.db.query("SELECT entry FROM accepted_updates WHERE ordinal = ?").get(ordinal) as { entry: ObjectHash } | null;
+    return row?.entry ?? null;
+  }
+
   changeForAccepted(update: string): string | null {
     const row = this.db.query("SELECT change_id FROM accepted_updates WHERE ordinal = ?").get(updateOrdinal(update)) as { change_id: string | null } | null;
     return row?.change_id ?? null;
-  }
-
-  /** Follow accepted identities, never root equality. Missing history is not evidence. */
-  ancestry(basis: string, head: string, limit = 64): AcceptedUpdate[] | null {
-    const chain: AcceptedUpdate[] = [];
-    let current = this.get(head);
-    const seen = new Set<string>();
-    while (current && current.id !== basis) {
-      if (chain.length >= limit || seen.has(current.id)) return null;
-      seen.add(current.id);
-      chain.push(current);
-      const previous = current.previous ? this.get(current.previous.id) : null;
-      if (!previous || previous.tree !== current.tree) return null;
-      current = previous;
-    }
-    return current ? chain.reverse() : null;
   }
 
   matchingRequestDigest(update: string, subject: string): ObjectHash | null {
@@ -180,21 +171,21 @@ export class AcceptedUpdateStore {
     const prior = this.current(input.tree);
     if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
     const inserted = this.db.run(`
-      INSERT INTO accepted_updates (tree_id, root, previous_ordinal, conflicted, accepted_at, subject, request_digest, change_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accepted_updates (tree_id, root, previous_ordinal, conflicted, accepted_at, subject, request_digest, change_id, entry)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       input.tree,
       input.root,
       prior ? Number(prior.id) : null,
-      input.mergeState.decisions.length > 0 ? 1 : 0,
+      input.entry.conflicted ? 1 : 0,
       input.acceptedAt,
       input.subject ?? null,
       input.requestDigest ?? null,
       input.change ?? null,
+      input.entry.hash,
     ]);
     const id = String(inserted.lastInsertRowid);
     new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
-    new MergeStateStore(this.db).insert(id, input.mergeState);
     return this.get(id)!;
   }
 

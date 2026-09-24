@@ -3,19 +3,14 @@ import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "@overstory/canopyd";
 import type { ObjectHash } from "@overstory/protocol";
 import { ObservationLog } from "../../../packages/canopyd/src/updates/observations.ts";
-import type { MergeStateRecord } from "../../../packages/canopyd/src/updates/merge-state-store.ts";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
 const B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash;
 const C = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" as ObjectHash;
-/** A stand-in merge state: these tests exercise rows, never the state's objects. */
-function mergeState(decisions = 0): MergeStateRecord {
-  return { state: C, authored: C, evidence: null,
-    request: { change: "change", candidate: A, trace: null, resolves: [] },
-    decisions: Array.from({ length: decisions }, (_, index) => ({ key: `decision-${index}`, inspection: {
-      id: `decision-${index}`, kind: "directory" as const, affected: [], selected: "a",
-      alternatives: [], dependencies: [], actions: ["resolveConflict" as const] } })) };
+/** A stand-in log entry: these tests exercise rows, never the entry object. */
+function entry(conflicted = false) {
+  return { hash: C, conflicted };
 }
 
 describe("accepted-update transaction store", () => {
@@ -29,7 +24,7 @@ describe("accepted-update transaction store", () => {
     AcceptedUpdateStore.createSchema(db);
     store = new AcceptedUpdateStore(db);
     db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tr_test', ?, 1)", [A]);
-    store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(),
+    store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(),
       tree: "tr_test",
       root: A,
       previousRoot: null,
@@ -43,7 +38,7 @@ describe("accepted-update transaction store", () => {
     const log = new ObservationLog(db);
     const anchor = log.latestCursor("tr_test")!;
     const start = log.position("tr_test", anchor);
-    for (let i=0;i<150;i++) store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(),tree:"tr_test",root:A,previousRoot:A,acceptedAt:i+2});
+    for (let i=0;i<150;i++) store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(),tree:"tr_test",root:A,previousRoot:A,acceptedAt:i+2});
     const seen: string[] = [];
     let ordinal = start.through;
     for (;;) {
@@ -56,7 +51,7 @@ describe("accepted-update transaction store", () => {
     expect(new Set(seen).size).toBe(150);
     expect(log.position("other-tree",anchor).retained).toBe(false);
     expect(log.position("tr_test",null).through).toBe(ordinal);
-    const appended=store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(),tree:"tr_test",root:A,previousRoot:A,acceptedAt:999});
+    const appended=store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(),tree:"tr_test",root:A,previousRoot:A,acceptedAt:999});
     expect(log.page("tr_test",ordinal).map(row=>row.updateID)).toEqual([appended.id]);
   });
 
@@ -76,7 +71,7 @@ describe("accepted-update transaction store", () => {
   });
 
   test("commits the ref, accepted row, and digest as one result", () => {
-    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(),
+    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES, entry: entry(),
       tree: "tr_test",
       root: B,
       previousRoot: A,
@@ -96,7 +91,7 @@ describe("accepted-update transaction store", () => {
   });
 
   test("a failed compare-and-swap changes no authority state", () => {
-    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(),
+    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES, entry: entry(),
       tree: "tr_test",
       root: C,
       previousRoot: B,
@@ -111,7 +106,7 @@ describe("accepted-update transaction store", () => {
 
   test("accepted identity guards commits even when projection bytes are unchanged", () => {
     const initial = store.current("tr_test")!;
-    const input = { entryChanges: NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: A, previousRoot: A, expectedUpdate: initial.id, acceptedAt: 2 };
+    const input = { entryChanges: NO_ENTRY_CHANGES, entry: entry(), tree: "tr_test", root: A, previousRoot: A, expectedUpdate: initial.id, acceptedAt: 2 };
     const metadata = store.commit(input)!;
     expect(metadata.root).toBe(initial.root);
     expect(metadata.id).not.toBe(initial.id);
@@ -122,9 +117,9 @@ describe("accepted-update transaction store", () => {
 
   test("persists unresolved metadata and predecessor links independently of projection", () => {
     const initial = store.current("tr_test")!;
-    const metadata = store.commit({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(1), tree: "tr_test", root: A, previousRoot: A,
+    const metadata = store.commit({entryChanges:NO_ENTRY_CHANGES, entry: entry(true), tree: "tr_test", root: A, previousRoot: A,
       expectedUpdate: initial.id, acceptedAt: 2 })!;
-    const next = store.commit({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(1), tree: "tr_test", root: B, previousRoot: A,
+    const next = store.commit({entryChanges:NO_ENTRY_CHANGES, entry: entry(true), tree: "tr_test", root: B, previousRoot: A,
       expectedUpdate: metadata.id, acceptedAt: 3 })!;
     expect(next.conflicted).toBe(true);
     expect(next.previous).toEqual({ id: metadata.id, root: A });
@@ -139,10 +134,9 @@ describe("accepted-update transaction store", () => {
   test("cursors are never reused and anything but a retained ordinal of the tree is not retained", () => {
     const observations = new ObservationLog(db);
     const initial = store.current("tr_test")!;
-    const pruned = store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 2 });
-    db.run("DELETE FROM accepted_merge_states WHERE accepted_id = ?", [pruned.id]);
+    const pruned = store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 2 });
     db.run("DELETE FROM accepted_updates WHERE ordinal = ?", [pruned.id]);
-    const next = store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 3 });
+    const next = store.insert({entryChanges:NO_ENTRY_CHANGES, entry: entry(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 3 });
     expect(Number(next.id)).toBe(Number(pruned.id) + 1);
     expect(observations.latestCursor("tr_test")).toBe(next.id);
     for (const cursor of [pruned.id, "legacy-status", "0", "01", "-1", `${initial.id}.0`])
@@ -150,29 +144,14 @@ describe("accepted-update transaction store", () => {
     expect(observations.position("tr_test", initial.id)).toEqual({ retained: true, through: Number(initial.id) });
     expect(observations.page("tr_test", Number(initial.id)).map((record) => record.updateID)).toEqual([next.id]);
   });
-  test("ancestry uses accepted identities and refuses gaps or a traversal beyond its bound", () => {
+  test("conflicted follows each row's own log entry", () => {
     const initial = store.current("tr_test")!;
-    const first = store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 2 });
-    const second = store.insert({entryChanges:NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: A, previousRoot: A, acceptedAt: 3 });
-    expect(store.ancestry(initial.id, second.id)).toEqual([first, second]);
-    expect(store.ancestry(initial.id, second.id, 1)).toBeNull();
-    expect(store.ancestry(second.id, second.id)).toEqual([]);
-    // A predecessor is protected by its successor's foreign key; a gap is corruption.
-    expect(() => db.run("DELETE FROM accepted_updates WHERE ordinal = ?", [first.id])).toThrow();
-    db.run("PRAGMA foreign_keys = OFF");
-    db.run("DELETE FROM accepted_merge_states WHERE accepted_id = ?", [first.id]);
-    db.run("DELETE FROM accepted_updates WHERE ordinal = ?", [first.id]);
-    expect(store.ancestry(initial.id, second.id)).toBeNull();
-  });
-
-  test("conflicted follows each row's own merge state", () => {
-    const initial = store.current("tr_test")!;
-    const open = store.commit({ entryChanges: NO_ENTRY_CHANGES, mergeState: mergeState(2), tree: "tr_test", root: B, previousRoot: A,
+    const open = store.commit({ entryChanges: NO_ENTRY_CHANGES, entry: entry(true), tree: "tr_test", root: B, previousRoot: A,
       expectedUpdate: initial.id, acceptedAt: 2 })!;
-    const closed = store.commit({ entryChanges: NO_ENTRY_CHANGES, mergeState: mergeState(), tree: "tr_test", root: C, previousRoot: B,
+    const closed = store.commit({ entryChanges: NO_ENTRY_CHANGES, entry: entry(), tree: "tr_test", root: C, previousRoot: B,
       expectedUpdate: open.id, acceptedAt: 3 })!;
     expect([open.conflicted, closed.conflicted]).toEqual([true, false]);
-    expect(db.query("SELECT COUNT(*) AS n FROM accepted_merge_states").get()).toEqual({ n: 3 });
+    expect(store.entryOf(open.id)).toBe(C);
     expect(() => store.insert({ entryChanges: NO_ENTRY_CHANGES, tree: "tr_test", root: C, previousRoot: C, acceptedAt: 4 } as never)).toThrow();
   });
 

@@ -1,1 +1,1 @@
-export { mergeSummarySchema, type MergeSummary } from "@overstory/merge-protocol";
+export { mergeSummarySchema, type MergeSummary } from "./engine-contract.ts";

@@ -1,9 +1,8 @@
-import type { MergeSummary as ToolSummary } from "@overstory/merge-protocol";
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
 
-/** Rule evidence persisted beside an accepted merge: the merge worker's own,
- * or canopyd's for account configuration. */
-export type MergeSummary = ToolSummary | { version: "account-config-v2"; mergedFields: number };
+/** A merge rule's evidence, named by its version; canopyd's own merge of
+ * account configuration reports `account-config-v2`. */
+export type MergeSummary = { version: string; [field: string]: unknown };
 
 export interface MergeResult {
   root: ObjectHash;

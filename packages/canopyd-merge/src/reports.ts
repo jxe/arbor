@@ -1,4 +1,4 @@
-import type { DecisionReport } from "@overstory/merge-protocol";
+import type { DecisionReport } from "./engine-contract.ts";
 import type { IntentDecision, IntentState } from "./intent-model.ts";
 
 /** The decisions of a retained state as canopyd receives them: node

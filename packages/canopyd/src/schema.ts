@@ -8,15 +8,14 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "18";
+export const CANOPY_SCHEMA_VERSION = "19";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
-    "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id",
+    "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
-  accepted_merge_states: ["accepted_id", "record_json"],
   accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],

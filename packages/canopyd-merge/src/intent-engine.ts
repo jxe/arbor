@@ -2870,6 +2870,7 @@ export async function checkpointIntent(
     const decision = state.decisions.find((d) => d.key === key);
     if (!decision) throw new Error("Resolution decision is unavailable");
     if (
+      !request.align &&
       request.projection !== request.current.object &&
       decision.dependencies.some((d) => !resolved.has(d))
     )
@@ -3082,6 +3083,36 @@ export async function checkpointIntent(
   }
   for (const input of request.decisions) {
     if (state.decisions.some((d) => d.key === input.key)) continue;
+    if (input.path && input.range) {
+      // A source choice: alternatives are each version's bytes for the range.
+      let node = state.nodes[state.root]!;
+      for (const name of input.path)
+        node = engine.children(state, node.id).find((n) => n.name === name) ?? fail("Checkpoint decision path is absent");
+      if (!node.pieces) throw new Error("Checkpoint source choice is not a file");
+      const [start, end] = input.range;
+      const context = (await previousRecord()).state;
+      const alternatives = [];
+      for (const [index, a] of input.alternatives.entries()) {
+        const id = `imported:${input.key}:${index}`;
+        const size = (await objects.read(a.object)).byteLength;
+        state.nodes[id] = { id, parent: null, name: "", kind: "file", object: a.object,
+          pieces: [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true };
+        alternatives.push({ state: context, object: a.object, node: id, contributions: a.contributions });
+      }
+      const shown = await engine.project(state, node.id);
+      state.decisions.push({
+        key: input.key,
+        kind: "content",
+        affected: [node.id],
+        selected: input.selected,
+        alternatives,
+        dependencies: input.dependencies ?? [],
+        reason: "Retained source choice",
+        subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: input.at ?? shown }, range: input.range },
+        ...(input.at || end > length(node.pieces) ? {} : { placement: { node: node.id, pieces: slice(node.pieces, start, end), anchor: start } }),
+      });
+      continue;
+    }
     if (input.path) {
       const locate = (view: View) => {
         let node = view.nodes[view.root]!;
