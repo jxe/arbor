@@ -30,6 +30,14 @@
         "zod": "4.3.6",
       },
     },
+    "examples/supplies": {
+      "name": "@overstory/example-supplies",
+      "version": "0.1.0",
+      "dependencies": {
+        "react": "19.2.4",
+        "zod": "4.3.6",
+      },
+    },
     "packages/apps-runtime": {
       "name": "@overstory/apps-runtime",
       "version": "0.1.0",
@@ -332,6 +340,8 @@
     "@overstory/cli": ["@overstory/cli@workspace:packages/cli"],
 
     "@overstory/client": ["@overstory/client@workspace:packages/client"],
+
+    "@overstory/example-supplies": ["@overstory/example-supplies@workspace:examples/supplies"],
 
     "@overstory/fs": ["@overstory/fs@workspace:packages/fs"],
 

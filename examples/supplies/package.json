@@ -1,0 +1,11 @@
+{
+  "name": "@overstory/example-supplies",
+  "version": "0.1.0",
+  "description": "The supplies example app: executable documents the data-runtime and canopyd tests load.",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react": "19.2.4",
+    "zod": "4.3.6"
+  }
+}

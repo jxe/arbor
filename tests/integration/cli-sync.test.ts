@@ -212,8 +212,8 @@ describe("plural-account CLI place", () => {
     const secondAccount = accounts.find((account) => account.account?.canopy === secondCanopy.url)!;
     expect(placements.find((placement) => placement.path === firstSource)?.configurationTree).toBe(firstAccount.configurationTree);
     expect(placements.find((placement) => placement.path === secondSource)?.configurationTree).toBe(secondAccount.configurationTree);
-    expect(firstCanopy.canopy.boundary("/~alice/notes")?.publicAccess).toBe("read");
-    expect(secondCanopy.canopy.boundary("/~joe/notes")?.publicAccess).toBe("read");
+    expect(firstCanopy.canopy.canRead(null, firstCanopy.canopy.boundary("/~alice/notes")!.id)).toBe(true);
+    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/notes")!.id)).toBe(true);
 
     // A root-shaped placement on another Canopy cannot become this tree's
     // canonical parent merely because its URL path is a lexical prefix.
@@ -241,13 +241,13 @@ describe("plural-account CLI place", () => {
 
     const created = await arborOutput(["place", privateSource, canonical]);
     expect(created.stderr).toContain("private access");
-    expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("none");
+    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(false);
 
     await arbor(["place", "--access", "public=read", privateSource, canonical]);
-    expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("read");
+    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
     const repeated = await arborOutput(["place", privateSource, canonical]);
     expect(repeated.stderr).toBe("");
-    expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("read");
+    expect(secondCanopy.canopy.canRead(null, secondCanopy.canopy.boundary("/~joe/private-notes")!.id)).toBe(true);
   });
 
   test("reopens an unplaced session after an offline identity rebind", async () => {
