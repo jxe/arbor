@@ -8,7 +8,7 @@
  * snapshots: a sidecar need not use them. Not an example to copy; the real
  * sidecar is `packages/canopyd-merge`.
  *
- *   reference-sidecar.ts serve --objects DIR --staging DIR
+ *   reference-sidecar.ts serve --objects DIR --staging DIR [--cache DIR, unused]
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";

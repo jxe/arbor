@@ -82,3 +82,64 @@ test("equal values share one frozen object, but a loaded copy shares nothing", (
   expect(loaded.dependencies).toEqual([]);
   expect(loaded.alternatives[1]!.contributions).toEqual([]);
 });
+
+/** Every state `f` recorded, plus one with bucketed history records and
+ * integer-like keys, encoded as the sidecar saves them. */
+async function recorded() {
+  const { Fixture } = await import("./fixture.ts");
+  const f = new Fixture();
+  const base = f.tree({ "a.md": "hello world" });
+  const mine = await f.run(f.request(base, f.tree({ "a.md": "HELLO world" }), [
+    { kind: "editSource", key: "mine", source: f.ref("/a.md", "hello world", [0, 5]), text: "HELLO" },
+  ], "mine"));
+  // A concurrent edit of the same range: a retained decision naming other states.
+  const theirs = await f.run(f.request(base, f.tree({ "a.md": "Howdy world" }), [
+    { kind: "editSource", key: "theirs", source: f.ref("/a.md", "hello world", [0, 5]), text: "Howdy" },
+  ], "theirs", mine.result));
+  expect(f.state(theirs.result).decisions.length).toBeGreaterThan(0);
+  const wide = state(Array.from({ length: 40 }, (_, i) => i));
+  const node = (i: number) => ({ id: `n${i}`, parent: "root", name: `file-${i}.md`, kind: "file" as const, object: `sha256:${"c".repeat(64)}`, active: true });
+  const before = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`n${i}`, node(i)]));
+  wide.effects.large = { authored: { operation: "op", basis: "b" }, change: "c", operation: "op", kind: "removeEntry",
+    before, after: {}, edits: {}, undone: false };
+  wide.changes["10"] = "ten";
+  wide.changes["9"] = "nine";
+  retainState(f.states, wide, "object", false);
+  return f.states;
+}
+
+test("a saved state decodes to the same identity, values and key order", async () => {
+  const { encodeRetainedState, decodeRetainedState } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
+  const states = await recorded();
+  const saved = [...states].map(([id, retained]) => ({ id, text: JSON.stringify(encodeRetainedState(retained)), view: JSON.stringify(viewState(retained)) }));
+  // In this process, where the values are interned, and in a fresh one, where nothing is.
+  for (const { id, text, view } of saved) {
+    const decoded = decodeRetainedState(JSON.parse(text));
+    expect(decoded.id).toBe(id);
+    expect(JSON.stringify(viewState(decoded.state))).toBe(view);
+    expect(decoded.state.editable).toBe(states.get(id)!.editable);
+  }
+  const module = new URL("../../../packages/canopyd-merge/src/retained-state.ts", import.meta.url).pathname;
+  const child = Bun.spawn([process.execPath, "-e", `
+    import { decodeRetainedState, viewState } from ${JSON.stringify(module)};
+    const saved = JSON.parse(await Bun.stdin.text());
+    console.log(JSON.stringify(saved.map(({ text }) => { const d = decodeRetainedState(JSON.parse(text)); return { id: d.id, view: JSON.stringify(viewState(d.state)) }; })));
+  `], { stdin: new Blob([JSON.stringify(saved)]), stdout: "pipe", stderr: "inherit" });
+  const fresh = JSON.parse(await new Response(child.stdout).text()) as Array<{ id: string; view: string }>;
+  expect(await child.exited).toBe(0);
+  expect(fresh).toEqual(saved.map(({ id, view }) => ({ id, view })));
+  // The large record is bucketed: its keys are in neither insertion nor key order.
+  const large = Object.keys(JSON.parse(saved.find(({ view }) => JSON.parse(view).effects.large)!.view).effects.large.before);
+  expect(large).not.toEqual([...large].sort());
+  expect(large).not.toEqual(Array.from({ length: 40 }, (_, i) => `n${i}`));
+});
+
+test("a saved state whose content changed decodes to another identity", async () => {
+  const { encodeRetainedState, decodeRetainedState } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
+  const states = new Map<string, RetainedState>();
+  const { id } = retainState(states, state([1, 2]), "object", true);
+  const saved = JSON.parse(JSON.stringify(encodeRetainedState(states.get(id)!)));
+  saved.root = "elsewhere";
+  expect(decodeRetainedState(saved).id).not.toBe(id);
+  expect(() => decodeRetainedState({ ...saved, nodes: { entries: "no" } })).toThrow("Invalid saved bucket");
+});

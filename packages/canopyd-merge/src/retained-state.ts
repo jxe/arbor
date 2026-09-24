@@ -119,19 +119,21 @@ const byKey = ([a]: readonly [string, unknown], [b]: readonly [string, unknown])
 let builtBuckets = 0;
 
 function build(entries: ReadonlyArray<readonly [string, unknown]>, depth: number): Bucket {
-  builtBuckets++;
-  if (entries.length <= 16 || depth === 64) {
-    let size = 0;
-    const lines = entries.map(([key, value]) => {
-      const known = factsOf(value), name = JSON.stringify(key);
-      size += utf8(name) + 1 + known.size;
-      return `${name}:${known.hash}`;
-    });
-    return { entries, hash: digest(`L${lines.join("\n")}`), size, count: entries.length };
-  }
+  if (entries.length <= 16 || depth === 64) return leaf(entries);
   const buckets: Array<Array<readonly [string, unknown]>> = Array.from({ length: 16 }, () => []);
   for (const entry of entries) buckets[digit(entry[0], depth)]!.push(entry);
   return branch(buckets.map((bucket) => (bucket.length ? build(bucket, depth + 1) : null)));
+}
+/** A bucket of `entries` in the order given. */
+function leaf(entries: ReadonlyArray<readonly [string, unknown]>): Bucket {
+  builtBuckets++;
+  let size = 0;
+  const lines = entries.map(([key, value]) => {
+    const known = factsOf(value), name = JSON.stringify(key);
+    size += utf8(name) + 1 + known.size;
+    return `${name}:${known.hash}`;
+  });
+  return { entries, hash: digest(`L${lines.join("\n")}`), size, count: entries.length };
 }
 function branch(children: Array<Bucket | null>): Bucket {
   builtBuckets++;
@@ -374,4 +376,102 @@ export function retainState(
   for (const field of HISTORY) sources.set(state[field], retained.history[field]);
   if (!known) states.set(id, retained);
   return { id, bytes };
+}
+
+// ---- Saving ---------------------------------------------------------------
+
+/** A recorded state as JSON: its buckets' shape and every value in the key
+ * order it was recorded with, so that `decodeRetainedState` rebuilds the same
+ * state, iteration order included. */
+export function encodeRetainedState(retained: RetainedState): unknown {
+  const bucket = (b: Bucket): unknown =>
+    "entries" in b ? { entries: b.entries } : { children: b.children.map((child) => (child ? bucket(child) : null)) };
+  return {
+    format: retained.format, tree: retained.tree, root: retained.root, object: retained.object, editable: retained.editable,
+    decisions: retained.decisions, nodes: bucket(retained.nodes),
+    history: Object.fromEntries(HISTORY.map((field) => [field, bucket(retained.history[field])])),
+  };
+}
+
+/** `encodeRetainedState`'s value back as a recorded state, and its identity
+ * as `retainState` computes it. Values are frozen as they come, in the order
+ * they were saved in; equal values already interned are shared. */
+export function decodeRetainedState(value: unknown): { id: string; state: RetainedState } {
+  const saved = value as {
+    format: IntentState["format"]; tree: string; root: string; object: string; editable: boolean;
+    decisions: unknown; nodes: unknown; history: Record<HistoryField, unknown>;
+  };
+  if (!isObject(saved) || saved.format !== "arbor-merge-intent-state" || typeof saved.tree !== "string"
+    || typeof saved.root !== "string" || typeof saved.object !== "string" || typeof saved.editable !== "boolean"
+    || !Array.isArray(saved.decisions) || !isObject(saved.history))
+    throw new Error("Invalid saved state");
+  builtBuckets = 0;
+  const bucket = (raw: unknown): Bucket => {
+    const b = raw as { entries?: unknown; children?: unknown };
+    if (Array.isArray(b?.entries))
+      return leaf(b.entries.map((entry: unknown) => {
+        if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") throw new Error("Invalid saved bucket");
+        return [entry[0], thaw(entry[1]).value] as const;
+      }));
+    if (Array.isArray(b?.children) && b.children.length === 16)
+      return branch(b.children.map((child: unknown) => (child === null ? null : bucket(child))));
+    throw new Error("Invalid saved bucket");
+  };
+  const decisions = thaw(saved.decisions), nodes = bucket(saved.nodes);
+  const history = Object.fromEntries(HISTORY.map((field) => [field, bucket(saved.history[field])])) as Record<HistoryField, Bucket>;
+  const id = digest(stableJSONString({
+    format: saved.format, tree: saved.tree, root: saved.root, editable: saved.editable,
+    nodes: nodes.hash, decisions: decisions.hash, history: HISTORY.map((field) => history[field].hash),
+  }));
+  const bytes = decisions.bytes + nodes.size + HISTORY.reduce((n, field) => n + history[field].size, 0) + 256 * builtBuckets;
+  return { id, state: {
+    format: saved.format, tree: saved.tree, root: saved.root, decisions: decisions.value as readonly IntentDecision[],
+    nodes, history, object: saved.object, editable: saved.editable, bytes,
+  } };
+}
+
+/** `freeze` for a saved value: the same facts, but the key order it has. A
+ * recorded object is in key order or, when bucketed, in `radix` order;
+ * interning shares it only with an object recorded in that same order. */
+function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
+  if (!isObject(value)) return { value, ...factsOf(value), bytes: factsOf(value).size };
+  let keys: string[], children: Array<Facts & { value: unknown; bytes: number }>, text: string;
+  if (Array.isArray(value)) {
+    keys = [];
+    children = value.map(thaw);
+    text = `[${children.map((child) => child.hash).join(",")}]`;
+  } else {
+    const record = value as Record<string, unknown>;
+    keys = Object.keys(record);
+    const values = new Map(keys.map((key) => [key, thaw(record[key])]));
+    keys = [...keys].sort();
+    children = keys.map((key) => values.get(key)!);
+    text = `{${keys.map((key, index) => `${JSON.stringify(key)}:${children[index]!.hash}`).join(",")}}`;
+  }
+  let size = 2 + Math.max(0, children.length - 1), length = size;
+  for (const [index, child] of children.entries()) {
+    const name = keys[index] === undefined ? "" : JSON.stringify(keys[index]);
+    size += (name ? utf8(name) + 1 : 0) + child.size;
+    length += (name ? name.length + 1 : 0) + child.length;
+  }
+  const hash = digest(text);
+  // The order `freeze` gives an object, as JavaScript lays its keys out
+  // (integer-like keys first).
+  const laid = (order: string[]) => Object.keys(Object.fromEntries(order.map((key) => [key, 0])));
+  const inOrder = (order: string[], expected: string[]) => order.every((key, index) => key === expected[index]);
+  const order = Array.isArray(value) ? null : Object.keys(value);
+  const kind = !order || inOrder(order, laid(keys)) ? "k"
+    : keys.length > 16 && inOrder(order, laid(radix(keys, 0))) ? "b" : null;
+  if (kind === null) throw new Error("Saved value is in no recorded order");
+  const existing = interned.get(`${kind}${hash}`)?.deref();
+  if (existing) return { value: existing, ...facts.get(existing)!, bytes: 0 };
+  const byKey = order ? new Map(keys.map((key, index) => [key, children[index]!.value])) : null;
+  const frozen = Object.freeze(Array.isArray(value)
+    ? children.map((child) => child.value)
+    : Object.fromEntries(order!.map((key) => [key, byKey!.get(key)]))) as object;
+  facts.set(frozen, { hash, size, length });
+  interned.set(`${kind}${hash}`, new WeakRef(frozen));
+  released.register(frozen, `${kind}${hash}`);
+  const own = size - children.reduce((n, child) => n + child.size, 0);
+  return { value: frozen, hash, size, length, bytes: own + children.reduce((n, child) => n + child.bytes, 0) };
 }

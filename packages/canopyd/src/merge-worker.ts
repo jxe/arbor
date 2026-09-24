@@ -25,10 +25,12 @@ export class PersistentMergeWorker {
     readonly directory: string,
     shared: string,
     staging: string,
+    /** The sidecar's own directory, kept across restarts. */
+    cache: string,
   ) {
     this.child = spawn(
       command[0]!,
-      [...command.slice(1), "serve", "--objects", shared, "--staging", staging],
+      [...command.slice(1), "serve", "--objects", shared, "--staging", staging, "--cache", cache],
       {
         stdio: ["pipe", "pipe", "pipe"],
         env: {

@@ -5,6 +5,7 @@ import { MergeRefusal } from "@overstory/merge-protocol";
 import { EvaluationFailure } from "./engine-contract.ts";
 import { IntentError } from "./intent-model.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
+import { savedStatesIn } from "./saved-states.ts";
 import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
 
 const maxRequestBytes = 8 * 1024 * 1024;
@@ -32,12 +33,12 @@ async function* requests(): AsyncGenerator<string> {
 export async function run(args = process.argv.slice(2), testing: { treeMerge?: ConstructorParameters<typeof Sidecar>[2] } = {}): Promise<void> {
   const mode = args.shift();
   if (mode !== "serve")
-    throw new Error("Usage: arbor-merge serve --objects DIR --staging DIR");
+    throw new Error("Usage: arbor-merge serve --objects DIR --staging DIR [--cache DIR]");
   const options = new Map<string, string>();
   while (args.length) {
     const key = args.shift()!,
       value = args.shift();
-    if (!["--objects", "--staging"].includes(key) || !value || options.has(key))
+    if (!["--objects", "--staging", "--cache"].includes(key) || !value || options.has(key))
       throw new Error("Invalid merge tool options");
     options.set(key, resolve(value));
   }
@@ -55,6 +56,7 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
   const sidecar = new Sidecar({
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: (hash) => staging.find(hash), stage: (values) => staging.stage(values) },
+    ...(options.has("--cache") ? { saved: savedStatesIn(options.get("--cache")!) } : {}),
   }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge,
   Number.isFinite(replayMS) && replayMS > 0 ? replayMS : REPLAY_MILLIS);
   // One question per line, one response per line, in order.
@@ -77,8 +79,12 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
           } };
     }
     // Diagnostics only: no request content or hashes.
-    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, ...engineDiagnostics } }) + "\n");
+    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, restored: sidecar.restored, ...engineDiagnostics } }) + "\n");
     process.stdout.write(JSON.stringify(response) + "\n");
+    // After answering, so a save never delays an answer or changes one.
+    await sidecar.save().catch((error) => {
+      process.stderr.write(`Saving a state failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    });
   }
 }
 if (import.meta.main)

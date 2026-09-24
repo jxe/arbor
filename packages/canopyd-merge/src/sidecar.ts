@@ -15,7 +15,7 @@ import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeWireTrees } from "@overstory/tree-merge";
-import { lookup, type RetainedState } from "./retained-state.ts";
+import { decodeRetainedState, encodeRetainedState, lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
@@ -34,7 +34,27 @@ interface Cached {
 export interface SidecarStores {
   shared: { find(hash: string): Promise<Uint8Array | null>; has(hash: string): Promise<boolean> };
   staging: { find(hash: string): Promise<Uint8Array | null>; stage(values: Array<{ hash: string; bytes: Uint8Array }>): Promise<void> };
+  /** Where the sidecar saves some entries' states, so that a restart replays
+   * from the nearest saved entry instead of the chain's start. Optional, and
+   * a cache like the rest: anything missing or unreadable is replayed. */
+  saved?: SavedStates;
 }
+
+/** Saved entry states, one value per entry, grouped by tree. */
+export interface SavedStates {
+  list(): Promise<Array<{ tree: string; entry: string; savedAt: number }>>;
+  read(tree: string, entry: string): Promise<Uint8Array | null>;
+  write(tree: string, entry: string, bytes: Uint8Array): Promise<void>;
+  remove(tree: string, entry: string): Promise<void>;
+}
+
+/** A tree's head state is saved once this many of its entries were replayed
+ * since its last save, and the newest `SAVES_KEPT` saves per tree are kept:
+ * a restart replays at most about `SAVE_AFTER` entries more than a warm
+ * sidecar would. */
+const SAVE_AFTER = 32;
+const SAVES_KEPT = 2;
+const SAVED_FORMAT = "arbor-merge-saved-entry";
 
 /** Change identities a client can see as contributions. canopyd's own
  * acceptances (tree creation, pairing, boundary rewrites) are not changes an
@@ -48,6 +68,10 @@ const CLIENT_CHANGE = /^[A-Za-z0-9_-]{1,128}$/;
  * start (trace, then align to the accepted root and decisions), and the
  * objects its answers generate, all held in memory only. A cache wipe
  * changes no answer.
+ *
+ * With a `saved` store it also writes some entries' states, after answering
+ * (`save`), and reads them back when replay reaches one. A saved state is the
+ * state replay built, byte for byte, so this too changes no answer.
  */
 /** How long one question may replay history before it answers retryably
  * (`ARBOR_MERGE_REPLAY_MS` overrides it). With canopyd's evaluation budget
@@ -72,6 +96,14 @@ export class Sidecar {
   /** Entries the current question replayed (a solved question reused counts); a diagnostic. */
   replayed = 0;
   private replayDeadline = Infinity;
+  /** Entries the current question read back from saved states; a diagnostic. */
+  restored = 0;
+  /** Saved entries by hash, listed once; kept across `clear`. */
+  private savedEntries?: Map<string, { tree: string; savedAt: number }>;
+  /** Entries replayed per tree since its last save. */
+  private unsaved = new Map<string, number>();
+  /** The last question's head, whose state `save` may write. */
+  private lastHead?: string;
 
   constructor(
     private readonly stores: SidecarStores,
@@ -143,6 +175,8 @@ export class Sidecar {
     const rules = this.rules(question);
     if (this.memoryBytes > this.cacheBytes) this.clear();
     this.replayed = 0;
+    this.restored = 0;
+    this.lastHead = question.head;
     this.replayDeadline = performance.now() + this.replayMillis;
     const { result, evidence } = await this.solve(question, rules);
     const { decisions } = await this.cached(result);
@@ -189,7 +223,7 @@ export class Sidecar {
   private async stateOf(hash: string, rules: IntentRequest["rules"]): Promise<Cached> {
     const chain: string[] = [];
     let at: string | null = hash;
-    while (at && !this.states.has(at)) {
+    while (at && !this.states.has(at) && !(await this.restore(at))) {
       chain.push(at);
       at = (await this.entry(at)).previous;
     }
@@ -206,6 +240,8 @@ export class Sidecar {
       previous = await this.replay(entry, previous, rules);
       this.states.set(entry, previous);
       this.replayed++;
+      const tree = (await this.entry(entry)).tree;
+      this.unsaved.set(tree, (this.unsaved.get(tree) ?? 0) + 1);
     }
     return previous!;
   }
@@ -252,6 +288,95 @@ export class Sidecar {
       if (!(error instanceof MergeRefusal || error instanceof IntentError)) throw error;
     }
     return this.align(entry, state);
+  }
+
+  /** Save the last question's head state if its tree replayed enough since
+   * its last save, and drop that tree's older saves. Called after answering;
+   * a failure here affects no answer. */
+  async save(): Promise<void> {
+    const saved = this.stores.saved, head = this.lastHead;
+    if (!saved || !head) return;
+    const cached = this.states.get(head), tree = (await this.entry(head)).tree;
+    if (!cached || (this.unsaved.get(tree) ?? 0) < SAVE_AFTER) return;
+    // The state and every state its decisions name, and the objects they
+    // name that only this sidecar holds.
+    const states: Record<string, unknown> = {};
+    for (const pending = [cached.state]; pending.length;) {
+      const id = pending.pop()!;
+      if (states[id]) continue;
+      const retained = this.recorded.get(id);
+      if (!retained) return;
+      states[id] = encodeRetainedState(retained);
+      for (const decision of retained.decisions) {
+        if (decision.context) pending.push(decision.context);
+        for (const alternative of decision.alternatives) pending.push(alternative.state);
+      }
+    }
+    const named = new Set(JSON.stringify(states).match(/sha256:[a-f0-9]{64}/g) ?? []);
+    const objects: Array<[string, string]> = [];
+    for (const hash of named) {
+      const bytes = this.memory.get(hash);
+      if (bytes && !(await this.stores.shared.has(hash))) objects.push([hash, Buffer.from(bytes).toString("base64")]);
+    }
+    const value = { format: SAVED_FORMAT, tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions, states, objects };
+    await saved.write(tree, head, new TextEncoder().encode(JSON.stringify(value)));
+    const index = await this.savedIndex();
+    index.set(head, { tree, savedAt: Date.now() });
+    this.unsaved.set(tree, 0);
+    const older = [...index].filter(([entry, s]) => s.tree === tree && entry !== head).sort((a, b) => b[1].savedAt - a[1].savedAt);
+    for (const [entry] of older.slice(SAVES_KEPT - 1)) {
+      index.delete(entry);
+      await saved.remove(tree, entry);
+    }
+  }
+
+  private async savedIndex() {
+    if (!this.savedEntries) {
+      this.savedEntries = new Map();
+      for (const { tree, entry, savedAt } of (await this.stores.saved?.list()) ?? []) this.savedEntries.set(entry, { tree, savedAt });
+    }
+    return this.savedEntries;
+  }
+
+  /** Read an entry's saved state into the cache. Anything unreadable, or
+   * whose states or objects do not match their identities, is removed and
+   * replayed instead. */
+  private async restore(hash: string): Promise<boolean> {
+    const saved = this.stores.saved;
+    if (!saved) return false;
+    const index = await this.savedIndex(), known = index.get(hash);
+    if (!known) return false;
+    try {
+      const bytes = await saved.read(known.tree, hash);
+      if (!bytes) throw new Error("Saved state is missing");
+      const value = JSON.parse(new TextDecoder().decode(bytes)) as {
+        format: string; tree: string; entry: string; object: string; state: string; decisions: LogDecision[];
+        states: Record<string, unknown>; objects: Array<[string, string]>;
+      };
+      if (value.format !== SAVED_FORMAT || value.entry !== hash || value.tree !== known.tree || !value.states[value.state])
+        throw new Error("Saved state does not match its entry");
+      const decoded = Object.entries(value.states).map(([id, encoded]) => {
+        const { id: actual, state } = decodeRetainedState(encoded);
+        if (actual !== id || state.tree !== value.tree) throw new Error("Saved state does not match its identity");
+        return [id, state] as const;
+      });
+      const objects = value.objects.map(([object, base64]) => {
+        const bytes = new Uint8Array(Buffer.from(base64, "base64"));
+        if (hashObject(bytes) !== object) throw new Error("Saved object does not match its hash");
+        return [object, bytes] as const;
+      });
+      if (this.states.has(hash)) return true;
+      for (const [id, state] of decoded) this.objects.states.set(id, state);
+      for (const [object, bytes] of objects) this.remember(object, bytes);
+      this.states.set(hash, { object: value.object, state: value.state, decisions: value.decisions });
+      this.restored++;
+      return true;
+    } catch (error) {
+      process.stderr.write(`Discarding a saved state: ${error instanceof Error ? error.message : String(error)}\n`);
+      index.delete(hash);
+      await saved.remove(known.tree, hash).catch(() => {});
+      return false;
+    }
   }
 
   /** Make a state's projection and decisions the entry's. Decisions that

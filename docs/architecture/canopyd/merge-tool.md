@@ -84,7 +84,7 @@ they were is also reported unchanged.
 ## Transport and execution
 
 ```sh
-bun run arbor-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects
+bun run arbor-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects --cache /data/merge-cache
 ```
 
 `serve` answers one question per stdin line with one line on stdout, in order: an
@@ -114,10 +114,10 @@ state.
 
 ### Cache and replay
 
-The sidecar keeps an engine state per log entry, decoded in memory only, and the objects
+The sidecar keeps an engine state per log entry, decoded in memory, and the objects
 its answers generate in the same memory (never in canopyd's store). To answer a question
 it needs the states of `base` and `head`; it walks `previous` from each to the nearest
-cached entry, or to the chain's start, and replays forward:
+cached or saved entry, or to the chain's start, and replays forward:
 
 - a chain's first entry is imported from its root and decisions;
 - any later entry asks its recorded question again with its `previous` entry as head
@@ -143,6 +143,22 @@ least one entry. Without the budget canopyd's timeout would end the process and 
 partial rebuild, and a long enough chain could never be rebuilt. Replay never starts
 partway along a chain: an imported start would lose the retained history a later merge
 reads, including the attribution of the current side of a choice.
+
+**Saved states.** With `--cache DIR` the sidecar also saves some entries' states there,
+so a restart does not replay each chain from its start. After answering, it saves the
+question's head state once 32 of that tree's entries were replayed since the tree's last
+save, and keeps the tree's two newest saves (`DIR/<tree>/<entry digest>.json`, written
+whole and renamed into place). A save holds the entry's state, every state its decisions
+name, and the objects they name that only the sidecar holds. The encoding keeps each
+value's key order and each map's bucket shape, so a saved state loads as the state replay
+built, byte for byte; loading checks every state's identity and every object's hash, and
+a save that fails either is deleted and replayed instead. A restart therefore replays at
+most about 32 entries more than a warm sidecar. On the 2026-09-24 production copy the
+282-entry chain replayed in about 1 s locally; a restarted sidecar answered the same
+question from the save in 37 ms, and the save took 44 ms and 2.5 MB. canopyd passes
+`/data/merge-cache`, never reads it, and does not back it up: deleting it changes no
+answer. A saved state is not an imported start: it is the replayed state itself, retained
+history included, so replay still begins at the chain's start or at a state it built.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
@@ -367,7 +383,7 @@ canopyd stages the uncommitted inputs in its `objects/` staging store, in one pu
 The sidecar receives fixed paths and a minimal environment rather than inherited server
 credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
 an unaccepted worker directory; canopyd removes `merge-workers/` at startup, before any
-job runs.
+job runs. `merge-cache/` is the sidecar's and outlives restarts.
 
 Every entry, and every root and alternative it names, is reachable from its tree's head
 entry, so a future object collector keeps exactly what the chains reach; sidecar caches

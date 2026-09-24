@@ -17,6 +17,8 @@ Every object is named by the SHA-256 of its bytes, `sha256:<64 hex>`, and stored
   name. It is read-only.
 - **Write** new objects into this question's staging directory (`--staging`), under the
   same layout. canopyd keeps an object only if it accepts the answer that lists it.
+- **Keep** whatever you like across restarts in your cache directory (`--cache`). canopyd
+  never reads it and may delete it; nothing there may change an answer.
 
 Trees are directory objects: canonical CBOR maps `{type: "directory", entries}`, each
 entry `{name, file | directory | tree}` in UTF-8 name order
