@@ -5,10 +5,12 @@
 **The host** (canopyd) implements access and claims, public HTTP projection,
 graph validation, authoritative reconciliation, and private storage. Update
 handling separates decision, causal reconciliation, and transactional storage
-from rule computation; the [merge sidecar](merge-tool.md) computes every
-merge and keeps its own retained state, which canopyd treats as opaque.
-canopyd checks each response's shape and objects, merges account
-configuration itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
+from rule computation. Accepted history is a chain of log entries in the
+object store; the [merge sidecar](merge-tool.md) answers one question about
+it when concurrent work must combine, and keeps whatever it caches in its own
+memory ([writing a sidecar](writing-a-sidecar.md)). canopyd accepts plain
+edits on the head itself, checks each answer's shape and objects, merges
+account configuration itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp.
 
@@ -60,7 +62,7 @@ host validity callback are checked every time.
 
 ## Sidecars
 
-- [Merge tool](merge-tool.md)
+- [Merge sidecar](merge-tool.md) and [writing a sidecar](writing-a-sidecar.md)
 - [Execution sidecar](execution-sidecar.md)
 - [Deployment](../../../packages/canopyd/deploy/README.md)
 - [Migrations](../../../packages/canopyd/migrations/README.md)

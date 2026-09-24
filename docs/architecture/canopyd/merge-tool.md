@@ -1,205 +1,191 @@
-# Merge executable and shared objects
+# Merge sidecar and accepted history
 
-The reference implementation has a TypeScript merge package,
-`@overstory/canopyd-merge`, and an `arbor-merge` executable script run by Bun.
-canopyd runs it as a sidecar: one persistent worker with a bounded FIFO queue
-and no fan-out. canopyd owns accepted history, causal reconstruction,
-authorization, guards, conflict identity, and atomic acceptance. The
-executable owns the format rules, the tree merge computation, and its
-retained state, whose format canopyd never reads. It has no database
-connection or credentials in its API; it is a trusted local worker, not an
-OS sandbox for arbitrary plugins.
+canopyd keeps accepted history as immutable **log entries** in its object store and
+asks a **merge sidecar** one question when concurrent work has to combine. The
+reference implementation's sidecar is the TypeScript package `@overstory/canopyd-merge`,
+run by Bun as the `arbor-merge` executable. canopyd owns authorization, guards,
+conflict identity, accepted history and atomic acceptance; the sidecar owns the format
+rules and the tree merge, and whatever it caches. [Writing a
+sidecar](writing-a-sidecar.md) is the whole API on one page; this page describes how
+canopyd and the reference sidecar use it.
 
-The two share only the object store (`@overstory/object-store`) and the JSON
-contract (`@overstory/merge-protocol`). canopyd does not depend on
-`@overstory/canopyd-merge`. Account configuration is canopyd's own policy, so
-canopyd merges it itself ([account configuration](#account-configuration)).
+The two share only the object store (`@overstory/object-store`) and the JSON contract
+(`@overstory/merge-protocol`). canopyd does not depend on `@overstory/canopyd-merge` and
+stores none of its state. The sidecar has no database connection or credentials; it is
+a trusted local process, not an OS sandbox for arbitrary plugins.
 
-## API and execution
+## Accepted history
+
+Every accepted update is one log entry, written by canopyd as canonical JSON
+(`stableJSONString`) into the object store before the transaction that records it, as
+roots are. The accepted row keeps only the entry's hash (`accepted_updates.entry`) and
+its `conflicted` flag; everything else about the update's merge (its trace, the keys it
+resolved, the decisions open after it, how the sidecar was asked and its evidence) is
+in the entry. An entry names the one before it, so a tree's history is a hash chain;
+a tree's first retained entry has `previous: null` (tree creation, and each head
+migration 018 converted). canopyd's SQLite schema stays private.
+
+Every acceptance path writes an entry: client updates, tree creation, pairing, account
+configuration and boundary rewrites. canopyd's own acceptances write theirs directly;
+when the head has open decisions they ask the sidecar to carry them onto the new root
+(with `conflictProjection: "incoming"`, so the root is shown as given).
+
+Inspection pages, resolution guards and alternative bindings read decisions from the
+entry. A decision's public id is derived from its tree and key, an alternative's from its
+index, and an alternative's `revision` from its value and contributions, so an edit
+elsewhere in the tree changes none of them. A decision without `path` is a `directory`
+decision at `/` whose values are its roots; with `path` and no `range` it is an `entry`
+decision placed at that path, whose values are each alternative root's file, folder or
+absence there; with `range` it is a `content` decision affecting that range of the file,
+whose values are the alternatives' bytes.
+
+The integrity audit (`/.arbor/integrity`) checks every row against its entry (tree, root,
+conflicted flag, and that its predecessor row's entry is its `previous`), and walks every
+chain, verifying each entry's root and every alternative root and range object.
+
+## The merge question
+
+canopyd asks one kind of question (`MergeQuestion`): the entry the candidate was
+authored on, the tree's current entry, the earlier candidates of the same batch that
+were authored on that base (`prefix`), the candidate itself with the decision keys its
+guards resolved and the alternatives its operations name, and the rules. The answer is
+the root to accept, the new objects the sidecar staged, the decisions open afterwards and
+evidence. canopyd records the question in the entry's `asked` field (its base when it is
+not the head, the prefix, the candidate root when neither the trace's end nor the
+accepted root, the bindings, the rules), so a sidecar can ask it again later.
+
+### Fast-forward
+
+A traced update authored directly on the head is accepted by canopyd without a question
+when every frame's operations are `editSource` over basis material or `addEntry` of a new
+name into a basis directory, canopyd reproduces every frame's `after` exactly
+(`checkPlainTrace` in `@overstory/protocol`, beside `composeSourceEdits`), it resolves
+nothing, and no open decision concerns what it touches: a decision about the root, the
+edited file or an added entry, or a folder containing one. Open decisions carry over,
+each entry choice's alternative roots rebased onto the new root. Anything canopyd cannot
+check goes to the sidecar, which remains the authority on validity; the fast path never
+rejects. Each fall-through is logged with its reason (`Fast-forward fell through: ...`)
+and counted in the request's timings (`fast-forward-miss`).
+
+A batch is checked before anything in it is accepted: plain elements are checked by
+canopyd, each on the one before it, and any other traced element is asked of the sidecar
+against the request's base (with the earlier elements as `prefix`). An unsupported or
+invalid element never accepts a prefix. At acceptance, an element accepted exactly as
+authored on the entry before it becomes the next element's base; any other is carried in
+`prefix`. A preflight answer is reused only for a verbatim question.
+
+### Snapshots
+
+A snapshot (a candidate with `trace: null`) that equals the head's root or its own base
+is unchanged without a question, unless it resolves decisions. Otherwise the sidecar
+merges it (below) and an answer that leaves the head's root and decisions exactly as
+they were is also reported unchanged.
+
+## Transport and execution
 
 ```sh
 bun run arbor-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects
 ```
 
-`serve` accepts one JSON request per line on stdin and returns one response
-per line on stdout, in order; a failed evaluation returns
-`{ "error": { "message": "...", "code"?: "..." } }` and leaves the process
-usable. Each request's timings go to stderr as one `{"timings": ...}` line.
-Callers own staging lifetime and serialization. canopyd keeps one worker
-alive across jobs, validates each result, then clears staging before starting
-the next job. Timeouts and crashes are reaped before cleanup; queued
-successors can start a replacement. canopyd shutdown drains the active job,
-rejects queued work, and closes its worker. A custom executable speaks the
+`serve` answers one question per stdin line with one line on stdout, in order: an
+answer, `{ "refusal": { "code", "message" } }` for a typed refusal (`invalid`,
+`missing-context`, `unsupported`, `limit`), or `{ "error": { "message", "code"? } }` for a
+failure, which leaves the process usable. Each question's timings go to stderr as one
+`{"timings": ...}` line. canopyd keeps one sidecar alive across jobs with a bounded
+FIFO queue, stages each question's uncommitted inputs, checks the answer, then clears
+staging before the next job. Timeouts and crashes are reaped before cleanup; queued
+successors start a replacement. canopyd shutdown drains the active job, rejects queued
+work, and closes the process. A custom executable (`ARBOR_MERGE_EXECUTABLE`) speaks the
 same protocol.
 
-The [typed and validated contract](../../../packages/merge-protocol/src/index.ts) is the
-source of truth. For example, a tree merge takes these fields (replace abbreviated
-hashes with actual SHA-256 object hashes):
+### Answer checks
 
-```json
-{
-  "kind": "tree",
-  "base": { "object": "sha256:..." },
-  "current": { "object": "sha256:..." },
-  "incoming": { "object": "sha256:..." },
-  "rules": { "id": "tree-default", "revision": 1 }
-}
-```
+canopyd trusts the sidecar it runs. It checks each answer's shape (strictly: nothing
+but the four fields), hash-checks every staged object as it reads it back, verifies the
+complete closure of the accepted root and of every alternative root, and reads every
+range alternative and `at` object. It does not re-execute operations or look inside the
+sidecar's reasoning. Returned objects are kept in memory until canopyd durably stores
+them before the accepted transaction; writing an object alone never creates accepted
+state.
 
-It returns `result: { object }`, `decisions`, `objects` (new object hashes, not
-bytes), and `evidence: { rule, summary? }`. Conflict decisions name their path,
-reason, and entry or coupled-directory scope. A successful partial merge may
-contain unresolved decisions. Empty decisions do not clear existing canopyd choices.
-canopyd reifies the rule output with retained alternatives and origins, assigning
-durable identities itself. `tree-default` is the only snapshot rule.
-Authored execution and unresolved alternatives use the operation-bearing
-tree request described under [operation evaluation](#operation-evaluation).
+## The reference sidecar
 
-The rule revision identifies algorithm semantics; it is not a versioned client API.
-Unrecognized rules, invalid responses or missing material fail evaluation. There
-is no supported-operation advertisement to clients. Ship server support before
-clients emit additional operations.
+### Cache and replay
 
-### Trusted semantic basis
+The sidecar keeps an engine state per log entry, in memory only, and the objects those
+states are made of in the same memory (never in canopyd's store). To answer a question
+it needs the states of `base` and `head`; it walks `previous` from each to the nearest
+cached entry, or to the chain's start, and replays forward:
 
-For operation-bearing tree requests, the host supplies `base` and `current`
-state/root pairs within the named tree. canopyd takes them from the merge states
-of accepted records or from states the worker returned earlier in the same
-request. They are not client-provided assertions. This is the worker contract;
-there is no trust flag or optional untrusted-basis mode.
+- a chain's first entry is imported from its root and decisions;
+- any later entry asks its recorded question again with its `previous` entry as head
+  (for an entry with no `asked`, a fast-forward, the trace on `previous` under the
+  current rules), then **aligns** to the entry's root and decisions: decisions whose log
+  form already matches keep their retained detail, the rest are removed and imported
+  from the entry.
 
-Exact-basis source execution loads active state and directory metadata to obtain
-unchanged file hashes. It does not reread untouched file bodies or reconstruct
-the entire basis to prove the state/root relationship again. Referenced bytes
-remain hash-checked, operation selectors remain checked, and the computed result
-must match the supplied candidate. General merges currently retain their full
-projection work; extending incremental execution is separate remaining work.
+Replay is how every state is built, warm or cold, so a cache wipe changes no answer.
+The last 32 solved questions are kept, so replaying the entry canopyd just recorded from
+an answer reuses that answer's state. The cache is dropped whole when its objects exceed
+`ARBOR_MERGE_CACHE_MB` (default 512); rebuilds are bounded by each chain's start.
 
-## Checkpoints and recorded merge states
+What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
+a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
+re-evaluated, and a source choice it carries is imported from its range and fragments.
+Both give conservative later merges (more choices, never silent loss).
 
-Every accepted update records a merge state beside its row: a traced edit its
-evaluated state, a snapshot its checkpoint (below), and each acceptance canopyd
-makes itself its own checkpoint of the new root onto the tree's current state:
-a tree's first root (imported with no prior state), pairing, account
-configuration, and the boundary rewrite of a canonical parent. The row's
-`conflicted` flag is that state's open decisions, and inspection pages read
-them. There is no other conflict record: migration 016 (schema 18) removed the
-whole-entry conflict rows and the updates accepted before this model, keeping
-each tree's head with a fresh first-import state.
+### Log decisions
 
-A `checkpoint` request may set `authored: true` with a `candidate`: one job
-then returns, beside the accepted projection's `result`, the author's own
-candidate checkpointed onto the same state without decisions (`authored`), the
-basis a later batch suffix continues from. When no decision is added or
-enclosed the two are the same request, and the worker returns the one state
-twice. Both are recorded as the worker returns them ([response checks](#response-checks)).
+The engine's decisions are converted to log decisions against the accepted root: a
+choice about one file, folder or existence names whole alternative roots (the root with
+each version at the path); a source choice names its range in the displayed file (or the
+older file it was about, with `at`, once enclosed) and each alternative's bytes; any other
+choice is about the root and names its roots. Importing reverses it.
 
-A checkpoint decision names whole alternative roots. With a `path` it
-concerns one entry below the root: a content choice when every alternative
-holds a file there, an existence choice when one lacks it, and a folder choice
-when every alternative holds a directory there. A file choice is placed on
-that file's node; a folder choice records each alternative's version of the
-folder (its object, and a state rooted at it) and names the folder's node as
-its one affected node and the displayed alternative's occurrence. Either way
-edits elsewhere leave it alone, and an edit inside the displayed file or
-folder, traced or snapshot, continues that alternative. A snapshot or edit
-that removes a folder with an open folder choice encloses it. Without a
-`path` it is one choice about the whole root. Inspection reports a file or
-folder choice as an `entry` decision placed at its path, with `file` or
-`directory` alternative values, as the whole-entry conflict rows did before
-schema 18; a whole-root choice is a `directory` decision at `/`.
+### Snapshot merges
 
-A first import is editable (it has no effects to enforce), so a new tree's
-first edit fast-forwards. A checkpoint names new material by its change and
-path rather than by the projected root, so the accepted projection and the
-author's candidate agree wherever their bytes agree.
+An untraced snapshot (as filesystem sync sends) is merged as a tree against
+the head's root and then checkpointed onto the head's state. It encloses only
+choices whose own material it touches: a
+choice about one file is untouched by edits elsewhere, and a snapshot of the
+displayed version continues that alternative, as a traced edit would. When a
+snapshot itself conflicts, each conflict becomes a choice about one entry and
+the rest of the snapshot merges: a conflicting file (or file against its
+deletion) is a choice about that file, and a conflict inside a folder the tree
+merge could not reconcile (a divergent page move, a collection schema
+conflict), or at an entry that is not a file in both versions, is a choice
+about the nearest folder both versions hold. A choice inside another choice's
+folder is part of that choice, and a folder choice depends on the open choices
+already inside it, so replacing the folder must resolve them too. Only a
+conflict at the root, or one no folder below the root contains, is a single
+whole-root choice. The current material stays displayed and the candidate's
+is the alternative. The current alternative is
+attributed to each change accepted since the request's base that touched the
+path (as a change, never an operation); the candidate to its own change. A
+batch suffix whose basis showed a hidden alternative of an open file or folder
+choice continues that alternative: the choice keeps its identity, and the
+alternative becomes the suffix's version instead of a second choice about the
+same entry.
 
-Bun uses native SHA-256 with the same object identities as the portable fallback.
-
-## Incremental retained state
-
-Every stored state is indexed (`arbor-merge-intent-state-v3`): an active part
-beside five hash-partitioned history maps. Migration 013 rewrote the earlier
-full-copy states, and readers no longer accept them. A history record of at
-most 2048 canonical JSON characters is stored inline (`arbor-state-record-v1`);
-a larger one is chunked into shared value pages (`arbor-state-record-v2`), so
-before/after piece sequences share unchanged pages across effects instead of
-embedding a complete copy in every record. Both record forms are current.
-These are internal object formats, not changes to public update requests.
-
-This format is the worker's own. canopyd stores only state hashes beside its
-accepted records and never parses, validates, or walks a state. Its integrity
-audit (`/.arbor/health`) asks the worker to walk the retained closure of every
-recorded state with a `retention-audit` request of at most 10,000 roots; the
-worker checks each object's hash as it reads it and fails on a missing one.
-
-## Decision reports
-
-An authored evaluation and a checkpoint return `decisions` as reports, not as
-the worker's retained records. A report carries the decision's key, kind,
-reason, selected index, dependencies, alternatives (object, state, whether the
-alternative names a present entry, and contributions), its subject, and, when
-it has a placement, the placed file's logical `path` and, when that file is
-active and the decision has no context, its affected byte `range`. The worker
-resolves its own node identities into those paths, so canopyd needs nothing
-else to assign durable decision and alternative identities and to present them,
-including folder choices, whose subject is the folder's path.
-
-## Response checks
-
-canopyd trusts the worker it runs. It checks each response's shape and its
-correspondence to the request (rule identity, change, operation keys, candidate
-root, checkpoint projection and authored candidate), hash-checks every
-generated object as it reads it back, verifies the reachable closure of a
-snapshot merge's result tree, and requires a stateful result's root to be
-present. It does not re-execute operations, re-validate retained state, or
-compare a response's decisions against that state. Earlier releases did, with
-a second copy of the worker's validator; `ARBOR_STATE_PROOF_MB`,
-`ARBOR_HISTORY_CACHE_MB`, `ARBOR_STATE_VALIDATION_MS` and the startup warm-up
-(`ARBOR_CANOPY_NO_WARMUP`) served it and no longer exist.
+When the tree merge itself fails, ordinary content is kept as one whole-root choice that
+shows the current tree, and the failure goes to stderr.
 
 ## Account configuration
 
-The three account-configuration files are canopyd's policy: it parses them,
-authorizes every change before and after merging, and writes them itself. So
-their three-way merge is in canopyd (`packages/canopyd/src/account-policy-v2.ts`),
-beside that authorization, and the worker has no account rule; the merged root
-is then checkpointed like any snapshot. Parsing and the canonical three-file
-writer are in `@overstory/protocol`. `trees.yaml` is read in the resource-rule
-grammar only.
+The three account-configuration files are canopyd's policy: it parses them, authorizes
+every change before and after merging, and writes them itself. So their three-way merge
+is in canopyd (`packages/canopyd/src/account-policy-v2.ts`), beside that authorization,
+and the sidecar has no account rule. canopyd then asks the sidecar a question authored on
+the head with the merged root as candidate, and adds a restrictive access-policy choice
+to the entry itself. Parsing and the canonical three-file writer are in
+`@overstory/protocol`. `trees.yaml` is read in the resource-rule grammar only.
 
 ## Operation evaluation
 
-A tree request may carry authored operations. There is one evaluator; snapshot
-requests, checkpoints, and account rules are different inputs to the same
-executable, not separately deployed engines.
-
-```ts
-{
-  kind: "tree",
-  tree: "tree-scope",
-  base: { object: baseRoot, state: retainedToolState },
-  current: { object: currentRoot, state: retainedCurrentToolState },
-  incoming: {
-    object: exactCandidateRoot,
-    change: "authored-change",
-    trace: [/* frames of SourceOperation values */],
-    resolves: [/* tool decision keys whose guards canopyd checked */]
-  },
-  rules: {
-    id: "tree-default", revision: 1,
-    config: {
-      maxBytes: 33554432, maxNodes: 20000, maxMillis: 5000,
-      proseInsertions: "preserve-both",
-      formats: { "/records.csv": { format: "csv", recordKey: "id" } }
-    }
-  }
-}
-```
-
-A first basis can omit `state`; later evaluations retain the returned state
-object beside its root. Equal roots never imply equal retained intent, and the
-evaluator never invents operations from a diff.
+A traced candidate is evaluated by the engine against the author's basis state and the
+head's state, both from the cache. There is one evaluator; snapshots, alignment and
+imports are different inputs to it. Equal roots never imply equal retained intent, and
+the evaluator never invents operations from a diff.
 
 **Frames.** Operations arrive as a trace: a chain of `{ before, after,
 operations }` frames from the request's base root to the candidate. References
@@ -254,35 +240,9 @@ and changed on the other is an existence choice about that file alone: its
 kept alternative is the file, the deleted alternative names no node, and every
 other concurrent change still merges into the projection.
 
-An untraced snapshot (as filesystem sync sends) is merged as a tree against
-the current accepted root and then checkpointed onto the current state, on
-every tree policy. It encloses only choices whose own material it touches: a
-choice about one file is untouched by edits elsewhere, and a snapshot of the
-displayed version continues that alternative, as a traced edit would. When a
-snapshot itself conflicts, each conflict becomes a choice about one entry and
-the rest of the snapshot merges: a conflicting file (or file against its
-deletion) is a choice about that file, and a conflict inside a folder the tree
-merge could not reconcile (a divergent page move, a collection schema
-conflict), or at an entry that is not a file in both versions, is a choice
-about the nearest folder both versions hold. A choice inside another choice's
-folder is part of that choice, and a folder choice depends on the open choices
-already inside it, so replacing the folder must resolve them too. Only a
-conflict at the root, or one no folder below the root contains, is a single
-whole-root choice. The current material stays displayed and the candidate's
-is the alternative. The current alternative is
-attributed to each change accepted since the request's base that touched the
-path (as a change, never an operation); the candidate to its own change. A
-batch suffix whose basis showed a hidden alternative of an open file or folder
-choice continues that alternative: the choice keeps its identity, and the
-alternative becomes the suffix's version instead of a second choice about the
-same entry. An access-policy conflict on an account-configuration tree keeps
-the restrictive merge as one whole-configuration choice that later
-configuration edits must resolve exactly; other governed conflicts are
-refused.
-
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
 retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations
-20 seconds by default, capped by the worker timeout (`evaluationMillis` can
+20 seconds by default, capped by the sidecar timeout (`evaluationMillis` can
 configure a smaller budget); the standalone evaluator retains its 5-second default.
 Deterministic invalid-input
 and operation-limit checks retain their existing classification.
@@ -347,6 +307,8 @@ Deletion enforcement and retention read only the delta. Records with whole
 piece copies and no delta were written only into history that migration 016
 squashed, and are no longer read.
 
+These states live in the sidecar's memory; canopyd never stores, reads or audits them.
+
 ### Limits
 
 Requests are bounded to 8 MiB at the CLI with at most 1024 operations.
@@ -357,58 +319,46 @@ commit accepted state inside this process.
 
 ## Objects, authority and failure
 
-`@overstory/object-store` provides immutable, hash-sharded storage. Reads verify
-hashes. Durable writes flush files and atomically link them into place;
-disposable staging uses atomic publication without fsync. A merge job reads
-shared storage first, falling back to staging only when an object is absent.
-Corrupt shared bytes fail validation. Generated objects are written only into
-staging. Generated hashes already present in the shared store are not staged
-again; canopyd reads returned hashes from staging or shared storage and verifies
-them. Neither process recopies existing immutable material into every job.
-Request JSON contains no object-store filesystem paths.
+`@overstory/object-store` provides immutable, hash-sharded storage. Reads verify hashes.
+Durable writes flush files and atomically link them into place; disposable staging uses
+atomic publication without fsync. The sidecar reads shared storage first, then staging,
+then its own memory. Corrupt shared bytes fail validation. Question JSON contains no
+object-store filesystem paths.
 
-The worker owns a unique `/data/merge-workers/worker-*` directory. For each job
-canopyd stages the uncommitted input objects in its `objects/` staging store,
-in one publish. The worker receives fixed paths, with a minimal
-environment rather than inherited server credentials. canopyd checks responses as
-described under [response checks](#response-checks), then applies its normal
-schema, boundary, authorization and guarded-acceptance checks. Returned objects are
-retained in memory until canopyd durably stores them before the accepted transaction.
-Writing an object alone never creates accepted state.
+The sidecar owns a unique `/data/merge-workers/worker-*` directory. For each job
+canopyd stages the uncommitted inputs in its `objects/` staging store, in one publish.
+The sidecar receives fixed paths and a minimal environment rather than inherited server
+credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
+an unaccepted worker directory; canopyd removes `merge-workers/` (and any `merge-jobs/`
+left by older releases) at startup, before any job runs.
 
-Normal and failed jobs remove staging in `finally`. A host crash can leave an
-unaccepted worker directory; canopyd removes `merge-workers/` (and any
-`merge-jobs/` left by older releases) at startup, before any job runs.
-The existing retained object store has no garbage collector: accepted input history
-is not pruned during evaluation. A future collector must pin job inputs, staged
-inputs, results awaiting commit, hidden alternatives and provenance dependencies.
+Every entry, and every root and alternative it names, is reachable from its tree's head
+entry, so a future object collector keeps exactly what the chains reach; sidecar caches
+are disposable. The object store has no collector today. Entry hashes are never sent to
+clients; the object route serves any retained object to a caller who can read some tree
+and knows its hash, and entries fall under that rule.
 
-canopyd uses one worker, at most 64 queued evaluations, a
-30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
-limit. Runtime options can change the timeout, but not add workers. A failed tree merge
-of ordinary content is preserved as an accepted whole-root choice that keeps the
-current tree, since its checkpoint still records the merge state. Every acceptance
-records a merge state, so a worker that cannot start, exits or times out accepts
-nothing: canopyd answers a retryable 503 (`merge-failed`), and the client retains its
-durable request for retry. Authoritative operation execution and semantic checkpoint
-failures cannot become unchecked snapshot writes.
-An exact accepted retry uses its receipt without requiring the worker. Governed account
-configuration retains its authorization/rejection policy. The client keeps its
-usual durable retry behavior for unrelated storage or transaction failures.
+canopyd uses one sidecar, at most 64 queued questions, a 30-second timeout with forced
+termination, and an 8 MiB stdout/stderr buffer limit. A sidecar that cannot start, exits
+or times out accepts nothing: canopyd answers a retryable 503 (`merge-failed`), and the
+client retains its durable request for retry. A fast-forward and an exact accepted retry
+need no sidecar. Governed account configuration retains its authorization and rejection
+policy.
 
 ## Running and configuring
 
 The default invocation runs the TypeScript CLI with the current Bun runtime. The
-workspace exposes `bun run arbor-merge`; its executable script has a Bun shebang.
-No compilation or signing is needed. A custom `ARBOR_MERGE_EXECUTABLE` may name an
-absolute executable script or program that implements `serve`; programmatic
-options also accept fixed arguments and worker limits. Arguments are never
-interpreted by a shell.
+workspace exposes `bun run arbor-merge`; its executable script has a Bun shebang. No
+compilation or signing is needed. `ARBOR_MERGE_EXECUTABLE` may name an absolute
+executable script or program that implements `serve`; programmatic options also accept
+fixed arguments and limits. Arguments are never interpreted by a shell.
+`ARBOR_MERGE_CACHE_MB` bounds the sidecar's cache and `ARBOR_OBJECT_CACHE_MB` its
+object read cache.
 
 Install workspace dependencies with `bun install`. Collection schema compilation
-resolves the worker's installed Zod, uses private temporary files, and evaluates
-inside the existing memory/time-limited QuickJS sandbox. It does not depend on the
-caller's working directory or execute authored schemas in the host runtime.
+resolves the sidecar's installed Zod, uses private temporary files, and evaluates inside
+the existing memory/time-limited QuickJS sandbox. It does not depend on the caller's
+working directory or execute authored schemas in the host runtime.
 
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
@@ -418,23 +368,22 @@ conservative format rules are described next.
 ## Verification
 
 ```sh
-bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts
-bun test tests/unit/canopyd-merge tests/unit/canopyd/account-policy-v2.test.ts
+bun test tests/integration/canopyd-merge tests/integration/canopyd tests/unit/canopyd tests/unit/canopyd-merge
 bun tests/performance/benchmark-merge-tool.ts
+FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts
 bun run typecheck
 bun run test:protocol
 ```
 
-The corpus compares exact roots, bytes, decisions, and evidence against the
-ported rules, exercises shared and fresh worker processes, and checks
-concurrent staging, corrupt objects, malformed output, worker exits, and forced
-timeouts. A real
-HTTP case verifies accepted ambiguity, replay, continued publication, restart,
-and integrity with a missing worker. A process test runs a collection merge
-with an empty environment from a working directory outside the checkout.
-`tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded
-result against an eager reference that reads all history.
-
+`tests/integration/canopyd-merge/tool.test.ts` and `operations.test.ts` cover the process:
+shared and fresh sidecars, concurrent staging, corrupt objects, malformed output, exits,
+timeouts, refusals and answer checks. After every scenario in the source and snapshot
+acceptance suites, `tests/support/replay-check.ts` asks each accepted entry's recorded
+question again, from one warm cache across the history and from a cold one, and
+requires the entry's root and decisions. `reference-sidecar.test.ts` runs canopyd's
+rule-agnostic acceptance against the cache-free reference sidecar in test support.
+`tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded result
+against an eager reference that reads all history.
 
 Ordinary plain list edits, including splitting, removing, and rearranging list
 items, may merge with disjoint prose changes. This allowance checks the affected
