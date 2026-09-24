@@ -221,6 +221,34 @@ test("batched checkpoints exactly preserve individual states including legacy al
 });
 
 
+test("one checkpoint request returns the author's state beside the projection's", async () => {
+  const roots = [snapshot("base"), snapshot("one"), snapshot("two")];
+  await store.store(roots.flatMap(r => [...r.objects].map(([hash, bytes]) => ({ hash, bytes }))));
+  const keep = async (value: { objects: Map<string, Uint8Array> }) => store.store([...value.objects].map(([hash, bytes]) => ({ hash, bytes })));
+  const initial = await tool.evaluate({ kind: "checkpoint", tree: "combined", current: { object: roots[0]!.root }, projection: roots[0]!.root, change: "first", decisions: [] }, new Map());
+  await keep(initial);
+  const current = initial.response.result;
+  // The projection and the author's candidate differ: two states, one request.
+  const combined = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [], authored: true }, new Map());
+  await keep(combined);
+  const author = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[2]!.root, change: "change", decisions: [] }, new Map());
+  const projection = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [] }, new Map());
+  expect(combined.response.result).toEqual(projection.response.result);
+  expect(combined.response.authored).toEqual(author.response.result);
+  expect(projection.response.authored).toBeUndefined();
+  // With nothing to decide, the author's candidate is the projection's state.
+  const same = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[1]!.root,
+    change: "same", decisions: [], authored: true }, new Map());
+  expect(same.response.authored).toEqual(same.response.result);
+  const { parseResponse } = await import("@overstory/canopyd-merge");
+  const request = { kind: "checkpoint" as const, tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root, change: "change", decisions: [], authored: true as const };
+  expect(() => parseResponse({ ...combined.response, authored: undefined }, request)).toThrow("authored");
+  expect(() => parseResponse({ ...combined.response, authored: combined.response.result }, request)).toThrow("authored");
+  expect(() => parseResponse(combined.response, { ...request, authored: undefined })).toThrow("authored");
+});
+
 test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
   const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
   const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));

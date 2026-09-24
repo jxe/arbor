@@ -14,6 +14,10 @@ export const checkpointSchema = z
     conflictProjection: z.enum(["current", "incoming"]).optional(),
     change: z.string().min(1),
     resolves: z.array(z.string()).optional(),
+    /** Also checkpoint the author's own candidate (`candidate`, else
+     * `projection`) without decisions, returned as `authored`: the basis a
+     * later batch suffix continues from. One request instead of two. */
+    authored: z.literal(true).optional(),
     decisions: z
       .array(
         z
@@ -50,6 +54,7 @@ export const checkpointResponseSchema = z
   .object({
     kind: z.literal("checkpoint"),
     result: z.object({ object: hash, state: hash }).strict(),
+    authored: z.object({ object: hash, state: hash }).strict().optional(),
     objects: z.array(hash),
   })
   .strict();

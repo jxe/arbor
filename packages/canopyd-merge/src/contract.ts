@@ -145,6 +145,10 @@ export function parseResponse(
       )
     )
       throw new Error("Checkpoint projection mismatch");
+    if (request.authored
+      ? value.authored?.object !== (request.candidate ?? request.projection)
+      : value.authored !== undefined)
+      throw new Error("Checkpoint authored state mismatch");
     return value;
   }
   if (isIntentRequest(request)) return parseIntentResponse(raw, request);

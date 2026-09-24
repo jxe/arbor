@@ -365,8 +365,13 @@ export class MergeTool {
             roots.push(ref.state);
           }
         }
+        if (request.kind === "checkpoint" && "authored" in response && response.authored &&
+          response.authored.state !== response.result.state) {
+          await validate(response.authored);
+          roots.push(response.authored.state);
+        }
         if (
-          "authored" in response &&
+          "outcome" in response &&
           request.kind !== "checkpoint" && request.kind !== "checkpoint-batch" &&
           // Either shape the engine accepts states authored evidence: the wire
           // sends a trace, an in-process caller may state one flat step.
