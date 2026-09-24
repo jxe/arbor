@@ -1435,14 +1435,19 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** Checkpoint decisions for a conflicting snapshot, and the projection that
-   * shows the current material for each. Each conflicting file (a file against
-   * its deletion included) becomes its own choice, so the rest of the merge is
-   * accepted; anything else is a single whole-root choice that keeps the
-   * current tree. The current alternative names the concurrent changes that
-   * produced it; the candidate names this change.
+   * shows the current material for each. Each conflict is scoped to one entry
+   * and the rest of the merge is accepted: a file (a file against its deletion
+   * included) is a choice about that file; a conflict inside a folder the tree
+   * merge could not reconcile, or at an entry that is not a file on both
+   * sides, is a choice about the nearest folder that both sides hold. A choice
+   * inside another choice's folder is part of that choice. Only a conflict at
+   * the root, or one no folder below it contains, is a single whole-root
+   * choice that keeps the current tree. The current alternative names the
+   * concurrent changes that produced it; the candidate names this change. A
+   * folder choice depends on the open choices already inside that folder.
    *
    * A candidate whose basis showed a hidden alternative of an open choice
-   * about the same file (a batch suffix after its prefix was withheld)
+   * about the same entry (a batch suffix after its prefix was withheld)
    * continues that alternative: the choice keeps its identity, that
    * alternative becomes the candidate's version, and `replaces` names the
    * choice so the checkpoint retires its old form. */
@@ -1454,6 +1459,7 @@ export class CanopyDaemon implements AsyncDisposable {
     candidate: ObjectHash,
     merged: ObjectHash,
     conflicts: Array<{ path: string }>,
+    folders: string[],
     proposed: Map<ObjectHash, Uint8Array>
   ): Promise<{ projection: ObjectHash; decisions: CheckpointRequest["decisions"]; replaces: string[] }> {
     const concurrent = await this.concurrentChanges(since, current, proposed);
@@ -1500,34 +1506,62 @@ export class CanopyDaemon implements AsyncDisposable {
       proposed.set(hash, bytes);
       return hash;
     };
-    if (!conflicts.length) return whole;
+    if (!conflicts.length && !folders.length) return whole;
+    const within = (path: string, scope: string) => scope === "/" || path === scope || path.startsWith(`${scope}/`);
+    const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
+    const namesOf = (path: string) => path.slice(1).split("/");
+    // The entry each conflict is about.
+    const scopes = new Set<string>();
+    for (const conflict of [...folders, ...conflicts.map((c) => c.path)]) {
+      // The outermost unreconciled folder containing the conflict owns it.
+      let path = folders.filter((folder) => within(conflict, folder)).sort((a, b) => a.length - b.length)[0] ?? conflict;
+      for (;;) {
+        if (path === "/") return whole;
+        const [mine, theirs] = await Promise.all([current.root, candidate].map((root) => entryAt(root, namesOf(path))));
+        const file = (entry: WireDirectoryEntry | null | undefined) => !entry || !!entry.file;
+        if ((mine || theirs) && file(mine) && file(theirs)) break;
+        if (mine?.directory && theirs?.directory) break;
+        path = parentOf(path);
+      }
+      scopes.add(path);
+    }
     const open = this.semantic.store.get(current.id)?.decisions ?? [];
-    const entryPath = ({ inspection }: (typeof open)[number]) => {
-      const placement = inspection.kind === "entry" ? inspection.alternatives.find((a) => a.placement)?.placement : undefined;
-      return placement ? `/${[...(placement.parent.within ?? []), placement.name].join("/")}` : null;
+    // The path an open choice is about: its entry, or the file its range is in.
+    const placed = ({ inspection }: (typeof open)[number]) => {
+      const placement = inspection.alternatives.find((a) => a.placement)?.placement;
+      if (placement) return `/${[...(placement.parent.within ?? []), placement.name].join("/")}`;
+      const ref = inspection.affected[0];
+      return inspection.kind === "content" && ref?.material.kind === "basis" ? ref.material.path : null;
     };
+    const entryPath = (d: (typeof open)[number]) => d.inspection.kind === "entry" ? placed(d) : null;
+    const valueOf = (entry: object | null | undefined) =>
+      entry && "file" in entry && typeof entry.file === "string" ? { file: entry.file }
+      : entry && "directory" in entry && typeof entry.directory === "string" ? { directory: entry.directory } : null;
     let projection: ObjectHash = merged;
     const decisions: CheckpointRequest["decisions"] = [], replaces: string[] = [];
-    for (const { path } of conflicts) {
-      if (path === "/") return whole;
-      const names = path.slice(1).split("/");
+    for (const path of [...scopes].filter((p) => ![...scopes].some((q) => q !== p && within(p, q))).sort()) {
+      const names = namesOf(path);
       const [mine, theirs, before] = await Promise.all([current.root, candidate, base].map((root) => entryAt(root, names)));
-      if ([mine, theirs].some((entry) => entry && !entry.file) || (!mine && !theirs)) return whole;
       const shown = await withEntry(projection, names, mine ?? null);
       if (!shown) return whole;
       projection = shown;
-      const prior = before?.file
+      const folder = !!(mine?.directory && theirs?.directory);
+      const dependencies = folder
+        ? open.filter((d) => { const at = placed(d); return !!at && at !== path && within(at, path); }).map((d) => d.key)
+        : [];
+      const basis = valueOf(before);
+      const prior = basis
         ? open.find((d) => !d.inspection.dependencies.length && entryPath(d) === path)
         : undefined;
       const continued = prior?.inspection.alternatives.findIndex((a) =>
-        a.id !== prior.inspection.selected && "file" in a.value && a.value.file === before!.file) ?? -1;
+        a.id !== prior.inspection.selected && stableJSONString(a.value) === stableJSONString(basis)) ?? -1;
       if (prior && continued >= 0) {
         const alternatives = [];
         for (const [index, alternative] of prior.inspection.alternatives.entries()) {
-          const value = alternative.value;
+          const value = valueOf(alternative.value);
           const object = index === continued ? candidate
             : alternative.id === prior.inspection.selected ? current.root
-            : await withEntry(current.root, names, "file" in value ? { ...(mine ?? { name: names.at(-1)! }), file: value.file } as WireDirectoryEntry : null);
+            : await withEntry(current.root, names, value ? { name: names.at(-1)!, ...value } as WireDirectoryEntry : null);
           if (!object) break;
           alternatives.push({ object, contributions: index === continued ? [...alternative.contributions, ...own] : alternative.contributions });
         }
@@ -1538,6 +1572,7 @@ export class CanopyDaemon implements AsyncDisposable {
             path: names,
             selected: prior.inspection.alternatives.findIndex((a) => a.id === prior.inspection.selected),
             alternatives,
+            ...(dependencies.length ? { dependencies } : {}),
           });
           continue;
         }
@@ -1550,6 +1585,7 @@ export class CanopyDaemon implements AsyncDisposable {
           { object: current.root, contributions: concurrent(path) },
           { object: candidate, contributions: own },
         ],
+        ...(dependencies.length ? { dependencies } : {}),
       });
     }
     return { projection, decisions, replaces };
@@ -1655,7 +1691,8 @@ export class CanopyDaemon implements AsyncDisposable {
               selected: 0,
               alternatives: [...new Set([mergedRoot, current.root, request.candidate])].map((object) => ({ object, contributions: [] })),
             }] }
-          : await this.snapshotDecisions(request.change, current, since, baseRoot, request.candidate, mergedRoot, conflicts, proposed);
+          : await this.snapshotDecisions(request.change, current, since, baseRoot, request.candidate, mergedRoot, conflicts,
+            "unresolvedDirectories" in merged ? merged.unresolvedDirectories ?? [] : [], proposed);
         const checkpoint = await this.mergeTool.evaluate(
           {
             kind: "checkpoint",

@@ -225,7 +225,10 @@ export class SemanticMerge {
           ).values(),
         ],
       }));
-      const entry = (d.kind === "content" && d.placement && !d.subject?.range) || d.kind === "existence";
+      // A folder choice below the root is about that entry, as a file choice
+      // is: its alternatives are the folder's versions, placed at its path.
+      const folder = d.kind === "directory" && d.subject?.material.kind === "basis" && d.subject.material.path !== "/";
+      const entry = (d.kind === "content" && d.placement && !d.subject?.range) || d.kind === "existence" || folder;
       const logical = entry
         ? d.subject?.material.kind === "basis"
           ? d.subject.material.path

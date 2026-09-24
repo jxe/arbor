@@ -194,7 +194,6 @@ test("an exact-state guard still rejects snapshot work without creating accepted
 });
 
 
-// Choices below the root are about files; a folder conflict is a whole-root choice.
 test.each([false, true])("divergent snapshot renames remain a coupled choice (nested: %s)", async nested => {
   const page = file("---\nid: pg_moving\n---\nExact bytes\r\n");
   const before = directory({ type: "directory", entries: [{ name: "before.md", file: page }] });
@@ -209,12 +208,127 @@ test.each([false, true])("divergent snapshot renames remain a coupled choice (ne
   expect(accepted.conflicted).toBe(true); expect(accepted.root).toBe(first.root);
   const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
   expect(decisions).toHaveLength(1);
-  expect(decisions[0]!.kind).toBe("directory");
   expect(decisions[0]!.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([
-    { directory: a.candidate }, { directory: b.candidate },
+    { directory: nested ? left : a.candidate }, { directory: nested ? right : b.candidate },
   ]));
   const resolved = await submit({ ...snapshot(b.candidate), resolves: [guard(accepted.id, decisions[0]!)] }, accepted.id);
   expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(b.candidate);
+  await running.canopy.verifyIntegrity();
+});
+
+// A folder the tree merge cannot reconcile is one choice about that folder,
+// as it was before every snapshot recorded a merge state.
+function folderOf(entries: Record<string, string | WireDirectoryEntry>) {
+  return directory({ type: "directory", entries: Object.entries(entries).map(([name, value]) =>
+    typeof value === "string" ? { name, file: file(value) } : { ...value, name }) });
+}
+const movingPage = "---\nid: pg_moving\n---\nExact bytes\r\n";
+async function folderConflict(extra: { left?: Record<string, Omit<WireDirectoryEntry, "name"> | null>; right?: Record<string, Omit<WireDirectoryEntry, "name"> | null> } = {}) {
+  const inner = (name: string) => folderOf({ [name]: movingPage });
+  const outer = (name: string, x: string) => folderOf({ inner: { name: "inner", directory: inner(name) }, "x.txt": x });
+  root = change(root, { outer: { directory: outer("before.md", "x") } });
+  base = (await submit(snapshot(root))).id;
+  const a = snapshot(change(root, { outer: { directory: outer("left.md", "x") }, ...extra.left }));
+  const b = snapshot(change(root, { outer: { directory: outer("right.md", "x2") }, "b-only.txt": { file: file("b") }, ...extra.right }));
+  const first = await submit(a), accepted = await submit(b);
+  await remember(accepted.root);
+  return { a, b, first, accepted, inner, outer };
+}
+
+test.each(["current", "incoming"])("a nested folder conflict is one choice about that folder; the rest merges (resolve: %s)", async side => {
+  const { a, b, accepted, inner, outer } = await folderConflict();
+  expect(accepted.conflicted).toBe(true);
+  const page = await client.conflicts(tree, accepted.id, accepted.root);
+  expect(page.decisions).toHaveLength(1);
+  const decision = page.decisions[0]!;
+  const parent = { material: { kind: "basis" as const, path: "/", object: accepted.root }, within: ["outer"] };
+  expect(decision).toMatchObject({ kind: "entry", affected: [parent], dependencies: [], actions: ["resolveConflict"] });
+  expect(decision.alternatives.map((alternative) => [alternative.value, alternative.placement, alternative.contributions])).toEqual([
+    [{ directory: inner("left.md") }, { parent, name: "inner" }, [{ change: a.change, operation: null }]],
+    [{ directory: inner("right.md") }, { parent, name: "inner" }, [{ change: b.change, operation: null }]],
+  ]);
+  expect(decision.selected).toBe(decision.alternatives[0]!.id);
+  // Everything outside the folder merged: the incoming sibling edit and addition show.
+  const shown = decodeWireDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
+  expect(shown.entries.map((e) => [e.name, e.file ?? e.directory])).toEqual([["inner", inner("left.md")], ["x.txt", file("x2")]]);
+  expect(at(accepted.root, "b-only.txt")?.file).toBe(file("b"));
+  const chosen = side === "current" ? accepted.root
+    : change(accepted.root, { outer: { directory: outer("right.md", "x2") } });
+  const resolved = await submit({ ...snapshot(chosen), resolves: [guard(accepted.id, decision)] }, accepted.id);
+  expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(chosen);
+  expect((await client.conflicts(tree, resolved.id, resolved.root)).decisions).toEqual([]);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a file conflict and a folder conflict in one snapshot are separate choices", async () => {
+  const { accepted, inner } = await folderConflict({ left: { "asset.bin": { file: file("left\0") } }, right: { "asset.bin": { file: file("right\0") } } });
+  const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
+  const scopes = decisions.map((d) => [d.kind, d.alternatives[0]!.placement?.parent.within ?? [], d.alternatives[0]!.placement?.name, d.alternatives.map((a) => a.value)]);
+  expect(scopes).toEqual(expect.arrayContaining([
+    ["entry", [], "asset.bin", [{ file: file("left\0") }, { file: file("right\0") }]],
+    ["entry", ["outer"], "inner", [{ directory: inner("left.md") }, { directory: inner("right.md") }]],
+  ]));
+  expect(decisions).toHaveLength(2);
+  // Resolving one leaves the other open.
+  const folder = decisions.find((d) => d.alternatives[0]!.placement?.name === "inner")!;
+  const resolved = await submit({ ...snapshot(accepted.root), resolves: [guard(accepted.id, folder)] }, accepted.id);
+  expect(resolved.conflicted).toBe(true);
+  const left = (await client.conflicts(tree, resolved.id, resolved.root)).decisions;
+  expect(left.map((d) => d.alternatives[0]!.placement?.name)).toEqual(["asset.bin"]);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a file conflict inside a conflicting folder is part of the folder's choice", async () => {
+  const { accepted } = await folderConflict({
+    left: { outer: { directory: folderOf({ inner: { name: "inner", directory: folderOf({ "left.md": movingPage, "data.bin": "L\0" }) }, "x.txt": "x" }) } },
+    right: { outer: { directory: folderOf({ inner: { name: "inner", directory: folderOf({ "right.md": movingPage, "data.bin": "R\0" }) }, "x.txt": "x2" }) } },
+  });
+  const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]!.alternatives.map((a) => a.placement?.name)).toEqual(["inner", "inner"]);
+  await running.canopy.verifyIntegrity();
+});
+
+test("an edit inside a conflicting folder continues its displayed version", async () => {
+  const { accepted, inner } = await folderConflict();
+  const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
+  const edited = folderOf({ "left.md": movingPage, "added.md": "Added\n" });
+  const outerNow = decodeWireDirectory(objects.get(at(accepted.root, "outer")!.directory!)!);
+  const outer = directory({ ...outerNow, entries: outerNow.entries.map((e) => e.name === "inner" ? { name: "inner", directory: edited } : e) });
+  const next = await submit(snapshot(change(accepted.root, { outer: { directory: outer } })), accepted.id);
+  expect(next.conflicted).toBe(true);
+  expect(next.root).toBe(change(accepted.root, { outer: { directory: outer } }));
+  const continued = (await client.conflicts(tree, next.id, next.root)).decisions;
+  expect(continued).toHaveLength(1);
+  expect(continued[0]!.id).toBe(decision.id);
+  expect(continued[0]!.alternatives.map((a) => a.value)).toEqual([{ directory: edited }, { directory: inner("right.md") }]);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a folder choice depends on the open choices inside its folder", async () => {
+  const inner = (entries: Record<string, string>) => ({ folder: { directory: folderOf(entries) } });
+  root = change(root, inner({ "before.md": movingPage, "data.bin": "base\0" }));
+  base = (await submit(snapshot(root))).id;
+  await submit(snapshot(change(root, inner({ "before.md": movingPage, "data.bin": "one\0" }))));
+  const fileChoice = await submit(snapshot(change(root, inner({ "before.md": movingPage, "data.bin": "two\0" }))));
+  const [file] = (await client.conflicts(tree, fileChoice.id, fileChoice.root)).decisions;
+  expect(file!.alternatives[0]!.placement?.name).toBe("data.bin");
+  await remember(fileChoice.root);
+  const shownFolder = at(fileChoice.root, "folder")!.directory!;
+  const renamed = (name: string) => change(fileChoice.root, { folder: { directory: directory({
+    ...decodeWireDirectory(objects.get(shownFolder)!),
+    entries: decodeWireDirectory(objects.get(shownFolder)!).entries.map((e) => e.name === "before.md" ? { ...e, name } : e) }) } });
+  await submit(snapshot(renamed("left.md")), fileChoice.id);
+  const accepted = await submit(snapshot(renamed("right.md")), fileChoice.id);
+  const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
+  const folder = decisions.find((d) => d.alternatives[0]!.placement?.name === "folder")!;
+  const inside = decisions.find((d) => d.alternatives[0]!.placement?.name === "data.bin")!;
+  expect(decisions).toHaveLength(2);
+  expect(folder.dependencies).toEqual([inside.id]);
+  // Replacing the folder must also resolve the choice inside it.
+  await expect(submit({ ...snapshot(renamed("right.md")), resolves: [guard(accepted.id, folder)] }, accepted.id)).rejects.toBeInstanceOf(WireUpdateConflict);
+  const resolved = await submit({ ...snapshot(renamed("right.md")), resolves: [guard(accepted.id, folder), guard(accepted.id, inside)] }, accepted.id);
+  expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(renamed("right.md"));
   await running.canopy.verifyIntegrity();
 });
 

@@ -65,6 +65,23 @@ const cloneState = (state: IntentState): IntentState => {
     changes: cloneHistory(changes, clone),
   };
 };
+/** Whether `id` is an active node reached from `view.root` through active parents. */
+const displayed = (view: View, id: string): boolean => {
+  const seen = new Set<string>();
+  for (let node = view.nodes[id]; node; node = node.parent === null ? undefined : view.nodes[node.parent]) {
+    if (!node.active || seen.has(node.id)) return false;
+    if (node.id === view.root) return true;
+    seen.add(node.id);
+  }
+  return false;
+};
+/** A checkpoint choice about one folder below the root: its alternatives are
+ * that folder's versions (`object` the folder, `state` rooted at it), its one
+ * affected node the folder, and its subject the folder's path. Every other
+ * directory decision is about the whole root and has no subject. */
+const folderDecision = (decision: IntentDecision): boolean =>
+  decision.kind === "directory" && decision.subject?.material.kind === "basis" &&
+  decision.subject.material.path !== "/";
 /** Whether `a` and `b` have one `stableJSONString` form, decided without
  * building either string (evaluation compares whole node maps with it).
  * Evaluation data is JSON, so equal references and primitives serialize
@@ -1273,7 +1290,7 @@ class Engine {
     for (const decision of state.decisions) {
       if (decision.kind !== "directory") continue;
       for (const alternative of decision.alternatives)
-        if (alternative.node && (!state.nodes[alternative.node] ||
+        if (alternative.node && (!state.nodes[alternative.node]?.active ||
             await this.project(state, alternative.node) !== alternative.object))
           delete alternative.node;
     }
@@ -1347,6 +1364,17 @@ class Engine {
                   "Hidden alternative material is unavailable"
                 );
             }
+          } else if (folderDecision(retained)) {
+            // The context keeps its own folder; only alternatives it still
+            // holds keep their occurrence.
+            for (const alternative of updated.alternatives)
+              if (
+                alternative.node &&
+                (!displayed(context, alternative.node) ||
+                  (await this.project(context, alternative.node)) !==
+                    alternative.object)
+              )
+                delete alternative.node;
           } else if (retained.kind === "directory") {
             const selected = updated.alternatives[updated.selected]!;
             if ((await this.project(context)) !== selected.object) {
@@ -1650,6 +1678,12 @@ class Engine {
             this.realm(authored, node.id) === authored.root
           )
             continue;
+          if (folderDecision(decision) && alternative.node === decision.affected[0] && !displayed(authored, node.id)) {
+            // A displayed folder choice whose folder the edit removed is
+            // enclosed, as a file choice whose file disappears is.
+            wrapped.add(decision.key);
+            continue;
+          }
           const object = await this.project(authored, node.id);
           if (object !== alternative.object) {
             alternative.object = object;
@@ -3011,6 +3045,25 @@ export async function checkpointIntent(
         } });
         continue;
       }
+    } else if (folderDecision(decision)) {
+      // A choice about one folder concerns only that folder.
+      const id = decision.affected[0]!,
+        before = displayed(previous, id) ? await engine.project(previous, id, new Set(), previousChildren) : undefined,
+        after = displayed(state, id) ? await engine.project(state, id) : undefined;
+      if (before === after) continue;
+      const selected = decision.alternatives[decision.selected]!;
+      if (request.continueSelected !== false && !request.decisions.length &&
+          selected.node === id && before !== undefined && after !== undefined) {
+        // Editing the displayed folder edits that alternative, as a traced edit would.
+        continuations.push({ decision, apply: async () => {
+          const context = cloneState(state);
+          context.root = id;
+          selected.object = after;
+          selected.contributions.push({ change: request.change, operation: null });
+          selected.state = (await engine.record(context)).state;
+        } });
+        continue;
+      }
     } else if (decision.kind === "directory" && request.continueSelected !== false &&
         !request.decisions.length && decision.alternatives[decision.selected]!.node === previous.root) {
       // A snapshot of the displayed tree edits that alternative, as a traced edit would.
@@ -3089,6 +3142,37 @@ export async function checkpointIntent(
         continue;
       }
       const selected = locate(state);
+      if (selected.kind === "directory") {
+        // A choice about one folder: each alternative is that folder's version
+        // in its root, recorded as a state rooted at the folder. The displayed
+        // one is the live folder, so edits inside it continue that alternative.
+        const shown = await engine.project(state, selected.id);
+        const alternatives = [];
+        for (const [index, a] of input.alternatives.entries()) {
+          const folder = locate(contexts[index]!);
+          if (folder.kind !== "directory")
+            throw new Error("Checkpoint folder alternative is not a directory");
+          const recorded = await engine.record(await engine.initial(folder.object));
+          if (index === input.selected && recorded.object !== shown)
+            throw new Error("Checkpoint projection does not show the selected folder");
+          alternatives.push({
+            ...recorded,
+            ...(index === input.selected ? { node: selected.id } : {}),
+            contributions: a.contributions,
+          });
+        }
+        state.decisions.push({
+          key: input.key,
+          kind: "directory",
+          affected: [selected.id],
+          selected: input.selected,
+          alternatives,
+          dependencies: input.dependencies ?? [],
+          reason: "Retained folder ambiguity",
+          subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: shown } },
+        });
+        continue;
+      }
       if (!selected.pieces)
         throw new Error("Checkpoint file decision has no file placement");
       const alternatives = [];

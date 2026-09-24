@@ -89,12 +89,20 @@ basis a later batch suffix continues from. When no decision is added or
 enclosed the two are the same request, and the worker returns the one state
 twice. canopyd validates both states and their retention before acceptance.
 
-A checkpoint decision is a choice between whole alternative roots. With a
-`path` it concerns one file below the root: a content choice when every
-alternative holds a file there, an existence choice when one lacks it; the
-choice is placed on that file's node, so edits elsewhere leave it alone.
-Without a `path` it is one choice about the whole root. A directory scope below
-the root is not implemented yet.
+A checkpoint decision names whole alternative roots. With a `path` it
+concerns one entry below the root: a content choice when every alternative
+holds a file there, an existence choice when one lacks it, and a folder choice
+when every alternative holds a directory there. A file choice is placed on
+that file's node; a folder choice records each alternative's version of the
+folder (its object, and a state rooted at it) and names the folder's node as
+its one affected node and the displayed alternative's occurrence. Either way
+edits elsewhere leave it alone, and an edit inside the displayed file or
+folder, traced or snapshot, continues that alternative. A snapshot or edit
+that removes a folder with an open folder choice encloses it. Without a
+`path` it is one choice about the whole root. Inspection reports a file or
+folder choice as an `entry` decision placed at its path, with `file` or
+`directory` alternative values, as the whole-entry conflict rows did before
+schema 18; a whole-root choice is a `directory` decision at `/`.
 
 A first import is editable (it has no effects to enforce), so a new tree's
 first edit fast-forwards. A checkpoint names new material by its change and
@@ -242,16 +250,23 @@ the current accepted root and then checkpointed onto the current state, on
 every tree policy. It encloses only choices whose own material it touches: a
 choice about one file is untouched by edits elsewhere, and a snapshot of the
 displayed version continues that alternative, as a traced edit would. When a
-snapshot itself conflicts, each conflicting file (or file against its
-deletion) becomes its own choice and the rest of the snapshot merges; folders
-and the root keep a single whole-root choice. The current material stays
-displayed and the candidate's is the alternative. The current alternative is
+snapshot itself conflicts, each conflict becomes a choice about one entry and
+the rest of the snapshot merges: a conflicting file (or file against its
+deletion) is a choice about that file, and a conflict inside a folder the tree
+merge could not reconcile (a divergent page move, a collection schema
+conflict), or at an entry that is not a file in both versions, is a choice
+about the nearest folder both versions hold. A choice inside another choice's
+folder is part of that choice, and a folder choice depends on the open choices
+already inside it, so replacing the folder must resolve them too. Only a
+conflict at the root, or one no folder below the root contains, is a single
+whole-root choice. The current material stays displayed and the candidate's
+is the alternative. The current alternative is
 attributed to each change accepted since the request's base that touched the
 path (as a change, never an operation); the candidate to its own change. A
-batch suffix whose basis showed a hidden alternative of an open file choice
-continues that alternative: the choice keeps its identity, and the
+batch suffix whose basis showed a hidden alternative of an open file or folder
+choice continues that alternative: the choice keeps its identity, and the
 alternative becomes the suffix's version instead of a second choice about the
-same file. An access-policy conflict on an account-configuration tree keeps
+same entry. An access-policy conflict on an account-configuration tree keeps
 the restrictive merge as one whole-configuration choice that later
 configuration edits must resolve exactly; other governed conflicts are
 refused.

@@ -94,11 +94,12 @@ Stage 2 must know:
   squash it is the only stored copy of an authored candidate and trace) and
   the engine's `evidence`, whose input roots the tests read.
 - The engine's checkpoint `path` branch was not legacy-only: stage 1's
-  per-file snapshot choices use it. It stays, with its errors reworded. A
-  directory-scoped checkpoint decision would build on its `locate` of `path`,
-  on the whole-root branch's `directory` decision (alternatives recorded from
-  whole roots, `affected` naming one node), on `snapshotDecisions` in
-  `canopy.ts`, and on `SemanticMerge.record`'s inspection of `affected`.
+  per-entry snapshot choices use it. It stays, with its errors reworded, and
+  now also takes a folder path: stage 1 had turned every folder conflict into
+  a whole-root choice, and the folder choice restores the pre-stage-1 scope
+  and inspection shape (an `entry` decision with `directory` values at the
+  folder's path). See the
+  [merge tool](../../docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states).
 - `storedProfileFacts` reads only version-3 rows, since the migration rebuilt
   every row.
 
