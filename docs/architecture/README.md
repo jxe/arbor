@@ -23,14 +23,16 @@ package lives under `swift/Packages/<Name>`.
 | Component | TypeScript | Swift | Owns |
 |---|---|---|---|
 | Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
-| Host | `canopyd`, `canopyd-merge`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar; the executable-document runtime and collection sandbox |
+| Host | `canopyd`, `canopyd-merge`, `merge-protocol`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar and its JSON contract; the executable-document runtime and collection sandbox |
 | Client stack | `client`, `fs` | `OverstoryClient`, `CanopyWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
 | Arbor local tools | `arborsync`, `arborsync-client`, `cli` | `ArborSyncClient` | The per-user daemon, its loopback REST API and clients, the `arbor` command |
 | Canopy browsers | `canopy-web` | `CanopyAppKit`, `CanopyEditor`, the `Canopy` app target | The human interface |
 
 Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
-depends only on `protocol`; the host and client packages never depend on
-`arborsync*`; `cli` and `canopy-web` may depend on anything. Swift mirrors
+depends only on `protocol`; `canopyd` and `canopyd-merge` share only
+`object-store` and `merge-protocol`, and neither imports the other; the host
+and client packages never depend on `arborsync*`; `cli` and `canopy-web` may
+depend on anything. Swift mirrors
 this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 `CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient`,
 `ArborSyncClient`, and `CanopyEditor` sit above.
@@ -43,8 +45,9 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
 | `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
 | `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the document admission machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
-| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, canopyd-merge |
-| `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
+| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, account-configuration merging, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, merge-protocol |
+| `canopyd-merge` | The merge sidecar: intent engine and model, decision reports, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, merge-protocol, apps-runtime, tree-sitter, saxes |
+| `merge-protocol` | The JSON contract between canopyd and the merge sidecar: request and response schemas, decision reports, rule summaries, error codes; no merge logic ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
 | `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index) | protocol, client, fs, apps-runtime |
 | `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |

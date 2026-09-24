@@ -6,7 +6,9 @@
 graph validation, authoritative reconciliation, and private storage. Update
 handling separates decision, causal reconciliation, and transactional storage
 from rule computation; the [merge sidecar](merge-tool.md) computes every
-merge and returns retained state, and canopyd validates the result and owns
+merge and keeps its own retained state, which canopyd treats as opaque.
+canopyd checks each response's shape and objects, accepts verified plain edits
+on the current head itself, merges account configuration itself, and owns
 acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp.

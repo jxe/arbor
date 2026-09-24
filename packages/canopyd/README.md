@@ -1,7 +1,8 @@
 # @overstory/canopyd
 
 The reference Overstory host and the `canopyd` command. It depends on
-`protocol`, `object-store`, `apps-runtime`, and `canopyd-merge`; nothing
+`protocol`, `object-store`, `apps-runtime`, and `merge-protocol` (the JSON
+contract with its merge sidecar, whose code it never imports); nothing
 depends on it except tests and the deployment tooling.
 
 - `canopy.ts`: validation, object durability, bounded race coordination, and
@@ -19,13 +20,17 @@ depends on it except tests and the deployment tooling.
   (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
   the per-update object reader the transition and entry-change diffs share),
   `graph-validation.ts`, `source-edits.ts` (exact source
-  execution and `composeFrames`), `conflict-store.ts`, `merge-state-store.ts`,
-  `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.
-- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, and the
-  worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
+  execution, the trace check behind host fast-forwards, and `composeFrames`),
+  `conflict-store.ts`, `merge-state-store.ts`, `source-intent-store.ts`
+  (the traces of fast-forwarded edits), `entry-ambiguity.ts`,
+  `semantic-merge.ts` (the sidecar's state per accepted update, rebuilt by
+  replaying fast-forwards and checkpointing everything else).
+- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, response
+  checks, and the worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
 - `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
-  accounts, governed configuration, and resource policy.
+  accounts, governed configuration (including its three-way merge), and
+  resource policy.
 - `public-page.ts`, `projection.ts`: public HTML and Markdown projection and
   collection-file projection.
 

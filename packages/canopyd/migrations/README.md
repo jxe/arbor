@@ -176,7 +176,8 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent migration directory (today `015-compact-history/`) as the template: a `README.md` with the
+Copy the most recent migration directory (today `015-compact-history/`; `016-resource-policy-only/`
+is a read-only pre-deploy check, not a migration) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
 a `migrate.test.ts` runnable with

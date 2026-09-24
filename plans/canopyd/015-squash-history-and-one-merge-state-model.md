@@ -12,6 +12,16 @@
   dead readers, the one-shot merge mode, the source-proposal request and other
   code that needed no data change. Migrations 013 to 015 must be out of their
   rollback window (backups from 2026-09-23 age out around 2026-10-07).
+- **Conflicts with the merge boundary change (2026-09-24, [status](../../status.md#merge-boundary--2026-09-24)).**
+  canopyd now accepts a verified plain edit on the head without the merge
+  sidecar and without a merge state; the state is recorded later by replaying
+  the edit's trace from `authored_changes`. That relies on `SourceIntentStore`,
+  `validateSourceTrace` in `updates/source-edits.ts`, `SemanticMerge` replay
+  and, for untraced gaps, `checkpoint-batch`, all of which stage 2 below
+  deletes, and it adds rows without a merge state, which stage 1 forbids.
+  Decide which model wins before starting this plan. Account-config merging
+  also moved into canopyd (`account-policy-v2.ts`); `account-v2.ts` is gone.
+  Check 016 took the next migration number, so this plan's migration is 017.
 
 ## Why
 
@@ -49,7 +59,7 @@ unify first (code only, no data change), then squash (a migration).
 
    Account-config policy conflicts either become merge-state decisions or stay
    the only writer of `accepted_conflicts`. Decide this after reading
-   `account-v2.ts`. The recommendation is to move them, so that
+   `account-policy-v2.ts`. The recommendation is to move them, so that
    `ConflictStore` only reads.
 3. Stop copying conflict state forward. Write a conflict row only when
    decisions or resolutions change, and read "latest row at or before".
@@ -63,7 +73,7 @@ unify first (code only, no data change), then squash (a migration).
 After stage 1, `checkpoint-batch` replay is reached only for rows written
 before it. Stage 2 removes those rows.
 
-## Stage 2: migration 016 squashes history (schema 18)
+## Stage 2: migration 017 squashes history (schema 18)
 
 **Preconditions, checked by `run.ts`, which refuses to run otherwise:**
 
@@ -111,12 +121,12 @@ before it. Stage 2 removes those rows.
 - the `editable ?? false` defaulting;
 - decision-ID reuse in `semantic.record` and `ConflictStore.forTree`;
 - `retentionAudit`'s non-union mode;
-- migration directories 013, 014 and 015, replaced by 016 as the template;
+- migration directories 013, 014 and 015, replaced by 017 as the template;
 - `updates/source-edits.ts`, moved to test support if the conformance run and
   `swift/scripts/conflict-lab.ts` still need it.
 
 **Objects:** the squash leaves old objects unreferenced. Do not delete them in
-016. Either prune in a later step behind a fresh full retention audit, or leave
+017. Either prune in a later step behind a fresh full retention audit, or leave
 them to [canopyd 001](001-pack-object-storage.md)'s packing, which then only
 packs live data.
 

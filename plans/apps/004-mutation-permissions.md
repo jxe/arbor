@@ -48,8 +48,8 @@ public reads need no additional code grant. Revocation affects retries and strea
 
 ## Inspect before editing
 
-Read `packages/protocol/src/model/protocol.ts`, `packages/canopyd-merge/src/account.ts`,
-`packages/canopyd/src/account-policy.ts`, `host.ts`, access/group evaluation,
+Read `packages/protocol/src/model/protocol.ts`, `packages/protocol/src/config/account-config-graph.ts`,
+`packages/canopyd/src/account-policy-v2.ts` (authorization and the account-configuration merge), `host.ts`, access/group evaluation,
 update acceptance and watch/object handlers. Inspect `tests/unit/account-config-v2.test.ts`,
 `tests/unit/canopyd/group-access.test.ts`, source acceptance tests, Swift Overstory
 and configuration consumers, conformance account fixtures, and `packages/canopyd/migrations/README.md`.
@@ -98,7 +98,7 @@ Do not edit retained historical migrations or silently migrate on server startup
 4. Test old/new binaries on pre/post data. New startup rejects old schema until
    migration; old writers must not rewrite the new policy into the legacy shape.
    Reconcile or stop queued configuration writes before cutover. Ship matched
-   TS/Swift/CLI parsers and merge-worker policy support before resuming clients.
+   TS/Swift/CLI parsers and canopyd's policy merge before resuming clients.
 5. Prepare concrete deployment and rollback artifacts, then quiesce writers through
    the documented operator procedure. Upgrade canopyd, merge executable, schema,
    Joe's accepted configuration and clients as one coordinated cutover. Do not
