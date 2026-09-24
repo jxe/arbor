@@ -1,9 +1,10 @@
+import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 import { WireHTTPError, WireTransportError, type ObjectHash } from "@overstory/protocol";
 
 /** Local operational evidence, not a Wire response or retained user content. */
 export interface ObjectReadDiagnostic {
   source: "filesystem" | "workspace" | "pending" | "canopy-client" | "canopy";
-  reason: "missing" | "permission-denied" | "unauthenticated" | "io-error" | "network-error" | "http-error" | "hash-mismatch" | "invalid-data";
+  reason: "missing" | "permission-denied" | "unauthenticated" | "cloud-placeholder" | "io-error" | "network-error" | "http-error" | "hash-mismatch" | "invalid-data";
   hash?: ObjectHash;
   tree?: string;
   path?: string;
@@ -27,7 +28,11 @@ export function objectReadError(
   const code = typeof value === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(value) ? value : undefined;
   return {
     ...context,
-    reason: code === "ENOENT" || code === "ENOTDIR" ? "missing" : code === "EACCES" || code === "EPERM" ? "permission-denied" : "io-error",
+    reason: code === "ENOENT" || code === "ENOTDIR" ? "missing"
+      : code === "EACCES" || code === "EPERM" ? "permission-denied"
+      // An evicted cloud file this process could not download; retried on the next sync.
+      : isCloudPlaceholderError(error) ? "cloud-placeholder"
+      : "io-error",
     ...(code ? { code } : {}),
   };
 }

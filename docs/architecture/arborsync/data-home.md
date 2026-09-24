@@ -133,6 +133,26 @@ Permission denial, IO failure, network/HTTP failure, malformed pending data and
 hash mismatch remain distinguishable. Ordinary missing files and uncached old
 hashes do not produce warnings. Use `arbor daemon logs` to inspect these records.
 
+### Cloud placeholders
+
+A placed folder may live in iCloud Drive or another macOS File Provider that
+evicts file bytes and leaves dataless placeholders. Whether a read downloads a
+placeholder or fails is a per-process kernel policy, and a launchd agent starts
+with downloads off, so its reads of placeholder files and directories fail with
+`EDEADLK`. The daemon entry point (`arborsync/src/cli.ts`, which the CLI's
+LaunchAgent and the app's bundled helper both run) therefore turns on-demand
+downloads on for its own process at startup
+(`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, …_ON)` through
+`bun:ffi`, in `cloud-placeholders.ts`); the call is skipped off macOS. A read
+of a placeholder then waits on a file-system worker while the provider
+downloads it, and the event loop keeps serving. If the policy cannot be set,
+startup logs `[arborsync:cloud-placeholders]` and continues. A read that still
+returns `EDEADLK` is logged with reason `cloud-placeholder`, the placement
+reports `error`, and the next periodic sync retries it. The daemon hashes
+every synchronized file, so the 30-minute object audit downloads files the
+provider evicted since the last one. To keep a placed folder from churning,
+mark it Keep Downloaded in Finder.
+
 Records contain the requested hash, tree or local path where available, and
 safe error codes/HTTP status. They omit exception messages, response bodies,
 request URLs and credentials. This is local diagnostic evidence, not a change

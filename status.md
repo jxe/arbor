@@ -86,6 +86,21 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Arbor Sync downloads iCloud placeholders — 2026-09-24
+
+Implemented on branch `claude/arborsync-icloud-dataless`, not merged or
+installed. Joe's placed folder in iCloud Drive (Optimize Mac Storage) went to
+`sync: error` because the launchd daemon's reads of evicted, dataless files and
+directories failed with `EDEADLK`: a launchd agent starts with the kernel's
+dataless-materialization policy off. The daemon now turns that policy on for
+its own process at startup, so reads download placeholders instead of failing,
+and a residual `EDEADLK` is logged as `cloud-placeholder` rather than
+`io-error` ([cloud placeholders](docs/architecture/arborsync/data-home.md#cloud-placeholders)).
+Verified by unit tests, including a real macOS subprocess that starts with the
+policy off; no evicted file was read, because the test may not touch iCloud
+Drive. The Canopy app's working trees live in Application Support, outside
+iCloud, and are not exposed.
+
 ## Clients 001 phase 4: TypeScript runner and daemon — 2026-09-24
 
 On `main` and running on Joe's Mac since 2026-09-24. The installed daemon's

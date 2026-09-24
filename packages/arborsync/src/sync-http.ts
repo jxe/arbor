@@ -3,10 +3,7 @@ import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
 import { json, errorResponse } from "./http.ts";
-
-function localContentUnavailable(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && (error as NodeJS.ErrnoException).code === "EDEADLK";
-}
+import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 
 type SyncHTTPService = Pick<ArborSyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
@@ -69,7 +66,7 @@ export function syncHandler(service: SyncHTTPService, options: {
       try {
         return json(await service.bootstrapTree(tree));
       } catch (error) {
-        if (localContentUnavailable(error)) {
+        if (isCloudPlaceholderError(error)) {
           throw new ProtocolError(
             "internal-error",
             "Arbor Sync could not read local file content while opening the tree. One or more files may be unavailable cloud placeholders; make them available locally, then reconnect.",
