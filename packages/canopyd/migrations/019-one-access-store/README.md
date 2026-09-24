@@ -6,10 +6,8 @@ a tree an account owns is governed by that account's resource rules alone, and t
 `access` table holds only the entries of trees no account owns. It also drops columns
 nothing has read since the 2026-09-24 cleanup.
 
-**Status: written and tested, not rehearsed or run.** The schema-20 build lives on
-`claude/canopyd-code-review-jtaebc`. Do not merge it into `main` before step 5 below:
-`main` deploys, and a schema-20 server serves maintenance mode on a schema-19 volume
-until this migration runs.
+**Status: run live 2026-09-24** at build `016f878a` (the branch merged into `main`);
+see the rehearsal log. Keep this directory and the backup until about 2026-10-08.
 
 ## What changes
 
@@ -176,3 +174,13 @@ updates, schema 19). Build: this branch at `77d97222`.
 - Unauthenticated `/`, `/~joe`, `/~joe/todos`, `/.arbor/trees`, each tree route and each
   `access` route: status and body byte-identical to the live schema-19 server (public
   pages 200, the private tree and the configuration tree 404, `access` 401).
+
+**Live run, 2026-09-24.** `016f878a` deployed and served maintenance mode; `run.ts /data`
+reported the same `trees`, `adopted` (empty), `policyRewritten` (empty),
+`accessRowsDeleted` (2), `accessDifferences` (empty) and `unownedAccess` as the
+rehearsal. After `railway redeploy --from-source`, `/~joe` served and health was `ok`.
+The Mac daemon resumed without re-placing (every placement idle at its old update);
+`verify.ts --sync` passed and the authored manifest (111 files) was unchanged. A
+round-trip edit in the profile tree published and unpublished its page (updates 4378,
+4379). Backup `.backups/railway/20260924T155600Z/` (with `dot-arbor.before` and the
+rehearsal copies); volume `/data/backups/019-one-access-store` is for Joe to delete.
