@@ -488,6 +488,40 @@
             { "event": { "type": "watch", "cursor": "cA2", "root": "A", "update": "uA", "digests": ["q0"], "transitions": true }, "state": "current", "effects": [], "expect": { "base.cursor": "cA2", "base.update": "uA" } },
             { "event": { "type": "watch", "cursor": "cA2", "root": "A", "update": "uA", "digests": [], "transitions": true }, "state": "current", "effects": [] }
           ]
+        },
+        {
+          "name": "a clean tree that loses transport catches up when it returns",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [], "expect": { "transmitted": false } },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "accepted-pending-apply", "effects": ["catchUp"], "effectExpect": { "0.cursor": "cA" } }
+          ]
+        },
+        {
+          "name": "a tree installed while offline starts offline and still recovers a retained request",
+          "initial": { "kind": "unplaced", "transportAvailable": false },
+          "steps": [
+            { "event": { "type": "bootstrapInstalled", "root": "A", "update": "uA", "cursor": "cA" }, "state": "offline", "effects": [] },
+            { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "offline", "effects": [], "expect": { "request.id": "q1", "transmitted": true } }
+          ]
+        },
+        {
+          "name": "any watch frame under a transport failure retries the exact request",
+          "initial": { "kind": "offline", "base": { "root": "A", "update": "uA" }, "availability": { "kind": "transport" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transmitted": true, "transportAvailable": false },
+          "steps": [
+            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": [], "transitions": true }, "state": "prepared", "effects": ["submit"], "expect": { "transportAvailable": true, "request.id": "q1" } }
+          ]
+        },
+        {
+          "name": "losing transport under a hanging request extends it once on reconnection",
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [], "expect": { "transmitted": true, "tip.change": "c-h2" } },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "effectExpect": { "0.extends.id": "q1" } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h2", "tip": "c-h2", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "prepared", "effects": [] }
+          ]
         }
       ]
     }

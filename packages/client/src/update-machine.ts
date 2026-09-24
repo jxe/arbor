@@ -247,14 +247,18 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
   switch (event.type) {
     case "bootstrapInstalled": {
       if (state.kind !== "unplaced") return { state, effects: [] };
+      const base: AcceptedBase = { root: event.root, update: event.update, ...(event.conflicted === undefined ? {} : { conflicted: event.conflicted }), ...(event.cursor ? { cursor: event.cursor } : {}) };
       return {
-        state: { ...ctx(state), kind: "current", base: { root: event.root, update: event.update, ...(event.conflicted === undefined ? {} : { conflicted: event.conflicted }), ...(event.cursor ? { cursor: event.cursor } : {}) } },
+        state: state.transportAvailable
+          ? { ...ctx(state), kind: "current", base }
+          : { ...ctx(state), kind: "offline", base, availability: { kind: "transport" }, transmitted: false },
         effects: pollEffects(options),
       };
     }
 
     case "recovered": {
-      if (state.kind !== "current") return { state, effects: [] };
+      const cleanOffline = state.kind === "offline" && state.availability.kind === "transport" && !state.request && !state.tip;
+      if (state.kind !== "current" && !cleanOffline) return { state, effects: [] };
       if (event.held) {
         return {
           state: { ...ctx(state), kind: "held", base: state.base, reason: event.held, ...(event.detail === undefined ? {} : { detail: event.detail }), request: event.request },
@@ -395,7 +399,9 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
               effects: [{ type: "apply", result }],
             };
           }
-          return { state, effects: [] };
+          // A watch frame is evidence that transport works again.
+          if (state.availability.kind !== "transport") return { state, effects: [] };
+          return resume({ ...state, transportAvailable: true });
         }
         default:
           return { state, effects: [] };
@@ -482,6 +488,18 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
           return {
             state: { ...ctx(next), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: state.tip },
             effects: [{ type: "cancelTimers" }],
+          };
+        }
+        if (state.kind === "current") {
+          // A clean tree offline may fall behind; reconnection catches it up.
+          return { state: { ...ctx(next), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false }, effects: [] };
+        }
+        if (state.kind === "prepared" || state.kind === "submitting" || state.kind === "submitting-pending") {
+          // A hanging attempt may or may not have reached the host.
+          const tip = state.kind === "submitting" ? undefined : state.tip;
+          return {
+            state: { ...ctx(next), kind: "offline", base: state.base, availability: { kind: "transport" }, request: state.request, transmitted: state.kind !== "prepared", ...(tip ? { tip } : {}) },
+            effects: [],
           };
         }
         return { state: next, effects: [] };

@@ -2085,6 +2085,7 @@ struct ArborRootView: View {
 #endif
             },
             syncNow: { Task { await workspace.syncNow() } },
+            discardHeldChanges: { Task { await workspace.discardHeldChanges() } },
             reconnectArborSync: {
 #if os(macOS)
                 Task { await workspace.restartArborSync() }

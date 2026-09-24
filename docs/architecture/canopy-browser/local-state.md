@@ -81,15 +81,17 @@ visible. This store is device-local history, not the host's accepted history,
 and Arbor Sync's filesystem journal is not a backup of unsubmitted editor text.
 There is no automatic pruning; the store grows with every edited source version.
 
-## Source admission journals
+## Change logs
 
-Each working tree keeps its admission journal at `sync/source-admissions.json`,
-separate from update control and from editor recovery. The complete journal is
-written to a private temporary file, fsynced, renamed, and its directory
-fsynced before a write returns; Swift locks concurrent writers and TypeScript
-serializes within the owning process. One process must own a state directory;
-cross-process ownership is not enforced. Opening a corrupt journal fails
-without rewriting it.
+Each working tree keeps its change log at `sync/change-log.json` with its
+objects under `sync/change-log-objects/`, separate from update control and
+from editor recovery. The complete journal is written to a private temporary
+file, fsynced, renamed, and its directory fsynced before a write returns;
+Swift locks concurrent writers and TypeScript serializes within the owning
+process. One process must own a state directory; cross-process ownership is
+not enforced. Opening a corrupt journal fails without rewriting it. A journal
+written under its earlier name, `sync/source-admissions.json` with
+`sync/source-admission-objects/`, is moved to the new names on first open.
 
 Journal schemas: 2 stores roots, ordered object hashes, and authored metadata;
 3 stores the protocol element verbatim with a capture summary; 4 stores one
@@ -98,12 +100,14 @@ frame and rewriting it. A fully settled journal of any schema retires without
 decoding. The TypeScript publisher records settlements in
 `sync/source-settlements.json`, written atomically only after the host has
 durably installed the request. The Mac's conflict review keeps
-`sync/conflict-review.json` (schema 2, also reading 1) with exact drafts,
-pinned decision and alternative evidence, and an immutable prepared request.
+`sync/conflict-review.json` (schema 3, reading 1 and 2) with exact drafts and
+pinned decision and alternative evidence; a submitted resolution is a change
+in the change log, and the journal names the draft it came from.
 
-Local update-control schema 3 is source mode; schema 2 is the legacy snapshot
-mode. A source-disabled coordinator refuses to open schema 3, and a source-mode
-journal cannot downgrade to snapshot mode.
+Local update-control schema 4 holds the exact persisted request, the change it
+ends at, the held reason, and settled changes. A schema-3 control that still
+holds a snapshot head, a next base, or an attempt outside the change log is
+refused without being rewritten; a clean one converts.
 
 Local Trash is absent from protocol snapshots. Structural records retain
 private Trash nodes and their file objects so deletion survives another action

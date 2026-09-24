@@ -277,7 +277,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            sourceObjectStore: workingTree,
+            platformObjectStore: workingTree,
             readOnly: !tree.grantsWrite
         )
         if remember {
@@ -333,13 +333,14 @@ final class ArborWorkspaceState {
         return workingTree
     }
 
-    /// An update coordinator for `workingTree` and the provider that saves
-    /// through it, refreshing the sync presentation after each immediate sync.
+    /// An update coordinator for `workingTree` and the provider whose writes
+    /// are local changes it publishes. The coordinator polls so that a
+    /// transport failure is retried while the network is believed available.
     private func synchronizedProvider(
         workingTree: WorkingTree,
         transport: ArborWireReplicaTransport,
         stateRoot: URL,
-        sourceObjectStore: any ObjectStore,
+        platformObjectStore: any ObjectStore,
         readOnly: Bool = false,
         materializedRoot: URL? = nil
     ) throws -> (UpdateCoordinator, WorkingTreeProvider) {
@@ -348,18 +349,15 @@ final class ArborWorkspaceState {
             transport: transport,
             stateRoot: stateRoot,
             transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: true,
-            sourceObjectStore: sourceObjectStore
+            platformObjectStore: platformObjectStore,
+            pollInterval: .seconds(30)
         )
         let provider = WorkingTreeProvider(
             workingTree: workingTree,
             readOnly: readOnly,
             materializedRoot: materializedRoot,
-            sourceCoordinator: coordinator
-        ) { [weak self] admission in
-            try await coordinator.syncImmediately(admission)
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
+            coordinator: coordinator
+        )
         return (coordinator, provider)
     }
 
@@ -1046,7 +1044,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: stateRoot,
-            sourceObjectStore: platform,
+            platformObjectStore: platform,
             materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) }
         )
         try await nativePlacementStore.save(NativePlacementRecord(
@@ -1196,7 +1194,7 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            sourceObjectStore: workingTree
+            platformObjectStore: workingTree
         )
         await switchProvider(
             provider,
@@ -1646,6 +1644,13 @@ final class ArborWorkspaceState {
             )
         }
         try await openDirectoryProfile(person)
+    }
+
+    /// Leave `held` by discarding the refused change and the changes made on it.
+    func discardHeldChanges() async {
+        guard let syncCoordinator else { return }
+        do { try await syncCoordinator.discardHeldChanges() } catch { errorMessage = error.localizedDescription }
+        await refreshSyncPresentation(from: syncCoordinator)
     }
 
     func syncNow(reportTransientNetworkErrors: Bool = true) async {

@@ -275,11 +275,14 @@ public enum UpdateMachine {
         case let .bootstrapInstalled(root, update, cursor, conflicted):
             guard case .unplaced = state.phase else { return (state, []) }
             next.base = AcceptedBase(root: root, update: update, cursor: cursor, conflicted: conflicted)
-            next.phase = .current
+            next.phase = state.transportAvailable ? .current : .offline(availability: .transport, request: nil, transmitted: false, tip: nil)
             return (next, options.pollEffects)
 
         case let .recovered(request, held, detail):
-            guard case .current = state.phase else { return (state, []) }
+            switch state.phase {
+            case .current, .offline(.transport, nil, _, nil): break
+            default: return (state, [])
+            }
             if let held {
                 next.phase = .held(reason: held, detail: detail, request: request, tip: nil)
                 return (next, [])
@@ -401,10 +404,15 @@ public enum UpdateMachine {
                 guard !preparing else { return (state, []) }
                 // Remote history advanced under local work: publish now; the authority merges.
                 return prepare(next, tip)
-            case let .offline(_, request, transmitted, tip):
-                guard let request, transmitted, digests.contains(where: request.digests.contains) else { return (state, []) }
-                next.phase = .acceptedPendingApply(result: result, request: request, tip: tip)
-                return (next, [.apply(result)])
+            case let .offline(availability, request, transmitted, tip):
+                if let request, transmitted, digests.contains(where: request.digests.contains) {
+                    next.phase = .acceptedPendingApply(result: result, request: request, tip: tip)
+                    return (next, [.apply(result)])
+                }
+                // A watch frame is evidence that transport works again.
+                guard case .transport = availability else { return (state, []) }
+                next.transportAvailable = true
+                return resume(next, availability: availability, request: request, transmitted: transmitted, tip: tip)
             default:
                 return (state, [])
             }
@@ -471,11 +479,24 @@ public enum UpdateMachine {
         case let .transportAvailable(available):
             next.transportAvailable = available
             if !available {
-                if case let .locallyPending(tip, _) = state.phase {
+                switch state.phase {
+                case let .locallyPending(tip, _):
                     next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: tip)
                     return (next, [.cancelTimers])
+                case .current:
+                    // A clean tree offline may fall behind; reconnection catches it up.
+                    next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: nil)
+                    return (next, [])
+                case let .prepared(request, tip):
+                    next.phase = .offline(availability: .transport, request: request, transmitted: false, tip: tip)
+                    return (next, [])
+                case let .submitting(request), let .submittingPending(request, _):
+                    // A hanging attempt may or may not have reached the host.
+                    next.phase = .offline(availability: .transport, request: request, transmitted: true, tip: state.phase.tip)
+                    return (next, [])
+                default:
+                    return (next, [])
                 }
-                return (next, [])
             }
             guard case let .offline(availability, request, transmitted, tip) = state.phase else { return (next, []) }
             if case .authentication = availability { return (next, []) }

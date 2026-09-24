@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 @Suite("Durable source admission queue")
-struct SourceAdmissionQueueTests {
+struct ChangeLogTests {
     struct Fixture: Decodable {
         struct Change: Decodable {
             struct Basis: Decodable { let kind: String; let update: String?; let change: String? }
@@ -45,8 +45,8 @@ struct SourceAdmissionQueueTests {
         let root = try WireObjectCodec.encode(.directory([.init(name: "nested", directory: nestedHash)]))
         return WireSnapshot(root: WireObjectCodec.hash(root), objects: [file, nested, root].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
     }
-    func records(_ f: Fixture) throws -> [SourceAdmissionRecord] {
-        var records: [SourceAdmissionRecord] = []
+    func records(_ f: Fixture) throws -> [LocalChange] {
+        var records: [LocalChange] = []
         var sources: [String: String] = [:]
         for change in f.changes {
             let parent = records.first { $0.change == change.basis.change }
@@ -55,7 +55,7 @@ struct SourceAdmissionQueueTests {
             let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"), source: source, contentRevision: change.revision)
             let patch = WorkspaceDocumentPatch(baseContentRevision: change.revision,
                 edits: [.init(utf8Range: change.offset..<(change.offset + change.length), replacement: change.replacement, expected: change.expected)])
-            records.append(try SourceAdmissionRecord(change: change.change, tree: f.tree,
+            records.append(try LocalChange(change: change.change, tree: f.tree,
                 basis: parent.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: change.basis.update!)),
                 graph: graph, sourcePath: f.sourcePath,
                 intent: .init(basis: basis, patch: patch, source: patch.applying(to: source))))
@@ -89,22 +89,22 @@ struct SourceAdmissionQueueTests {
             let intent = try WorkspaceDocumentIntent(basis: basis,
                 patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<f.source.utf8.count, replacement: source)]),
                 source: source, generations: chain)
-            let accepted: SourceAdmissionBasis = .accepted(.init(root: graph.root, update: "up_r1"))
-            let plain = try SourceAdmissionRecord(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, compact: false)
-            let compact = try SourceAdmissionRecord(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent)
+            let accepted: LocalChangeBasis = .accepted(.init(root: graph.root, update: "up_r1"))
+            let plain = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, compact: false)
+            let compact = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent)
             let expectedFrames = try frames(value.frames), expectedCompacted = try frames(value.compacted)
             #expect(plain.update.trace == expectedFrames, Comment(rawValue: value.name))
             #expect(compact.update.trace == expectedCompacted, Comment(rawValue: value.name))
-            #expect(SourceAdmissionRecord.compactTrace(expectedFrames ?? []) == (expectedCompacted ?? []), Comment(rawValue: value.name))
+            #expect(LocalChange.compactTrace(expectedFrames ?? []) == (expectedCompacted ?? []), Comment(rawValue: value.name))
             // Both forms name the same candidate, carry only its objects and the same delta.
             #expect(compact.candidate == plain.candidate)
             #expect(compact.update.objects == plain.update.objects && compact.update.deltas == plain.update.deltas)
             #expect(plain.update.trace?.count == value.generations.filter { !$0.isEmpty }.count)
             try plain.validate(); try compact.validate()
             let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-            try await SourceAdmissionQueue(tree: f.tree, stateRoot: root).retain(compact)
-            #expect(try await SourceAdmissionQueue(tree: f.tree, stateRoot: root).retained() == [compact])
-            #expect(try JSONDecoder().decode(SourceAdmissionRecord.self, from: JSONEncoder().encode(plain)) == plain)
+            try await ChangeLog(tree: f.tree, stateRoot: root).retain(compact)
+            #expect(try await ChangeLog(tree: f.tree, stateRoot: root).retained() == [compact])
+            #expect(try JSONDecoder().decode(LocalChange.self, from: JSONEncoder().encode(plain)) == plain)
         }
     }
 
@@ -116,13 +116,13 @@ struct SourceAdmissionQueueTests {
         let first = try whole.applying(to: f.source)
         let empty = WorkspaceDocumentGeneration(patch: .init(baseContentRevision: "r1", edits: []), source: f.source)
         let intent = try WorkspaceDocumentIntent(basis: basis, patch: whole, source: first, generations: [empty, .init(patch: whole, source: first)])
-        let record = try SourceAdmissionRecord(change: "chain", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: intent)
+        let record = try LocalChange(change: "chain", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: intent)
         #expect(record.update.trace?.count == 1)
         #expect(record.update.trace?.first?.operations.map(\.key) == ["edit-0-0"])
         #expect(throws: (any Error).self) { try WorkspaceDocumentIntent(basis: basis, patch: whole, source: first, generations: [empty]) }
         let onlyEmpty = try WorkspaceDocumentIntent(basis: basis, patch: .init(baseContentRevision: "r1", edits: []), source: f.source, generations: [empty])
         #expect(throws: (any Error).self) {
-            try SourceAdmissionRecord(change: "none", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: onlyEmpty)
+            try LocalChange(change: "none", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: onlyEmpty)
         }
     }
 
@@ -135,11 +135,11 @@ struct SourceAdmissionQueueTests {
         let graph = try graph(source)
         let edit = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<6, replacement: "After", expected: "Before")])
         let edited = try edit.applying(to: source)
-        let first = try SourceAdmissionRecord(change: "edit", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph,
+        let first = try LocalChange(change: "edit", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph,
             sourcePath: f.sourcePath, intent: .init(basis: .init(reference: reference, source: source, contentRevision: "r1"), patch: edit, source: edited))
         // The editor's undo produces an ordinary patch against the latest candidate.
         let undoPatch = WorkspaceDocumentPatch(baseContentRevision: "c1", edits: [.init(utf8Range: 0..<5, replacement: "Before", expected: "After")])
-        let undo = try SourceAdmissionRecord(change: "undo", tree: f.tree, basis: .authored(change: first.change), graph: first.candidate,
+        let undo = try LocalChange(change: "undo", tree: f.tree, basis: .authored(change: first.change), graph: first.candidate,
             sourcePath: f.sourcePath, intent: .init(basis: .init(reference: reference, source: edited, contentRevision: "c1"), patch: undoPatch, source: source))
         #expect(undo.update.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
         #expect(undo.candidate.root == graph.root)
@@ -158,9 +158,9 @@ struct SourceAdmissionQueueTests {
         }
         #expect(first.update.deltas.contains { $0.result == (try? WireObjectCodec.hash(WireObjectCodec.encode(.file(Data(edited.utf8))))) })
         #expect(undo.update.deltas.isEmpty)
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
         try await queue.retain([first, undo])
-        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
         #expect(try await reopened.retained() == [first, undo])
         // Settled records go as soon as nothing pending depends on them. While
         // the tail is preserved for an open editor, the newest record and its
@@ -186,7 +186,7 @@ struct SourceAdmissionQueueTests {
         guard case let .directory(entries, _) = try WireObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
         let bytes = try WireObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: WireObjectCodec.hash(file))] + entries))
         let candidate = WireSnapshot(root: WireObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
-        let created = try SourceAdmissionRecord(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
+        let created = try LocalChange(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
             creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
         // A creation is traced: one addEntry of the new file under the basis root.
         let added = try #require(created.update.trace?.first?.operations.first)
@@ -194,13 +194,13 @@ struct SourceAdmissionQueueTests {
         #expect(added.kind == "addEntry")
         #expect(added.fields["value"] == .object(["file": .string(WireObjectCodec.hash(file))]))
         #expect(throws: (any Error).self) {
-            try SourceAdmissionRecord(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
+            try LocalChange(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
                 creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: ["/elsewhere"]))
         }
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
         try await queue.retain([created])
-        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
         #expect(try await reopened.retained() == [created])
     }
 
@@ -220,7 +220,7 @@ struct SourceAdmissionQueueTests {
         let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/destination"), source: f.destination, contentRevision: "r1")
         let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: f.edit.offset..<(f.edit.offset + f.edit.length), replacement: f.edit.replacement,
             copies: f.edit.copies.map { .init(source: $0.source[0]..<$0.source[1], replacement: $0.replacement[0]..<$0.replacement[1], document: $0.document) })])
-        let record = try SourceAdmissionRecord(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
+        let record = try LocalChange(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
             intent: .init(basis: basis, patch: patch, source: f.destination + f.edit.replacement))
         let copied = record.update.trace?.first?.operations.first
         #expect(copied?.kind == "copySource")
@@ -228,7 +228,7 @@ struct SourceAdmissionQueueTests {
         #expect(material["path"] == .string(f.sourcePath))
         var wrong = patch; wrong.edits[0].copies?[0].document?.path = "/missing.md"
         #expect(throws: (any Error).self) {
-            try SourceAdmissionRecord(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
+            try LocalChange(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
                 intent: .init(basis: basis, patch: wrong, source: f.destination + f.edit.replacement))
         }
     }
@@ -236,9 +236,9 @@ struct SourceAdmissionQueueTests {
     @Test("Shared requests retain same-root dependencies and restart with original operation identities")
     func sharedRequests() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root), all = try records(f)
         for record in all { try await queue.retain(record) }
-        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
         #expect(try await reopened.retained() == all)
         try await reopened.retain(all[0])
         #expect(try await reopened.retained().count == 3)
@@ -265,7 +265,7 @@ struct SourceAdmissionQueueTests {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: f.tree))
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: graph(f.source), tree: TreeID(rawValue: f.tree), update: "up_r1"))
-        let captured = try await tree.captureSourceAdmissionBasis(.init(tree: TreeID(rawValue: f.tree), path: "/nested/note"))
+        let captured = try await tree.captureSourceBasis(.init(tree: TreeID(rawValue: f.tree), path: "/nested/note"))
         let peer = try graph("Peer at R2\n")
         try await tree.replaceFromSystem(SnapshotBridge.replacement(snapshot: peer, tree: TreeID(rawValue: f.tree), update: "up_r2"))
         let patch = WorkspaceDocumentPatch(baseContentRevision: captured.document.contentRevision,
@@ -273,12 +273,12 @@ struct SourceAdmissionQueueTests {
         let intent = try WorkspaceDocumentIntent(basis: captured.document, patch: patch, source: patch.applying(to: captured.document.source))
         #expect(throws: (any Error).self) { try captured.prepare(intent: intent, predecessor: "invented-parent") }
         let record = try captured.prepare(intent: intent, change: "captured-r1")
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
         try await queue.retain(record)
         #expect(try await tree.heads().acceptedRoot == peer.root)
         #expect(try await tree.heads().pendingRoot == nil)
         await tree.close()
-        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
         #expect(try await reopened.request(through: record.change).base.update == "up_r1")
         #expect(record.graph.root == captured.graph.root)
         #expect(record.graph.root != peer.root)
@@ -288,26 +288,26 @@ struct SourceAdmissionQueueTests {
     @Test("Missing parents, altered candidates, and reused identities leave all retained work intact")
     func invalidRecords() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root), all = try records(f)
         await #expect(throws: (any Error).self) { try await queue.retain(all[1]) }
         #expect(try await queue.retained().isEmpty)
         try await queue.retain(all[0])
         var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(all[2])) as? [String: Any])
         json["change"] = all[0].change
-        let altered = try JSONDecoder().decode(SourceAdmissionRecord.self, from: JSONSerialization.data(withJSONObject: json))
+        let altered = try JSONDecoder().decode(LocalChange.self, from: JSONSerialization.data(withJSONObject: json))
         await #expect(throws: (any Error).self) { try await queue.retain(altered) }
         #expect(try await queue.retained() == [all[0]])
-        let path = root.appending(path: "sync/source-admissions.json"), corrupt = Data("[{\"change\":\"broken\"}]".utf8)
+        let path = root.appending(path: "sync/change-log.json"), corrupt = Data("[{\"change\":\"broken\"}]".utf8)
         try corrupt.write(to: path)
-        await #expect(throws: (any Error).self) { try await SourceAdmissionQueue(tree: f.tree, stateRoot: root) }
+        await #expect(throws: (any Error).self) { try await ChangeLog(tree: f.tree, stateRoot: root) }
         #expect(try Data(contentsOf: path) == corrupt)
     }
 
     @Test("A failed disk commit retries the same record and concurrent owners do not lose appends")
     func durability() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), other = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
-        let path = root.appending(path: "sync/source-admissions.json")
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root), other = try await ChangeLog(tree: f.tree, stateRoot: root), all = try records(f)
+        let path = root.appending(path: "sync/change-log.json")
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
         await #expect(throws: (any Error).self) { try await queue.retain(all[0]) }
         try FileManager.default.removeItem(at: path)
@@ -330,7 +330,7 @@ struct SourceAdmissionQueueTests {
             .init(hash: WireObjectCodec.hash($0), bytes: $0)
         })
         var graph = initialGraph
-        var all: [SourceAdmissionRecord] = []
+        var all: [LocalChange] = []
         var sources: [String: String] = [:]
         for change in f.changes {
             let prior = all.first { $0.change == change.basis.change }
@@ -340,7 +340,7 @@ struct SourceAdmissionQueueTests {
                 source: basisSource, contentRevision: change.revision)
             let patch = WorkspaceDocumentPatch(baseContentRevision: change.revision,
                 edits: [.init(utf8Range: change.offset..<(change.offset + change.length), replacement: change.replacement, expected: change.expected)])
-            all.append(try SourceAdmissionRecord(change: change.change, tree: f.tree,
+            all.append(try LocalChange(change: change.change, tree: f.tree,
                 basis: prior.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: change.basis.update!)),
                 graph: graph, sourcePath: f.sourcePath, intent: .init(basis: basis, patch: patch, source: patch.applying(to: basisSource))))
             sources[change.change] = try patch.applying(to: basisSource)
@@ -350,15 +350,15 @@ struct SourceAdmissionQueueTests {
             retentionPolicy: .retainAll
         )
         try platform.store(Dictionary(uniqueKeysWithValues: initialGraph.objects.map { ($0.hash, $0.bytes) }))
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: platform)
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root, platform: platform)
         for record in all { try await queue.retain(record) }
-        let journal = root.appending(path: "sync/source-admissions.json")
+        let journal = root.appending(path: "sync/change-log.json")
         let journalBytes = try Data(contentsOf: journal)
         #expect(journalBytes.count < 100_000)
         #expect(!String(decoding: journalBytes, as: UTF8.self).contains("\"bytes\""))
-        let objectDirectory = root.appending(path: "sync/source-admission-objects")
+        let objectDirectory = root.appending(path: "sync/change-log-objects")
         #expect(!FileManager.default.fileExists(atPath: objectDirectory.appending(path: String(assetHash.dropFirst(7))).path))
-        #expect(try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: platform).retained() == all)
+        #expect(try await ChangeLog(tree: f.tree, stateRoot: root, platform: platform).retained() == all)
 
         // The replica store keeps accepted hashes even when the live head no
         // longer reaches them; source journals may still reference that basis.
@@ -373,7 +373,7 @@ struct SourceAdmissionQueueTests {
     }
 }
 
-extension SourceAdmissionQueueTests {
+extension ChangeLogTests {
     @Test("Explicit entry transfers survive queue recovery with their authored operation")
     func entryTransfers() async throws {
         let graph = try graph("Source\r\n")
@@ -381,10 +381,10 @@ extension SourceAdmissionQueueTests {
             let root = try root(); defer { try? FileManager.default.removeItem(at:root) }
             let transfer = EntryTransfer(kind:kind,source:"/nested/note.md",parent:"/",name:"moved.md")
             let prepared = try transfer.prepare(graph:graph)
-            let record = try SourceAdmissionRecord(tree:"tr_entry",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,candidate:prepared.candidate,entryTransfer:transfer)
-            let queue = try await SourceAdmissionQueue(tree:"tr_entry",stateRoot:root)
+            let record = try LocalChange(tree:"tr_entry",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,candidate:prepared.candidate,entryTransfer:transfer)
+            let queue = try await ChangeLog(tree:"tr_entry",stateRoot:root)
             try await queue.retain(record)
-            let reopened = try await SourceAdmissionQueue(tree:"tr_entry",stateRoot:root)
+            let reopened = try await ChangeLog(tree:"tr_entry",stateRoot:root)
             #expect(try await reopened.retained() == [record])
             #expect(record.update.trace?.first?.operations.first?.kind == kind.rawValue)
             #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph) }

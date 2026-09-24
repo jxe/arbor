@@ -294,18 +294,6 @@ public actor WorkingTree {
         try replaceWithAccepted(replacement, mutation: "initialize-from-system")
     }
 
-    public func integrateAccepted(
-        _ replacement: WorkingTreeSystemReplacement,
-        expectedCandidate: String
-    ) throws {
-        try requireOpen()
-        guard control.materializedRoot == expectedCandidate,
-              control.pendingRoot == expectedCandidate else {
-            throw WorkingTreeError.pendingLocalChanges
-        }
-        try replaceWithAccepted(replacement, mutation: "integrate-accepted")
-    }
-
     public func replaceFromSystem(_ replacement: WorkingTreeSystemReplacement) throws {
         try requireOpen()
         guard control.pendingRoot == nil else { throw WorkingTreeError.pendingLocalChanges }
@@ -790,7 +778,7 @@ public actor WorkingTree {
         }
     }
 
-    func captureAdmissionGraph() throws -> (base: WireUpdateBase, graph: WireSnapshot) {
+    func captureAcceptedGraph() throws -> (base: WireUpdateBase, graph: WireSnapshot) {
         let graph = try localSnapshot()
         guard control.pendingRoot == nil, let root = control.acceptedRoot,
               let update = control.acceptedUpdate, root == graph.root else {
@@ -799,7 +787,7 @@ public actor WorkingTree {
         return (WireUpdateBase(root: root, update: update), graph)
     }
 
-    public func captureSourceAdmissionBasis(_ reference: WorkspaceReference) throws -> CapturedSourceAdmissionBasis {
+    public func captureSourceBasis(_ reference: WorkspaceReference) throws -> CapturedSourceBasis {
         let node = try resolve(reference)
         guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
         let document = try documentSnapshot(reference), graph = try localSnapshot()
@@ -809,7 +797,7 @@ public actor WorkingTree {
         } else { accepted = nil }
         let sourcePath = node.kind == .markdown || node.directoryBodyPlacement == .siblingMarkdown
             ? node.path + ".md" : (node.path == "/" ? "/_index.md" : node.path + "/_index.md")
-        return CapturedSourceAdmissionBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+        return CapturedSourceBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
     }
 
     func documentSnapshot(_ reference: WorkspaceReference) throws -> WorkspaceDocumentSnapshot {
@@ -866,31 +854,12 @@ public actor WorkingTree {
     func writeDocument(
         _ reference: WorkspaceReference,
         patch: WorkspaceDocumentPatch
-    ) throws -> (snapshot: WorkspaceDocumentSnapshot, admission: WorkingTreePatchAdmission) {
+    ) throws -> WorkspaceDocumentSnapshot {
         let current = try documentSnapshot(reference)
         guard current.contentRevision == patch.baseContentRevision else {
             throw WorkingTreeError.staleRevision(expected: patch.baseContentRevision, actual: current.contentRevision)
         }
-        let before = control.heads
-        let submitted = try patch.applying(to: current.source)
-        let snapshot = try writeDocument(
-            reference,
-            source: submitted,
-            baseRevision: patch.baseContentRevision
-        )
-        return (
-            snapshot,
-            WorkingTreePatchAdmission(
-                reference: snapshot.reference,
-                baseRoot: before.materializedRoot,
-                candidateRoot: control.materializedRoot,
-                generation: control.generation,
-                baseFile: WireObjectCodec.hash(Data(current.source.utf8)),
-                resultFile: WireObjectCodec.hash(Data(snapshot.source.utf8)),
-                patch: patch,
-                baseWasAccepted: before.pendingRoot == nil && before.acceptedRoot == before.materializedRoot
-            )
-        )
+        return try writeDocument(reference, source: try patch.applying(to: current.source), baseRevision: patch.baseContentRevision)
     }
 
     func workspaceReference(_ node: WorkingTreeNode) -> WorkspaceReference {

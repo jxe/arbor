@@ -7,7 +7,7 @@ import Testing
 /// The protocol harness gives this scenario its own disposable tree without a filesystem checkout.
 /// It deliberately uses the production transport and coordinator, not a receipt stub.
 @Suite("Live source admission", .serialized)
-struct LiveSourceAdmissionTests {
+struct LiveChangeLogTests {
     private func intent(_ source: String, from basis: WorkspaceDocumentSnapshot) throws -> WorkspaceDocumentIntent {
         // Preserve the existing final newline: this is a range edit, not the
         // whole-file replacement already covered by the earlier server slice.
@@ -39,19 +39,18 @@ struct LiveSourceAdmissionTests {
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: path)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let r1 = try await session.snapshot()
 
         // A peer changes exactly the same source while our editor still holds R1.
-        let captured = try await tree.captureSourceAdmissionBasis(reference)
+        let captured = try await tree.captureSourceBasis(reference)
         let peerEdit = try captured.prepare(intent: intent("Intermediate peer\n", from: captured.document))
         let peerRequest = try await peer.prepareUpdates(tree: treeID,
             base: .init(root: initial.tree.root, update: initial.tree.update), updates: [peerEdit.update])
         _ = try await peer.submitUpdateResponse(peerRequest)
         _ = try await coordinator.recoverWatchGap()
-        let nextCapture = try await tree.captureSourceAdmissionBasis(reference)
+        let nextCapture = try await tree.captureSourceBasis(reference)
         let nextPeer = try nextCapture.prepare(intent: intent("Peer at R2\n", from: nextCapture.document))
         let nextRequest = try await peer.prepareUpdates(tree: treeID, base: #require(nextCapture.accepted), updates: [nextPeer.update])
         _ = try await peer.submitUpdateResponse(nextRequest)
@@ -61,7 +60,7 @@ struct LiveSourceAdmissionTests {
         let local = try await session.admit(intent: intent("My retained alternative\n", from: r1))
         #expect(try await tree.heads().acceptedRoot == r2.tree.root)
         #expect(try await session.snapshot().source == local.source)
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         let original = try #require(try await queue.retained().first)
         #expect(original.basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         await session.close(); await coordinator.close(); await tree.close()
@@ -69,9 +68,8 @@ struct LiveSourceAdmissionTests {
         // Recreate the in-memory replica as Native does, using the server's R2.
         // Only the separate admission journal carries the unpublished R1 intent.
         let reopenedTree = try await place(r2, client: client)
-        let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let reopenedSession = try await WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened).openDocument(reference)
+        let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let reopenedSession = try await WorkingTreeProvider(workingTree: reopenedTree, coordinator: reopened).openDocument(reference)
         #expect(try await reopenedSession.snapshot().contentRevision == local.contentRevision)
         let accepted = try await reopened.syncOnce()
         #expect(accepted.acceptedConflicted == true)
@@ -165,7 +163,7 @@ struct LiveSourceAdmissionTests {
     }
 }
 
-extension LiveSourceAdmissionTests {
+extension LiveChangeLogTests {
     @Test("Mixed structural and source admissions restart and publish through Canopy")
     func mixedStructuralPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -177,9 +175,8 @@ extension LiveSourceAdmissionTests {
         let transport = ArborWireReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
         let parent = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
         let name = "created-" + UUID().uuidString
         let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: name, source: "Created locally\n")))
@@ -196,24 +193,23 @@ extension LiveSourceAdmissionTests {
         let trashed = try #require(try await provider.perform(.trash(reference: renamed.reference)))
         _ = try await provider.perform(.restore(reference: trashed.reference))
         #expect(try await tree.heads().acceptedRoot == initial.tree.root)
-        let records = try await SourceAdmissionQueue(tree: treeID, stateRoot: root).retained()
+        let records = try await ChangeLog(tree: treeID, stateRoot: root).retained()
         #expect(records.count == 10)
         await session.close(); await coordinator.close(); await tree.close()
 
         let current = try await client.descriptor(tree: treeID)
         let reopenedTree = try await place(current, client: client)
-        let interrupted = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, faultInjector: StructuralPublicationCrash(),
+        let interrupted = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root , faultInjector: StructuralPublicationCrash(),
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        do { _ = try await interrupted.syncOnce(); Issue.record("Expected uncertain acceptance") }
-        catch is StructuralPublicationCrash.Failure { }
+        // Uncertain acceptance leaves the exact request retained, not current.
+        _ = try await interrupted.syncOnce()
+        #expect(await interrupted.syncState.kind != "current")
         // The complete queued chain reaches Canopy in the first frozen batch,
         // even when the client loses its acknowledgement before installation.
         #expect(try await client.descriptor(tree: treeID).tree.root == records.last?.candidate.root)
         await interrupted.close()
-        let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let recovered = WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened)
+        let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let recovered = WorkingTreeProvider(workingTree: reopenedTree, coordinator: reopened)
         #expect(try await recovered.openDocument(moved.reference).snapshot().source == editedSource)
         #expect(try await recovered.readFile(binary.reference) == Data([0, 42, 255]))
         _ = try await reopened.syncOnce()
@@ -234,9 +230,8 @@ extension LiveSourceAdmissionTests {
         let client = ArborWireClient(origin: origin, credential: token)
         let transport = ArborWireReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID), tree = try await place(initial, client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
         let parent = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
         let old = try await provider.openDocument(.init(tree: parent.tree, path: "/page")), r1 = try await old.snapshot()
         let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "branch-" + UUID().uuidString, source: "Created locally\n")))
@@ -249,7 +244,7 @@ extension LiveSourceAdmissionTests {
         await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
             try await provider.perform(.rename(reference: created.reference, name: "blocked"))
         }
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root), records = try await queue.retained()
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root), records = try await queue.retained()
         #expect(records.count == 4)
         #expect(records[1].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         #expect(records[2].basis == .authored(change: records[1].change))
@@ -257,18 +252,17 @@ extension LiveSourceAdmissionTests {
         await old.close(); await added.close(); await coordinator.close(); await tree.close()
 
         let recoveredTree = try await place(client.descriptor(tree: treeID), client: client)
-        let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, faultInjector: StructuralPublicationCrash(),
+        let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root , faultInjector: StructuralPublicationCrash(),
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let waiting = WorkingTreeProvider(workingTree: recoveredTree, sourceCoordinator: interrupted)
+        let waiting = WorkingTreeProvider(workingTree: recoveredTree, coordinator: interrupted)
         #expect(try await waiting.resolve(created.reference).reference.path == created.reference.path)
         #expect(await waiting.capabilities().structuralActions == false)
-        do { _ = try await interrupted.syncOnce(); Issue.record("Expected uncertain acceptance") }
-        catch is StructuralPublicationCrash.Failure { }
+        // Uncertain acceptance leaves the exact request retained, not current.
+        _ = try await interrupted.syncOnce()
+        #expect(await interrupted.syncState.kind != "current")
         await interrupted.close()
-        let reopened = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        let resumed = WorkingTreeProvider(workingTree: recoveredTree, sourceCoordinator: reopened)
+        let reopened = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let resumed = WorkingTreeProvider(workingTree: recoveredTree, coordinator: reopened)
         _ = try await reopened.syncOnce()
         #expect(try await reopened.presentation().state == .current)
         #expect(try await resumed.openDocument(created.reference).snapshot().source == addedSource)
@@ -297,7 +291,7 @@ private struct StructuralPublicationCrash: UpdateFaultInjector {
     }
 }
 
-extension LiveSourceAdmissionTests {
+extension LiveChangeLogTests {
     @Test("Compound sibling-body operations publish through Canopy after restart")
     func compoundStructuralPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -320,16 +314,15 @@ extension LiveSourceAdmissionTests {
         let seed = WireCandidateUpdate(candidate:WireObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:WireObjectCodec.hash(bytes),bytes:bytes)])
         _ = try await client.submitUpdateResponse(client.prepareUpdates(tree:treeID,base:.init(root:current.tree.root,update:current.tree.update),updates:[seed]))
         let initial = try await client.descriptor(tree:treeID), tree = try await place(initial,client:client)
-        let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
-            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
-        let provider = WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator)
+        let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        let provider = WorkingTreeProvider(workingTree:tree,coordinator:coordinator)
         let parent = WorkspaceReference(tree:TreeID(rawValue:treeID),path:"/")
         let moved = try #require(try await provider.perform(.move(reference:.init(tree:parent.tree,path:"/pair"),destination:.init(tree:parent.tree,path:"/archive"))))
         let copied = try #require(try await provider.perform(.copy(reference:moved.reference,destination:parent)))
         let renamed = try #require(try await provider.perform(.rename(reference:copied.reference,name:"compound-copy")))
         let trashed = try #require(try await provider.perform(.trash(reference:moved.reference)))
         _ = try await provider.perform(.restore(reference:trashed.reference))
-        let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
+        let records = try await ChangeLog(tree:treeID,stateRoot:root).retained()
         #expect(records.count == 5)
         #expect(records[0].update.trace?.flatMap(\.operations).map(\.kind) == ["moveEntry","moveEntry"])
         #expect(records[1].update.trace?.flatMap(\.operations).filter { $0.kind == "copyEntry" }.count == 2)
@@ -337,19 +330,18 @@ extension LiveSourceAdmissionTests {
         #expect(records[4].update.trace == nil)
         await coordinator.close(); await tree.close()
         let clean = try await place(initial,client:client)
-        let recovered = try UpdateCoordinator(workingTree:clean,transport:transport,stateRoot:root,
-            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        let recovered = try UpdateCoordinator(workingTree:clean,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
         _ = try await recovered.syncOnce()
         #expect(try await recovered.presentation().state == .current)
         #expect(try await client.descriptor(tree:treeID).tree.root == records.last?.candidate.root)
-        let reopened = WorkingTreeProvider(workingTree:clean,sourceCoordinator:recovered)
+        let reopened = WorkingTreeProvider(workingTree:clean,coordinator:recovered)
         #expect(try await reopened.openDocument(renamed.reference).snapshot().source.hasSuffix("# Café\r\n"))
         #expect(try await reopened.openDocument(moved.reference).snapshot().source.contains("pg_pair"))
         await recovered.close(); await clean.close()
     }
 }
 
-extension LiveSourceAdmissionTests {
+extension LiveChangeLogTests {
     @Test("Native review reads hidden material, resolves exact content and recovers a lost response", arguments: ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"])
     func nativeReviewThroughCanopy(mode: String) async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -363,12 +355,11 @@ extension LiveSourceAdmissionTests {
         let transport = ReviewResponseLossTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
-        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let basis = try await session.snapshot()
-        let capture = try await tree.captureSourceAdmissionBasis(reference)
+        let capture = try await tree.captureSourceBasis(reference)
         let peer = try capture.prepare(intent: intent("Peer review version\n", from: capture.document))
         let prepared = try await client.prepareUpdates(tree: treeID,
             base: .init(root: initial.tree.root, update: initial.tree.update), updates: [peer.update])
@@ -422,11 +413,12 @@ extension LiveSourceAdmissionTests {
             #expect(preview.changes.contains { $0.path == (mode == "group-rescue" ? "/rescued.md" : "/page.md") })
             if mode == "group-lost-response" {
                 await transport.dropNextResponse()
-                await #expect(throws: URLError.self) { try await coordinator.applyReviewDraft(group) }
+                // A lost response leaves the resolution pending in the change log.
+                try await coordinator.applyReviewDraft(group)
+                #expect(try await coordinator.reviewSubmissionPending())
                 await session.close(); await coordinator.close(); await tree.close()
                 let reopenedTree = try await place(try await client.descriptor(tree: treeID), client: client)
-                let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
-                    sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+                let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
                 _ = try await reopened.syncOnce()
                 #expect(await transport.replayedExactBody())
                 #expect(try await reopened.reviewDrafts().isEmpty)
@@ -449,18 +441,18 @@ extension LiveSourceAdmissionTests {
         #expect(try await coordinator.reviewDrafts().count == 1)
         if mode == "lost-response" {
             await transport.dropNextResponse()
-            await #expect(throws: URLError.self) { try await coordinator.applyReviewDraft(draft) }
+            try await coordinator.applyReviewDraft(draft)
             #expect(try await coordinator.reviewSubmissionPending())
             await session.close(); await coordinator.close(); await tree.close()
             let acceptedCurrent = try await client.descriptor(tree: treeID)
             let reopenedTree = try await place(acceptedCurrent, client: client)
-            let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root, sourceOperationEmission: true)
+            let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root )
             #expect(try await reopened.reviewDrafts().first?.source.map { Data($0.utf8) } == Data(source.utf8))
             _ = try await reopened.syncOnce()
             #expect(try await reopened.reviewSubmissionPending() == false)
             #expect(try await reopened.reviewDrafts().isEmpty)
             #expect(await transport.replayedExactBody())
-            let provider = WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened)
+            let provider = WorkingTreeProvider(workingTree: reopenedTree, coordinator: reopened)
             let reopenedSession = try await provider.openDocument(reference)
             #expect(try await reopenedSession.snapshot().source.utf8.elementsEqual(expected.utf8))
             let current = try await reopenedSession.snapshot()
@@ -531,7 +523,7 @@ extension LiveSourceAdmissionTests {
     }
 }
 
-extension LiveSourceAdmissionTests {
+extension LiveChangeLogTests {
     @Test("Native source-range review preserves and relocates another unresolved choice")
     func independentRangeReview() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -542,17 +534,16 @@ extension LiveSourceAdmissionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let client = ArborWireClient(origin: origin, credential: token)
         let tree = try await place(try await client.descriptor(tree: treeID), client: client)
-        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root,
-            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
-        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
         let initialSource = try await session.snapshot()
         _ = try await session.admit(intent: .init(basis: initialSource,
             patch: .init(baseContentRevision: initialSource.contentRevision, edits: [
                 .init(utf8Range: 0..<initialSource.source.utf8.count, replacement: "éaaa bccc\r\n", expected: initialSource.source)
             ]), source: "éaaa bccc\r\n"))
         _ = try await coordinator.syncOnce()
-        let basis = try await session.snapshot(), captured = try await tree.captureSourceAdmissionBasis(reference)
+        let basis = try await session.snapshot(), captured = try await tree.captureSourceBasis(reference)
         func change(_ first: String, _ second: String, from basis: WorkspaceDocumentSnapshot) throws -> WorkspaceDocumentIntent {
             try .init(basis: basis, patch: .init(baseContentRevision: basis.contentRevision, edits: [
                 .init(utf8Range: 2..<5, replacement: first, expected: "aaa"),

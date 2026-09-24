@@ -4,7 +4,7 @@ import Overstory
 import Foundation
 
 /// A local publication dependency. Equal roots never identify a predecessor.
-public enum SourceAdmissionBasis: Codable, Equatable, Sendable {
+public enum LocalChangeBasis: Codable, Equatable, Sendable {
     case accepted(WireUpdateBase)
     case authored(change: String)
 }
@@ -35,10 +35,10 @@ public struct SourceDocumentCapture: Codable, Equatable, Sendable {
 /// a failed/uncertain write is retried with the same change and operation identities.
 /// A record keeps hashes, the wire element, and a capture summary; it never
 /// retains document sources or editor transactions. Undo is an ordinary edit.
-public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
+public struct LocalChange: Codable, Equatable, Sendable {
     public let change: String
     public let tree: String
-    public let basis: SourceAdmissionBasis
+    public let basis: LocalChangeBasis
     public let graph: WireSnapshot
     public let sourcePath: String?
     public let document: SourceDocumentCapture?
@@ -68,7 +68,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     /// `edit-<frame>-<index>`; `compact` then merges adjacent frames of plain
     /// edits (`compactTrace`). Only the final candidate's objects travel;
     /// the authority reproduces intermediate roots by executing the frames.
-    public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
+    public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
                 graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true) throws {
         try intent.validate()
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
@@ -390,7 +390,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
 
     /// Structural actions retain captured operations when available, otherwise
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
-    public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
+    public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
                 graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
         _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
@@ -420,7 +420,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
 
     /// Rehydrate a stored record. The journal keeps the wire element verbatim,
     /// so nothing is re-derived from document sources on load.
-    init(change: String, tree: String, basis: SourceAdmissionBasis, graph: WireSnapshot, candidate: WireSnapshot, update: WireCandidateUpdate,
+    init(change: String, tree: String, basis: LocalChangeBasis, graph: WireSnapshot, candidate: WireSnapshot, update: WireCandidateUpdate,
          sourcePath: String?, document: SourceDocumentCapture?, entryTransfer: EntryTransfer?, entryActions: EntryActions?, creation: SourcePageCreation?, localTrash: WorkingTreeLocalTrash?) throws {
         self.change = change; self.tree = tree; self.basis = basis
         self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
@@ -542,10 +542,10 @@ private struct StoredSourceTrash: Codable {
     var objects: [String]
 }
 
-private struct StoredSourceAdmission: Codable {
+private struct StoredLocalChange: Codable {
     var change: String
     var tree: String
-    var basis: SourceAdmissionBasis
+    var basis: LocalChangeBasis
     var graph: StoredSourceSnapshot
     var sourcePath: String?
     var document: SourceDocumentCapture?
@@ -559,20 +559,20 @@ private struct StoredSourceAdmission: Codable {
 }
 
 /// Schema 4 stores hashes and the wire element with its frame chain.
-private struct SourceAdmissionJournal: Codable {
+private struct ChangeLogJournal: Codable {
     static let currentSchema = 4
     var schema = currentSchema
     var tree: String
-    var records: [StoredSourceAdmission]
+    var records: [StoredLocalChange]
 }
 
-private struct SourceAdmissionFingerprint: Equatable {
+private struct ChangeLogFingerprint: Equatable {
     var size: UInt64
     var modified: TimeInterval
     var inode: UInt64
 }
 
-public actor SourceAdmissionQueue {
+public actor ChangeLog {
     private let tree: String
     private let files: UpdateControlFiles
     private let objects: DirectoryObjectStore
@@ -580,8 +580,8 @@ public actor SourceAdmissionQueue {
     /// owns only objects introduced by its admissions and resolves the rest by
     /// hash through this shared API.
     private let platform: (any ObjectStore)?
-    private var records: [SourceAdmissionRecord]
-    private var fingerprint: SourceAdmissionFingerprint?
+    private var records: [LocalChange]
+    private var fingerprint: ChangeLogFingerprint?
     private var objectCache: [String: Data] = [:]
 
     public init(
@@ -592,7 +592,12 @@ public actor SourceAdmissionQueue {
     ) async throws {
         self.tree = tree
         files = try UpdateControlFiles(root: stateRoot)
-        objects = try DirectoryObjectStore(directory: files.directory.appending(path: "source-admission-objects", directoryHint: .isDirectory))
+        if files.hasEarlierChangeLog {
+            let descriptor = try files.lockChangeLog()
+            do { try files.adoptEarlierChangeLog() } catch { files.unlockChangeLog(descriptor); throw error }
+            files.unlockChangeLog(descriptor)
+        }
+        objects = try DirectoryObjectStore(directory: files.changeLogObjectsDirectory)
         self.platform = platform
         records = []
         let loaded = try await load(settled: settled)
@@ -601,30 +606,30 @@ public actor SourceAdmissionQueue {
         fingerprint = try currentFingerprint()
     }
 
-    public func retained() async throws -> [SourceAdmissionRecord] {
+    public func retained() async throws -> [LocalChange] {
         try await reloadIfChanged()
         return records
     }
 
     /// Acknowledges only after the complete record and its basis are fsynced.
-    public func retain(_ record: SourceAdmissionRecord) async throws {
+    public func retain(_ record: LocalChange) async throws {
         try await retain([record])
     }
 
     /// One durable boundary for a batch of records.
-    public func retain(_ batch: [SourceAdmissionRecord]) async throws {
+    public func retain(_ batch: [LocalChange]) async throws {
         while true {
             // Resolve platform objects before locking. Actor reentrancy must
             // never leave another call synchronously waiting on our own flock.
             try await reloadIfChanged()
             let expected = fingerprint
-            let descriptor = try files.lockSourceAdmissions()
+            let descriptor = try files.lockChangeLog()
             do {
                 guard try currentFingerprint() == expected else {
-                    files.unlockSourceAdmissions(descriptor)
+                    files.unlockChangeLog(descriptor)
                     continue
                 }
-                var added: [SourceAdmissionRecord] = []
+                var added: [LocalChange] = []
                 var known = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
                 for record in batch {
                     if let prior = known[record.change] {
@@ -637,10 +642,37 @@ public actor SourceAdmissionQueue {
                 // Retained records were validated when they were loaded or retained.
                 try Self.validate(added, tree: tree, after: records)
                 try persist(records + added)
-                files.unlockSourceAdmissions(descriptor)
+                files.unlockChangeLog(descriptor)
                 return
             } catch {
-                files.unlockSourceAdmissions(descriptor)
+                files.unlockChangeLog(descriptor)
+                throw error
+            }
+        }
+    }
+
+    /// Remove `changes` and every change authored on them: the explicit
+    /// discard of a held chain. Nothing else in the log changes.
+    public func discard(_ changes: Set<String>) async throws {
+        while true {
+            try await reloadIfChanged()
+            let expected = fingerprint
+            let descriptor = try files.lockChangeLog()
+            do {
+                guard try currentFingerprint() == expected else {
+                    files.unlockChangeLog(descriptor)
+                    continue
+                }
+                var removed = changes
+                for record in records {
+                    if case let .authored(parent) = record.basis, removed.contains(parent) { removed.insert(record.change) }
+                }
+                let next = records.filter { !removed.contains($0.change) }
+                if next.count != records.count { try persist(next) }
+                files.unlockChangeLog(descriptor)
+                return
+            } catch {
+                files.unlockChangeLog(descriptor)
                 throw error
             }
         }
@@ -654,10 +686,10 @@ public actor SourceAdmissionQueue {
         while true {
             try await reloadIfChanged()
             let expected = fingerprint
-            let descriptor = try files.lockSourceAdmissions()
+            let descriptor = try files.lockChangeLog()
             do {
                 guard try currentFingerprint() == expected else {
-                    files.unlockSourceAdmissions(descriptor)
+                    files.unlockChangeLog(descriptor)
                     continue
                 }
                 var required = Set(records.filter { !settled.contains($0.change) }.map(\.change))
@@ -683,10 +715,10 @@ public actor SourceAdmissionQueue {
                 let next = records.filter { required.contains($0.change) }
                 if next.count != records.count { try persist(next) }
                 let empty = records.isEmpty
-                files.unlockSourceAdmissions(descriptor)
+                files.unlockChangeLog(descriptor)
                 return empty
             } catch {
-                files.unlockSourceAdmissions(descriptor)
+                files.unlockChangeLog(descriptor)
                 throw error
             }
         }
@@ -696,7 +728,7 @@ public actor SourceAdmissionQueue {
     /// Stop at a sibling/independent basis: equal roots never establish lineage.
     /// Existing persisted attempts are selected by the coordinator before this
     /// method, so their exact bodies and identities cannot change.
-    public func nextPublication(accepted: Set<String>) async throws -> SourceAdmissionRecord? {
+    public func nextPublication(accepted: Set<String>) async throws -> LocalChange? {
         try await reloadIfChanged()
         let tip = UpdateMachine.publicationTip(records.map { record in
             let parent: String? = if case let .authored(change) = record.basis { change } else { nil }
@@ -728,10 +760,10 @@ public actor SourceAdmissionQueue {
         throw ArborWireValidationError.invalidValue("Missing authored dependency")
     }
 
-    private func load(settled: Set<String> = []) async throws -> (records: [SourceAdmissionRecord], objects: [String: Data]) {
-        guard let data = try files.readSourceAdmissionsData() else { return ([], [:]) }
-        let journal = try JSONDecoder().decode(SourceAdmissionJournal.self, from: data)
-        guard journal.schema == SourceAdmissionJournal.currentSchema, journal.tree == tree else {
+    private func load(settled: Set<String> = []) async throws -> (records: [LocalChange], objects: [String: Data]) {
+        guard let data = try files.readChangeLogData() else { return ([], [:]) }
+        let journal = try JSONDecoder().decode(ChangeLogJournal.self, from: data)
+        guard journal.schema == ChangeLogJournal.currentSchema, journal.tree == tree else {
             throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
         }
         if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
@@ -743,7 +775,7 @@ public actor SourceAdmissionQueue {
         var loaded: [String: Data] = [:]
         loaded.reserveCapacity(hashes.count)
         for hash in hashes { loaded[hash] = try await bytes(hash) }
-        var values: [SourceAdmissionRecord] = []
+        var values: [LocalChange] = []
         for stored in journal.records { values.append(try materialize(stored, from: loaded)) }
         try Self.validate(values, tree: tree)
         return (values, loaded)
@@ -758,7 +790,7 @@ public actor SourceAdmissionQueue {
         fingerprint = try currentFingerprint()
     }
 
-    private func persist(_ next: [SourceAdmissionRecord]) throws {
+    private func persist(_ next: [LocalChange]) throws {
         var bytes = objectCache
         var presented: [String: Data] = [:]
         for record in next {
@@ -780,7 +812,7 @@ public actor SourceAdmissionQueue {
         }
         try objects.store(presented)
         let stored = next.map(stored)
-        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: stored))
+        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: stored))
         let retained = Set(stored.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
         try objects.retain(reachableFrom: [], files: retained)
         records = next
@@ -795,15 +827,15 @@ public actor SourceAdmissionQueue {
         return try verifyObject(try await platform.bytes(hash), hash: hash)
     }
 
-    private func writeJournal(_ records: [StoredSourceAdmission]) throws {
-        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: records))
+    private func writeJournal(_ records: [StoredLocalChange]) throws {
+        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: records))
     }
 
-    private func stored(_ record: SourceAdmissionRecord) -> StoredSourceAdmission {
+    private func stored(_ record: LocalChange) -> StoredLocalChange {
         var update = record.update
         let updateObjects = update.objects.map(\.hash).sorted()
         update.objects = []
-        return StoredSourceAdmission(
+        return StoredLocalChange(
             change: record.change,
             tree: record.tree,
             basis: record.basis,
@@ -818,7 +850,7 @@ public actor SourceAdmissionQueue {
         )
     }
 
-    private func materialize(_ record: StoredSourceAdmission, from bytes: [String: Data]) throws -> SourceAdmissionRecord {
+    private func materialize(_ record: StoredLocalChange, from bytes: [String: Data]) throws -> LocalChange {
         func snapshot(_ stored: StoredSourceSnapshot) throws -> WireSnapshot {
             WireSnapshot(root: stored.root, objects: try stored.objects.map { hash in
                 guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
@@ -836,15 +868,15 @@ public actor SourceAdmissionQueue {
                 return WireObjectEnvelope(hash: hash, bytes: value)
             })
         }
-        return try SourceAdmissionRecord(change: record.change, tree: record.tree, basis: record.basis, graph: try snapshot(record.graph),
+        return try LocalChange(change: record.change, tree: record.tree, basis: record.basis, graph: try snapshot(record.graph),
             candidate: try snapshot(record.candidate), update: update, sourcePath: record.sourcePath, document: record.document,
             entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation, localTrash: trash)
     }
 
-    private func currentFingerprint() throws -> SourceAdmissionFingerprint? {
-        guard FileManager.default.fileExists(atPath: files.sourceAdmissionsURL.path) else { return nil }
-        let attributes = try FileManager.default.attributesOfItem(atPath: files.sourceAdmissionsURL.path)
-        return SourceAdmissionFingerprint(
+    private func currentFingerprint() throws -> ChangeLogFingerprint? {
+        guard FileManager.default.fileExists(atPath: files.changeLogURL.path) else { return nil }
+        let attributes = try FileManager.default.attributesOfItem(atPath: files.changeLogURL.path)
+        return ChangeLogFingerprint(
             size: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
             modified: (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
             inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
@@ -852,7 +884,7 @@ public actor SourceAdmissionQueue {
     }
 
     /// Validate `records` in order as successors of the already valid `retained`.
-    private static func validate(_ records: [SourceAdmissionRecord], tree: String, after retained: [SourceAdmissionRecord] = []) throws {
+    private static func validate(_ records: [LocalChange], tree: String, after retained: [LocalChange] = []) throws {
         var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
             try record.validate()
@@ -870,29 +902,29 @@ public actor SourceAdmissionQueue {
 
 /// Captured by the working-tree actor in one turn, before any later watch can
 /// change the graph. It is not reconstructed from a document's byte revision.
-public struct CapturedSourceAdmissionBasis: Sendable {
+public struct CapturedSourceBasis: Sendable {
     public let document: WorkspaceDocumentSnapshot
     public let graph: WireSnapshot
     public let accepted: WireUpdateBase?
     public let sourcePath: String
 
     /// `compact` merges adjacent plain frames of a multi-generation intent
-    /// (`SourceAdmissionRecord.compactTrace`); tests pass `false` to compare.
+    /// (`LocalChange.compactTrace`); tests pass `false` to compare.
     public func prepare(intent: WorkspaceDocumentIntent, predecessor: String? = nil,
-                        change: String = UUID().uuidString, compact: Bool = true) throws -> SourceAdmissionRecord {
+                        change: String = UUID().uuidString, compact: Bool = true) throws -> LocalChange {
         guard intent.basis.reference == document.reference,
               intent.basis.contentRevision == document.contentRevision,
               Data(intent.basis.source.utf8) == Data(document.source.utf8) else {
             throw ArborWireValidationError.invalidValue("Intent does not name the captured document basis")
         }
-        let basis: SourceAdmissionBasis
+        let basis: LocalChangeBasis
         if let accepted {
             guard predecessor == nil else { throw ArborWireValidationError.invalidValue("Cannot relabel a captured accepted basis as a local predecessor") }
             basis = .accepted(accepted)
         }
         else if let predecessor { basis = .authored(change: predecessor) }
         else { throw ArborWireValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
-        return try SourceAdmissionRecord(change: change, tree: document.reference.tree.rawValue,
+        return try LocalChange(change: change, tree: document.reference.tree.rawValue,
                                          basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, compact: compact)
     }
 }

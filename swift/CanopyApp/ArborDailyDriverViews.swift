@@ -950,11 +950,14 @@ struct ArborSyncStatusView: View {
     let retrySave: () -> Void
     let reviewDocumentConflict: () -> Void
     let syncNow: () -> Void
+    /// Discard the change Canopy refused, and every change made on top of it.
+    var discardHeldChanges: () -> Void = {}
     let reconnectArborSync: () -> Void
     let showArborSyncLogs: () -> Void
     var showNetworkLog: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingDiscard = false
 
     var body: some View {
         NavigationStack {
@@ -993,6 +996,13 @@ struct ArborSyncStatusView: View {
                     Button("Review Edit Conflict", systemImage: "exclamationmark.triangle", action: reviewDocumentConflict)
                 } else if diagnostic != nil {
                     Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                } else if sync.state == .conflict {
+                    Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
+                        .confirmationDialog("Discard the changes Canopy refused?", isPresented: $confirmingDiscard) {
+                            Button("Discard Changes", role: .destructive, action: discardHeldChanges)
+                        } message: {
+                            Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
+                        }
                 } else {
                     Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
                         .disabled(sync.state == .offline)
@@ -1108,7 +1118,7 @@ struct ArborSyncStatusView: View {
         case .downloading: "Remote changes are being downloaded."
         case .current: "This client's working tree is current."
         case .autoMerged: "Recent changes were merged automatically."
-        case .conflict: "A synchronization conflict needs a choice."
+        case .conflict: "Canopy refused a change. It is kept on this device and nothing after it is sent until it is discarded."
         case .authenticationFailure: "Reconnect the account to resume synchronization."
         case .revoked: "This device no longer has access."
         }

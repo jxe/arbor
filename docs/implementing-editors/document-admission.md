@@ -22,7 +22,7 @@ build and targets APIs that no longer exist.
 The target admission policy is [exact authored basis](../overstory-spec/09-client-synchronization.md#exact-authored-basis).
 Both reducers capture base source and revision in each admission effect. The
 durable source admission queue (`SourceAdmissionQueue` in `CanopyWorkingTree`
-and `@overstory/client`; journals described in [Canopy local state](../architecture/canopy-browser/local-state.md#source-admission-journals))
+and `@overstory/client`; journals described in [Canopy local state](../architecture/canopy-browser/local-state.md#change-logs))
 retains tree bases and explicit dependencies. Installed Canopy clients use it;
 the TypeScript session and publisher are library APIs not yet connected to an
 editor host. The `conflict` phase and `mergeLocally` effect below are legacy
