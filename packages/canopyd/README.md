@@ -24,7 +24,7 @@ depends on it except tests and the deployment tooling.
   public decision ids, guards and bindings derived from it).
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter (one question,
   staging, answer checks) and the process supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
-- `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,
+- `access.ts`, `accounts.ts`, `account-policy.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
   accounts, governed configuration (including its three-way merge), and
   resource policy.

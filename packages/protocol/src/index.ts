@@ -37,7 +37,7 @@ export * from "./documents/display-title.ts";
 export * from "./documents/merge.ts";
 
 export * from "./config/private-state.ts";
-export * from "./config/account-config-v2.ts";
+export * from "./config/account-config.ts";
 export * from "./config/resource-configuration.ts";
 export * from "./config/account-config-graph.ts";
 export * from "./config/server-config.ts";

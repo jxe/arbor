@@ -1,11 +1,11 @@
 import {
   decodeWireDirectory,
   intersectResourceRules,
-  readAccountConfigGraphV2,
+  readAccountConfigGraph,
   resourceRuleKey,
-  snapshotAccountConfigV2,
+  snapshotAccountConfig,
   stableJSONString,
-  type AccountConfigValuesV2,
+  type AccountConfigValues,
   type AccountDeviceConfiguration,
   type ObjectHash,
   type ResourceAccessRule,
@@ -14,13 +14,11 @@ import {
 import { PermissionDeniedError } from "./errors.ts";
 import type { MergeResult } from "./updates/reconcile.ts";
 
-export { readAccountConfigGraphV2, snapshotAccountConfigV2, type AccountConfigGraphV2 } from "@overstory/protocol";
-
-export function authorizeAccountConfigTransitionV2(
-  current: AccountConfigValuesV2,
-  next: AccountConfigValuesV2,
+export function authorizeAccountConfigTransition(
+  current: AccountConfigValues,
+  next: AccountConfigValues,
   deviceID: string,
-  changesFrom: AccountConfigValuesV2 = current,
+  changesFrom: AccountConfigValues = current,
 ): void {
   const currentDevice = current.devices[deviceID];
   if (!currentDevice) throw new PermissionDeniedError("Submitting device is not active in the accepted configuration");
@@ -50,7 +48,7 @@ export function authorizeAccountConfigTransitionV2(
 
 /** The comparable form of a configuration: resource rules keyed by rule
  * identity, so authoring order and the default scope spelling do not count. */
-export function semantic(graph: AccountConfigValuesV2): Record<string, any> {
+export function semantic(graph: AccountConfigValues): Record<string, any> {
   return {
     account: graph.account,
     resources: Object.fromEntries(Object.entries(graph.resources).map(([id, d]) => [id, {
@@ -118,7 +116,7 @@ function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: st
   return candidate;
 }
 
-function fromSemantic(value: Record<string, any>): AccountConfigValuesV2 {
+function fromSemantic(value: Record<string, any>): AccountConfigValues {
   const devices: Record<string, AccountDeviceConfiguration> = Object.fromEntries(Object.entries(value.devices).map(([id, raw]: [string, any]) => [id, {
     id,
     label: raw.label,
@@ -131,10 +129,10 @@ function fromSemantic(value: Record<string, any>): AccountConfigValuesV2 {
   return { account: { canopy: value.account.canopy, profile: value.account.profile }, resources, devices };
 }
 
-export function mergeAccountConfigGraphsV2(
-  base: AccountConfigValuesV2,
-  candidate: AccountConfigValuesV2,
-  remote: AccountConfigValuesV2,
+export function mergeAccountConfigGraphs(
+  base: AccountConfigValues,
+  candidate: AccountConfigValues,
+  remote: AccountConfigValues,
 ) {
   const tally: MergeTally = { conflicts: [], mergedFields: 0 };
   const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
@@ -144,7 +142,7 @@ export function mergeAccountConfigGraphsV2(
 /** The whole-tree merge for an account-configuration tree. Its files hold
  * canopyd's own policy, so canopyd merges them here rather than in the merge
  * worker; the result is authorized again before acceptance. */
-export async function mergeAccountConfigTreesV2(
+export async function mergeAccountConfigTrees(
   base: ObjectHash,
   candidate: ObjectHash,
   current: ObjectHash,
@@ -154,15 +152,15 @@ export async function mergeAccountConfigTreesV2(
     const objects = new Map<ObjectHash, Uint8Array>([[root, await load(root)]]);
     for (const entry of decodeWireDirectory(objects.get(root)!).entries)
       if (entry.file) objects.set(entry.file, await load(entry.file));
-    return readAccountConfigGraphV2({ root, objects });
+    return readAccountConfigGraph({ root, objects });
   };
   const inputs = await Promise.all([base, candidate, current].map(graphAt));
-  const merged = mergeAccountConfigGraphsV2(inputs[0]!, inputs[1]!, inputs[2]!);
+  const merged = mergeAccountConfigGraphs(inputs[0]!, inputs[1]!, inputs[2]!);
   const policyOnlyRemoval = (field: string) => {
     const match = /^resources\.([^.]+)$/.exec(field);
     return !!match && inputs.every(graph => !graph.resources[match[1]!]?.canonical);
   };
-  const output = snapshotAccountConfigV2(merged.graph);
+  const output = snapshotAccountConfig(merged.graph);
   return {
     root: output.root,
     objects: output.objects,

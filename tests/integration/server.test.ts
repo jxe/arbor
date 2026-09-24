@@ -290,7 +290,7 @@ describe("arborsync bootstrap and credential routes", () => {
     const { WireClient } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     const { generateArborID } = await import("@overstory/protocol");
-    const { readAccountConfigGraphV2, snapshotAccountConfigV2 } = await import("../../packages/canopyd/src/account-policy-v2.ts");
+    const { readAccountConfigGraph, snapshotAccountConfig } = await import("@overstory/protocol");
 
     sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
     home = join(sandbox, "home");
@@ -315,10 +315,10 @@ describe("arborsync bootstrap and credential routes", () => {
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
     const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraphV2({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
+    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
     const device = Object.values(graph.devices).find(device => device.administrator)!.id;
     tree = generateArborID("tr");
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
+    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
       resources: { ...graph.resources, [tree]: { canonical: `${canopy.url}/~owner/bootstrap`, access: [] } },
       devices: graph.devices,

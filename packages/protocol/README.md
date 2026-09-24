@@ -21,7 +21,7 @@ dependency of it. The Swift twin is `swift/Packages/Overstory`.
   and the private data-home root.
 
 Subpath exports exist for `hash`, `logical-path`, `logical-url`, `node-key`,
-`node-model`, `path`, `sse`, `utf8`, `file-ops`, and `account-config-v2`.
+`node-model`, `path`, `sse`, `utf8`, `file-ops`, and `account-config`.
 Only the plural v2 account configuration is supported.
 
 This package must not depend on the host, SQLite, server history, access

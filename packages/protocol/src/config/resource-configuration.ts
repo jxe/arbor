@@ -3,7 +3,7 @@ import { parseDocument, isAlias, visit } from "yaml";
 import {
   configurationTreeID,
   type CanopyAccountConfiguration,
-} from "./account-config-v2.ts";
+} from "./account-config.ts";
 export interface ResourceDeclaration {
   canonical?: string;
   access: ResourceAccessRule[];
@@ -61,7 +61,7 @@ export function parseResourceConfiguration(
 /** Whole-tree legacy projection is deliberately lossy and never used for scoped checks. */
 export function hostedProjection(
   resources: ResourceConfiguration
-): import("./account-config-v2.ts").HostedTreesConfiguration {
+): import("./account-config.ts").HostedTreesConfiguration {
   return Object.fromEntries(
     Object.entries(resources)
       .filter(([, d]) => d.canonical !== undefined)

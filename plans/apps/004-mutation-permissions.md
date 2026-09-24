@@ -49,7 +49,7 @@ public reads need no additional code grant. Revocation affects retries and strea
 ## Inspect before editing
 
 Read `packages/protocol/src/model/protocol.ts`, `packages/protocol/src/config/account-config-graph.ts`,
-`packages/canopyd/src/account-policy-v2.ts` (authorization and the account-configuration merge), `host.ts`, access/group evaluation,
+`packages/canopyd/src/account-policy.ts` (authorization and the account-configuration merge), `host.ts`, access/group evaluation,
 update acceptance and watch/object handlers. Inspect `tests/unit/account-config-v2.test.ts`,
 `tests/unit/canopyd/group-access.test.ts`, source acceptance tests, Swift Overstory
 and configuration consumers, conformance account fixtures, and `packages/canopyd/migrations/README.md`.

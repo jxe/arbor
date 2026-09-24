@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CanopyAccountStore, saveCurrentAccountDeviceID, type WireClient } from "@overstory/protocol";
-import { readAccountConfigGraphV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
+import { readAccountConfigGraph } from "@overstory/protocol";
 
 /** Install the host's actual v2 checkout and local-only placements in a disposable home. */
 export async function installAccountHome(home: string, client: WireClient, device: string, credential: string, placements: Record<string, string>) {
@@ -9,7 +9,7 @@ export async function installAccountHome(home: string, client: WireClient, devic
   const configurationTree = account.configuration.id;
   const descriptor = await client.descriptor(configurationTree);
   const snapshot = await client.snapshot(configurationTree, descriptor.tree.root);
-  const graph = readAccountConfigGraphV2(snapshot, configurationTree);
+  const graph = readAccountConfigGraph(snapshot, configurationTree);
   const checkout = join(home, "accounts", configurationTree);
   await mkdir(checkout, { recursive: true });
   for (const [path, source] of Object.entries(graph.sources)) await writeFile(join(checkout, path), source);

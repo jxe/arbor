@@ -45,13 +45,8 @@ import {
   type UpdateResponse,
   type UpdateResult,
 } from "@overstory/protocol";
-import {
-  authorizeAccountConfigTransitionV2,
-  mergeAccountConfigTreesV2,
-  readAccountConfigGraphV2,
-  snapshotAccountConfigV2,
-  type AccountConfigGraphV2,
-} from "./account-policy-v2.ts";
+import { readAccountConfigGraph, snapshotAccountConfig, type AccountConfigGraph } from "@overstory/protocol";
+import { authorizeAccountConfigTransition, mergeAccountConfigTrees } from "./account-policy.ts";
 import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
@@ -146,14 +141,14 @@ function decisionPage<T extends { id: string }>(
   return { selected, next };
 }
 
-function graphTrees(graph: AccountConfigGraphV2): Record<string, { canonicalPath: string; access: AccessRule[] }> {
+function graphTrees(graph: AccountConfigGraph): Record<string, { canonicalPath: string; access: AccessRule[] }> {
   return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
     canonicalPath: new URL(declaration.canonical).pathname,
     access: declaration.access,
   }]));
 }
 
-function graphAdministrators(graph: AccountConfigGraphV2): string[] {
+function graphAdministrators(graph: AccountConfigGraph): string[] {
   return Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id);
 }
 
@@ -664,8 +659,8 @@ export class CanopyDaemon implements AsyncDisposable {
       ...current.devices,
       [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false },
     } };
-    const nextSnapshot = snapshotAccountConfigV2(next);
-    readAccountConfigGraphV2(nextSnapshot, account.configTree!);
+    const nextSnapshot = snapshotAccountConfig(next);
+    readAccountConfigGraph(nextSnapshot, account.configTree!);
     const configTree = this.get(account.configTree!)!;
     const staged = new Map(nextSnapshot.objects);
     const entry = await this.internalEntry(configTree.id, this.update(expectedUpdate)!, nextSnapshot.root, `pairing:${id}`, staged);
@@ -774,7 +769,7 @@ export class CanopyDaemon implements AsyncDisposable {
         resources: declarations,
         devices,
       };
-      const snapshot = snapshotAccountConfigV2(graph);
+      const snapshot = snapshotAccountConfig(graph);
       const configID = generateArborID("tr");
       await this.validateGraph(snapshot.root, snapshot.objects);
       const staged = new Map(snapshot.objects);
@@ -788,7 +783,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraphV2, next: AccountConfigGraphV2): void {
+  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraph, next: AccountConfigGraph): void {
     const now = Date.now();
     for (const id of Object.keys(current.devices)) {
       if (!next.devices[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, accountID]);
@@ -857,7 +852,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** Replace an account's governed rules with its configuration's; callers run this inside their transaction. */
-  private writeResourcePolicy(accountID: string, resources: AccountConfigGraphV2["resources"]): void {
+  private writeResourcePolicy(accountID: string, resources: AccountConfigGraph["resources"]): void {
     this.db.run("DELETE FROM resource_policy WHERE account_id = ?", [accountID]);
     for (const [tree, declaration] of Object.entries(resources)) {
       this.db.run("INSERT INTO resource_policy (account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
@@ -874,12 +869,12 @@ export class CanopyDaemon implements AsyncDisposable {
     if (reserved.changes !== 1) throw new Error(`TreeID is reserved by another account: ${id}`);
   }
 
-  private async accountConfigGraph(account: CanopyAccount): Promise<AccountConfigGraphV2> {
+  private async accountConfigGraph(account: CanopyAccount): Promise<AccountConfigGraph> {
     if (!account.configTree) throw new Error("Account configuration tree is missing");
     const tree = this.get(account.configTree);
     if (!tree) throw new Error("Account configuration tree is missing");
     const snapshot = await this.objects.completeSnapshot(tree.ref);
-    return readAccountConfigGraphV2(snapshot, tree.id);
+    return readAccountConfigGraph(snapshot, tree.id);
   }
 
   private async activateTree(
@@ -1033,7 +1028,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
     }
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
-    const config = readAccountConfigGraphV2(input.configurationSnapshot, input.configurationTree);
+    const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
     this.validateCurrentCanopyAccountPaths(input.handle, config);
     if (config.account.canopy !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the target server");
     if (config.account.profile !== input.profileTree) {
@@ -1728,16 +1723,16 @@ export class CanopyDaemon implements AsyncDisposable {
   ): UpdatePolicy {
     const { account, subject: credentialSubject } = this.configurationCaller(tree, caller, credential);
     const deviceID = credentialSubject.slice("device:".length);
-    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraphV2> => {
+    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraph> => {
       const snapshot = await this.objects.completeSnapshot(root, objects);
-      return readAccountConfigGraphV2(snapshot, tree.id);
+      return readAccountConfigGraph(snapshot, tree.id);
     };
-    let baseGraph: AccountConfigGraphV2;
-    let candidateGraph: AccountConfigGraphV2;
-    let currentGraph: AccountConfigGraphV2;
-    let nextGraph: AccountConfigGraphV2;
-    const authorize = (current: AccountConfigGraphV2, next: AccountConfigGraphV2, changesFrom: AccountConfigGraphV2) => {
-      authorizeAccountConfigTransitionV2(current, next, deviceID, changesFrom);
+    let baseGraph: AccountConfigGraph;
+    let candidateGraph: AccountConfigGraph;
+    let currentGraph: AccountConfigGraph;
+    let nextGraph: AccountConfigGraph;
+    const authorize = (current: AccountConfigGraph, next: AccountConfigGraph, changesFrom: AccountConfigGraph) => {
+      authorizeAccountConfigTransition(current, next, deviceID, changesFrom);
     };
     return {
       subject: credentialSubject,
@@ -1753,7 +1748,7 @@ export class CanopyDaemon implements AsyncDisposable {
         authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       // Unreadable inputs reject the update as a whole-root policy conflict.
-      merge: (base, candidate, current, load) => mergeAccountConfigTreesV2(base, candidate, current, load)
+      merge: (base, candidate, current, load) => mergeAccountConfigTrees(base, candidate, current, load)
         .catch(() => ({ root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: "account-configuration" }], unresolvedDirectories: ["/"] })),
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
@@ -2018,7 +2013,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return { parent, ...rewrite };
   }
 
-  private async prepareAccountBoundaryRewrites(current: AccountConfigGraphV2, next: AccountConfigGraphV2) {
+  private async prepareAccountBoundaryRewrites(current: AccountConfigGraph, next: AccountConfigGraph) {
     const grouped = new Map<string, { removals: Array<{ path: string; tree: string }>; additions: Array<{ path: string; tree: string }> }>();
     const group = (parent: string) => {
       const value = grouped.get(parent) ?? { removals: [], additions: [] };
@@ -2162,7 +2157,7 @@ export class CanopyDaemon implements AsyncDisposable {
    * declare paths below any /~name that no person has reserved or claimed,
    * so top-level names can address groups or any other tree.
    */
-  private validateCurrentCanopyAccountPaths(handle: string, graph: AccountConfigGraphV2, existingAccount?: CanopyAccount): void {
+  private validateCurrentCanopyAccountPaths(handle: string, graph: AccountConfigGraph, existingAccount?: CanopyAccount): void {
     const root = `/~${handle}`;
     const administersCommunity = !!existingAccount && this.canWrite(existingAccount, this.community().id);
     for (const [treeID, declaration] of Object.entries(graph.trees)) {

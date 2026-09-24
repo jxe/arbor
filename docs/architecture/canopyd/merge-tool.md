@@ -178,7 +178,7 @@ shows the current tree, and the failure goes to stderr.
 
 The three account-configuration files are canopyd's policy: it parses them, authorizes
 every change before and after merging, and writes them itself. So their three-way merge
-is in canopyd (`packages/canopyd/src/account-policy-v2.ts`), beside that authorization,
+is in canopyd (`packages/canopyd/src/account-policy.ts`), beside that authorization,
 and the sidecar has no account rule. canopyd then asks the sidecar a question authored on
 the head with the merged root as candidate, and adds a restrictive access-policy choice
 to the entry itself. Parsing and the canonical three-file writer are in

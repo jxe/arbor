@@ -9,7 +9,7 @@ import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveCanopy } from "@overstory/canopyd";
 import { CanopyAccountStore, generateArborID, sha256, type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
-import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
+import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
 import {
   appendPendingTreeSuccessor,
   pendingFromSnapshot,
@@ -94,13 +94,13 @@ beforeAll(async () => {
   const owner = new WireClient(host.url, token);
   const initialAccount = await owner.account();
   let configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  let graph = readAccountConfigGraphV2({
+  let graph = readAccountConfigGraph({
     root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   deviceA = Object.values(graph.devices).find(device => device.administrator)!.id;
   tree = generateArborID("tr");
-  const reserved = snapshotAccountConfigV2({
+  const reserved = snapshotAccountConfig({
     account: graph.account,
     resources: {
       ...graph.resources,
@@ -119,7 +119,7 @@ beforeAll(async () => {
     credentialDigest: `sha256:${sha256(tokenB)}`,
   });
   configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  graph = readAccountConfigGraphV2({
+  graph = readAccountConfigGraph({
     root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);

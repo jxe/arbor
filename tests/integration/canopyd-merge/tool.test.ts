@@ -9,7 +9,7 @@ import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { mergeWireTrees } from "../../../packages/canopyd-merge/src/merge.ts";
-import { snapshotAccountConfigV2 } from "@overstory/protocol";
+import { snapshotAccountConfig } from "@overstory/protocol";
 import fixtures from "../../fixtures/canopy/wire-merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
@@ -70,7 +70,7 @@ test.each(fixtures.markdownCases)("a snapshot question keeps the tree merge's ou
 
 test("unknown rules are a typed refusal", async () => {
   const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  const config = snapshotAccountConfigV2({ account: { canopy: "https://canopy.example", profile }, resources: {}, devices: {
+  const config = snapshotAccountConfig({ account: { canopy: "https://canopy.example", profile }, resources: {}, devices: {
     [admin]: { id: admin, label: "Mac", administrator: true },
   } });
   const { question, inputs } = await prepare(config, config, config, "account-config-v2");

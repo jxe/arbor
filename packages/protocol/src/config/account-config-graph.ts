@@ -13,12 +13,12 @@ import {
   type AccountDeviceConfiguration,
   type CanopyAccountConfiguration,
   type HostedTreesConfiguration,
-} from "./account-config-v2.ts";
+} from "./account-config.ts";
 import { hostedProjection, parseResourceConfiguration, type ResourceConfiguration } from "./resource-configuration.ts";
 
 /** One account-configuration tree: `account.yaml`, `trees.yaml` and
  * `devices.yaml`, parsed, with their authored sources. */
-export interface AccountConfigGraphV2 {
+export interface AccountConfigGraph {
   account: CanopyAccountConfiguration;
   trees: HostedTreesConfiguration;
   /** `trees.yaml`; `trees` is its hosted-tree projection. */
@@ -38,7 +38,7 @@ function object(snapshot: TreeSnapshot, hash: ObjectHash, path: string) {
   return bytes;
 }
 
-export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTree?: string): AccountConfigGraphV2 {
+export function readAccountConfigGraph(snapshot: TreeSnapshot, configurationTree?: string): AccountConfigGraph {
   const root = decodeWireDirectory(object(snapshot, snapshot.root, "/"));
   if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
   const allowed = new Set(["account.yaml", "trees.yaml", "devices.yaml"]);
@@ -65,7 +65,7 @@ export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTr
 }
 
 /** The authored values of an account-configuration tree; `trees` is derived. */
-export type AccountConfigValuesV2 = Pick<AccountConfigGraphV2, "account" | "resources" | "devices">;
+export type AccountConfigValues = Pick<AccountConfigGraph, "account" | "resources" | "devices">;
 
 function yaml(value: unknown): string {
   return stringify(value, { aliasDuplicateObjects: false, lineWidth: 0, sortMapEntries: true });
@@ -73,7 +73,7 @@ function yaml(value: unknown): string {
 
 /** Canonical authored files. yaml() sorts every map by key, so the inputs
  * need no ordering of their own. */
-function accountConfigSourcesV2(graph: AccountConfigValuesV2): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
+function accountConfigSources(graph: AccountConfigValues): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
   const devices = Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
     label: device.label,
     ...(device.administrator ? { administrator: true } : {}),
@@ -85,7 +85,7 @@ function accountConfigSourcesV2(graph: AccountConfigValuesV2): Record<"account.y
   };
 }
 
-export function snapshotAccountConfigV2(graph: AccountConfigValuesV2): TreeSnapshot {
+export function snapshotAccountConfig(graph: AccountConfigValues): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const file = (source: string): ObjectHash => {
     const bytes = new TextEncoder().encode(source);
@@ -93,7 +93,7 @@ export function snapshotAccountConfigV2(graph: AccountConfigValuesV2): TreeSnaps
     objects.set(hash, bytes);
     return hash;
   };
-  const sources = accountConfigSourcesV2(graph);
+  const sources = accountConfigSources(graph);
   const rootBytes = encodeWireDirectory({ type: "directory", entries: [
     { name: "account.yaml", file: file(sources["account.yaml"]) },
     { name: "devices.yaml", file: file(sources["devices.yaml"]) },

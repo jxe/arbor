@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveCanopy } from "@overstory/canopyd";
 import { generateArborID, WireClient, decodeWireDirectory, type SourceOperation } from "@overstory/protocol";
-import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
+import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
@@ -64,13 +64,13 @@ try {
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
     const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraphV2({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
+    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
     const device = Object.values(graph.devices).find(device => device.administrator)!.id;
     const tree = generateArborID("tr");
     const sourceTree = generateArborID("tr");
     const crossDocumentTree = generateArborID("tr");
     const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
+    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
       resources: { ...graph.resources,
         [tree]: { canonical: `${canopy.url}/~owner/protocol`, access: [] },

@@ -13,9 +13,9 @@ import { MergeWorkerError } from "../../../packages/canopyd/src/merge-tool.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
-  readAccountConfigGraphV2,
-  snapshotAccountConfigV2,
-} from "../../../packages/canopyd/src/account-policy-v2.ts";
+  readAccountConfigGraph,
+  snapshotAccountConfig,
+} from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
@@ -46,7 +46,7 @@ async function currentConfig() {
   const account = await client.account();
   const current = await client.descriptor(account.account.configuration.id);
   const snapshot = await client.snapshot(current.tree.id, current.tree.root);
-  const graph = readAccountConfigGraphV2({
+  const graph = readAccountConfigGraph({
     root: snapshot.root,
     objects: snapshot.objects,
   }, account.account.configuration.id);
@@ -55,9 +55,9 @@ async function currentConfig() {
 
 async function submitConfiguration(
   current: Awaited<ReturnType<typeof currentConfig>>["current"],
-  graph: Parameters<typeof snapshotAccountConfigV2>[0],
+  graph: Parameters<typeof snapshotAccountConfig>[0],
 ) {
-  const snapshot = snapshotAccountConfigV2(graph);
+  const snapshot = snapshotAccountConfig(graph);
   return client.submitUpdate(
     current.tree.id,
     current.tree.update,
@@ -117,7 +117,7 @@ describe("governed account-configuration Canopy server", () => {
   test("accepted prefix transport deltas are not reconstructed again", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = (label: string) => snapshotAccountConfigV2({ ...baseline.graph,
+    const candidate = (label: string) => snapshotAccountConfig({ ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label } },
     });
     const element = (snapshot: ReturnType<typeof candidate>) => ({
@@ -154,7 +154,7 @@ describe("governed account-configuration Canopy server", () => {
         [administrator]: { ...graphOne.devices[administrator]!, label: `Cumulative two ${crypto.randomUUID()}` },
       },
     };
-    const snapshots = [snapshotAccountConfigV2(graphOne), snapshotAccountConfigV2(graphTwo)];
+    const snapshots = [snapshotAccountConfig(graphOne), snapshotAccountConfig(graphTwo)];
     const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), trace: null,
       candidate: snapshot.root,
       resolves: [],
@@ -182,7 +182,7 @@ describe("governed account-configuration Canopy server", () => {
   test("exact-state guards reject same-root advancement but historical retries precede guards", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = snapshotAccountConfigV2({
+    const candidate = snapshotAccountConfig({
       ...baseline.graph,
       devices: {...baseline.graph.devices, [administrator]: {...baseline.graph.devices[administrator]!, label: `Guarded ${crypto.randomUUID()}`}},
     });
@@ -209,7 +209,7 @@ describe("governed account-configuration Canopy server", () => {
   test.each([false, true])("a later accepted digest proves a no-op prefix (activation=%s)", async (activation) => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = snapshotAccountConfigV2({...baseline.graph,devices:{...baseline.graph.devices,
+    const candidate = snapshotAccountConfig({...baseline.graph,devices:{...baseline.graph.devices,
       [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}});
     const request = {base:activation ? null : baseline.current.tree.update,updates:[{
       change:crypto.randomUUID(),candidate:baseline.snapshot.root,trace:null,resolves:[],
@@ -230,7 +230,7 @@ describe("governed account-configuration Canopy server", () => {
   test("unsupported operations reject a complete batch before its valid prefix changes authority", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const snapshot = snapshotAccountConfigV2({
+    const snapshot = snapshotAccountConfig({
       ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: "Must not be accepted" } },
     });
