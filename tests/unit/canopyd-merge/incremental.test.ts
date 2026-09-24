@@ -280,11 +280,13 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
   if (fast.outcome !== "evaluated" || full.outcome !== "evaluated") throw Error("Evaluation failed");
   expect(fast.result).toEqual(full.result);
   expect(fast.authored).toEqual(full.authored);
+  // The fast path still reads the edited file. A store verifies what it
+  // returns, so a corrupt object is its failure to evaluate, not a refusal.
   const damaged = {...objects, read: async (hash: string) => {
-    if (hash === f.put("abc")) return new TextEncoder().encode("corrupt");
+    if (hash === f.put("abc")) throw new Error(`Stored object hash mismatch: ${hash}`);
     return objects.read(hash);
   }};
-  expect((await mergeIntent(request, damaged)).outcome).toBe("invalid");
+  await expect(mergeIntent(request, damaged)).rejects.toThrow("hash mismatch");
   expect((await mergeIntent({...request, incoming: {...request.incoming, object: base}}, objects)).outcome).toBe("invalid");
   expect((await mergeIntent({...request, incoming: {...request.incoming, trace: [{...request.incoming.trace[0]!, operations: [
     {kind: "editSource", key: "bad", source: f.ref("/a.md", "wrong", [1, 2]), text: "B"},

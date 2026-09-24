@@ -2,6 +2,7 @@
 import { resolve } from "node:path";
 import { holdsObject, ObjectStore } from "@overstory/object-store";
 import { MergeRefusal } from "@overstory/merge-protocol";
+import { EvaluationFailure } from "./engine-contract.ts";
 import { IntentError } from "./intent-model.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
 import { Sidecar } from "./sidecar.ts";
@@ -62,9 +63,15 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
     try {
       response = await sidecar.answer(JSON.parse(line));
     } catch (error) {
+      // A refusal is a property of the question; anything else is a failure
+      // to answer it. A time budget is such a failure, reported with its
+      // `limit` code so canopyd can offer a retry.
       response = error instanceof MergeRefusal || error instanceof IntentError
         ? { refusal: { code: error.code, message: error.message } }
-        : { error: { message: error instanceof Error ? error.message : "Merge evaluation failed" } };
+        : { error: {
+            message: error instanceof Error ? error.message : "Merge evaluation failed",
+            ...(error instanceof EvaluationFailure && error.code ? { code: error.code } : {}),
+          } };
     }
     // Diagnostics only: no request content or hashes.
     process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, ...engineDiagnostics } }) + "\n");

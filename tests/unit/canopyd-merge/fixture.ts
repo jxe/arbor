@@ -6,6 +6,7 @@ import {
   type SourceOperation,
   type WireDirectoryEntry,
 } from "@overstory/protocol";
+import { MergeRefusal } from "@overstory/merge-protocol";
 import { mergeIntent } from "@overstory/canopyd-merge";
 import type {
   Frame,
@@ -125,9 +126,11 @@ export class Fixture {
   }
   evaluate(r: IntentRequestInput) {
     return mergeIntent(r, {
+      // Verifies as the sidecar's stores do: the engine does not hash again.
       read: async (hash) => {
         const b = this.objects.get(hash);
-        if (!b) throw new Error("missing");
+        if (!b) throw new MergeRefusal("missing-context", `Object is unavailable: ${hash}`);
+        if (hashObject(b) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
         return b;
       },
       store: async (objects) => {

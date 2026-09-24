@@ -12,7 +12,9 @@ import {
   type WireDirectory,
 } from "@overstory/protocol";
 import type { MergeObjects } from "./index.ts";
-import type { CheckpointRequest, CheckpointResponse } from "./engine-contract.ts";
+import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse } from "./engine-contract.ts";
+import { MergeRefusal } from "@overstory/merge-protocol";
+import { OBJECT_HASH } from "./state-value.ts";
 import {
   IntentError,
   alternativeKey,
@@ -123,6 +125,23 @@ const fail = (message: string): never => {
 const missing = (message: string): never => {
   throw new IntentError("missing-context", message);
 };
+/** The guard of every "try this, else fall back" in the engine. Material that
+ * no longer corresponds (an `invalid` or `unsupported` refusal, or the
+ * engine's own control-flow errors) lets the caller fall back. A budget, a
+ * missing object and a failure to evaluate at all propagate: falling back on
+ * them would make the answer depend on load or on what is cached. */
+const rethrowUnlessFallback = (error: unknown): void => {
+  if (
+    error instanceof EvaluationFailure ||
+    (error instanceof IntentError && (error.code === "limit" || error.code === "missing-context"))
+  )
+    throw error;
+};
+/** Whether a store's read failure means the object is absent: the sidecar's
+ * reader refuses with `missing-context`, a plain object store reports ENOENT. */
+const absent = (error: unknown): boolean =>
+  ((error instanceof MergeRefusal || error instanceof IntentError) && error.code === "missing-context") ||
+  (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 const components = (path: string): string[] => {
   if (
     !path.startsWith("/") ||
@@ -208,20 +227,26 @@ class Engine {
       performance.now() - this.started >
       (this.request.rules.config?.maxMillis ?? 5000)
     )
-      throw new IntentError("limit", "Evaluation time budget exceeded");
+      throw new EvaluationFailure("Evaluation time budget exceeded", "limit");
   }
   constructor(readonly request: IntentRequest, readonly store: MergeObjects) {}
   async read(hash: string): Promise<Uint8Array> {
     this.checkBudget();
     const known = this.generated.get(hash) ?? this.cache.get(hash);
     if (known) return known;
+    if (!OBJECT_HASH.test(hash)) return fail("Invalid object reference");
     let bytes: Uint8Array;
     try {
+      // Every store the engine reads through verifies what it returns (see
+      // MergeObjects), so the bytes are not hashed again here.
       bytes = await this.store.read(hash);
-    } catch {
-      return missing(`Missing object ${hash}`);
+    } catch (error) {
+      if (absent(error)) return missing(`Missing object ${hash}`);
+      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
+      throw new EvaluationFailure(
+        `Object store failed reading ${hash}: ${error instanceof Error ? error.message : String(error)}`,
+        undefined, { cause: error });
     }
-    if (hashObject(bytes) !== hash) return fail("Object hash mismatch");
     this.readBytes += bytes.length;
     if (
       this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
@@ -348,7 +373,7 @@ class Engine {
         ? await loadLazyIntentState(ref.state, (hash) => this.read(hash))
         : await loadIntentState(ref.state, (hash) => this.read(hash));
     } catch (error) {
-      if (error instanceof IntentError) throw error;
+      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
       return fail("Invalid material state");
     }
     // An accepted input pair was validated by the host when it was accepted,
@@ -1051,8 +1076,7 @@ class Engine {
               };
               decision.affected = [destination.id];
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit")
-                throw error;
+              rethrowUnlessFallback(error);
               /* A partial choice is enclosed by the lifecycle pass. */
             }
           }
@@ -1417,7 +1441,7 @@ class Engine {
               const at = this.locate(target.pieces, child.placement.pieces, [0, length(child.placement.pieces)]);
               child.placement.anchor = at[0];
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit") throw error;
+              rethrowUnlessFallback(error);
               child.context = oldState;
             }
           }
@@ -1449,8 +1473,7 @@ class Engine {
               )
                 parent.placement.pieces = clone(fragment.pieces);
             } catch (error) {
-              if (error instanceof IntentError && error.code === "limit")
-                throw error;
+              rethrowUnlessFallback(error);
             }
           } else if (parent.kind !== "content") {
             branch.object = result.object;
@@ -1734,8 +1757,7 @@ class Engine {
             placement.pieces = clone(node.pieces);
             placement.anchor = at[0];
           } catch (error) {
-            if (error instanceof IntentError && error.code === "limit")
-              throw error;
+            rethrowUnlessFallback(error);
             wrapped.add(decision.key);
             continue;
           }
@@ -1954,11 +1976,7 @@ class Engine {
           await this.project(attempt);
           transported = attempt;
         } catch (error) {
-          if (
-            error instanceof IntentError &&
-            ["limit", "missing-context"].includes(error.code)
-          )
-            throw error;
+          rethrowUnlessFallback(error);
         }
       }
       const merged = cloneState(current),
@@ -2049,7 +2067,7 @@ class Engine {
               let at: [number, number];
               try { at = this.locate(before.pieces, node.pieces, [0, length(node.pieces)]); }
               catch (error) {
-                if (error instanceof IntentError && error.code === "limit") throw error;
+                rethrowUnlessFallback(error);
                 continue;
               }
               if (!changed.length || changed.some(e => e.range[0] < at[0] || e.range[1] > at[1])) continue;
@@ -2400,7 +2418,7 @@ class Engine {
                             : [d.placement.anchor, d.placement.anchor];
                           return overlap({range: [start, end], pieces: []}, {range: [at[0]!, at[1]!], pieces: []});
                         } catch (error) {
-                          if (error instanceof IntentError && error.code === "limit") throw error;
+                          rethrowUnlessFallback(error);
                           return true;
                         }
                       })
@@ -2446,7 +2464,7 @@ class Engine {
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
-        if (error instanceof IntentError && error.code === "limit") throw error;
+        rethrowUnlessFallback(error);
         affected.push(merged.root);
       }
       if (affected.length) {
@@ -2611,8 +2629,7 @@ class Engine {
           ]);
           decision.placement.anchor = at[0];
         } catch (error) {
-          if (error instanceof IntentError && error.code === "limit")
-            throw error;
+          rethrowUnlessFallback(error);
           continuedContext ??= await recordCurrent();
           decision.context = continuedContext.state;
         }
@@ -2654,8 +2671,7 @@ class Engine {
             ]);
             matches.push({ node, range });
           } catch (error) {
-            if (error instanceof IntentError && error.code === "limit")
-              throw error;
+            rethrowUnlessFallback(error);
           }
         }
         if (matches.length !== 1)
@@ -2822,13 +2838,11 @@ export async function mergeIntent(
     );
     return result;
   } catch (error) {
+    // A typed refusal is an outcome; anything else, including a failure to
+    // evaluate, is the caller's to report.
     if (error instanceof IntentError)
       return { outcome: error.code, message: error.message };
-    return {
-      outcome: "invalid",
-      message:
-        error instanceof Error ? error.message : "Invalid intent request",
-    };
+    throw error;
   }
 }
 
@@ -2984,7 +2998,9 @@ export async function checkpointIntent(
             length(decision.placement.pieces),
           ]);
           continue;
-        } catch {}
+        } catch (error) {
+          rethrowUnlessFallback(error);
+        }
         // A current-basis snapshot edits the selected whole-file alternative. It
         // does not resolve the sibling, nor claim lineage for its replacement bytes.
         const old = previous.nodes[decision.placement.node];
@@ -3123,7 +3139,9 @@ export async function checkpointIntent(
             fail("Checkpoint decision path is absent");
         return node;
       };
-      const find = (view: View) => { try { return locate(view); } catch { return undefined; } };
+      const find = (view: View) => {
+        try { return locate(view); } catch (error) { rethrowUnlessFallback(error); return undefined; }
+      };
       const contexts = await Promise.all(input.alternatives.map((a) => engine.initial(a.object)));
       if (contexts.some((context) => !find(context))) {
         // Deleted in one alternative: a choice about this file's existence.

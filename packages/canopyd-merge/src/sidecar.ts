@@ -14,6 +14,7 @@ import {
 import type { MergeObjects } from "./index.ts";
 import type { CheckpointRequest, IntentRequest } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
+import { IntentError } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeWireTrees } from "./merge.ts";
 import { snapshotDecisions } from "./snapshot.ts";
@@ -28,7 +29,9 @@ interface Cached {
 }
 
 /** Where the sidecar reads accepted objects and writes an answer's new ones.
- * `shared` is canopyd's store (read-only); `staging` is this question's. */
+ * `shared` is canopyd's store (read-only); `staging` is this question's.
+ * `find` returns an object's verified bytes, or null when it is absent; a
+ * corrupt object is an error, never bytes (as `ObjectStore.find` does). */
 export interface SidecarStores {
   shared: { find(hash: string): Promise<Uint8Array | null>; has(hash: string): Promise<boolean> };
   staging: { find(hash: string): Promise<Uint8Array | null>; stage(values: Array<{ hash: string; bytes: Uint8Array }>): Promise<void> };
@@ -104,9 +107,9 @@ export class Sidecar {
   private async entry(hash: string): Promise<LogEntry> {
     let entry = this.entries.get(hash);
     if (!entry) {
-      const bytes = await this.objects.read(hash);
-      if (hashObject(bytes) !== hash) throw new Error(`Log entry hash mismatch: ${hash}`);
-      entry = decodeLogEntry(bytes);
+      // Not hashed again: stores verify what they return, and memory holds
+      // only objects this process generated under their own hash.
+      entry = decodeLogEntry(await this.objects.read(hash));
       this.entries.set(hash, entry);
     }
     return entry;
@@ -208,8 +211,13 @@ export class Sidecar {
         const solved = await this.solve(question, asked ? this.rules(asked) : rules);
         state = { ...solved.result, decisions: await logDecisions(this.io, solved.result.object, solved.reports) };
       }
-    } catch {
-      // An entry its question no longer explains is aligned to as a fact.
+    } catch (error) {
+      // An entry its question no longer explains (a refusal, which is a
+      // property of the question) is aligned to as a fact. A failure to
+      // evaluate is not: a time budget or a store failure could pass on a
+      // retry, and aligning past it would make the cached state depend on
+      // load. Those, and anything unexpected, fail this question instead.
+      if (!(error instanceof MergeRefusal || error instanceof IntentError)) throw error;
     }
     return this.align(entry, state);
   }

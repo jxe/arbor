@@ -133,6 +133,17 @@ export class IntentError extends Error {
   }
 }
 
+/** A failure to evaluate, not a refusal: the evaluation ran out of time
+ * (`limit`), or the object store failed. Neither is a property of the
+ * question, so the answer could differ on a retry. The sidecar reports it as
+ * `{error}`, and no fallback inside the engine absorbs it. */
+export class EvaluationFailure extends Error {
+  constructor(message: string, readonly code?: "limit", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "EvaluationFailure";
+  }
+}
+
 /** An authored evaluation's result: the merged state, the author's own
  * state, the objects it generated and its decisions as reports. */
 export interface IntentEvaluation {
