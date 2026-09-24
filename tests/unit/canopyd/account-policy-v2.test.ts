@@ -7,16 +7,17 @@ import {
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
 } from "../../../packages/canopyd/src/account-policy-v2.ts";
+import type { AccountConfigValuesV2 } from "@overstory/protocol";
 
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const tree = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const phone = "dv_bbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-function graph(): Omit<AccountConfigGraphV2, "sources"> {
+function graph(): AccountConfigValuesV2 {
   return {
     account: { canopy: "https://canopy.example", profile },
-    trees: { [tree]: { canonical: "https://canopy.example/~joe/notes", access: [] } },
+    resources: { [tree]: { canonical: "https://canopy.example/~joe/notes", access: [] } },
     devices: {
       [admin]: { id: admin, label: "Mac", administrator: true },
       [phone]: { id: phone, label: "Phone", administrator: false },
@@ -95,21 +96,9 @@ describe("resource policy configuration", () => {
   });
 });
 
-test("legacy-only device merges do not implicitly migrate trees.yaml", () => {
-  const base = roundTrip();
-  const candidate = structuredClone(base);
-  candidate.devices[phone]!.label = "iPhone";
-  const remote = structuredClone(base);
-  remote.devices[admin]!.label = "MacBook";
-  const merged = mergeAccountConfigGraphsV2(base, candidate, remote);
-  expect(merged.conflicts).toEqual([]);
-  expect(merged.graph.resources).toBeUndefined();
-  expect(readAccountConfigGraphV2(snapshotAccountConfigV2(merged.graph)).resources).toBeUndefined();
-});
-
 test("spelling the default scope explicitly is not a competing policy edit", () => {
   const initial = graph();
-  const base = roundTrip({ ...initial, resources: { [tree]: { canonical: initial.trees[tree]!.canonical,
+  const base = roundTrip({ ...initial, resources: { [tree]: { canonical: initial.resources[tree]!.canonical,
     access: [{ who: "me", via: "tr_supplies", allow: ["read"] }] } } });
   const candidate = structuredClone(base);
   candidate.resources![tree]!.access[0]!.within = "/";

@@ -320,7 +320,7 @@ describe("arborsync bootstrap and credential routes", () => {
     tree = generateArborID("tr");
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
       account: graph.account,
-      trees: { ...graph.trees, [tree]: { canonical: `${canopy.url}/~owner/bootstrap`, access: [] } },
+      resources: { ...graph.resources, [tree]: { canonical: `${canopy.url}/~owner/bootstrap`, access: [] } },
       devices: graph.devices,
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));

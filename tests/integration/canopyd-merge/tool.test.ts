@@ -50,7 +50,7 @@ test.each(fixtures.markdownCases)("subprocess preserves exact legacy rule output
 
 test("account configuration is not a merge-tool rule", async () => {
   const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  const config = snapshotAccountConfigV2({ account: { canopy: "https://canopy.example", profile }, trees: {}, devices: {
+  const config = snapshotAccountConfigV2({ account: { canopy: "https://canopy.example", profile }, resources: {}, devices: {
     [admin]: { id: admin, label: "Mac", administrator: true },
   } });
   const { request, inputs } = await prepare(config, config, config, "account-config-v2");

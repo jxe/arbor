@@ -102,8 +102,8 @@ beforeAll(async () => {
   tree = generateArborID("tr");
   const reserved = snapshotAccountConfigV2({
     account: graph.account,
-    trees: {
-      ...graph.trees,
+    resources: {
+      ...graph.resources,
       [tree]: { canonical: `${host.url}/~owner/self-sync`, access: [] },
     },
     devices: graph.devices,

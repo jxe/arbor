@@ -6,7 +6,7 @@
       "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "files": {
         "account.yaml": "canopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n",
-        "trees.yaml": "tr_cccccccccccccccccccccccccc:\n  canonical: https://canopy.example/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n",
+        "trees.yaml": "tr_cccccccccccccccccccccccccc:\n  canonical: https://canopy.example/~joe/notes\n  access:\n    - who: everyone\n      allow: [read]\n",
         "devices.yaml": "dv_dddddddddddddddddddddddddd:\n  label: Joe's Mac\n  administrator: true\ndv_eeeeeeeeeeeeeeeeeeeeeeeeee:\n  label: Joe's iPhone\n"
       }
     },
@@ -31,6 +31,7 @@
   ],
   "invalid": [
     { "name": "duplicate-key", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc: { canonical: https://canopy.example/~joe/notes, access: [] }\ntr_cccccccccccccccccccccccccc: { canonical: https://canopy.example/~joe/other, access: [] }\n", "code": "invalid-trees-yaml" },
+    { "name": "subject-access-rule", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc:\n  canonical: https://canopy.example/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n", "code": "invalid-trees-yaml" },
     { "name": "alias", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc: &tree { canonical: https://canopy.example/~joe/notes, access: [] }\ntr_kkkkkkkkkkkkkkkkkkkkkkkkkk: *tree\n", "code": "invalid-trees-yaml" },
     { "name": "author-version", "path": "account.yaml", "source": "version: 2\ncanopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n", "code": "invalid-account-yaml" },
     { "name": "old-account-wrapper", "path": "account.yaml", "source": "community: https://canopy.example\nprofile: { tree: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb, handle: joe }\nadmins: [dv_dddddddddddddddddddddddddd]\n", "code": "invalid-account-yaml" },

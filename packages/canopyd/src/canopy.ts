@@ -66,7 +66,7 @@ import { AccountDirectory } from "./accounts.ts";
 import { HANDLE, legacyMemberHandle, profileLocatorTree, rootProfileFacts, type RootProfileFacts } from "./profile.ts";
 import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
-import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
+import { openCanopyDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
 export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
@@ -778,18 +778,18 @@ export class CanopyDaemon implements AsyncDisposable {
         .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
         .map((tree) => [tree.id, {
           canonical: `${new URL(origin).origin}${tree.canonicalPath!}`,
-          access: this.accessEntries(tree.id).map(accessRule),
+          access: this.accessEntries(tree.id).map(accessRule).map(resourceRuleFromLegacy),
         }]));
       if (!declarations[account.profileTree]) {
         const profile = this.get(account.profileTree)!;
         declarations[profile.id] = {
           canonical: `${new URL(origin).origin}${profile.canonicalPath!}`,
-          access: this.accessEntries(profile.id).map(accessRule),
+          access: this.accessEntries(profile.id).map(accessRule).map(resourceRuleFromLegacy),
         };
       }
       const graph = {
         account: { canopy: new URL(origin).origin, profile: account.profileTree },
-        trees: declarations,
+        resources: declarations,
         devices,
       };
       const snapshot = snapshotAccountConfigV2(graph);
@@ -819,23 +819,13 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!row) throw new Error(`Device ${id} has no credential binding`);
       if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
     }
-    if (current.resources || next.resources) {
-      this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
-    }
     this.db.run("DELETE FROM resource_policy WHERE account_id = ?", [accountID]);
-    const resources = next.resources ?? (
-      this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(accountID))
-        ? Object.fromEntries(Object.entries(next.trees).map(([id, declaration]) => [id, {
-          canonical: declaration.canonical, access: declaration.access.map(resourceRuleFromLegacy),
-        }])) : undefined
-    );
-    if (resources) {
-      for (const [tree, declaration] of Object.entries(resources)) {
-        this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
-      }
-      for (const tree of Object.keys(graphTrees(current))) {
-        if (resources[tree] && !resources[tree].canonical) throw new Error("Cannot remove hosting through a policy-only entry");
-      }
+    const resources = next.resources;
+    for (const [tree, declaration] of Object.entries(resources)) {
+      this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
+    }
+    for (const tree of Object.keys(graphTrees(current))) {
+      if (resources[tree] && !resources[tree].canonical) throw new Error("Cannot remove hosting through a policy-only entry");
     }
     const currentTrees = graphTrees(current);
     const nextTrees = graphTrees(next);
@@ -1087,8 +1077,7 @@ export class CanopyDaemon implements AsyncDisposable {
         subject: `device:${input.deviceID}`,
         entryChanges: configurationChanges,
       });
-      if (config.resources) this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
-      if (config.resources) for (const [tree, declaration] of Object.entries(config.resources)) {
+      for (const [tree, declaration] of Object.entries(config.resources)) {
         this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
       }
       for (const [id, declaration] of Object.entries(config.trees)) {
@@ -2110,10 +2099,7 @@ export class CanopyDaemon implements AsyncDisposable {
     let currentGraph: AccountConfigGraphV2;
     let nextGraph: AccountConfigGraphV2;
     const authorize = (current: AccountConfigGraphV2, next: AccountConfigGraphV2, changesFrom: AccountConfigGraphV2) => {
-      authorizeAccountConfigTransitionV2(
-        current, next, deviceID, changesFrom,
-        !!current.resources || !!this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(account.id)),
-      );
+      authorizeAccountConfigTransitionV2(current, next, deviceID, changesFrom);
     };
     return {
       subject: credentialSubject,

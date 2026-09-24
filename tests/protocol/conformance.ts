@@ -72,7 +72,7 @@ try {
     const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
       account: graph.account,
-      trees: { ...graph.trees,
+      resources: { ...graph.resources,
         [tree]: { canonical: `${canopy.url}/~owner/protocol`, access: [] },
         [sourceTree]: { canonical: `${canopy.url}/~owner/source-admissions`, access: [] },
         [crossDocumentTree]: { canonical: `${canopy.url}/~owner/cross-document`, access: [] },

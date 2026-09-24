@@ -1,4 +1,5 @@
-import { generateArborID, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
+import { decodeWireDirectory, encodeWireDirectory, generateArborID, hashObject, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
+import { stringify } from "yaml";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -98,8 +99,8 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
     const configuration = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
-      trees: {
-        [profileTree]: { canonical: `${origin}/~bob`, access: [{ subject: { kind: "everyone" }, access: "read" }] },
+      resources: {
+        [profileTree]: { canonical: `${origin}/~bob`, access: [{ who: "everyone", allow: ["read"] }] },
         [declaredTree]: { canonical: `${origin}/~bob/notes`, access: [] },
       },
       devices: {
@@ -121,7 +122,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     const wrongProfileAllocation = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
-      trees: { [generateArborID("tr")]: { canonical: `${origin}/~bob`, access: [] } },
+      resources: { [generateArborID("tr")]: { canonical: `${origin}/~bob`, access: [] } },
       devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
     });
     await expect(new WireClient(running.url).joinAccount({
@@ -132,7 +133,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     })).rejects.toThrow("account.profile must match a tree declaration at its canonical handle");
     const outsideAllocation = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
-      trees: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },
+      resources: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },
       devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
     });
     await expect(new WireClient(running.url).joinAccount({
@@ -388,7 +389,7 @@ describe("self-certifying profile account proof", () => {
       const credential = "guest-target-credential";
       const configuration = snapshotAccountConfigV2({
         account: { canopy: new URL(target.url).origin, profile: profileTree },
-        trees: {},
+        resources: {},
         devices: { [deviceID]: { id: deviceID, label: "Guest's Mac", administrator: true } },
       });
       const anonymous = new WireClient(target.url);
@@ -557,21 +558,21 @@ test("deleting non-hosting policy wins a concurrent expansion and re-add needs r
   expect(readded.update.conflicted).toBe(false);
 });
 
-test("clearing every rule does not let a legacy writer restore privileges", async () => {
+test("a legacy-grammar trees.yaml is not a valid account configuration", async () => {
   const client = new WireClient(running.url, "locally-generated-bob-credential");
   const config = (await client.account()).account.configuration.id;
   const head = await client.descriptor(config);
   const graph = readAccountConfigGraphV2(await client.snapshot(config, head.tree.root), config);
-  for (const [id, entry] of Object.entries(graph.resources!)) {
-    if (!entry.canonical) delete graph.resources![id];
-    else entry.access = [];
-  }
-  const cleared = await client.submitUpdate(config, head.tree.update, snapshotAccountConfigV2(graph));
-  expect((await client.access(bobProfileTree)).policy).toEqual([]);
-  const legacy = { account: graph.account, devices: graph.devices, trees: graph.trees };
-  for (const entry of Object.values(legacy.trees)) entry.access = [];
-  legacy.trees[bobProfileTree]!.access = [{ subject: { kind: "everyone" }, access: "write" }];
-  await expect(client.submitUpdate(config, cleared.update.id, snapshotAccountConfigV2(legacy))).rejects.toThrow(/Legacy policy writes/);
+  const valid = snapshotAccountConfigV2(graph);
+  const legacyTrees = new TextEncoder().encode(stringify(Object.fromEntries(Object.entries(graph.trees).map(([id, entry]) => [id, {
+    canonical: entry.canonical, access: [{ subject: { kind: "everyone" }, access: "write" }],
+  }]))));
+  const root = decodeWireDirectory(valid.objects.get(valid.root)!);
+  const entries = root.entries.map(entry => entry.name === "trees.yaml" ? { name: entry.name, file: hashObject(legacyTrees) } : entry);
+  const rootBytes = encodeWireDirectory({ type: "directory", entries });
+  const legacy = { root: hashObject(rootBytes), objects: new Map([...valid.objects, [hashObject(legacyTrees), legacyTrees], [hashObject(rootBytes), rootBytes]]) };
+  await expect(client.submitUpdate(config, head.tree.update, legacy)).rejects.toThrow();
+  expect((await client.descriptor(config)).tree.update).toBe(head.tree.update);
 });
 
 test("community writers may address a tree at an unclaimed /~name, which then cannot be reserved", async () => {
@@ -582,11 +583,9 @@ test("community writers may address a tree at an unclaimed /~name, which then ca
     const current = await bob.descriptor(configID);
     const graph = readAccountConfigGraphV2(await bob.snapshot(configID, current.tree.root), configID);
     const tree = generateArborID("tr");
-    const resources = graph.resources && { ...graph.resources, [tree]: { canonical, access: [] } };
     return bob.submitUpdate(configID, current.tree.update, snapshotAccountConfigV2({
       ...graph,
-      trees: { ...graph.trees, [tree]: { canonical, access: [] } },
-      ...(resources ? { resources } : {}),
+      resources: { ...graph.resources, [tree]: { canonical, access: [] } },
     }), { ifCurrent: current.tree.update });
   };
   await expect(declare(`${origin}/~garden-club`)).rejects.toThrow("outside this Canopy account allocation");

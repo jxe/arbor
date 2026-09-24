@@ -69,11 +69,11 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
-- **Cross-account rehome of resource policy** fails before mutation until a policy-transfer contract is reviewed.
+- **Cross-account rehome** (`arbor mv` between Canopy accounts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone.
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward; divergent-merge and live latency are not established, and the first edit after a restart is measured in seconds unless warm-up ran.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
-- **Compatibility cutoff.** Account configuration is v2-only and workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
+- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript parser, canopyd and the CLI ([check 016](packages/canopyd/migrations/016-resource-policy-only/README.md) lists any account still holding one; the Swift reader still decodes them). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked

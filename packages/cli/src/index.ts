@@ -6,7 +6,7 @@ import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { materializeTree, snapshotDirectory } from "@overstory/fs";
-import { addLocalPlacement, clearRehomeTransaction, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore, replaceLocalPlacement, saveRehomeTransaction } from "@overstory/arborsync/state";
+import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
@@ -420,7 +420,6 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     })).find((candidate) => candidate.declaration.canonical === sourceCanonical);
     if (!sourceMatch) throw new Error(`No exact canonical tree matches ${sourceInput}`);
     const sourceConfiguration = sourceMatch.configuration;
-    const sourceDeclaration = sourceMatch.declaration;
     const sourceTree = sourceMatch.tree;
     const destinationConfiguration = selectedDestination.configuration;
     const activePlacement = local.placements.find((placement) => placement.tree === sourceTree);
@@ -478,97 +477,9 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       return;
     }
 
-    const occupied = Object.entries(destinationConfiguration.trees!).find(([tree, declaration]) =>
-      tree !== sourceTree && declaration.canonical === destinationCanonical
-    );
-    if (occupied) throw new Error(`${destination.supplied} is already declared for ${occupied[0]}`);
-    const existingDestinationDeclaration = destinationConfiguration.trees![sourceTree];
-    if (existingDestinationDeclaration && existingDestinationDeclaration.canonical !== destinationCanonical) {
-      throw new Error(`Destination account already declares ${sourceTree} at ${existingDestinationDeclaration.canonical}`);
-    }
-    const resuming = activePlacement.configurationTree === destinationConfiguration.configurationTree
-      && existingDestinationDeclaration?.canonical === destinationCanonical;
-    if (!resuming && activePlacement.configurationTree !== sourceConfiguration.configurationTree) {
-      throw new Error(`The local placement for ${sourceTree} belongs to neither the source nor destination account`);
-    }
-
-    const sourceConnection = await new CanopyAccountStore(sourceConfiguration.configurationTree).get();
-    const destinationConnection = selectedDestination.connection;
-    if (!sourceConnection) throw new Error(`Source credential is unavailable for ${sourceConfiguration.configurationTree}`);
-    const localDescriptor = (await client.trees()).snapshot.find((candidate) =>
-      candidate.id === sourceTree && candidate.configurationTree === activePlacement.configurationTree
-    );
-    if (!resuming && (!localDescriptor || localDescriptor.sync !== "idle" || localDescriptor.missing)) {
-      throw new Error(`Source tree must be present and idle before moving Canopies; current state is ${localDescriptor?.sync ?? "unavailable"}`);
-    }
-    const sourceRemote = (await new WireClient(sourceConnection.record.origin, sourceConnection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS })
-      .descriptor(sourceTree)).tree;
-    const destinationWire = new WireClient(destinationConnection.record.origin, destinationConnection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
-    const existingRemote = (await destinationWire.list()).snapshot.find((tree) => tree.id === sourceTree);
-    if (existingRemote && !resuming && existingRemote.root !== sourceRemote.root) {
-      throw new Error(`Destination already has a different current snapshot for ${sourceTree}`);
-    }
-
-    console.log(`${dryRun ? "Would move" : "Moving"} ${sourceTree}`);
-    console.log(`  from ${sourceCanonical}`);
-    console.log(`  to   ${destinationCanonical}`);
-    console.log(`  path ${activePlacement.path}`);
-    console.log("  history starts again at the destination; the source server history is retained and retired");
-    if (dryRun) return;
-
-    if (sourceConfiguration.resources || destinationConfiguration.resources) {
-      throw new Error("Moving resource policy between Canopy accounts requires a reviewed policy transfer; no configuration was changed");
-    }
-    await saveRehomeTransaction({
-      version: 1,
-      tree: sourceTree,
-      sourceConfigurationTree: sourceConfiguration.configurationTree,
-      destinationConfigurationTree: destinationConfiguration.configurationTree,
-      sourceCanonical,
-      destinationCanonical,
-    });
-
-    if (!existingDestinationDeclaration) {
-      await editAccountConfigurationYAML(
-        client,
-        destinationConfiguration.configurationTree,
-        (document) => document.setIn([sourceTree], { canonical: destinationCanonical, access: sourceDeclaration.access }),
-        (source) => { parseHostedTreesConfiguration(source, destinationConfiguration.account!); },
-      );
-      await service.synchronizeNow(destinationConfiguration.configurationTree);
-    }
-    if (!resuming) {
-      await replaceLocalPlacement(activePlacement, {
-        configurationTree: destinationConfiguration.configurationTree,
-        path: activePlacement.path,
-      });
-    }
-    await waitForCanonicalPlacement(client, sourceTree, destinationConfiguration.configurationTree, destination.endpoint, destination.canonicalPath);
-    await service.synchronizeNow(destinationConfiguration.configurationTree);
-    const finalLocal = (await client.trees()).snapshot.find((candidate) =>
-      candidate.id === sourceTree && candidate.configurationTree === destinationConfiguration.configurationTree
-    );
-    if (!finalLocal || finalLocal.sync !== "idle") {
-      throw new Error(`Destination placement did not become idle; current state is ${finalLocal?.sync ?? "unavailable"}`);
-    }
-    const finalRemote = (await destinationWire.descriptor(sourceTree)).tree;
-    if (!resuming && finalRemote.root !== sourceRemote.root) throw new Error("Destination activation did not preserve the source's current snapshot");
-    await editAccountConfigurationYAML(
-      client,
-      sourceConfiguration.configurationTree,
-      (document) => { document.deleteIn([sourceTree]); },
-      (source) => { parseHostedTreesConfiguration(source, sourceConfiguration.account!); },
-    );
-    await service.synchronizeNow(sourceConfiguration.configurationTree);
-    const finalConfigurations = await loadCanopyAccountConfigurations();
-    const finalSource = finalConfigurations.find((configuration) =>
-      configuration.configurationTree === sourceConfiguration.configurationTree
-    );
-    if (finalSource?.trees?.[sourceTree]) {
-      throw new Error("Source account still declares the tree after destination activation");
-    }
-    await clearRehomeTransaction(sourceTree);
-    console.log(`Moved ${sourceTree} to ${destinationCanonical}; source server history retained and source account declaration removed.`);
+    // Every account policy is resource policy, and moving it between accounts
+    // needs a reviewed transfer contract; refuse before changing anything.
+    throw new Error("Moving resource policy between Canopy accounts requires a reviewed policy transfer; no configuration was changed");
   });
 }
 
@@ -636,7 +547,7 @@ async function placeLocal(
       tree = generateArborID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
       await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
-        document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: config.resources ? rules.map(resourceRuleFromLegacy) : rules });
+        document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: rules.map(resourceRuleFromLegacy) });
       }, (source) => { parseHostedTreesConfiguration(source, config.account); });
       try {
         await addLocalPlacement({ configurationTree: config.configurationTree, path, tree });
@@ -649,20 +560,14 @@ async function placeLocal(
       await waitForLocalPlacement(client, tree, config.configurationTree, path);
     }
     if (tree && !isNew) {
-      const declaration = config.trees[tree]!;
-      let rules = [...declaration.access];
       let resourceRules = [...(config.resources?.[tree]?.access ?? [])];
       for (const operation of audience) {
         if (operation.kind === "clear") {
-          rules = [];
           resourceRules = [];
         } else {
           const subject = accessSubject(operation.subject, target);
           const normalized = subject.kind === "everyone" ? { kind: "everyone" as const }
             : { kind: "profile" as const, tree: (await wire.resolve(new URL(subject.locator).pathname)).ref.tree };
-          const key = JSON.stringify(normalized);
-          rules = rules.filter((rule) => JSON.stringify(rule.subject) !== key);
-          if (operation.access !== "none") rules.push({ subject: normalized, access: operation.access });
           const resource = resourceRuleFromLegacy({ subject: normalized, access: operation.access === "write" ? "write" : "read" });
           resourceRules = resourceRules.filter(rule => resourceRuleKey(rule) !== resourceRuleKey(resource));
           if (operation.access !== "none") resourceRules.push(resource);
@@ -670,7 +575,7 @@ async function placeLocal(
       }
       if (audience.length) {
         await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
-          document.setIn([tree!, "access"], config.resources ? resourceRules : rules);
+          document.setIn([tree!, "access"], resourceRules);
         }, (source) => { parseHostedTreesConfiguration(source, config.account); });
       }
     }

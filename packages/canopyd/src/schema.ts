@@ -9,8 +9,6 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp.
  */
 export const CANOPY_SCHEMA_VERSION = "17";
-/** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
-export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],

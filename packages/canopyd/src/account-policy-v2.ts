@@ -2,35 +2,26 @@ import {
   decodeWireDirectory,
   intersectResourceRules,
   readAccountConfigGraphV2,
-  resourceRuleFromLegacy,
   resourceRuleKey,
   snapshotAccountConfigV2,
   stableJSONString,
-  type AccountConfigGraphV2,
+  type AccountConfigValuesV2,
   type AccountDeviceConfiguration,
-  type CanopyAccountConfiguration,
-  type HostedTreeDeclaration,
-  type HostedTreesConfiguration,
   type ObjectHash,
   type ResourceAccessRule,
   type ResourceConfiguration,
 } from "@overstory/protocol";
-import { hostedProjection } from "@overstory/protocol";
-import type { MergeResult } from "./updates/reconcile.ts";
 import { PermissionDeniedError } from "./errors.ts";
+import type { MergeResult } from "./updates/reconcile.ts";
 
 export { readAccountConfigGraphV2, snapshotAccountConfigV2, type AccountConfigGraphV2 } from "@overstory/protocol";
 
 export function authorizeAccountConfigTransitionV2(
-  current: AccountConfigGraphV2,
-  next: AccountConfigGraphV2,
+  current: AccountConfigValuesV2,
+  next: AccountConfigValuesV2,
   deviceID: string,
-  changesFrom: AccountConfigGraphV2 = current,
-  resourceFormat = !!current.resources,
+  changesFrom: AccountConfigValuesV2 = current,
 ): void {
-  if (resourceFormat && !next.resources && Object.values(next.trees).some(tree => tree.access.length)) {
-    throw new PermissionDeniedError("Legacy policy writes are not allowed after resource-policy conversion");
-  }
   const currentDevice = current.devices[deviceID];
   if (!currentDevice) throw new PermissionDeniedError("Submitting device is not active in the accepted configuration");
   const accepted = semantic(current);
@@ -39,7 +30,7 @@ export function authorizeAccountConfigTransitionV2(
   if (!same(base.account, candidate.account) && !same(accepted.account, candidate.account)) {
     throw new Error("account.yaml changes require an account lifecycle transition");
   }
-  if (!currentDevice.administrator && (!same(base.trees, candidate.trees) || !same(base.resources, candidate.resources)) && (!same(accepted.trees, candidate.trees) || !same(accepted.resources, candidate.resources))) {
+  if (!currentDevice.administrator && !same(base.resources, candidate.resources) && !same(accepted.resources, candidate.resources)) {
     throw new PermissionDeniedError("Only an administrator may edit trees.yaml");
   }
   for (const id of new Set([...Object.keys(base.devices), ...Object.keys(candidate.devices)])) {
@@ -57,25 +48,18 @@ export function authorizeAccountConfigTransitionV2(
   }
 }
 
-function subjectKey(rule: HostedTreeDeclaration["access"][number]): string {
-  const subject = rule.subject;
-  return subject.kind === "everyone" ? "everyone" : subject.kind === "profile" ? `profile:${subject.tree}` : `link:${subject.digest}`;
-}
-
-export function semantic(graph: Omit<AccountConfigGraphV2, "sources">): Record<string, any> {
+/** The comparable form of a configuration: resource rules keyed by rule
+ * identity, so authoring order and the default scope spelling do not count. */
+export function semantic(graph: AccountConfigValuesV2): Record<string, any> {
   return {
     account: graph.account,
-    trees: Object.fromEntries(Object.entries(graph.trees).map(([id, tree]) => [id, {
-      canonical: tree.canonical,
-      access: Object.fromEntries(tree.access.map((rule) => [subjectKey(rule), rule])),
-    }])),
-    ...({ resources: Object.fromEntries(Object.entries(graph.resources ?? Object.fromEntries(Object.entries(graph.trees).map(([id, d]) => [id, { canonical: d.canonical, access: d.access.map(resourceRuleFromLegacy) }]))).map(([id, d]) => [id, {
+    resources: Object.fromEntries(Object.entries(graph.resources).map(([id, d]) => [id, {
       ...(d.canonical ? { canonical: d.canonical } : {}),
       access: Object.fromEntries(d.access.map(r => {
         const { within, ...rule } = r;
         return [resourceRuleKey(r), { ...rule, ...(within && within !== "/" ? { within } : {}), allow: [...r.allow].sort() }];
       })),
-    }])) }),
+    }])),
     devices: Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
       label: device.label,
       administrator: device.administrator,
@@ -134,39 +118,27 @@ function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: st
   return candidate;
 }
 
-function fromSemantic(value: Record<string, any>): Omit<AccountConfigGraphV2, "sources"> {
-  const account: CanopyAccountConfiguration = {
-    canopy: value.account.canopy,
-    profile: value.account.profile,
-  };
-  const trees: HostedTreesConfiguration = Object.fromEntries(Object.entries(value.trees).map(([id, raw]: [string, any]) => [id, {
-    canonical: raw.canonical,
-    access: Object.values(raw.access),
-  }]));
+function fromSemantic(value: Record<string, any>): AccountConfigValuesV2 {
   const devices: Record<string, AccountDeviceConfiguration> = Object.fromEntries(Object.entries(value.devices).map(([id, raw]: [string, any]) => [id, {
     id,
     label: raw.label,
     administrator: raw.administrator === true,
   }]));
-  const resources: ResourceConfiguration | undefined = value.resources ? Object.fromEntries(Object.entries(value.resources).map(([id, d]: [string, any]) => [id, { ...(d.canonical ? { canonical: d.canonical } : {}), access: Object.values(d.access ?? {}) as ResourceAccessRule[] }])) : undefined;
-  return { account, trees: resources ? hostedProjection(resources) : trees, ...(resources ? { resources } : {}), devices };
+  const resources: ResourceConfiguration = Object.fromEntries(Object.entries(value.resources).map(([id, d]: [string, any]) => [id, {
+    ...(d.canonical ? { canonical: d.canonical } : {}),
+    access: Object.values(d.access ?? {}) as ResourceAccessRule[],
+  }]));
+  return { account: { canopy: value.account.canopy, profile: value.account.profile }, resources, devices };
 }
 
 export function mergeAccountConfigGraphsV2(
-  base: AccountConfigGraphV2,
-  candidate: AccountConfigGraphV2,
-  remote: AccountConfigGraphV2,
+  base: AccountConfigValuesV2,
+  candidate: AccountConfigValuesV2,
+  remote: AccountConfigValuesV2,
 ) {
   const tally: MergeTally = { conflicts: [], mergedFields: 0 };
   const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
-  // Resource rules are authoritative; the legacy hosting ACL is only a derived
-  // projection. Its same-field conflicts must not duplicate policy conflicts.
-  const resourceFormat = !!(base.resources || candidate.resources || remote.resources);
-  if (!resourceFormat) delete value.resources;
-  const conflicts = tally.conflicts.filter(path => resourceFormat
-    ? !/^trees\.[^.]+\.access(?:\.|$)/.test(path)
-    : !path.startsWith("resources."));
-  return { graph: fromSemantic(value), conflicts, mergedFields: tally.mergedFields };
+  return { graph: fromSemantic(value), conflicts: tally.conflicts, mergedFields: tally.mergedFields };
 }
 
 /** The whole-tree merge for an account-configuration tree. Its files hold
@@ -188,7 +160,7 @@ export async function mergeAccountConfigTreesV2(
   const merged = mergeAccountConfigGraphsV2(inputs[0]!, inputs[1]!, inputs[2]!);
   const policyOnlyRemoval = (field: string) => {
     const match = /^resources\.([^.]+)$/.exec(field);
-    return !!match && inputs.every(graph => !graph.resources?.[match[1]!]?.canonical);
+    return !!match && inputs.every(graph => !graph.resources[match[1]!]?.canonical);
   };
   const output = snapshotAccountConfigV2(merged.graph);
   return {
@@ -196,7 +168,7 @@ export async function mergeAccountConfigTreesV2(
     objects: output.objects,
     conflicts: merged.conflicts.map(field => ({
       path: /^resources\.[^.]+\.access(?:\.|$)/.test(field) || policyOnlyRemoval(field) ? "/trees.yaml/access"
-        : /^(resources|trees)\./.test(field) ? "/trees.yaml"
+        : field.startsWith("resources.") ? "/trees.yaml"
         : field.startsWith("devices.") ? "/devices.yaml" : "/account.yaml",
       reason: "account-configuration",
     })),

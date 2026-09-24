@@ -49,7 +49,7 @@ test("strict YAML rejects duplicates, aliases, unknown fields, stored none and r
   expect(() => parseHostedTreesConfiguration(`${shared}: {}\n${shared}: {}\n`, account)).toThrow();
   expect(() => parseHostedTreesConfiguration("a: &x {}\nb: *x\n", account)).toThrow();
   expect(() => parseCanopyAccountConfiguration(JSON.stringify({ ...account, status: "syncing" }))).toThrow();
-  expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { canonical: `${account.canopy}/~joe/shared`, access: [{ subject: { kind: "everyone" }, access: "none" }] } }), account)).toThrow();
+  expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { canonical: `${account.canopy}/~joe/shared`, access: [{ who: "everyone", allow: ["none"] }] } }), account)).toThrow();
   expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { kind: "person-profile", canonical: `${account.canopy}/~joe/shared`, access: [] } }), account)).toThrow();
   expect(() => parseLocalPlacements(JSON.stringify({ [cfg]: { "relative/path": shared } }))).toThrow("canonical and absolute");
   expect(() => parseAccountDevicesConfiguration(JSON.stringify({ [device]: { label: "Mac", administrator: true, placements: {} } }))).toThrow();

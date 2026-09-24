@@ -53,7 +53,7 @@ async function currentConfig() {
 
 async function submitConfiguration(
   current: Awaited<ReturnType<typeof currentConfig>>["current"],
-  graph: Omit<ReturnType<typeof readAccountConfigGraphV2>, "sources">,
+  graph: Parameters<typeof snapshotAccountConfigV2>[0],
 ) {
   const snapshot = snapshotAccountConfigV2(graph);
   return client.submitUpdate(
@@ -139,7 +139,7 @@ describe("governed account-configuration Canopy server", () => {
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const graphOne = {
       account: baseline.graph.account,
-      trees: baseline.graph.trees,
+      resources: baseline.graph.resources,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: `Cumulative one ${crypto.randomUUID()}` },
@@ -336,7 +336,7 @@ describe("governed account-configuration Canopy server", () => {
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const changed = {
       account: baseline.graph.account,
-      trees: baseline.graph.trees,
+      resources: baseline.graph.resources,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: "Historical snapshot test" },
@@ -417,7 +417,7 @@ describe("governed account-configuration Canopy server", () => {
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const firstGraph = {
       account: baseline.graph.account,
-      trees: baseline.graph.trees,
+      resources: baseline.graph.resources,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: "Watch replay one" },
@@ -429,7 +429,7 @@ describe("governed account-configuration Canopy server", () => {
     const afterFirst = await currentConfig();
     const secondGraph = {
       account: afterFirst.graph.account,
-      trees: afterFirst.graph.trees,
+      resources: afterFirst.graph.resources,
       devices: { ...afterFirst.graph.devices, [administrator]: { ...afterFirst.graph.devices[administrator]!, label: "Watch replay two" } },
     };
     const second = await submitConfiguration(afterFirst.current, secondGraph);
@@ -490,14 +490,11 @@ describe("governed account-configuration Canopy server", () => {
     const treePath = join(dataRoot, "new-shared-tree");
     const next = {
       account: graph.account,
-      trees: {
-          ...graph.trees,
+      resources: {
+          ...graph.resources,
           [treeID]: {
             canonical: `${running.url}/~owner/new-shared-tree`,
-            access: [{
-              subject: { kind: "link" as const, digest: `sha256:${sha256(linkSecret)}` as const },
-              access: "read" as const,
-            }],
+            access: [{ who: { link: `sha256:${sha256(linkSecret)}` }, allow: ["read" as const] }],
           },
       },
       devices: graph.devices,
@@ -681,7 +678,7 @@ describe("governed account-configuration Canopy server", () => {
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const relabel = (graph: typeof baseline.graph, label: string) => ({
       account: graph.account,
-      trees: graph.trees,
+      resources: graph.resources,
       devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator]!, label } },
     });
     const first = await submitConfiguration(baseline.current, relabel(baseline.graph, "Log order one"));
@@ -692,8 +689,8 @@ describe("governed account-configuration Canopy server", () => {
     const afterFirst = await currentConfig();
     const declared = await submitConfiguration(afterFirst.current, {
       account: afterFirst.graph.account,
-      trees: {
-          ...afterFirst.graph.trees,
+      resources: {
+          ...afterFirst.graph.resources,
           [treeID]: { canonical: `${running.url}/~owner/log-order-tree`, access: [] },
       },
       devices: afterFirst.graph.devices,
@@ -746,7 +743,7 @@ describe("governed account-configuration Canopy server", () => {
     const { [peerID]: _removed, ...remainingDevices } = graph.devices;
     await submitConfiguration(current, {
       account: graph.account,
-      trees: graph.trees,
+      resources: graph.resources,
       devices: remainingDevices,
     });
     const peerWatch = await peerWatchPromise;

@@ -10,7 +10,6 @@ import {
 import {
   parseAccountDevicesConfiguration,
   parseCanopyAccountConfiguration,
-  parseLegacyHostedTreesConfiguration,
   type AccountDeviceConfiguration,
   type CanopyAccountConfiguration,
   type HostedTreesConfiguration,
@@ -22,7 +21,8 @@ import { hostedProjection, parseResourceConfiguration, type ResourceConfiguratio
 export interface AccountConfigGraphV2 {
   account: CanopyAccountConfiguration;
   trees: HostedTreesConfiguration;
-  resources?: ResourceConfiguration;
+  /** `trees.yaml`; `trees` is its hosted-tree projection. */
+  resources: ResourceConfiguration;
   devices: Record<string, AccountDeviceConfiguration>;
   sources: Record<string, string>;
 }
@@ -58,14 +58,14 @@ export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTr
     "devices.yaml": sourceAt("devices.yaml"),
   };
   const account = parseCanopyAccountConfiguration(sources["account.yaml"]);
-  let trees: HostedTreesConfiguration;
-  let resources: ResourceConfiguration | undefined;
-  try { trees = parseLegacyHostedTreesConfiguration(sources["trees.yaml"], account); }
-  catch { resources = parseResourceConfiguration(sources["trees.yaml"], account); trees = hostedProjection(resources); }
+  const resources = parseResourceConfiguration(sources["trees.yaml"], account);
   const devices = parseAccountDevicesConfiguration(sources["devices.yaml"]);
-  if (configurationTree && (trees[configurationTree] || resources?.[configurationTree])) throw new Error("The account-configuration tree must not declare itself");
-  return { account, trees, ...(resources ? { resources } : {}), devices, sources };
+  if (configurationTree && resources[configurationTree]) throw new Error("The account-configuration tree must not declare itself");
+  return { account, trees: hostedProjection(resources), resources, devices, sources };
 }
+
+/** The authored values of an account-configuration tree; `trees` is derived. */
+export type AccountConfigValuesV2 = Pick<AccountConfigGraphV2, "account" | "resources" | "devices">;
 
 function yaml(value: unknown): string {
   return stringify(value, { aliasDuplicateObjects: false, lineWidth: 0, sortMapEntries: true });
@@ -73,7 +73,7 @@ function yaml(value: unknown): string {
 
 /** Canonical authored files. yaml() sorts every map by key, so the inputs
  * need no ordering of their own. */
-function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
+function accountConfigSourcesV2(graph: AccountConfigValuesV2): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
   const devices = Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
     label: device.label,
     ...(device.administrator ? { administrator: true } : {}),
@@ -81,11 +81,11 @@ function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): R
   return {
     "account.yaml": yaml(graph.account),
     "devices.yaml": yaml(devices),
-    "trees.yaml": yaml(graph.resources ?? graph.trees),
+    "trees.yaml": yaml(graph.resources),
   };
 }
 
-export function snapshotAccountConfigV2(graph: Omit<AccountConfigGraphV2, "sources">): TreeSnapshot {
+export function snapshotAccountConfigV2(graph: AccountConfigValuesV2): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const file = (source: string): ObjectHash => {
     const bytes = new TextEncoder().encode(source);
