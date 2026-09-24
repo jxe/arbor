@@ -565,10 +565,6 @@ export class CanopyDaemon implements AsyncDisposable {
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
   }
 
-  accountByToken(token: string | undefined): CanopyAccount | null {
-    return this.authenticateToken(token)?.account ?? null;
-  }
-
   devices(account: CanopyAccount): ServerDevice[] {
     return this.accounts.devices(account);
   }

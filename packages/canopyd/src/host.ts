@@ -12,6 +12,7 @@ import {
   UpdateProtocolError,
   CanopyDaemon,
   type CanopyAccount,
+  type CanopyAuthentication,
   type CanopyTree,
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
@@ -147,10 +148,6 @@ function bearer(request: Request): string | undefined {
   return value?.startsWith("Bearer ") ? value.slice("Bearer ".length) : undefined;
 }
 
-function accountFor(request: Request, canopy: CanopyDaemon): CanopyAccount | null {
-  return canopy.accountByToken(bearer(request));
-}
-
 function linkDigest(request: Request): string | undefined {
   const secret = request.headers.get("arbor-access-link") ?? undefined;
   return secret ? `sha256:${sha256(secret)}` : undefined;
@@ -183,10 +180,10 @@ function bodySnapshot(body: unknown): TreeSnapshot {
   return decodeTreeSnapshotJSON(body);
 }
 
-function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
-  const account = accountFor(request, canopy);
-  if (!account) throw new AuthenticationRequiredError("Account authentication is required");
-  return account;
+/** The request's device-authenticated account; execution tokens never qualify. */
+function requireAccount(authentication: CanopyAuthentication | null): CanopyAccount {
+  if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
+  return authentication.account;
 }
 
 export async function serveCanopy(options: {
@@ -226,7 +223,8 @@ export async function serveCanopy(options: {
       if (token?.startsWith("execution_") && !execution) return wireError("unauthenticated", "Execution authorization is unavailable", 401);
       const response = await canopy.execution.run(execution, async () => {
       const url = new URL(request.url);
-      const authentication = canopy.authenticateToken(bearer(request));
+      // The one authentication of this request; routes below reuse it.
+      const authentication = canopy.authenticateToken(token);
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       try {
         if (url.pathname === "/.arbor/execution/authority-watch" && request.method === "GET") {
@@ -299,20 +297,20 @@ export async function serveCanopy(options: {
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
-          const authenticated = canopy.authenticateToken(bearer(request));
-          const currentDevice = authenticated?.device
-            ? canopy.devices(authenticated.account).find((device) => device.id === authenticated.device)
+          const authenticated = requireAccount(authentication);
+          const currentDevice = authentication?.device
+            ? canopy.devices(authenticated).find((device) => device.id === authentication.device)
             : undefined;
           return json({
             account: {
-              ...accountDescriptor(publicOrigin, canopy, requireAccount(request, canopy)),
+              ...accountDescriptor(publicOrigin, canopy, authenticated),
               ...(currentDevice ? { device: { id: currentDevice.id, label: currentDevice.label } } : {}),
             },
             observedThrough: canopy.observedThrough(),
           });
         }
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
-          return json(canopy.createPairing(requireAccount(request, canopy)), 201);
+          return json(canopy.createPairing(requireAccount(authentication)), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
           const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown };
@@ -370,7 +368,7 @@ export async function serveCanopy(options: {
         }
         if (url.pathname === "/.arbor/directory") {
           if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
-          const authenticated = requireAccount(request, canopy);
+          const authenticated = requireAccount(authentication);
           return json({
             snapshot: await buildDirectory(canopy, authenticated, publicOrigin),
             observedThrough: canopy.observedThrough(),
@@ -422,7 +420,7 @@ export async function serveCanopy(options: {
         if (access) {
           const treeID = decodeURIComponent(access[1]!);
           if (request.method === "GET") {
-            const authenticated = requireAccount(request, canopy);
+            const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
             const policy = canopy.resourcePolicy(authenticated, treeID);
             if (!administer && !policy) return wireError("not-found", "Tree not found", 404);
