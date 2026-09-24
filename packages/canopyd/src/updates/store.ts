@@ -149,11 +149,6 @@ export class AcceptedUpdateStore {
     return row?.entry ?? null;
   }
 
-  changeForAccepted(update: string): string | null {
-    const row = this.db.query("SELECT change_id FROM accepted_updates WHERE ordinal = ?").get(updateOrdinal(update)) as { change_id: string | null } | null;
-    return row?.change_id ?? null;
-  }
-
   matchingRequestDigest(update: string, subject: string): ObjectHash | null {
     const row = this.db.query(`
       SELECT request_digest FROM accepted_updates

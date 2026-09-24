@@ -1,31 +1,17 @@
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
 
-/** A merge rule's evidence, named by its version; canopyd's own merge of
- * account configuration reports `account-config-v2`. */
-export type MergeSummary = { version: string; [field: string]: unknown };
-
+/** A whole-tree merge's result: the merged root, the objects it generated,
+ * and the conflicts it left. */
 export interface MergeResult {
   root: ObjectHash;
   objects: Map<ObjectHash, Uint8Array>;
   conflicts: UpdateConflict[];
-  /** Coupled rule failures that require a whole-directory alternative. */
-  unresolvedDirectories?: string[];
-  /** Present only when a merge rule ran. */
-  summary?: MergeSummary;
 }
 
 type ReconciledUpdate =
   | { outcome: "current" }
   | { outcome: "accepted"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> }
-  | {
-      outcome: "merged";
-      root: ObjectHash;
-      generated: Map<ObjectHash, Uint8Array>;
-      merge?: MergeSummary;
-      conflicts: UpdateConflict[];
-      unresolvedDirectories?: string[];
-    }
-  | { outcome: "rejected"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; conflicts: UpdateConflict[] };
+  | { outcome: "merged"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; conflicts: UpdateConflict[] };
 
 /** A tree policy's whole-tree merge, used in place of the node-level merge. */
 export type MergeStrategy = (
@@ -55,12 +41,5 @@ export async function reconcileUpdate(
   const merged = await options.merge(base, candidate, current, load);
   // A clean merge that lands exactly on the current root changed nothing.
   if (!merged.conflicts.length && merged.root === current) return { outcome: "current" };
-  return {
-    outcome: "merged",
-    root: merged.root,
-    generated: merged.objects,
-    ...(merged.summary ? { merge: merged.summary } : {}),
-    conflicts: merged.conflicts,
-    ...(merged.unresolvedDirectories ? { unresolvedDirectories: merged.unresolvedDirectories } : {}),
-  };
+  return { outcome: "merged", root: merged.root, generated: merged.objects, conflicts: merged.conflicts };
 }

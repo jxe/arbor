@@ -65,7 +65,6 @@ describe("account-config-v2 policy", () => {
     const merged = await mergeAccountConfigTrees(base!, incoming!, current!, load);
     expect(merged.root).toBe(labels("Desktop", "Mobile").root);
     expect(merged.conflicts).toEqual([]);
-    expect(merged.summary).toEqual({ version: "account-config-v2", mergedFields: 1 });
     const conflicted = await mergeAccountConfigTrees(base!, competing!, current!, load);
     expect(conflicted.conflicts).toEqual([{ path: "/devices.yaml", reason: "account-configuration" }]);
   });

@@ -453,8 +453,7 @@ export async function serveCanopy(options: {
             const administer = canopy.canAdminister(authenticated, treeID);
             const policy = canopy.resourcePolicy(authenticated, treeID);
             if (!administer && !policy) return wireError("not-found", "Tree not found", 404);
-            const snapshot: AccessEntry[] = canopy.accessEntries(treeID)
-              .filter(() => administer)
+            const snapshot: AccessEntry[] = !administer ? [] : canopy.accessEntries(treeID)
               .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.profileTree)
               .map((entry) => {
               if (entry.subjectKind === "profile") {

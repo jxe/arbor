@@ -69,7 +69,6 @@ describe("snapshot reconciliation", () => {
     expect(result.outcome).toBe("merged");
     if (result.outcome !== "merged") throw new Error("expected merge");
     expect(result.conflicts).toEqual([]);
-    expect(result.merge).toBeUndefined();
     expect(result.root).toBe(dir([{ name: "a.md", file: file("A2\n") }, { name: "b.md", file: file("B\n") }]));
   });
 

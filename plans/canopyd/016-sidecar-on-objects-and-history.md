@@ -25,8 +25,9 @@ entries) and one merge question, and plain edits on the head no longer ask a sid
    equivalent decisions. Migration 016 cut history to 2026-09-24, so the useful form is
    the 016 replay check's: on the rehearsal copy, re-submit the last client updates of
    each ordinary tree through this build and compare each root and conflict flag with the
-   recorded one. Adapt `016-squash-history/replay-check.ts` (it needs the schema-18 code
-   it shipped with) or write it against this build's acceptance path. The pre-cutover
+   recorded one. Adapt migration 016's `replay-check.ts` (deleted; it is
+   `packages/canopyd/migrations/016-squash-history/replay-check.ts` at `d15ddce`, and needs
+   the schema-18 code it shipped with) or write it against this build's acceptance path. The pre-cutover
    backup `.backups/railway/20260924T131328Z/volume.tar` is the copy to use.
 2. **The sidecar's cache per file.** Step 6 kept the engine's tree-wide state: every
    replayed plain edit loads, clones and stores the whole active state, so the cost

@@ -27,7 +27,6 @@
   ],
   "exclude": [
     "packages/canopy-web/**",
-    "packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts",
-    "packages/canopyd/migrations/016-squash-history/**"
+    "packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts"
   ]
 }

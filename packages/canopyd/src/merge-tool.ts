@@ -45,13 +45,12 @@ export class MergeTool {
   private worker?: PersistentMergeWorker;
   private readonly jobs = new Set<Promise<unknown>>();
   private closing = false;
-  /** Remove job and worker directories left by an earlier process. Each job
-   * removes its own directory when it settles, so anything present at startup
-   * belonged to a process that died mid-job; nothing accepted lives there. */
+  /** Remove worker directories left by an earlier process. Each job removes
+   * its own staging when it settles, so anything present at startup belonged
+   * to a process that died mid-job; nothing accepted lives there. */
   async clearStaleJobs(): Promise<void> {
     if (this.active || this.worker) throw new Error("Stale job cleanup runs before any job");
-    for (const name of ["merge-jobs", "merge-workers"])
-      await rm(join(this.dataRoot, name), { recursive: true, force: true });
+    await rm(join(this.dataRoot, "merge-workers"), { recursive: true, force: true });
   }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? 30_000); }

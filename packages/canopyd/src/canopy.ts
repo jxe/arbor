@@ -23,7 +23,6 @@ import {
   validateAccountChallenge,
   type AccountChallenge,
   type AccessLevel,
-  type AccessRule,
 } from "@overstory/protocol";
 import { resourceRuleFromLegacy } from "@overstory/protocol";
 import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
@@ -142,10 +141,10 @@ function decisionPage<T extends { id: string }>(
   return { selected, next };
 }
 
-function graphTrees(graph: AccountConfigGraph): Record<string, { canonicalPath: string; access: AccessRule[] }> {
+/** Each tree a configuration declares, with the canonical path it names. */
+function graphTrees(graph: AccountConfigGraph): Record<string, { canonicalPath: string }> {
   return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
     canonicalPath: new URL(declaration.canonical).pathname,
-    access: declaration.access,
   }]));
 }
 
@@ -167,7 +166,7 @@ function directSnapshot(source: string): TreeSnapshot {
 function profileSource(
   kind: "person" | "group",
   name: string,
-  members: Array<string | { profile?: string; handle?: string }> = [],
+  members: Array<{ profile?: string; handle?: string }> = [],
   displayName: string | undefined = name,
 ): string {
   return [
@@ -175,13 +174,11 @@ function profileSource(
     `type: ${kind}`,
     ...(displayName ? [`displayName: ${JSON.stringify(displayName)}`] : []),
     ...(kind === "group"
-      ? ["members:", ...members.flatMap((member) => typeof member === "string"
-          ? [`  - ${JSON.stringify(member)}`]
-          : [
-              "  -",
-              ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []),
-              ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []),
-            ])]
+      ? ["members:", ...members.flatMap((member) => [
+          "  -",
+          ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []),
+          ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []),
+        ])]
       : []),
     "---",
     "",
@@ -192,11 +189,6 @@ function profileSource(
 
 export { CANOPY_SCHEMA_VERSION, assertCanopySchemaVersion, assertCurrentCanopySchema } from "./schema.ts";
 
-/**
- * What differs between tree policies inside the one update pipeline: who the
- * subject is, how a candidate and an accepted root are validated, which merge
- * runs when both sides changed, and what commits alongside the accepted row.
- */
 /** The basis a batch element was authored on: an accepted log entry, and the
  * earlier candidates of the batch authored on it that no entry records as
  * their author wrote them. */
@@ -226,6 +218,11 @@ interface PreparedAnswer {
   objects: Map<ObjectHash, Uint8Array>;
 }
 
+/**
+ * What differs between tree policies inside the one update pipeline: who the
+ * subject is, how a candidate and an accepted root are validated, which merge
+ * runs when both sides changed, and what commits alongside the accepted row.
+ */
 interface UpdatePolicy {
   subject: string;
   rejection?: { kind: "account-configuration"; message: string };

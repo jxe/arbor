@@ -1,6 +1,6 @@
 # Migration 018: accepted history as log entries (18 → 19)
 
-One cutover from the live schema 18, which [migration 016](../016-squash-history/README.md)
+One cutover from the live schema 18, which migration 016 (deleted; `016-squash-history/README.md` at `d15ddce`)
 deployed on 2026-09-24. It is step 7 of
 [canopyd 016](../../../../plans/canopyd/016-sidecar-on-objects-and-history.md). The build
 that needs it stores each accepted update as an immutable log entry in the object store

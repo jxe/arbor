@@ -348,8 +348,8 @@ The sidecar owns a unique `/data/merge-workers/worker-*` directory. For each job
 canopyd stages the uncommitted inputs in its `objects/` staging store, in one publish.
 The sidecar receives fixed paths and a minimal environment rather than inherited server
 credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
-an unaccepted worker directory; canopyd removes `merge-workers/` (and any `merge-jobs/`
-left by older releases) at startup, before any job runs.
+an unaccepted worker directory; canopyd removes `merge-workers/` at startup, before any
+job runs.
 
 Every entry, and every root and alternative it names, is reachable from its tree's head
 entry, so a future object collector keeps exactly what the chains reach; sidecar caches

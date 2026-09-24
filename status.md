@@ -44,7 +44,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status` | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
-| One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | [migration 016](packages/canopyd/migrations/016-squash-history/README.md) |
+| One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/canopyd/migrations/016-squash-history/README.md` at `d15ddce`) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
 
 ## In progress
@@ -292,7 +292,7 @@ conflict rows. Stage 2 requires schema 18 and deletes the code that served older
 conflict and authored-intent stores and their fallbacks, checkpoint replay with
 `checkpoint-batch`, the whole-piece effect fallback and other legacy defaults (about 600
 fewer lines of host and merge-tool code, and 1,500 lines of retired migrations 013 to 015).
-[Migration 016](packages/canopyd/migrations/016-squash-history/README.md) kept each tree's
+Migration 016 (deleted; its runbook is `packages/canopyd/migrations/016-squash-history/README.md` at `d15ddce`) kept each tree's
 head (root, ordinal and so wire id, receipt), gave it a fresh editable merge state, dropped
 everything older, and kept entry dates and document versions.
 

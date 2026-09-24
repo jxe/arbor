@@ -26,8 +26,8 @@ may only run with the revision and schema it shipped against. Never retarget old
 code to a newer schema merely to make it pass current discovery; delete the
 whole migration directory after its rollback window closes. A retained
 migration whose code imports product modules a later build removed is excluded
-from `tsconfig.json` rather than edited (today `016-squash-history/`); check out
-the revision it shipped with to run it.
+from `tsconfig.json` rather than edited; check out the revision it shipped
+with to run it.
 
 ## The procedure
 

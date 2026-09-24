@@ -48,7 +48,7 @@ export function authorizeAccountConfigTransition(
 
 /** The comparable form of a configuration: resource rules keyed by rule
  * identity, so authoring order and the default scope spelling do not count. */
-export function semantic(graph: AccountConfigValues): Record<string, any> {
+function semantic(graph: AccountConfigValues): Record<string, any> {
   return {
     account: graph.account,
     resources: Object.fromEntries(Object.entries(graph.resources).map(([id, d]) => [id, {
@@ -67,20 +67,17 @@ export function semantic(graph: AccountConfigValues): Record<string, any> {
 
 /** Semantic equality of parsed configuration values: canonical JSON, whose
  * key order is a total order rather than a locale's collation. */
-export function same(left: unknown, right: unknown): boolean {
+function same(left: unknown, right: unknown): boolean {
   return stableJSONString(left) === stableJSONString(right);
 }
 
 const missing = Symbol("missing");
-interface MergeTally { conflicts: string[]; mergedFields: number }
+interface MergeTally { conflicts: string[] }
 
 function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: string, tally: MergeTally): unknown {
   if (same(candidate, remote)) return candidate;
   if (same(candidate, base)) return remote;
-  if (same(remote, base)) {
-    tally.mergedFields += 1;
-    return candidate;
-  }
+  if (same(remote, base)) return candidate;
   if (/^devices\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) return missing;
   if (/^resources\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) {
     tally.conflicts.push(path);
@@ -134,9 +131,9 @@ export function mergeAccountConfigGraphs(
   candidate: AccountConfigValues,
   remote: AccountConfigValues,
 ) {
-  const tally: MergeTally = { conflicts: [], mergedFields: 0 };
+  const tally: MergeTally = { conflicts: [] };
   const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
-  return { graph: fromSemantic(value), conflicts: tally.conflicts, mergedFields: tally.mergedFields };
+  return { graph: fromSemantic(value), conflicts: tally.conflicts };
 }
 
 /** The whole-tree merge for an account-configuration tree. Its files hold
@@ -170,6 +167,5 @@ export async function mergeAccountConfigTrees(
         : field.startsWith("devices.") ? "/devices.yaml" : "/account.yaml",
       reason: "account-configuration",
     })),
-    summary: { version: "account-config-v2", mergedFields: merged.mergedFields },
   };
 }
