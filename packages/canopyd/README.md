@@ -10,9 +10,9 @@ depends on it except tests and the deployment tooling.
 - `schema.ts`: the SQLite table definitions, the schema version stamp, the
   startup schema assertion, and `openCanopyDatabase`. The stamps are listed in
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
-- `updates/`: `decision.ts` (the identity-only current, accept, and merge
-  table), `reconcile.ts` (invokes the merge sidecar only when both sides
-  changed), `transition.ts`, `store.ts` (private accepted history and the
+- `updates/`: `reconcile.ts` (the identity-only current, accept, and merge
+  table; invokes the merge sidecar only when both sides changed),
+  `transition.ts`, `store.ts` (private accepted history and the
   ref, reflog, and accepted-row transaction), `observations.ts` (the ordered
   observation log per tree, the only source of cursor order), `watch-frames.ts`
   (net catch-up), `graph-validation.ts`, `source-edits.ts` (exact source
