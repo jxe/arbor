@@ -65,7 +65,6 @@ const cloneState = (state: IntentState): IntentState => {
     changes: cloneHistory(changes, clone),
   };
 };
-const operationsOf = traceOperations;
 /** Whether `a` and `b` have one `stableJSONString` form, decided without
  * building either string (evaluation compares whole node maps with it).
  * Evaluation data is JSON, so equal references and primitives serialize
@@ -139,7 +138,7 @@ class Engine {
    * operation identities and the operation or alternative material it cites. */
   private async prefetch(...states: IntentState[]) {
     const change = this.request.incoming.change,
-      operations = operationsOf(this.request.incoming),
+      operations = traceOperations(this.request.incoming),
       refs: MaterialRef[] = [];
     const walk = (value: unknown): void => {
       if (!value || typeof value !== "object") return;
@@ -188,6 +187,7 @@ class Engine {
   readonly formatEvidence: FormatEvidence[] = [];
   readonly generated = new Map<string, Uint8Array>();
   private readonly cache = new Map<string, Uint8Array>();
+  private readonly contexts = new Map<string, IntentState>();
   private readBytes = 0;
   private writtenBytes = 0;
   private started = performance.now();
@@ -1345,7 +1345,7 @@ class Engine {
           } else if (retained.kind === "directory") {
             const selected = updated.alternatives[updated.selected]!;
             if ((await this.project(context)) !== selected.object) {
-              const value = await this.context(selected.state);
+              const value = await this.contextView(selected.state);
               if ((await this.project(value)) !== selected.object)
                 throw new IntentError(
                   "missing-context",
@@ -1380,8 +1380,7 @@ class Engine {
           }
           for (const map of ["origins", "effects", "outputs"] as const)
             for (const [key, value] of Object.entries(await since(authored[map], base[map], same)))
-              if (!same(base[map][key], value))
-                (context[map] as Record<string, unknown>)[key] = clone(value);
+              (context[map] as Record<string, unknown>)[key] = clone(value);
           // Continuing one fragment can displace an overlapping sibling.
           // Keep that sibling in the prior valid context instead of storing a
           // live placement that a later edit or redo cannot read.
@@ -1442,9 +1441,20 @@ class Engine {
         }
     }
   }
+  /** A retained context state, as a copy the caller may edit. */
   async context(hash: string): Promise<IntentState> {
-    const state = await loadIntentState(hash, (hash) => this.read(hash));
-    return this.load({ object: await this.project(state), state: hash });
+    return cloneState(await this.contextView(hash));
+  }
+  /** A retained context state, loaded and validated once per evaluation and
+   * shared: callers only read it. */
+  private async contextView(hash: string): Promise<IntentState> {
+    let context = this.contexts.get(hash);
+    if (!context) {
+      const state = await loadIntentState(hash, (hash) => this.read(hash));
+      context = await this.load({ object: await this.project(state), state: hash });
+      this.contexts.set(hash, context);
+    }
+    return context;
   }
   /** Read history on demand when the basis is an editable state: its nodes
    * already reflect every deletion in its effects, so evaluation only needs
@@ -1459,24 +1469,39 @@ class Engine {
       stored = await storeLazyIntentState(state, (hash) => this.read(hash), (bytes) => this.put(bytes), editable);
     return { object, state: stored };
   }
+  // What `current` recorded under keys `base` lacks. An evaluation compares
+  // one fixed current/base pair that neither side edits, so each list is
+  // read once however many operations or alternatives ask for it.
+  private addedEffectList?: Promise<Effect[]>;
+  private addedChangeList?: Promise<Array<{ change: string; checkpoint?: { affected: string[] } }>>;
+  private addedEffects(current: IntentState, base: IntentState): Promise<Effect[]> {
+    return (this.addedEffectList ??= since(current.effects, base.effects, same).then((effects) =>
+      Object.entries(effects as Record<string, Effect>)
+        .filter(([key]) => !Object.hasOwn(base.effects, key))
+        .map(([, effect]) => effect)));
+  }
+  private addedChanges(current: IntentState, base: IntentState) {
+    return (this.addedChangeList ??= (async () => {
+      const added: Array<{ change: string; checkpoint?: { affected: string[] } }> = [];
+      for (const [change, hash] of Object.entries(await since(current.changes, base.changes, same) as Record<string, string>)) {
+        if (Object.hasOwn(base.changes, change)) continue;
+        added.push({ change, checkpoint: JSON.parse(decoder.decode(await this.read(hash))).checkpoint });
+      }
+      return added;
+    })());
+  }
   async contributions(
     current: IntentState,
     base: IntentState,
     id: string
   ): Promise<Array<{ change: string; operation: string | null }>> {
     const result: Array<{ change: string; operation: string | null }> =
-      Object.entries(await since(current.effects, base.effects, same) as Record<string, Effect>)
-        .filter(
-          ([key, e]) =>
-            !Object.hasOwn(base.effects, key) && (e.before[id] || e.after[id])
-        )
-        .map(([, e]) => ({ change: e.change, operation: e.operation }));
-    for (const [change, hash] of Object.entries(await since(current.changes, base.changes, same) as Record<string, string>)) {
-      if (Object.hasOwn(base.changes, change)) continue;
-      const envelope = JSON.parse(decoder.decode(await this.read(hash)));
-      if (envelope.checkpoint?.affected.includes(id))
+      (await this.addedEffects(current, base))
+        .filter((e) => e.before[id] || e.after[id])
+        .map((e) => ({ change: e.change, operation: e.operation }));
+    for (const { change, checkpoint } of await this.addedChanges(current, base))
+      if (checkpoint?.affected.includes(id))
         result.push({ change, operation: null });
-    }
     return result;
   }
   async run(incremental = true): Promise<IntentResponse> {
@@ -1566,6 +1591,18 @@ class Engine {
         return fail("Alternative kind does not match retained material");
       base.alternatives[alternativeKey(binding.ref)] = alternative.node;
     }
+    // The alternatives above were the last edits to `base` and nothing edits
+    // `current`, so their paths and records are computed once from here on.
+    const operations = traceOperations(request.incoming),
+      contributed = () => operations.map((op) => ({ change: request.incoming.change, operation: op.key }));
+    const basePaths = new Map<string, string>(),
+      basePath = (id: string) => {
+        let path = basePaths.get(id);
+        if (path === undefined) basePaths.set(id, (path = this.path(base, id)));
+        return path;
+      };
+    let currentRecord: Promise<{ object: string; state: string }> | undefined;
+    const recordCurrent = () => (currentRecord ??= this.record(current));
     const resolved = new Set(request.incoming.resolves ?? []);
     if (resolved.size !== (request.incoming.resolves?.length ?? 0))
       return fail("Duplicate resolution declaration");
@@ -1617,12 +1654,7 @@ class Engine {
             context.root = node.id;
             await this.retainDirectoryAlternatives(context);
             alternative.state = (await this.record(context)).state;
-            alternative.contributions.push(
-              ...operationsOf(request.incoming).map((op) => ({
-                change: request.incoming.change,
-                operation: op.key,
-              }))
-            );
+            alternative.contributions.push(...contributed());
           }
           continue;
         }
@@ -1682,12 +1714,7 @@ class Engine {
         }
         if (same(old, node)) continue;
         alternative.object = await this.project(authored, node.id);
-        alternative.contributions.push(
-          ...operationsOf(request.incoming).map((op) => ({
-            change: request.incoming.change,
-            operation: op.key,
-          }))
-        );
+        alternative.contributions.push(...contributed());
         if (
           index === decision.selected &&
           decision.placement &&
@@ -1727,9 +1754,9 @@ class Engine {
       const fileID = placements.length && placements.every(id => id === placements[0]) ? placements[0] : undefined;
       const fileBefore = fileID ? base.nodes[fileID] : undefined;
       const fileAfter = fileID ? authored.nodes[fileID] : undefined;
-      const filePath = fileID ? this.path(base, fileID) : undefined;
+      const filePath = fileID ? basePath(fileID) : undefined;
       const fileOnly = fileBefore?.pieces && fileAfter?.active && fileAfter.pieces &&
-        operationsOf(request.incoming).every(op => op.kind === "editSource" &&
+        operations.every(op => op.kind === "editSource" &&
           op.source.material.kind === "basis" && op.source.material.path === filePath);
       if (fileOnly) {
         const alternatives = [fileBefore!, fileAfter!].map((source, index) => {
@@ -1744,7 +1771,7 @@ class Engine {
           alternatives: await Promise.all(alternatives.map(async (node, index) => ({
             state: index === 0 ? old.state : candidate.state, node: node.id,
             object: await this.project(authored, node.id),
-            contributions: index === 0 ? [] : operationsOf(request.incoming).map(op => ({change: request.incoming.change, operation: op.key})),
+            contributions: index === 0 ? [] : contributed(),
           }))),
           dependencies: [...wrapped], reason: "Source transformation encloses existing file decisions",
           subject: {material: {kind: "basis", path: filePath!, object: await this.project(base, fileID!)}},
@@ -1760,10 +1787,7 @@ class Engine {
           {
             ...candidate,
             node: authored.root,
-            contributions: operationsOf(request.incoming).map((op) => ({
-              change: request.incoming.change,
-              operation: op.key,
-            })),
+            contributions: contributed(),
           },
         ],
         dependencies: [...wrapped],
@@ -1796,13 +1820,11 @@ class Engine {
       // First enforce the complete causal context. Snapshot equality never invents
       // correspondence; branches without retained identity remain explicit choices.
       const structuralTransfer =
-        operationsOf(request.incoming).some((op) =>
+        operations.some((op) =>
           ["moveSource", "copySource"].includes(op.kind)
         ) ||
-        Object.entries(await since(current.effects, base.effects, same) as Record<string, Effect>).some(
-          ([key, e]) =>
-            !Object.hasOwn(base.effects, key) &&
-            ["moveSource", "copySource"].includes(e.kind)
+        (await this.addedEffects(current, base)).some((e) =>
+          ["moveSource", "copySource"].includes(e.kind)
         );
       let transported: IntentState | undefined;
       if (
@@ -1812,7 +1834,7 @@ class Engine {
       ) {
         const attempt = cloneState(current);
         try {
-          for (const operation of operationsOf(request.incoming)) {
+          for (const operation of operations) {
             if (
               !["editSource", "moveSource", "copySource"].includes(
                 operation.kind
@@ -1854,9 +1876,8 @@ class Engine {
                 frameBasis,
                 authored
               );
-              for (const [key, effect] of Object.entries(await since(current.effects, base.effects, same) as Record<string, Effect>))
+              for (const effect of await this.addedEffects(current, base))
                 if (
-                  !Object.hasOwn(base.effects, key) &&
                   effect.kind === "moveSource" &&
                   Object.values(effect.before).some((n) =>
                     n.pieces?.some((p) =>
@@ -1884,7 +1905,7 @@ class Engine {
               same(b.pieces, next.pieces)
             )
               continue;
-            const path = this.path(base, id),
+            const path = basePath(id),
               config = request.rules.config?.formats?.[path];
             const evidence = evaluateSourceTransfer(path, [
               await this.bytes(b.pieces ?? []),
@@ -1896,7 +1917,7 @@ class Engine {
             if (evidence.outcome !== "resolved")
               throw new Error("Transfer requires format review");
           }
-          for (const operation of operationsOf(request.incoming)) {
+          for (const operation of operations) {
             const key = keyOf(request.incoming.change, operation.key);
             if (authored.outputs[key])
               attempt.outputs[key] = clone(authored.outputs[key]!);
@@ -1915,6 +1936,9 @@ class Engine {
       const merged = cloneState(current),
         affected: string[] =
           structuralTransfer && !transported ? [base.root] : [];
+      // Merging edits `merged` only, so the candidate records once as well.
+      let candidateRecord: Promise<{ object: string; state: string }> | undefined;
+      const recordCandidate = () => (candidateRecord ??= this.record(authored));
       for (const decision of authored.decisions) {
         const before = base.decisions.find((d) => d.key === decision.key),
           index = merged.decisions.findIndex((d) => d.key === decision.key);
@@ -1929,7 +1953,8 @@ class Engine {
       // may now be a hidden alternative. Match retained occurrence provenance,
       // never equal bytes, before reconciling against the visible projection.
       const continuedNodes = new Set<string>();
-      let branchContinuation = false;
+      let branchContinuation = false,
+        baseVisible: unknown;
 
       for (const decision of merged.decisions) {
         if (decision.kind !== "directory") continue;
@@ -1939,7 +1964,7 @@ class Engine {
             alternative.object !== request.base.object
           )
             continue;
-          const context = await this.context(alternative.state);
+          const context = await this.contextView(alternative.state);
           const visible = (view: IntentState) =>
             Object.values(view.nodes)
               .filter((n) => n.active && this.realm(view, n.id) === view.root)
@@ -1953,17 +1978,12 @@ class Engine {
                   : null,
               ])
               .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-          if (!same(visible(base), visible(context))) continue;
+          if (!same((baseVisible ??= visible(base)), visible(context))) continue;
           branchContinuation = true;
           alternative.object = this.authoredResult!.object;
           alternative.state = this.authoredResult!.state;
           delete alternative.node;
-          alternative.contributions.push(
-            ...operationsOf(request.incoming).map((op) => ({
-              change: request.incoming.change,
-              operation: op.key,
-            }))
-          );
+          alternative.contributions.push(...contributed());
           for (const id of Object.keys(base.nodes)) continuedNodes.add(id);
           for (const id of Object.keys(authored.nodes)) continuedNodes.add(id);
         }
@@ -1971,6 +1991,8 @@ class Engine {
       for (const [id, before] of Object.entries(base.nodes)) {
         const after = authored.nodes[id];
         if (!before.pieces || !after?.pieces || same(before, after)) continue;
+        let authoredEdits: Promise<PieceEdit[]> | undefined;
+        const edits = () => (authoredEdits ??= this.edits(before.pieces!, after.pieces!, authored));
         const matches = merged.decisions.flatMap((decision) =>
           decision.kind === "content"
             ? decision.alternatives.flatMap((alternative, index) => {
@@ -1987,14 +2009,14 @@ class Engine {
         // identifies the complete authored branch. Match that provenance first;
         // equal source bytes alone never authorize branch continuation.
         if (!matches.length) {
-          const edits = await this.edits(before.pieces, after.pieces, authored);
+          const changed = await edits();
           for (const decision of merged.decisions) {
             if (decision.kind !== "content") continue;
             for (const [index, alternative] of decision.alternatives.entries()) {
               if (index === decision.selected && !decision.context) continue;
               const node = alternative.node ? merged.nodes[alternative.node] : undefined;
               if (!node?.pieces?.length) continue;
-              const context = await this.context(alternative.state);
+              const context = await this.contextView(alternative.state);
               if (!same(context.nodes[id]?.pieces, before.pieces)) continue;
               let at: [number, number];
               try { at = this.locate(before.pieces, node.pieces, [0, length(node.pieces)]); }
@@ -2002,7 +2024,7 @@ class Engine {
                 if (error instanceof IntentError && error.code === "limit") throw error;
                 continue;
               }
-              if (!edits.length || edits.some(e => e.range[0] < at[0] || e.range[1] > at[1])) continue;
+              if (!changed.length || changed.some(e => e.range[0] < at[0] || e.range[1] > at[1])) continue;
               matches.push({ decision, alternative, index, node });
             }
           }
@@ -2014,19 +2036,13 @@ class Engine {
         if (same(node.pieces, before.pieces)) node.pieces = clone(after.pieces);
         else {
           const at = this.locate(before.pieces, node.pieces!, [0, length(node.pieces!)]);
-          const edits = await this.edits(before.pieces, after.pieces, authored);
-          node.pieces = normalize(applyPieceEdits(node.pieces!, edits.map(e => ({
+          node.pieces = normalize(applyPieceEdits(node.pieces!, (await edits()).map(e => ({
             ...e, range: [e.range[0] - at[0], e.range[1] - at[0]] as [number, number],
           }))));
         }
         alternative.object = await this.project(merged, node.id);
         alternative.state = this.authoredResult!.state;
-        alternative.contributions.push(
-          ...operationsOf(request.incoming).map((op) => ({
-            change: request.incoming.change,
-            operation: op.key,
-          }))
-        );
+        alternative.contributions.push(...contributed());
         continuedNodes.add(id);
       }
       if (branchContinuation) affected.length = 0;
@@ -2039,15 +2055,15 @@ class Engine {
         | undefined;
       const existenceChoice = async (id: string, sides: [Node | undefined, Node | undefined]) => {
         branchStates ??= {
-          old: await this.record(current),
-          candidate: await this.record(authored),
+          old: await recordCurrent(),
+          candidate: await recordCandidate(),
         };
         const selectedSide = request.rules.config?.conflictProjection === "current" ? 0 : 1;
         const alternatives = await Promise.all(sides.map(async (node, side) => {
           const branch = side === 0 ? branchStates!.old : branchStates!.candidate;
           const contributions = side === 0
             ? await this.contributions(current, base, id)
-            : operationsOf(request.incoming).map((op) => ({ change: request.incoming.change, operation: op.key }));
+            : contributed();
           // The deleted side names its whole branch and no node of its own.
           if (!node?.active || !node.pieces) return { ...branch, contributions };
           const occurrence = clone(node);
@@ -2067,7 +2083,7 @@ class Engine {
           alternatives,
           dependencies: current.decisions.filter((d) => d.affected.includes(id)).map((d) => d.key),
           reason: "Deleted in one version and changed in another",
-          subject: { material: { kind: "basis", path: this.path(base, id), object: await this.project(base, id) } },
+          subject: { material: { kind: "basis", path: basePath(id), object: await this.project(base, id) } },
         });
       };
       for (const id of new Set([
@@ -2127,16 +2143,18 @@ class Engine {
                   authored
                 ),
                 remoteEdits = await this.edits(b.pieces, remote.pieces, current);
+              let basisBytes: Promise<Uint8Array> | undefined;
+              const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
               if (
                 !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
               ) {
                 const proposal = normalize(
                   applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits])
                 );
-                const path = this.path(base, id);
+                const path = basePath(id);
                 const evidence = await evaluateFormat(
                   path,
-                  await this.bytes(b.pieces),
+                  await baseBytes(),
                   await this.bytes(remote.pieces),
                   await this.bytes(incoming.pieces),
                   await this.bytes(proposal),
@@ -2150,25 +2168,14 @@ class Engine {
                   continue;
                 }
               }
-            }
-            if (
-              field === "pieces" &&
-              b.pieces &&
-              incoming.pieces &&
-              remote.pieces
-            ) {
               branchStates ??= {
-                old: await this.record(current),
-                candidate: await this.record(authored),
+                old: await recordCurrent(),
+                candidate: await recordCandidate(),
               };
-              const left: Array<PieceEdit & { side: number }> = (await this.edits(
-                b.pieces,
-                remote.pieces,
-                current
-              )).map((e) => ({ ...e, side: 0 }));
-              const right = (await this.edits(b.pieces, incoming.pieces, authored)).map(
-                (e) => ({ ...e, side: 1 })
+              const left: Array<PieceEdit & { side: number }> = remoteEdits.map(
+                (e) => ({ ...e, side: 0 })
               );
+              const right = localEdits.map((e) => ({ ...e, side: 1 }));
               const edits: Array<PieceEdit & { side: number }> = [
                 ...left,
                 ...right,
@@ -2186,14 +2193,14 @@ class Engine {
               );
               let coupledByFormat = !hasOverlap;
               if (hasOverlap) {
-                const path = this.path(base, id);
+                const path = basePath(id);
                 const tentative = applyPieceEdits(b.pieces, [
                   ...right,
                   ...left.filter((a) => !right.some((b) => overlap(a, b))),
                 ]);
                 const policy = await evaluateFormat(
                   path,
-                  await this.bytes(b.pieces),
+                  await baseBytes(),
                   await this.bytes(remote.pieces),
                   await this.bytes(incoming.pieces),
                   await this.bytes(tentative),
@@ -2208,8 +2215,8 @@ class Engine {
                 coupledByFormat &&
                 edits.every((e) => e.range[0] === e.range[1])
               ) {
-                const path = this.path(base, id),
-                  bytes = await this.bytes(b.pieces);
+                const path = basePath(id),
+                  bytes = await baseBytes();
                 const policies = await Promise.all(
                   groups.map(async (group) =>
                     evaluateProseInsertions(
@@ -2249,7 +2256,7 @@ class Engine {
                   group.some((e) => e.side === 1)
                 ) {
                   const formatConfig =
-                    request.rules.config?.formats?.[this.path(base, id)];
+                    request.rules.config?.formats?.[basePath(id)];
                   if (start === end) {
                     const basisOrigins = new Set(b.pieces.map((p) => p.origin));
                     await this.originChains([current, authored], versions.flat());
@@ -2291,8 +2298,8 @@ class Engine {
                       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
                       .flatMap(([, pieces]) => pieces);
                     const policy = evaluateProseInsertions(
-                      this.path(base, id),
-                      await this.bytes(b.pieces),
+                      basePath(id),
+                      await baseBytes(),
                       start,
                       await Promise.all(versions.map((p) => this.bytes(p))),
                       formatConfig
@@ -2310,7 +2317,7 @@ class Engine {
                     }
                   }
                   const selectedSide = request.rules.config?.conflictProjection === "current" ? 0 : 1;
-                  const path = this.path(base, id),
+                  const path = basePath(id),
                     object = await this.project(base, id);
                   contentDecisions.push({
                     key: `${request.incoming.change}:${id}:${start}:${end}`,
@@ -2351,10 +2358,7 @@ class Engine {
                           contributions:
                             side === 0
                               ? await this.contributions(current, base, id)
-                              : operationsOf(request.incoming).map((op) => ({
-                                  change: request.incoming.change,
-                                  operation: op.key,
-                                })),
+                              : contributed(),
                         };
                       })
                     ),
@@ -2401,8 +2405,7 @@ class Engine {
         "alternatives",
       ] as const) {
         for (const [key, value] of Object.entries(await since(authored[map], base[map], same)))
-          if (!same(base[map][key], value))
-            (merged[map] as Record<string, unknown>)[key] = clone(value);
+          (merged[map] as Record<string, unknown>)[key] = clone(value);
       }
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
@@ -2419,8 +2422,8 @@ class Engine {
         affected.push(merged.root);
       }
       if (affected.length) {
-        const old = await this.record(current),
-          candidate = await this.record(authored);
+        const old = await recordCurrent(),
+          candidate = await recordCandidate();
         const decision = {
           key: `change:${request.incoming.change}`,
           kind: "directory" as const,
@@ -2431,10 +2434,7 @@ class Engine {
             {
               ...candidate,
               node: authored.root,
-              contributions: operationsOf(request.incoming).map((op) => ({
-                change: request.incoming.change,
-                operation: op.key,
-              })),
+              contributions: contributed(),
             },
           ],
           dependencies: current.decisions.map((d) => d.key),
@@ -2454,7 +2454,6 @@ class Engine {
       } else {
         merged.decisions.push(...contentDecisions);
         resultState = merged;
-        enforced = true;
       }
       if (transported) {
         resultState = transported;
@@ -2490,7 +2489,8 @@ class Engine {
             occurrence.parent = null;
             resultState.nodes[occurrence.id] = occurrence;
             const object = await this.project(resultState, occurrence.id);
-            const context = await this.record(index === 0 ? current : authored);
+            // `authored` may be the result state, which this pass edits.
+            const context = await (index === 0 ? recordCurrent() : this.record(authored));
             return {
               ...context,
               object,
@@ -2511,7 +2511,7 @@ class Engine {
         decision.subject = {
           material: {
             kind: "basis",
-            path: this.path(base, node),
+            path: basePath(node),
             object: await this.project(base, node),
           },
         };
@@ -2585,7 +2585,7 @@ class Engine {
         } catch (error) {
           if (error instanceof IntentError && error.code === "limit")
             throw error;
-          continuedContext ??= await this.record(current);
+          continuedContext ??= await recordCurrent();
           decision.context = continuedContext.state;
         }
       }
@@ -2694,8 +2694,9 @@ class Engine {
         request.base.object !== request.current.object) return decline(1);
     if (request.alternatives?.length || request.incoming.resolves?.length) return decline(2);
     const trace = request.incoming.trace;
-    if (!operationsOf(request.incoming).length) return decline(3);
-    if (!operationsOf(request.incoming).every(op =>
+    const operations = traceOperations(request.incoming);
+    if (!operations.length) return decline(3);
+    if (!operations.every(op =>
           op.kind === "editSource" ? op.source.material.kind === "basis" && !op.lineage?.length
           : op.kind === "addEntry" && op.destination.parent.material.kind === "basis")) return decline(4);
     if (trace[0]!.before !== request.base.object) return decline(8);
@@ -2763,7 +2764,7 @@ class Engine {
           incoming: this.request.incoming.object,
         },
         change: this.request.incoming.change,
-        operations: operationsOf(this.request.incoming).map((op) => op.key),
+        operations: traceOperations(this.request.incoming).map((op) => op.key),
         validation: "verified",
         formats: this.formatEvidence,
       },
