@@ -1,6 +1,7 @@
 /** Diagnostic: snapshot (and traced) acceptance latency through a disposable
- * in-process host, measured by the client. Every snapshot records a merge
- * state, so this is the cost of a checkpoint per accepted update.
+ * in-process host, measured by the client. Every acceptance records a log
+ * entry; a snapshot asks the sidecar one question, a plain traced edit on the
+ * head none.
  *
  *   FILES=200 bun tests/performance/snapshot-acceptance-cost.ts
  */

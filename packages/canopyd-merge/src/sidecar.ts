@@ -52,7 +52,11 @@ export class Sidecar {
   private memoryBytes = 0;
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
-  /** Entries replayed by the current question; a diagnostic. */
+  /** Recently solved questions. The next question's head is usually the entry
+   * canopyd recorded from the last answer, and replaying it asks the same
+   * question again: the same inputs give the same state, so it is reused. */
+  private solved = new Map<string, Cached>();
+  /** Entries the current question replayed (a solved question reused counts); a diagnostic. */
   replayed = 0;
 
   constructor(
@@ -68,6 +72,7 @@ export class Sidecar {
     this.memoryBytes = 0;
     this.states.clear();
     this.entries.clear();
+    this.solved.clear();
   }
 
   readonly objects: MergeObjects = {
@@ -114,7 +119,18 @@ export class Sidecar {
     this.replayed = 0;
     const { result, reports, evidence } = await this.solve(question, rules);
     const decisions = await logDecisions(this.io, result.object, reports);
+    this.rememberSolved(question, { ...result, decisions });
     return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
+  }
+
+  private rememberSolved(question: MergeQuestion, state: Cached): void {
+    const key = stableJSONString(question);
+    this.solved.delete(key);
+    this.solved.set(key, state);
+    for (const oldest of this.solved.keys()) {
+      if (this.solved.size <= 32) break;
+      this.solved.delete(oldest);
+    }
   }
 
   /** Evaluate a question against the retained states of its entries: a traced
@@ -186,8 +202,12 @@ export class Sidecar {
         },
         rules: asked?.rules ?? rules,
       });
-      const solved = await this.solve(question, asked ? this.rules(asked) : rules);
-      state = { ...solved.result, decisions: await logDecisions(this.io, solved.result.object, solved.reports) };
+      const known = this.solved.get(stableJSONString(question));
+      if (known) state = known;
+      else {
+        const solved = await this.solve(question, asked ? this.rules(asked) : rules);
+        state = { ...solved.result, decisions: await logDecisions(this.io, solved.result.object, solved.reports) };
+      }
     } catch {
       // An entry its question no longer explains is aligned to as a fact.
     }
