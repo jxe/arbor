@@ -154,9 +154,10 @@ export class AccessControl {
       || this.policyAllows(grant.account, callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest);
   }
 
-  canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    const tree = this.host.tree(treeID);
+  canRead(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
+    const treeID = tree.id;
     if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest)) return true;
@@ -165,9 +166,10 @@ export class AccessControl {
     return account ? this.effectiveAccess(account, treeID) !== "none" : false;
   }
 
-  canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    const tree = this.host.tree(treeID);
+  canWrite(account: CanopyAccount | null, treeOrID: string | CanopyTree, linkDigest?: string): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
+    const treeID = tree.id;
     if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest)) return true;

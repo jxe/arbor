@@ -538,12 +538,15 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
 
+  /** The tree whose canonical boundary most closely encloses `path`, and the path within it. */
   resolve(path: string): { tree: CanopyTree; path: string } | null {
     const canonical = normalizeBoundaryPath(path);
-    const candidates = this.list()
-      .filter((tree) => tree.canonicalPath !== null && sameOrDescendant(canonical, tree.canonicalPath))
-      .sort((a, b) => b.canonicalPath!.length - a.canonicalPath!.length);
-    const tree = candidates[0];
+    // Only the path itself and its ancestors can enclose it; the longest wins.
+    const segments = canonical.split("/").filter(Boolean);
+    const enclosing = ["/", ...segments.map((_, index) => `/${segments.slice(0, index + 1).join("/")}`)];
+    const tree = this.treeRow(this.db.query(
+      `${TREE_SELECT} WHERE b.path IN (${enclosing.map(() => "?").join(", ")}) ORDER BY length(b.path) DESC LIMIT 1`,
+    ).get(...enclosing));
     if (!tree) return null;
     const remainder = canonical === tree.canonicalPath
       ? "/"
@@ -757,7 +760,7 @@ export class CanopyDaemon implements AsyncDisposable {
       && tree.canonicalPath !== null
       && tree.policy === "ordinary"
       && this.rootProfileType(tree.ref) !== null
-      && this.canWrite(account, tree.id)
+      && this.canWrite(account, tree)
     );
   }
 
@@ -951,7 +954,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   readableGroupTrees(account: CanopyAccount): CanopyTree[] {
-    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree.id));
+    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree));
   }
 
   administeredTrees(account: CanopyAccount): CanopyTree[] {
@@ -972,12 +975,13 @@ export class CanopyDaemon implements AsyncDisposable {
     return facts;
   }
 
-  canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.execution.current ? this.execution.allows(treeID, "/", "read") : this.access.canRead(account, treeID, linkDigest);
+  /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
+  canRead(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+    return this.execution.current ? this.execution.allows(idOf(tree), "/", "read") : this.access.canRead(account, tree, linkDigest);
   }
 
-  canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.execution.current ? this.execution.allows(treeID, "/", "write") : this.access.canWrite(account, treeID, linkDigest);
+  canWrite(account: CanopyAccount | null, tree: string | CanopyTree, linkDigest?: string): boolean {
+    return this.execution.current ? this.execution.allows(idOf(tree), "/", "write") : this.access.canWrite(account, tree, linkDigest);
   }
 
   canAdminister(account: CanopyAccount, treeID: string): boolean {
@@ -2559,11 +2563,16 @@ export class CanopyDaemon implements AsyncDisposable {
    */
   private nameHeldByTree(name: string): boolean {
     const root = `/~${name}`;
-    const owner = this.accountByHandle(name)?.id;
-    if (this.list().some((tree) => tree.status === "active" && tree.canonicalPath !== null
-      && sameOrDescendant(tree.canonicalPath, root) && (!owner || tree.accountID !== owner))) return true;
-    const pending = this.db.query("SELECT account_id, canonical_path FROM tree_reservations").all() as Array<{ account_id: string; canonical_path: string }>;
-    return pending.some((row) => sameOrDescendant(row.canonical_path, root) && row.account_id !== owner);
+    const below = `${root}/`;
+    const owner = this.accountByHandle(name)?.id ?? null;
+    return this.db.query(`
+      SELECT 1 FROM trees t JOIN boundaries b ON b.tree_id = t.id
+      WHERE t.status = 'active' AND (b.path = ? OR substr(b.path, 1, ?) = ?) AND (? IS NULL OR t.account_id IS NOT ?)
+      UNION ALL
+      SELECT 1 FROM tree_reservations
+      WHERE (canonical_path = ? OR substr(canonical_path, 1, ?) = ?) AND (? IS NULL OR account_id IS NOT ?)
+      LIMIT 1
+    `).get(root, below.length, below, owner, owner, root, below.length, below, owner, owner) !== null;
   }
 
   /** A community update may not reserve a handle whose /~name a tree already holds. */
@@ -2634,6 +2643,10 @@ export class CanopyDaemon implements AsyncDisposable {
     this.db.close();
     this.observationListeners.clear();
   }
+}
+
+function idOf(tree: string | CanopyTree): string {
+  return typeof tree === "string" ? tree : tree.id;
 }
 
 function dirnameURL(path: string): string {
