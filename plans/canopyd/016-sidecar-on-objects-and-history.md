@@ -8,7 +8,8 @@
   data model (a migration), though not the wire protocol clients speak.
 - **State:** PLANNED, 2026-09-24. Joe agreed the direction: the accepted
   history stored as immutable objects, so a sidecar needs only the object
-  store and one merge question; sidecar state is a cache.
+  store and one merge question; sidecar state is a cache. Design decisions
+  settled the same day (below).
 - **Depends on:** migration 016's history squash, which ran on 2026-09-24
   ([status](../../status.md#one-merge-state-model-and-history-squash--2026-09-24)),
   so every tree's history starts at its head then; and the merge-boundary work
@@ -46,7 +47,8 @@ head needs no sidecar at all: canopyd checks it and appends its entry.
 
 ### Log entries
 
-One entry per accepted update, written by canopyd as a canonical JSON object in
+One entry per accepted update, written by canopyd as a canonical JSON object
+(`stableJSONString`) in
 the object store, all protocol data canopyd already has:
 
 ```ts
@@ -75,7 +77,9 @@ a sidecar the same information a checkpoint does now. An entry's hash is its
 identity: two sidecars, or one sidecar before and after a restart, can never
 disagree about what an entry says. canopyd writes the entry object durably
 before the transaction that records it, as it already does for roots, and each
-accepted row keeps its entry's hash. canopyd's SQLite schema stays private.
+accepted row keeps its entry's hash and its existing `conflicted` flag, nothing
+more of the entry: decisions live only in the entry, and canopyd reads them
+from there. canopyd's SQLite schema stays private.
 
 ### The object store: the one API
 
@@ -119,8 +123,8 @@ in canopyd, and a snapshot is a question with `trace: null`.
 Today's stdin/stdout JSON lines: one question per line, one answer per line,
 in order. With history in the object store the sidecar never calls canopyd,
 so the channel stays one-way and needs no framing beyond lines. Any language
-can implement it. A sidecar may also be given a private cache directory, which
-canopyd may delete at any time; it is not an API. If concurrency or a remote
+can implement it. The reference sidecar keeps its cache in memory only; after a
+restart it rebuilds from the chains as questions arrive. If concurrency or a remote
 sidecar is ever needed, the same question and answer can move to HTTP over a
 unix socket without changing their shape.
 
@@ -135,14 +139,17 @@ by each chain's start. A cache keyed by entry hash can never be stale.
 
 ### Fast-forward
 
-A single update on the current head, with no open decision on any file it
-touches, whose frames are all plain `editSource` (and later `addEntry`)
-operations that canopyd reproduces exactly, is accepted by canopyd without a
-question. Its entry records the trace. The check (today's `validateSourceTrace`,
-now test support) moves into `@overstory/protocol` beside `composeSourceEdits`,
-because it is protocol behavior, not merge policy. Anything canopyd cannot
-check goes to the sidecar, which remains the authority on validity. The fast
-path never rejects.
+A single update on the current head is accepted by canopyd without a question
+when every frame's operations are `editSource` over basis material or
+`addEntry`, canopyd reproduces every frame's `after` exactly, and no open
+decision concerns anything the update touches: the edited files, and for an
+added entry its parent folders (an addition inside a folder with an open folder
+choice is the sidecar's to place). An added file starts with no retained state.
+Its entry records the trace. The check (today's `validateSourceTrace` for
+`editSource`, now test support, plus a new one for `addEntry`) lives in
+`@overstory/protocol` beside `composeSourceEdits`, because it is protocol
+behavior, not merge policy. Anything canopyd cannot check goes to the sidecar,
+which remains the authority on validity. The fast path never rejects.
 
 ### Retention and access
 
@@ -158,7 +165,8 @@ do today.
 1. **Contract.** Define `LogEntry`, `LogDecision`, the question and the answer
    in `@overstory/merge-protocol`, and document the object layout. Write
    `docs/architecture/canopyd/writing-a-sidecar.md`: the whole API on one page.
-2. **Reference proof of sufficiency.** A minimal sidecar under test support,
+2. **Reference proof of sufficiency.** A minimal sidecar under test support
+   (not published as an example; the real sidecar is the one to read),
    about 150 lines: no cache, walks entries from `head` and `base` to their
    common entry, three-way file merge with a whole-file choice on any
    conflict. Run it through the canopyd acceptance suites that do not assert
@@ -166,14 +174,17 @@ do today.
    store and the question alone, the design is incomplete.
 3. **canopyd writes entries.** Every acceptance path, including tree creation,
    pairing, account configuration and boundary rewrites, writes its entry
-   object and records its hash on the accepted row. Inspection pages read
-   decisions from the head entry with today's derived public ids.
+   object and records its hash on the accepted row. Inspection pages, guards
+   and resolution checks read decisions from the entry with today's derived
+   public ids; no SQLite copy.
 4. **canopyd asks one question.** Replace intent requests, checkpoints and
    `SemanticMerge.record` with the question and the answer.
-5. **Fast-forward.** Move the plain-edit check into `@overstory/protocol` and
-   accept qualifying updates without a question.
+5. **Fast-forward.** Move the `editSource` check into `@overstory/protocol`,
+   add the `addEntry` check and the open-decision rule above, and accept
+   qualifying updates without a question. Log each fall-through with its
+   reason, so later extensions follow measured misses.
 6. **The worker becomes a sidecar.** Keep its engine and format rules. Replace
-   host-supplied state with a cache keyed by entry hash, rebuilt by replaying
+   host-supplied state with an in-memory cache keyed by entry hash, rebuilt by replaying
    entries (trace, then align to root and decisions). Store the cache per
    file, so a plain edit touches only that file's state and its directories.
    Delete the tree-wide active state load, store and clone.
@@ -184,26 +195,26 @@ do today.
 8. **Docs and status.** Rewrite `merge-tool.md` around the object store and the
    question; record measurements.
 
-## Decisions for Joe
+## Decided (2026-09-24)
 
-1. **Entry encoding:** canonical JSON (readable, what the merge contract uses)
-   or the protocol's canonical CBOR (compact, what tree objects use).
-2. **Decisions in SQLite too:** whether accepted rows keep a copy of their open
-   decisions for queries and inspection, or canopyd always reads them from the
-   head entry. A copy is faster to query; reading the entry keeps one source.
-3. **Cache location:** only in the sidecar's memory (rebuild after each
-   restart), or also in its private cache directory. Memory-only is simpler; a
-   directory avoids a cold rebuild after deploys.
-4. **Fast-forward scope:** start with `editSource` only, or include `addEntry`
-   (a new file has no prior state).
-5. **Reference sidecar:** keep it in test support only, or publish it as the
-   documented example for people writing their own.
+1. **Entry encoding:** canonical JSON. Sidecar authors read JSON everywhere,
+   traces and decisions are already JSON, and only canopyd needs canonical
+   bytes.
+2. **Decisions in SQLite:** no copy. Rows keep the entry hash and the
+   `conflicted` flag; decisions are read from the entry. A derived index can
+   be added if a real query needs one.
+3. **Cache:** memory only. A restart means cold rebuilds, bounded by each
+   chain's start; measured below before this ships.
+4. **Fast-forward scope:** `editSource` and `addEntry`.
+5. **Reference sidecar:** stays in test support as the proof that the API is
+   sufficient; not published. The real sidecar is small enough to read.
 
 ## Risks
 
-- **Cold rebuilds.** Without a persisted cache, the first merge on a tree
-  after a restart replays that tree's chain from its start. Measure on a copy
-  of production before deciding decision 3.
+- **Cold rebuilds.** With a memory-only cache, the first merge on each tree
+  after a restart replays that tree's chain from its start. Measure it on a
+  copy of production; if it is too slow, the fix is a snapshot entry that lets
+  a chain start later, not a persistent cache.
 - **Information only the retained state carries.** Source-transfer provenance
   and hidden-alternative lineage live in today's retained state. They must be
   derivable by replaying entries, or the sidecar must cache them. Step 2 and
