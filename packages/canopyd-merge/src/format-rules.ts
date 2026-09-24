@@ -1,4 +1,4 @@
-import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownListEdit, MarkdownSource } from "./markdown-format.ts";
+import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownTransferStructure, markdownListEdit, MarkdownSource, type LinkPolicy } from "./markdown-format.ts";
 import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,27 @@ export interface FormatConfig {
   format?: Format;
   recordKey?: string;
   proseInsertions?: "review" | "preserve-both";
+}
+/** What the engine knows about a transfer merge beyond one file's four
+ * versions (base, current, authored, replayed). */
+export interface TransferContext {
+  /** This file's directory in each of the four versions. */
+  directories: string[];
+  /** Whether any transfer in the merge carries text between documents:
+   * "same-directory" when every one that does joins two documents in one
+   * directory, "other" otherwise or when an endpoint is unknown. */
+  crossDocument: "none" | "same-directory" | "other";
+  /** This file's transfers, on the current (1) or authored (2) side: a move's
+   * `source` is the byte range it left in base and its `destination` the
+   * range of its material in its side's version. A move out of or into
+   * another file has only one of them. Null when some transfer's material
+   * could not be located. */
+  transfers: Array<{
+    side: 1 | 2;
+    kind: "move" | "copy";
+    source?: [number, number];
+    destination?: [number, number];
+  }> | null;
 }
 export interface FormatEvidence {
   id: string;
@@ -734,7 +755,8 @@ export function evaluateProseInsertions(
 export function evaluateSourceTransfer(
   path: string,
   versions: Uint8Array[],
-  config: FormatConfig = {}
+  config: FormatConfig = {},
+  context?: TransferContext
 ): FormatEvidence {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
@@ -764,10 +786,340 @@ export function evaluateSourceTransfer(
     shapes.length === 4 &&
     shapes[0] !== null &&
     shapes.every((shape) => shape === shapes[0]);
+  if (safe)
+    return result(true, "Identity-verified prose transfer preserves Markdown host and embedded structure");
+  if (sources.length !== 4)
+    return result(false, "Transfer changes protected Markdown structure or embedded content");
+  // List items, table rows and contextual links (`markdownTransferStructure`).
+  //
+  // Commutation proof. The engine has already replayed the other side's
+  // operations by piece identity, so `replayed` holds each side's bytes where
+  // identity put them and no byte either side did not write. What remains is
+  // that each change means the same in the combined document as where it was
+  // authored. Every version having one structure shape means both sides, and
+  // the result, keep every protected block byte-for-byte and every list and
+  // table host with its bullet or its header and alignment, and differ only in
+  // paragraphs, items and body rows. Those render from their own source and
+  // their host alone, and no side changed a host, so a change renders the same
+  // in either side's document and in the result, in either arrival order.
+  //
+  // A contextual link also depends on its document: a relative destination on
+  // its directory, a fragment on its headings, a reference on its
+  // definitions. Headings and definitions are protected blocks, so one shape
+  // keeps them identical; the directory is compared below. A link is admitted
+  // only where no transfer brings text from another document, except a
+  // relative one between documents in one directory. Anywhere else it stays
+  // protected, and moving it requires review.
+  const links: LinkPolicy =
+    context?.crossDocument === "none"
+      ? { relative: true, fragment: true, reference: true }
+      : context?.crossDocument === "same-directory"
+        ? { relative: true }
+        : {};
+  const structures = sources.map((source) => markdownTransferStructure(source, links));
+  const structured = structures.every((s) => s.shape === structures[0]!.shape);
+  const bound =
+    !structures.some((s) => s.links.size) ||
+    (!!context && context.directories.length === 4 &&
+      context.directories.every((d) => d === context.directories[0]));
   return result(
-    safe,
-    safe
-      ? "Identity-verified prose transfer preserves Markdown host and embedded structure"
-      : "Transfer changes protected Markdown structure or embedded content"
+    structured && bound,
+    structured && bound
+      ? "Identity-verified transfer preserves Markdown list and table hosts, protected structure and link bindings"
+      : structured
+        ? "Transfer changes a contextual link's document"
+        : "Transfer changes protected Markdown structure or embedded content"
   );
+}
+
+/** A keyed reading of a structured document for transfer proofs: `units` maps
+ * each member's key path (a JSON array) to its exact value source, or `{}` for
+ * a mapping, and `members` gives each member's key path and byte range. */
+interface KeyedModel {
+  units: Map<string, string>;
+  members: Array<{ path: string[]; start: number; end: number }>;
+  /** Source outside the members that every version must keep exactly. */
+  fixed: string;
+  /** Per member, a shape that literal edits keep; compared across versions. */
+  shapes?: Map<string, string>;
+}
+const pathKey = (path: string[]) => JSON.stringify(path);
+/** Whether `a` is `b` or one of its ancestors. */
+const within = (a: string[], b: string[]) =>
+  a.length <= b.length && a.every((key, i) => key === b[i]);
+
+function jsonModel(source: string, root: Parser.SyntaxNode): KeyedModel | null {
+  const units = new Map<string, string>(), members: KeyedModel["members"] = [];
+  const visit = (node: Parser.SyntaxNode, path: string[]): boolean => {
+    if (node.type !== "object") {
+      units.set(pathKey(path), node.text);
+      return true;
+    }
+    units.set(pathKey(path), "{}");
+    const keys = new Set<string>();
+    for (const pair of node.namedChildren) {
+      if (pair.type !== "pair") return false;
+      const key = pair.childForFieldName("key"), value = pair.childForFieldName("value");
+      if (!key || !value || key.type !== "string") return false;
+      const name = JSON.parse(key.text) as string;
+      if (keys.has(name)) return false;
+      keys.add(name);
+      members.push({ path: [...path, name], ...range(source, pair) });
+      if (!visit(value, [...path, name])) return false;
+    }
+    return true;
+  };
+  const top = root.namedChildren;
+  return top.length === 1 && top[0]!.type === "object" && visit(top[0]!, [])
+    ? { units, members, fixed: "" }
+    : null;
+}
+
+function yamlModel(source: string, root: Parser.SyntaxNode): KeyedModel | null {
+  // The same restrictions as ordinary YAML merges: one strict document of
+  // mappings and scalars, without anchors, aliases, tags or block scalars.
+  const doc = parseDocument(source, { uniqueKeys: true });
+  if (doc.errors.length || doc.warnings.length) return null;
+  if (descendants(root).some((n) => /anchor|alias|tag|block_scalar|flow_sequence|block_sequence/.test(n.type)))
+    return null;
+  const units = new Map<string, string>(), members: KeyedModel["members"] = [];
+  const canonicalKey = (text: string): string =>
+    text.startsWith('"') ? JSON.parse(text) : text.startsWith("'") ? text.slice(1, -1).replaceAll("''", "'") : text;
+  const content = (node: Parser.SyntaxNode) => node.namedChildren.filter((n) => n.type !== "comment");
+  const visit = (node: Parser.SyntaxNode, path: string[]): boolean => {
+    if (["stream", "document", "block_node", "flow_node"].includes(node.type)) {
+      const inner = content(node);
+      return inner.length === 1 && visit(inner[0]!, path);
+    }
+    if (node.type === "block_mapping" || node.type === "flow_mapping") {
+      units.set(pathKey(path), "{}");
+      const keys = new Set<string>();
+      for (const pair of content(node)) {
+        if (pair.type !== "block_mapping_pair" && pair.type !== "flow_pair") return false;
+        const key = pair.childForFieldName("key"), value = pair.childForFieldName("value");
+        if (!key || !value) return false;
+        const name = canonicalKey(key.text);
+        if (keys.has(name)) return false;
+        keys.add(name);
+        members.push({ path: [...path, name], ...range(source, pair) });
+        if (!visit(value, [...path, name])) return false;
+      }
+      return true;
+    }
+    if (/^(plain_scalar|single_quote_scalar|double_quote_scalar)$/.test(node.type)) {
+      units.set(pathKey(path), node.text);
+      return true;
+    }
+    return false;
+  };
+  return visit(root, []) && units.get(pathKey([])) === "{}" ? { units, members, fixed: "" } : null;
+}
+
+/** Top-level function declarations of a script or module. They are hoisted
+ * whole: each binding holds its function before any statement runs, wherever
+ * it is written, so their order among the other statements has no effect.
+ * Everything else (imports, classes, variables, expression statements) runs
+ * or binds in order and is kept exactly. Comments that direct tools about the
+ * next line would change meaning if a declaration moved under them. */
+function declarationModel(source: string, root: Parser.SyntaxNode): KeyedModel | null {
+  if (!codeUnits(source, root)) return null;
+  const units = new Map<string, string>(), members: KeyedModel["members"] = [],
+    shapes = new Map<string, string>(), fixed: string[] = [];
+  for (const node of root.namedChildren) {
+    if (node.type === "comment") {
+      if (/@ts-|eslint|istanbul|c8\b|prettier|jshint|jscs|global|@flow|@jsx|biome|deno-|sourceMappingURL|sourceURL/i.test(node.text))
+        return null;
+      continue;
+    }
+    if (node.type === "function_declaration" || node.type === "generator_function_declaration") {
+      const name = node.childForFieldName("name")?.text;
+      if (!name || units.has(pathKey([name]))) return null;
+      units.set(pathKey([name]), node.text);
+      shapes.set(pathKey([name]), codeShape(node));
+      members.push({ path: [name], ...range(source, node) });
+      continue;
+    }
+    if (node.type === "expression_statement" && node.namedChildren[0]?.type === "string") return null;
+    if (!/^(import_statement|lexical_declaration|variable_declaration|class_declaration|expression_statement|type_alias_declaration|interface_declaration)$/.test(node.type))
+      return null;
+    // Other statements keep their order and syntax (`fixed`); each is a unit
+    // by position, so a literal edit to one is an ordinary value edit.
+    const shape = codeShape(node), key = pathKey([`\0${fixed.length}`]);
+    fixed.push(shape);
+    units.set(key, node.text);
+    shapes.set(key, shape);
+  }
+  return { units, members, fixed: JSON.stringify(fixed), shapes };
+}
+
+/** The key path of the one complete member a byte range holds, with only
+ * whitespace (and, for data, separating commas) beside it. */
+function memberAt(model: KeyedModel, bytes: Uint8Array, [start, end]: [number, number], separators: RegExp): string[] | null {
+  const inside = model.members.filter((m) => m.start >= start && m.end <= end);
+  const top = inside.filter((m) => !inside.some((o) => o !== m && o.start <= m.start && o.end >= m.end));
+  if (top.length !== 1) return null;
+  const rest = Buffer.concat([bytes.subarray(start, top[0]!.start), bytes.subarray(top[0]!.end, end)]).toString();
+  return separators.test(rest) ? top[0]!.path : null;
+}
+
+/** The commutation proof for keyed transfers. Returns why it fails, or null.
+ *
+ * Each side (current, authored) is read as: its moves, each relocating one
+ * member's subtree from key path p to q (a declaration keeps its path), its
+ * copies, each adding one member at q, and its edits, which change leaf
+ * values and nothing else. Moves and copies are identified by the engine's
+ * piece identity, never by equal values. The proof requires
+ *
+ * 1. no transfer endpoint of one side is, contains or lies in an endpoint of
+ *    the other (so the two sides' relocations commute, and neither moves what
+ *    the other moved or moves into what the other copied);
+ * 2. every other difference on a side is a leaf value edit, or lies in one of
+ *    its own copies;
+ * 3. after relocating each side's edits through the other side's moves (an
+ *    edit to a moved member follows it), the two sides' changed paths are
+ *    disjoint and none contains another;
+ * 4. the replayed version reads as base with both sides' relocations, then
+ *    both sides' relocated changes, applied: exactly, key for key.
+ *
+ * The expected value in (4) is built from sets that are symmetric in the two
+ * sides, so the other arrival order, which swaps current and authored, expects
+ * the same value, and (4) accepts a replay only when it equals it. */
+function keyedTransferProof(
+  models: KeyedModel[],
+  bytes: Uint8Array[],
+  transfers: TransferContext["transfers"],
+  separators: RegExp,
+): string | null {
+  if (!transfers) return "A transfer's material could not be located";
+  if (models.some((m) => m.fixed !== models[0]!.fixed))
+    return "A change outside keyed members";
+  for (const model of models)
+    for (const [key, shape] of model.shapes ?? [])
+      if (models.some((m) => m.shapes?.has(key) && m.shapes.get(key) !== shape))
+        return "A declaration changes more than literals";
+  const moves: Array<Array<[string[], string[]]>> = [[], [], []],
+    copies: string[][][] = [[], [], []];
+  for (const t of transfers) {
+    const q = t.destination && memberAt(models[t.side]!, bytes[t.side]!, t.destination, separators);
+    if (t.kind === "move") {
+      const p = t.source && memberAt(models[0]!, bytes[0]!, t.source, separators);
+      if (!p || !q || p.at(-1) !== q.at(-1))
+        return "A move must carry one complete keyed member within one file";
+      moves[t.side]!.push([p, q]);
+    } else {
+      if (!q) return "A copy must carry one complete keyed member";
+      copies[t.side]!.push(q);
+    }
+  }
+  const ends = (side: number) => [...moves[side]!.flat(), ...copies[side]!];
+  for (const side of [1, 2]) {
+    const own = ends(side);
+    // A reorder's source and destination are one path; that is not an overlap.
+    for (const [i, x] of own.entries())
+      for (const y of own.slice(i + 1))
+        if ((within(x, y) || within(y, x)) &&
+          !moves[side]!.some(([p, q]) => (p === x && q === y) || (p === y && q === x)))
+          return "Transfers on one side overlap";
+  }
+  for (const x of ends(1))
+    for (const y of ends(2))
+      if (within(x, y) || within(y, x)) return "Both sides transfer one member";
+  const relocate = (side: number, path: string[]) => {
+    for (const [p, q] of moves[side]!)
+      if (within(p, path)) return [...q, ...path.slice(p.length)];
+    return path;
+  };
+  const relocated = (side: number, units: Map<string, string>) =>
+    new Map([...units].map(([k, v]) => [pathKey(relocate(side, JSON.parse(k))), v] as const));
+  const changes: Array<Map<string, string | undefined>> = [new Map(), new Map(), new Map()];
+  for (const side of [1, 2]) {
+    const before = relocated(side, models[0]!.units), after = models[side]!.units;
+    if (before.size !== models[0]!.units.size)
+      return "A move lands on an existing member";
+    const other = 3 - side;
+    for (const key of new Set([...before.keys(), ...after.keys()])) {
+      const a = before.get(key), b = after.get(key);
+      if (a === b) continue;
+      const path = JSON.parse(key) as string[];
+      const copied = a === undefined && copies[side]!.some((q) => within(q, path));
+      const edit = a !== undefined && b !== undefined && a !== "{}" && b !== "{}";
+      if (!copied && !edit) return "A side creates, removes or retypes a member outside its transfers";
+      if (ends(other).some((e) => within(path, e) && path.length < e.length))
+        return "A change contains the other side's transfer";
+      changes[side]!.set(pathKey(relocate(other, path)), b);
+    }
+  }
+  for (const x of changes[1]!.keys())
+    for (const y of changes[2]!.keys())
+      if (within(JSON.parse(x), JSON.parse(y)) || within(JSON.parse(y), JSON.parse(x)))
+        return "Both sides change one member";
+  const expected = relocated(2, relocated(1, models[0]!.units));
+  for (const side of [1, 2])
+    for (const [key, value] of changes[side]!)
+      if (value === undefined) expected.delete(key);
+      else expected.set(key, value);
+  const actual = models[3]!.units;
+  if (actual.size !== expected.size || [...expected].some(([k, v]) => actual.get(k) !== v))
+    return "The replayed result is not both sides' relocated changes";
+  return null;
+}
+
+/** Transfer evidence for every format: keyed JSON and YAML members and
+ * top-level TS/JS function declarations here, text and Markdown in
+ * `evaluateSourceTransfer`. */
+export async function evaluateTransfer(
+  path: string,
+  versions: Uint8Array[],
+  config: FormatConfig = {},
+  context?: TransferContext,
+): Promise<FormatEvidence> {
+  const format = config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
+  if (!["json", "yaml", "typescript", "javascript"].includes(format) || versions.length !== 4)
+    return evaluateSourceTransfer(path, versions, config, context);
+  const result = (safe: boolean, reason: string): FormatEvidence => ({
+    id: `${format}-source-transfer`,
+    revision: 1,
+    outcome: safe ? "resolved" : "unresolved",
+    reason,
+    config,
+  });
+  if (versions.some((bytes) => bytes.length > 256 * 1024))
+    return result(false, "Source exceeds transfer analysis budget");
+  let sources: string[];
+  try {
+    sources = versions.map((bytes) => decoder.decode(bytes));
+  } catch {
+    return result(false, "Invalid UTF-8 for source transfer");
+  }
+  const trees: Parser.Tree[] = [];
+  let parser: Parser | undefined;
+  try {
+    const language = format === "typescript" && extname(path) === ".tsx" ? "tsx" : format;
+    parser = await createParser(language);
+    const models: KeyedModel[] = [];
+    for (const source of sources) {
+      const tree = parse(parser, source);
+      trees.push(tree);
+      if (tree.rootNode.hasError()) return result(false, "Malformed or unsupported syntax");
+      const model =
+        format === "json" ? jsonModel(source, tree.rootNode)
+          : format === "yaml" ? yamlModel(source, tree.rootNode)
+            : declarationModel(source, tree.rootNode);
+      if (!model) return result(false, "Ambiguous or unsupported keyed structure");
+      models.push(model);
+    }
+    const data = format === "json" || format === "yaml";
+    const failure = keyedTransferProof(models, versions, context?.transfers ?? null,
+      data ? /^[\s,]*$/ : /^\s*$/);
+    return failure
+      ? result(false, failure)
+      : result(true, data
+        ? "Identity-verified keyed member transfer commutes with independent value edits"
+        : "Identity-verified hoisted declaration move commutes with independent literal edits");
+  } catch {
+    return result(false, "Parser or semantic context unavailable");
+  } finally {
+    for (const tree of trees) tree.delete();
+    parser?.delete();
+  }
 }

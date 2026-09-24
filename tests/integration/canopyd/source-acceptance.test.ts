@@ -986,6 +986,51 @@ test("equal-byte round trips authored as ordinary edits stay unconflicted", asyn
   expect((await client.submitUpdates(tree,{base:current.tree.update,updates:[next]})).results[0]!.update.root).toBe(next.candidate);
 });
 
+/** A traced `moveSource` of `/note.md`'s `[start, end)` to `offset` on `basis`. */
+function moveNote(basis: ObjectHash, text: string, [start, end]: [number, number], offset: number): CandidateUpdate {
+  const directory = decodeWireDirectory(objects.get(basis)!);
+  const file = directory.entries.find(e => e.name === "note.md")!.file!;
+  const bytes = Buffer.from(text), material = bytes.subarray(start, end);
+  const moved = offset <= start
+    ? Buffer.concat([bytes.subarray(0, offset), material, bytes.subarray(offset, start), bytes.subarray(end)])
+    : Buffer.concat([bytes.subarray(0, start), bytes.subarray(end, offset), material, bytes.subarray(offset)]);
+  const next = hashObject(moved); objects.set(next, moved);
+  directory.entries = directory.entries.map(e => e.name === "note.md" ? { name: e.name, file: next } : e);
+  const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded); objects.set(candidate, encoded);
+  const ref = (range: [number, number]) => ({ material: { kind: "basis" as const, path: "/note.md", object: file }, range });
+  return { change: crypto.randomUUID(), candidate, resolves: [], deltas: [],
+    trace: [{ before: basis, after: candidate, operations: [{ key: "move", kind: "moveSource", source: ref([start, end]), at: ref([offset, offset]), side: "before" }] }],
+    objects: [{ hash: next, bytes: moved }, { hash: candidate, bytes: encoded }] };
+}
+test.each([
+  ["a list item move and an item edit", "- a\n- b\n- c\n", [4, 8], 12, (r: ObjectHash) => edit("A", r, [2, 3]), "- A\n- c\n- b\n"],
+  ["a paragraph move and an insertion at its destination", "Alpha\n\nBeta\n\n", [0, 7], 13, (r: ObjectHash) => edit("Gamma\n\n", r, [13, 13]), "Beta\n\nAlpha\n\nGamma\n\n"],
+] as const)("%s merge in either order and replay (move first)", async (_name, text, range, offset, peerOf, expected) => {
+  const results: string[] = [];
+  let head = { id: base, root }, size = 5;
+  for (const moveFirst of [true, false]) {
+    // Each order starts from `text`, written over the head.
+    const seeded = await edit(text, head.root, [0, size]);
+    const start = (await client.submitUpdates(tree, { base: head.id, updates: [seeded] })).results[0]!.update;
+    const move = moveNote(start.root, text, range as unknown as [number, number], offset), peer = await peerOf(start.root);
+    // Change identities that sort the move first, in both orders.
+    move.change = `a-${crypto.randomUUID()}`; peer.change = `b-${crypto.randomUUID()}`;
+    await client.submitUpdates(tree, { base: start.id, updates: [moveFirst ? move : peer] });
+    const accepted = (await client.submitUpdates(tree, { base: start.id, updates: [moveFirst ? peer : move] })).results[0]!.update;
+    expect(accepted.conflicted).toBe(false);
+    const snapshot = await client.snapshot(tree, accepted.root);
+    const file = decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e => e.name === "note.md")!.file!;
+    results.push(Buffer.from(snapshot.objects.get(file)!).toString());
+    for (const [hash, bytes] of snapshot.objects) objects.set(hash, bytes);
+    head = { id: accepted.id, root: accepted.root };
+    size = Buffer.byteLength(results.at(-1)!);
+  }
+  // Both arrival orders give one document: the item edit follows its item,
+  // and the same-anchor pair is kept in contribution order.
+  expect(results).toEqual([expected, expected]);
+  await running.canopy.verifyIntegrity();
+});
+
 test.each([false,true])("Markdown source copy accepts an independent edit and survives restart (copy first: %s)", async (copyFirst) => {
   const {prepareSourceChange}=await import("@overstory/working-tree");
   const {decodeCandidateUpdateJSON}=await import("@overstory/protocol");

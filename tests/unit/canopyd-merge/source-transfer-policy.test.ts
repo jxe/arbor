@@ -40,7 +40,9 @@ test.each([
   ["<div>\n\nText\n\n</div>\n", "<div>\n\nText\n\nCopy\n\n</div>\n"],
   ["```\nText\n", "```\nText\nCopy\n"],
   ["    code\n\nText\n", "    changed\n\nText\n"],
-  ["| a | b |\n|---|---|\n", "| a | b |\n|---|---|\n| x | y |\n"],
+  // A body row within its table is admitted (see transfer-extensions); one
+  // that does not fit the header's columns is not.
+  ["| a | b |\n|---|---|\n", "| a | b |\n|---|---|\n| x |\n"],
 ])("Markdown transfer reviews protected structure: %s", (a, b) => {
   expect(policy(a, b).outcome).toBe("unresolved");
 });

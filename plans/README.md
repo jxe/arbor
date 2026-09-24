@@ -16,7 +16,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Apps [007](soon/007-cddl-collection-schemas.md) | CDDL collection schemas; QuickJS out of canopyd and merge |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
 | Native [011](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) | Decide who owns a Mac's identity and account credentials (data home or app); the client folds and unused daemon routes are done |
-| canopyd [014](soon/014-merge-moved-text.md) | Merge moved and copied text beyond paragraphs |
+| canopyd [014](soon/014-merge-moved-text.md) | Merge the moved-text forms still held for review (Swift/Python declarations, cross-file structured moves, cross-document references) |
 | canopyd [018](soon/018-profile-facts-per-tree.md) | Profile facts stored once per tree (migration 020) |
 
 ## Remaining outcomes

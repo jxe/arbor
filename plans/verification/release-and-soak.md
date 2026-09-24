@@ -48,6 +48,19 @@ Owner: canopyd [014](../soon/014-merge-moved-text.md). Deployed with `5ef1fe20` 
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.
   Preserve existing whole-file policy and format-required coupling.
 - [ ] Record server readiness before enabling any newly captured client operation forms.
+- [ ] Deploy the transfer extensions (Markdown list items, table rows and contextual links;
+  same-anchor ordering; keyed JSON/YAML members; TS/JS function declaration moves) with
+  the sidecar, and record the revision. They are implemented and tested, not deployed.
+  Before deploying, run `bun test tests/unit/canopyd-merge tests/integration/canopyd-merge`
+  and `bun test tests/integration/canopyd/source-acceptance.test.ts` on that revision.
+- [ ] After deploying, verify by hand in both arrival orders on disposable trees, never
+  live data: a list item moved between lists beside an edit to another item; a table
+  row copied beside a cell edit; a paragraph with a relative link moved within one
+  directory (merges) and into another directory (reviews); a paragraph moved to where
+  another device appended one (one result, both kept); a JSON member moved between
+  objects beside an edit to its value; a TS function moved beside a literal edit to it.
+  Record each result, and that the replayed history check still passes.
+- [ ] Record that no client emits a new transfer form before the step above is recorded.
 
 The schema-12 merge-authority cutover (migration 010, deleted after cutover; see git history) is complete;
 these later refinements are not another request to repeat that migration.

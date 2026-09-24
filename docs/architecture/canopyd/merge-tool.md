@@ -292,23 +292,85 @@ are the automatic subsets; other simultaneous changes retain alternatives.
 | Format | Automatic subset | Requires review |
 | --- | --- | --- |
 | Text | Disjoint verified origins, including retained lineage and transport | Overlaps and competing anchors by default |
-| Markdown | Stable host structure; prose, heading/list text, task values and simple table cells; independent embedded regions; concurrent known embedded edits delegate to their format | Structural delimiter/order changes, ambiguous links, escaped tables and unsupported embedded combinations |
-| JSON | Different values under unique, unchanged object-key paths | Duplicate keys, array ordering, key creation/removal or competing values |
+| Markdown | Stable host structure; prose, heading/list text, task values and simple table cells; independent embedded regions; concurrent known embedded edits delegate to their format; identity-verified [transfers](#transfers) of paragraphs, list items and table rows, with contextual links whose binding is proven | Structural delimiter/order changes, ambiguous links, escaped tables and unsupported embedded combinations |
+| JSON | Different values under unique, unchanged object-key paths; identity-verified keyed member [transfers](#transfers) within one file | Duplicate keys, array ordering, key creation/removal or competing values |
 | JSONL | Independent record fields with configured unique `recordKey` and stable order | Missing/nonunique keys, key/order/schema changes |
-| YAML | Different mapping values with unique stable keys and preserved source | Anchors, aliases, tags, sequences, multiline scalars and parse warnings |
+| YAML | Different mapping values with unique stable keys and preserved source; identity-verified keyed member [transfers](#transfers) within one file | Anchors, aliases, tags, sequences, multiline scalars and parse warnings |
 | TOML | Different mapping values under stable unique tables/keys | Dotted keys, arrays, multiline constructs and structural changes |
 | CSV/TSV | Different cells with configured unique `recordKey`, unchanged header and row order | Key/schema/order changes, malformed quoting and duplicate keys |
-| TS/JS, Swift, Python | Parser-backed literal changes in distinct uniquely named declarations or supported members; syntax and binding topology unchanged | Binding/operator/import/export changes, overloads, decorators, macros, wrappers, directives and ambiguous declarations |
+| TS/JS, Swift, Python | Parser-backed literal changes in distinct uniquely named declarations or supported members; syntax and binding topology unchanged; TS/JS only: identity-verified moves of top-level function declarations within one file ([transfers](#transfers)) | Binding/operator/import/export changes, overloads, decorators, macros, wrappers, directives and ambiguous declarations; Swift and Python declaration moves |
 | HTML | Different values under unique element/attribute structure with unchanged order | Repeated unkeyed siblings, duplicate IDs, scripts/styles and event handlers |
 | XML | Distinct values in a strict, uniquely structured namespace-free document | Namespaces, DTDs/entities and repeated sibling identity |
 | CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
 | Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
 
-The `markdown-source-transfer` rule replays identity-verified moves and copies
-of plain and self-contained formatted paragraphs, including across documents,
-when basis, current, authored, and replayed versions all preserve protected
-host blocks and embedded content. It never uses similarity as identity.
-Competing destinations for the same anchor still require review.
+#### Transfers
+
+A `moveSource` or `copySource` on either side (in the candidate or accepted
+since its base) is merged by replaying the candidate's operations on the
+current state by piece identity, never by similarity, and then asking the
+format's transfer rule about every file the replay changed, with its base,
+current, authored and replayed versions (`evaluateTransfer` in
+`packages/canopyd-merge/src/format-rules.ts`). Each rule states its
+commutation proof in code: why a change means the same in the combined file
+as where it was authored, whichever side arrived first. When the proof does
+not hold the candidate is reviewed as before; a rule never guesses.
+
+- **Markdown** (`markdown-source-transfer`). All four versions keep every
+  protected host block and embedded region byte for byte, and differ only in
+  plain and self-contained formatted paragraphs, in *list items* within a list
+  host of the same bullet, and in *body rows* within a table host of the same
+  header and alignment. A list host is a block of single-line top-level
+  bullet items (one bullet character, one space, self-contained inline content
+  that begins no other block); a table host is a pipe table whose lines all
+  start and end with `|`, without escapes, whose every row has the header's
+  cell count. Ordered, nested, indented, multi-line and continued items, a
+  host directly followed by an opaque region, a host that appears or empties,
+  and a changed bullet, header or alignment require review.
+- **Contextual links.** A relative destination, a `#fragment` and a
+  reference (`[text][label]`, `[label][]`, `[label]`) bind to their document:
+  its directory, headings and definitions. Headings and definitions are
+  protected, so the four versions keep them identical, and the document's
+  directory must be the same in all four. A fragment or reference is admitted
+  only when no transfer in the merge carries text between documents; a
+  relative link also when every such transfer joins two documents in one
+  directory. Escaped or entity-encoded destinations, other schemes, titles and
+  non-ASCII labels stay protected.
+- **Same-anchor ordering.** When the replayed operation lands where current
+  already inserted material (between the same two base bytes; a transfer's
+  destination range counts at its chosen side), the pair is kept in
+  contribution-key order, the order competing plain insertions use, so both
+  arrival orders give one result. The concurrent material must be exactly one
+  recorded contribution of current, the replayed operation must be authored on
+  the request's base, the replay must put the pair side by side, and the pair
+  must pass the prose insertion policy at that offset (so plain text and
+  structured formats keep review, and Markdown keeps its host checks).
+  Competing moves of the same material still require review.
+- **JSON and YAML** (`json-source-transfer`, `yaml-source-transfer`). A move
+  or copy of one complete keyed member (a pair with only whitespace and
+  separating commas beside it) within one file, located by identity in base
+  and in its side's version. Each side is read as its moves (relocating a
+  member's subtree), its copies (adding one) and leaf value edits; the proof
+  requires that neither side's transfer endpoints are, contain or lie in the
+  other's, that relocated changes are disjoint, and that the replayed document
+  equals base with both sides' relocations and relocated changes, key for key.
+  Moves between files, array elements, key creation or removal outside a
+  transfer, duplicate keys and the ordinary YAML exclusions (anchors, aliases,
+  tags, sequences, block scalars) require review.
+- **TS/JS declarations** (`typescript-source-transfer`,
+  `javascript-source-transfer`). A move of one complete top-level `function`
+  (or generator) declaration within one file. Function declarations are
+  hoisted whole, so their position among the other statements has no effect;
+  every other statement keeps its order and syntax, and edits on either side
+  may change only literals, in different declarations or statements. Exports,
+  decorators, directives, tool-directing comments (`@ts-`, `eslint`, …),
+  classes, overloads, ambient and namespace declarations, and moves between
+  files require review. Swift and Python declaration moves are not modelled
+  and require review.
+
+An edit that removes a byte beside a transfer's destination anchor makes the
+anchor unavailable, which the engine never guesses: that pair is reviewed in
+the order where the edit arrives first.
 
 Markdown defaults to `proseInsertions: "preserve-both"`: competing additions
 of ordinary prose, paragraphs, and list or task items are kept in stable
@@ -435,6 +497,10 @@ acceptance suites, `tests/support/replay-check.ts` asks each accepted entry's re
 question again, from one warm cache across the history and from a cold one, and
 requires the entry's root and decisions. `reference-sidecar.test.ts` runs canopyd's
 rule-agnostic acceptance against the cache-free reference sidecar in test support.
+`tests/unit/canopyd-merge/transfer-extensions.test.ts` runs every transfer rule in
+both arrival orders, requires one answer from each (and from the eager reference),
+and keeps a case where each proof fails; `source-acceptance.test.ts` repeats a list
+item move and a same-anchor pair through canopyd with replay checks.
 `tests/unit/canopyd-merge/history-differential.test.ts` compares every incremental result
 against an eager reference that re-projects every state and enforces all history.
 

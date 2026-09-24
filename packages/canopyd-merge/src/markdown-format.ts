@@ -126,13 +126,44 @@ export function markdownLayout(source: string): MarkdownLayout | null {
 
 /** Recognize complete, self-contained inline spans without rewriting source.
  * Reference links and relative destinations need document context and stay opaque. */
-function inlineProse(source: string): boolean {
-  const rest = source
+function inlineProse(source: string, links?: LinkPolicy, found?: Set<LinkKind>): boolean {
+  let rest = source
     .replace(/(`+)([^`\r\n]+)\1/g, "span")
-    .replace(/!?\[[^\[\]\r\n]*\]\((?:https?:\/\/|mailto:)[^\s()]+\)/g, "span")
+    .replace(/!?\[[^\[\]\r\n]*\]\((?:https?:\/\/|mailto:)[^\s()]+\)/g, "span");
+  if (links) rest = contextualLinks(rest, links, found);
+  rest = rest
     .replace(/(\*\*|__)(?=\S)([^*_\r\n]*?\S)\1/g, "span")
     .replace(/(\*|_)(?=\S)([^*_\r\n]*?\S)\1/g, "span");
   return !/[`*_~<>|\[\]\\]/.test(rest);
+}
+
+/** Links whose target depends on the document that holds them: a relative
+ * destination on its directory, a fragment on its headings, a reference on its
+ * link definitions. */
+export type LinkKind = "relative" | "fragment" | "reference";
+export type LinkPolicy = Partial<Record<LinkKind, boolean>>;
+
+/** Replace the contextual links `links` admits with an opaque span, recording
+ * each kind in `found`. A destination with an escape, an entity or a scheme,
+ * and a label that is not printable ASCII (whose case folding this rule does
+ * not model), is left in place, so its brackets keep the text protected. */
+function contextualLinks(source: string, links: LinkPolicy, found?: Set<LinkKind>): string {
+  const rest = source.replace(/!?\[[^\[\]\r\n]*\]\(([^\s()<>]+)\)/g, (link, destination: string) => {
+    if (/[\\&]/.test(destination) || /^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/.test(destination)) return link;
+    const kind: LinkKind = destination.startsWith("#") ? "fragment" : "relative";
+    if (!links[kind]) return link;
+    found?.add(kind);
+    return "span";
+  });
+  if (!links.reference) return rest;
+  // Full, collapsed and shortcut references. `[label]:` begins a definition and
+  // `[text](` an inline link this rule did not admit; both stay in place.
+  return rest.replace(/!?\[([^\[\]\r\n]*)\](?:\[([^\[\]\r\n]*)\])?(?![\[(:])/g, (link, text: string, label?: string) => {
+    const name = label ? label : text;
+    if (!name.trim() || !/^[\x20-\x7e]+$/.test(name) || name.includes("\\")) return link;
+    found?.add("reference");
+    return "span";
+  });
 }
 
 /** One document's scans, each computed on first use: its UTF-8 bytes and
@@ -305,6 +336,103 @@ export function markdownTransferShape(document: string | MarkdownSource, formatt
   }
   protectProse(source.slice(cursor));
   return JSON.stringify(protectedBlocks);
+}
+
+const proseLine = /^(?:[ \t]| {0,3}(?:#{1,6}(?:\s|$)|>|[-+]\s|\d+[.)]\s|[-=]+\s*$))/;
+const blockStart = /^(?:#{1,6}(?:\s|$)|>|[-+*]\s|\d+[.)]\s|[-=]+\s*$)/;
+const itemLine = /^([-+*]) (\[[ xX]\] )?(\S(?:.*\S)?)\s*$/;
+const delimiterCell = /^\s*:?-+:?\s*$/;
+
+/** The structure an identity-verified transfer may move list items and table
+ * rows within, and the contextual links it may carry.
+ *
+ * Every block keeps its exact source in the shape, as `markdownTransferShape`
+ * does, except three kinds that render independently of their neighbours:
+ *
+ * - a plain paragraph (every line self-contained inline prose), omitted;
+ * - a list host: a block of one or more single-line, top-level items with one
+ *   bullet character, one space after the marker, and self-contained inline
+ *   content that begins no other block. It is recorded as `list <bullet>`,
+ *   without its items. Ordered, nested, indented, multi-line, loose-in-block
+ *   and continuation items keep the whole block exact;
+ * - a table host: a pipe table whose every line starts and ends with `|`, with
+ *   no escapes, a delimiter row, and every row's cell count equal to the
+ *   header's. It is recorded by its exact header and delimiter rows, without
+ *   its body rows, whose cells are self-contained inline prose.
+ *
+ * So two versions have the same shape exactly when they have the same
+ * sequence of exact protected blocks, list hosts by bullet and table hosts by
+ * header; they may differ only in paragraphs, in list items within a host of
+ * the same bullet, and in body rows within a table of the same columns and
+ * alignment. Each of those renders from its own source and its host alone,
+ * which is why reordering, moving or editing one cannot change another.
+ *
+ * `links` admits contextual links into that prose and records each kind used;
+ * the caller proves each kind's binding (see `evaluateSourceTransfer`). */
+export function markdownTransferStructure(
+  document: string | MarkdownSource,
+  links: LinkPolicy = {},
+): { shape: string; links: Set<LinkKind> } {
+  const scan = scanned(document), source = scan.text;
+  const found = new Set<LinkKind>();
+  const shape: string[] = [];
+  // A host directly followed by an opaque region, with no blank line between,
+  // may continue into it (a lazy continuation or table row), so it stays exact.
+  const hosts = (text: string, followed: boolean) => {
+    const blocks = text.split(/(?:\r?\n){2,}/);
+    const open = followed && !/(?:\r?\n)[ \t]*\r?\n$/.test(text);
+    const last = blocks.findLastIndex((block) => !!block.trim());
+    for (const [index, block] of blocks.entries()) {
+      if (!block.trim()) continue;
+      if (open && index === last) {
+        shape.push(block);
+        continue;
+      }
+      const lines = block.replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, "").split(/\r?\n/);
+      // Record links only from a block this rule admits as prose.
+      const uses = new Set<LinkKind>();
+      const admitted = (text: string) => inlineProse(text, links, uses);
+      if (lines.every((line) => admitted(line) && !proseLine.test(line))) {
+        uses.forEach((kind) => found.add(kind));
+        continue;
+      }
+      uses.clear();
+      const items = lines.map((line) => itemLine.exec(line));
+      if (
+        items.every((item) => item && item[1] === items[0]![1] &&
+          !blockStart.test(item[3]!) && admitted(item[3]!))
+      ) {
+        uses.forEach((kind) => found.add(kind));
+        shape.push(`list ${items[0]![1]}`);
+        continue;
+      }
+      uses.clear();
+      const cells = (line: string) =>
+        /^\|.*\|\s*$/.test(line) ? line.trimEnd().slice(1, -1).split("|") : null;
+      const rows = lines.map(cells);
+      const width = rows[0]?.length ?? 0;
+      if (
+        lines.length >= 2 &&
+        !block.includes("\\") &&
+        rows.every((row) => row?.length === width) &&
+        rows[1]!.every((cell) => delimiterCell.test(cell)) &&
+        rows.slice(2).every((row) => row!.every((cell) => !cell.trim() || admitted(cell.trim())))
+      ) {
+        uses.forEach((kind) => found.add(kind));
+        shape.push(`table ${lines[0]}\n${lines[1]}`);
+        continue;
+      }
+      shape.push(block);
+    }
+  };
+  let cursor = 0;
+  for (const [start, end] of scan.opaque) {
+    hosts(source.slice(cursor, start), true);
+    shape.push(source.slice(start, end));
+    cursor = end;
+  }
+  hosts(source.slice(cursor), false);
+  return { shape: JSON.stringify(shape), links: found };
 }
 
 /** Ordinary list editing is local source work, not an opaque host rewrite.

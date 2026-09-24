@@ -30,9 +30,10 @@ import {
 
 import {
   evaluateFormat,
-  evaluateSourceTransfer,
+  evaluateTransfer,
   evaluateProseInsertions,
   type FormatEvidence,
+  type TransferContext,
 } from "./format-rules.ts";
 import {
   pieceEdits,
@@ -86,6 +87,25 @@ const rethrowUnlessFallback = (error: unknown): void => {
     (error instanceof IntentError && (error.code === "limit" || error.code === "missing-context"))
   )
     throw error;
+};
+/** The material `current` holds between the base bytes on either side of base
+ * offset `offset` (a document edge counts as a side), when both are found in
+ * order with something between them. That is what current inserted there. */
+const gapAt = (base: Piece[], current: Piece[], offset: number): { pieces: Piece[] } | undefined => {
+  const left = offset > 0 ? slice(base, offset - 1, offset)[0] : undefined,
+    right = offset < length(base) ? slice(base, offset, offset + 1)[0] : undefined;
+  const find = (byte: Piece) => {
+    let position = 0;
+    for (const p of current) {
+      if (p.origin === byte.origin && byte.start >= p.start && byte.start < p.start + p.length)
+        return position + byte.start - p.start;
+      position += p.length;
+    }
+    return undefined;
+  };
+  const l = left ? find(left) : -1, r = right ? find(right) : length(current);
+  if (l === undefined || r === undefined || l + 1 >= r) return undefined;
+  return { pieces: slice(current, l + 1, r) };
 };
 /** Whether a store's read failure means the object is absent: the sidecar's
  * reader refuses with `missing-context`, a plain object store reports ENOENT. */
@@ -1447,6 +1467,78 @@ class Engine {
   // read once however many operations or alternatives ask for it.
   private addedEffectList?: Effect[];
   private addedChangeList?: Promise<Array<{ change: string; checkpoint?: { affected: string[] } }>>;
+  /** Where `sub` lies, whole and contiguous, in `pieces`, if it does. */
+  private span(pieces: Piece[] | undefined, sub: Piece[]): [number, number] | undefined {
+    if (!pieces || !sub.length) return undefined;
+    try {
+      return this.locate(pieces, sub, [0, length(sub)]) as [number, number];
+    } catch (error) {
+      rethrowUnlessFallback(error);
+      return undefined;
+    }
+  }
+  /** What transfer rules need beyond a file's four versions: each file's
+   * directory in base, current, authored and replayed; whether any transfer
+   * carries text between documents; and each transfer's material ranges,
+   * located by piece identity (never by equal bytes). */
+  private async transferContext(
+    base: IntentState,
+    current: IntentState,
+    authored: IntentState,
+    replayed: IntentState,
+    operations: SourceOperation[],
+    change: string
+  ): Promise<(id: string) => TransferContext> {
+    const transfers: Array<{ side: 1 | 2; key: string; operation: SourceOperation }> = [];
+    for (const operation of operations)
+      if (operation.kind === "moveSource" || operation.kind === "copySource")
+        transfers.push({ side: 2, key: keyOf(change, operation.key), operation });
+    for (const effect of this.addedEffects(current, base))
+      if (effect.kind === "moveSource" || effect.kind === "copySource")
+        transfers.push({
+          side: 1,
+          key: keyOf(effect.change, effect.operation),
+          operation: JSON.parse(decoder.decode(await this.read(effect.authored.operation))) as SourceOperation,
+        });
+    const directory = (path: string) => path.slice(0, path.lastIndexOf("/"));
+    let crossDocument: TransferContext["crossDocument"] = "none";
+    for (const { operation } of transfers) {
+      if (operation.kind !== "moveSource" && operation.kind !== "copySource") continue;
+      const from = operation.source.material, to = operation.at.material;
+      // Paths as the transfer's author saw them.
+      if (from.kind !== "basis" || to.kind !== "basis") crossDocument = "other";
+      else if (from.path === to.path) continue;
+      else if (directory(from.path) !== directory(to.path)) crossDocument = "other";
+      else if (crossDocument === "none") crossDocument = "same-directory";
+    }
+    const ranges = new Map<string, NonNullable<TransferContext["transfers"]>>();
+    let located = true;
+    for (const { side, key, operation } of transfers) {
+      const state = side === 1 ? current : authored, out = state.outputs[key];
+      const destination = out?.pieces && this.span(state.nodes[out.node]?.pieces, out.pieces);
+      if (!out?.pieces || !destination) {
+        located = false;
+        continue;
+      }
+      const kind = operation.kind === "moveSource" ? "move" : "copy";
+      const source = kind === "move" ? this.span(base.nodes[out.node]?.pieces, out.pieces) : undefined;
+      const list = ranges.get(out.node) ?? [];
+      list.push({ side, kind, destination, ...(source ? { source } : {}) });
+      ranges.set(out.node, list);
+    }
+    return (id) => ({
+      directories: [base, current, authored, replayed].map((view, index) => {
+        try {
+          return view.nodes[id] ? directory(this.path(view, id)) : `\0${index}`;
+        } catch (error) {
+          rethrowUnlessFallback(error);
+          return `\0${index}`;
+        }
+      }),
+      crossDocument,
+      transfers: located ? ranges.get(id) ?? [] : null,
+    });
+  }
   private addedEffects(current: IntentState, base: IntentState): Effect[] {
     return (this.addedEffectList ??= Object.entries(since(current.effects, base.effects))
       .filter(([key]) => !Object.hasOwn(base.effects, key))
@@ -1806,6 +1898,15 @@ class Engine {
         authored.decisions.length === base.decisions.length
       ) {
         const attempt = cloneState(current);
+        // Same-anchor insertions this replay orders (see below).
+        const anchored: Array<{
+          node: string;
+          offset: number;
+          key: string;
+          concurrent: Piece[];
+          concurrentKey: string;
+        }> = [];
+        const firstFrame = new Set(request.incoming.trace[0]?.operations.map((op) => op.key));
         try {
           for (const operation of operations) {
             if (
@@ -1830,18 +1931,47 @@ class Engine {
               const anchor = await this.selection(anchorRef, frameBasis, authored);
               const old = base.nodes[anchor.node],
                 now = current.nodes[anchor.node];
-              if (
-                anchor.range[0] === anchor.range[1] &&
-                old?.pieces &&
-                now?.pieces &&
-                pieceEdits(old.pieces, now.pieces).some(
-                  (e) =>
-                    e.range[0] === e.range[1] && e.range[0] === anchor.range[0]
+              // Where the material lands in base: an insertion's offset, or the
+              // chosen side of a transfer's destination range.
+              const offset =
+                anchor.range[0] === anchor.range[1]
+                  ? anchor.range[0]
+                  : operation.kind !== "moveSource" && operation.kind !== "copySource"
+                    ? undefined
+                    : operation.side === "before" ? anchor.range[0] : anchor.range[1];
+              // Material current holds between the base bytes on either side
+              // of the offset was inserted there concurrently. (An edit list
+              // is not enough: a reorder can show as one replacement.)
+              const concurrent =
+                offset !== undefined && old?.pieces && now?.pieces
+                  ? gapAt(old.pieces, now.pieces, offset)
+                  : undefined;
+              if (concurrent) {
+                // Same-anchor ordering. The concurrent insertion must be exactly
+                // one recorded contribution of current (an insertion's or a
+                // transfer's output), and this operation authored on base.
+                const contribution = firstFrame.has(operation.key)
+                  ? this.addedEffects(current, base).find((effect) => {
+                      const out = current.outputs[keyOf(effect.change, effect.operation)];
+                      return out?.node === anchor.node && out.pieces &&
+                        same(normalize(clone(out.pieces)), normalize(clone(concurrent.pieces)));
+                    })
+                  : undefined;
+                if (
+                  !contribution ||
+                  anchored.some((a) => a.node === anchor.node && a.offset === offset)
                 )
-              )
-                throw new Error(
-                  "Concurrent source destination requires anchor policy"
-                );
+                  throw new Error(
+                    "Concurrent source destination requires anchor policy"
+                  );
+                anchored.push({
+                  node: anchor.node,
+                  offset: offset!,
+                  key: keyOf(request.incoming.change, operation.key),
+                  concurrent: concurrent.pieces,
+                  concurrentKey: keyOf(contribution.change, contribution.operation),
+                });
+              }
             }
             if (operation.kind === "moveSource") {
               const selected = await this.selection(
@@ -1867,6 +1997,39 @@ class Engine {
               request.incoming.change
             );
           }
+          // Same-anchor ordering. Two contributions that land at one base
+          // offset are ordered by contribution key, the order competing
+          // plain insertions are kept in, so the result does not depend on
+          // which arrived first: in either order the replay finds the other
+          // contribution recorded at that offset and places the pair by the
+          // same two keys. The replay must have put the pair side by side, and
+          // the pair must pass the prose insertion policy at that offset, as
+          // competing plain insertions do (plain text defaults to review).
+          for (const entry of anchored) {
+            const node = attempt.nodes[entry.node],
+              mine = attempt.outputs[entry.key]?.pieces;
+            if (!mine?.length) continue;
+            const a = this.span(node?.pieces, mine),
+              c = this.span(node?.pieces, entry.concurrent);
+            if (!node?.pieces || !a || !c || (a[1] !== c[0] && c[1] !== a[0]))
+              throw new Error("Same-anchor contributions are not adjacent");
+            const ordered = entry.key < entry.concurrentKey ? [a, c] : [c, a];
+            const [start, end] = [Math.min(a[0], c[0]), Math.max(a[1], c[1])];
+            const parts = ordered.map((r) => slice(node.pieces!, r[0], r[1]));
+            node.pieces = replacePieces(node.pieces, start, end, parts.flat());
+            const path = basePath(entry.node);
+            const policy = evaluateProseInsertions(
+              path,
+              await this.bytes(base.nodes[entry.node]?.pieces ?? []),
+              entry.offset,
+              await Promise.all(parts.map((p) => this.bytes(p))),
+              request.rules.config?.formats?.[path]
+            );
+            this.formatEvidence.push(policy);
+            if (policy.outcome !== "resolved")
+              throw new Error("Same-anchor transfer requires review");
+          }
+          const context = await this.transferContext(base, current, authored, attempt, operations, request.incoming.change);
           // Format rules inspect all branches and the replay result. Successful
           // source location alone does not establish semantic independence.
           for (const id of Object.keys(base.nodes)) {
@@ -1880,12 +2043,12 @@ class Engine {
               continue;
             const path = basePath(id),
               config = request.rules.config?.formats?.[path];
-            const evidence = evaluateSourceTransfer(path, [
+            const evidence = await evaluateTransfer(path, [
               await this.bytes(b.pieces ?? []),
               await this.bytes(current.nodes[id]?.pieces ?? []),
               await this.bytes(authored.nodes[id]?.pieces ?? []),
               await this.bytes(next.pieces ?? []),
-            ], config);
+            ], config, context(id));
             this.formatEvidence.push(evidence);
             if (evidence.outcome !== "resolved")
               throw new Error("Transfer requires format review");
