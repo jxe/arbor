@@ -7,8 +7,8 @@
  * changes to its change log, persists what each state says it retains, and
  * executes every effect the reducer returns. The Swift twin is
  * `UpdateMachine` in `CanopyWorkingTree`; both execute `working-tree-updates`
- * in `docs/overstory-spec/conformance/client-state-machines.json`. No
- * TypeScript runner exists yet; Clients 001 phase 4 adds one.
+ * in `docs/overstory-spec/conformance/client-state-machines.json`. The
+ * runner is `UpdateCoordinator` in `coordinator.ts`.
  */
 
 /** Trailing delay before unsent durable local work is published. */

@@ -2,8 +2,8 @@
 
 Status: phases 0–3 DONE and on `main`; the Mac runs them (evidence in
 [status](../../status.md#clients-001-phases-03--2026-09-24)). Remaining: the
-iPhone update, which needs Joe's go-ahead; the TypeScript runner and daemon
-(phase 4, in progress); and the Web 025 handoff (phase 5). No priority assigned.
+iPhone update, which needs Joe's go-ahead; the daemon on the TypeScript runner
+(phase 4, runner done); and the Web 025 handoff (phase 5). No priority assigned.
 
 ## Outcome
 
@@ -49,20 +49,12 @@ shows an empty state where the recovery store's local copies used to be.
 
 ### Phase 4: TypeScript runner and daemon
 
-- **Package.** Create `@overstory/working-tree` with a browser-safe core and a
-  `node:fs` adapter under `./node`. Move `update-machine.ts` into it. Port
-  `ChangeLog` from `packages/client/src/source-admission-queue.ts` (the same
-  schema-4 journal at `sync/change-log.json`) and `UpdateCoordinator` from
-  Swift.
-- **Runner contract**, as in Swift: dispatch every event
-  (`bootstrapInstalled`, `recovered`, `localChange`, the timers, `pollElapsed`,
-  `syncRequested`, `requestPersisted`, `submitStarted`, `accepted`, `rejected`,
-  `unsupported`, `heldDiscarded`, `watch`, `watchGap`, `applied(installed)`,
-  the failures, `transportAvailable`, `credentialsRefreshed`) and perform every
-  effect (`persistRequest`, `submit` on its own task, `apply`, `catchUp`,
-  `settle`, `stop`). No phase writes, no duplicate flags; presentation derived.
-- **Runner vectors.** Execute `tests/fixtures/update-runner.json` against the
-  TypeScript runner with the same fake host the Swift harness uses.
+The package `@overstory/working-tree` (browser-safe core, `./node` for the
+file-backed `ChangeLog` and `FileControlStore`), the TypeScript
+`UpdateCoordinator`, and its execution of the shared runner vectors are done
+([status](../../status.md#clients-001-phase-4-typescript-runner--2026-09-24)).
+What remains:
+
 - **`FolderSource`.** A watcher event triggers a debounced scan through the
   stat index (`ObjectIndex`); a root that differs from the change log's tip
   appends a `trace: null` change. The runner's `apply` and `catchUp` write
@@ -73,10 +65,11 @@ shows an empty state where the recovery store's local copies used to be.
 - **Daemon.** Rebuild Arbor Sync's synchronization as `FolderSource` plus the
   runner, with `pollInterval` replacing the 30 s tick.
 - **Delete** the `TreeSynchronizer` loop in `packages/client/src/tree-sync.ts`,
-  the pending and conflict formats in `sync-state.ts`, the conflict workspace
-  and `/v1/conflicts*`, `SourceAdmissionPublisher`, and
-  `packages/canopy-web/src/editor-coordinator.ts`. An earlier `sync/<tree>.json`
-  with pending work or conflict material is refused, not rewritten.
+  the pending and conflict formats in `sync-state.ts`, and the conflict
+  workspace and `/v1/conflicts*`. An earlier `sync/<tree>.json` with pending
+  work or conflict material is refused, not rewritten. The web's
+  `packages/canopy-web/src/editor-coordinator.ts` is not dead code
+  (`PageEditor.tsx` runs it over the daemon's HTTP API); it goes in phase 5.
 - **Gate:** the runner vectors, `tests/integration/self-sync.test.ts`
   (rewritten for held instead of paused), the Arbor Sync integration suites,
   and a daemon soak. Installing the daemon needs Joe's go-ahead.

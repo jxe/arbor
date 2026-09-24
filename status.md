@@ -85,6 +85,23 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Clients 001 phase 4: TypeScript runner — 2026-09-24
+
+On branch `one-update-machine`, not yet on `main`. `@overstory/working-tree`
+holds `reduceUpdate`, `LocalChange` preparation, entry transfer, the
+`UpdateControl` codec (Swift's schema 4) and `UpdateCoordinator`, a port of the
+Swift runner over a change log, a control store, a transport, and an accepted
+tree; `./node` holds the file-backed `ChangeLog` (moved from
+`@overstory/client`'s source admission queue, adopting an earlier
+`source-admissions.json` in place) and `FileControlStore`.
+`SourceAdmissionPublisher` and `SourceDocumentSession` are deleted. Evidence:
+`tests/unit/update-runner.test.ts` executes all nine runner vectors of
+`tests/fixtures/update-runner.json`; the canopyd source-acceptance test
+publishes a stale change through the runner against a real canopyd, restarts,
+continues it and follows a resolution; `tests/unit/change-log.test.ts` covers
+adoption and discard. Nothing in production runs the TypeScript runner yet;
+the daemon still runs `TreeSynchronizer`.
+
 ## Clients 001 phases 0–3 — 2026-09-24
 
 Merged to `main` 2026-09-24; Joe ran the branch build on the Mac as his daily

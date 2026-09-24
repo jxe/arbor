@@ -28,11 +28,12 @@ hashes, collection-file child-set hashes, and schema fingerprints) uses this enc
 
 `client-state-machines.json` freezes the transition scenarios of the one
 client synchronization machine, `working-tree-updates` (`UpdateMachine` in
-`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`): a working tree
+`CanopyWorkingTree`, `reduceUpdate` in `@overstory/working-tree`): a working tree
 publishes the local changes in its change log, whether an editor or a folder
 appended them. Changes, roots, updates, cursors, and digests are tokens. The
-fixture pins the reducers only; in TypeScript nothing in production runs the
-reducer yet, and the daemon's folder synchronization runs its own loop. There
+fixture pins the reducers only; the runners' shared vectors are an
+implementation fixture, `tests/fixtures/update-runner.json`. The daemon's
+folder synchronization still runs its own loop. There
 is no editor-side machine: editors append local changes to the change log
 ([editor sources](../../implementing-editors/editor-source.md)).
 

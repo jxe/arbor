@@ -530,7 +530,7 @@ export interface PlainSourceEdit { offset: number; length: number; replacement: 
  * pieces. Copied pieces stay in original order, so the composed edits are
  * ascending, non-adjacent and never share an anchor.
  *
- * The same rule runs in `@overstory/client` (`compactTrace`), in the Swift
+ * The same rule runs in `@overstory/working-tree` (`compactTrace`), in the Swift
  * queue and in Canopy's `composeFrames`, and `docs/overstory-spec/conformance/source-admission-queue.json`
  * holds the shared vectors. Only plain edits compose; lineage and copies name
  * the generation they were captured against and are never rebased here.

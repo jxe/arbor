@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
+import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
@@ -547,45 +548,44 @@ test("a stale nested source edit survives eighty intervening source and snapshot
   await running.canopy.verifyIntegrity();
 }, 120_000);
 
-test("TS document session admits stale intent, restarts, continues a hidden candidate and resolves through Canopy", async () => {
-  const { SourceAdmissionQueue, SourceAdmissionPublisher, SourceDocumentSession } = await import("@overstory/client");
+test("the TS runner publishes a stale local change after restart, continues it, and follows a resolution", async () => {
+  const { UpdateCoordinator } = await import("@overstory/working-tree");
+  const { ChangeLog, FileControlStore } = await import("@overstory/working-tree/node");
   const stateRoot = `${dir}/ts-client`;
-  let installed: Awaited<ReturnType<WireClient["descriptor"]>> | undefined;
-  function session() {
-    const queue = new SourceAdmissionQueue(tree, stateRoot);
-    const publisher = new SourceAdmissionPublisher(queue, client, async (current, snapshot) => {
-      expect(snapshot.root).toBe(current.tree.root);
-      installed = current;
-    });
-    return { queue, publisher, document: new SourceDocumentSession(queue, publisher, client, "/note", "/note.md") };
-  }
-  const original = session(), r1 = await original.document.snapshot();
+  const r1 = await client.descriptor(tree);
+  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.observedThrough },
+    snapshot: await client.snapshot(tree, r1.tree.root) });
+  const log = new ChangeLog(tree, stateRoot);
+  const open = () => new UpdateCoordinator(tree, log, new FileControlStore(stateRoot), client, working,
+    { publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000 });
+  const view = async (coordinator: InstanceType<typeof UpdateCoordinator>) => readSource((await editorView(coordinator, working)).graph, "/note.md");
+  let coordinator = open();
+  // A peer lands first; the editor's change is authored against the state it saw.
   await client.submitUpdates(tree, { base, updates: [await edit("PEER")] });
-  const intent = { basis: r1, edits: [{ offset: 0, length: 3, expected: "abc", replacement: "MINE" }], source: "MINE\r\n" };
-  // Two sessions can deliver the same acknowledgement retry concurrently.
-  const [local, same] = await Promise.all([original.document.admit(intent), session().document.admit(intent)]);
-  expect(local).toEqual(same);
-  expect(await original.queue.retained()).toHaveLength(1);
-  const restarted = session();
-  expect((await restarted.document.snapshot()).source).toBe("MINE\r\n");
-  await restarted.publisher.publishNext();
-  expect(installed!.tree.conflicted).toBe(true);
-  expect((await restarted.document.snapshot()).source).toBe("PEER\r\n");
-  await restarted.document.admit({ basis: local, edits: [{ offset: 0, length: 4, expected: "MINE", replacement: "LATER" }], source: "LATER\r\n" });
-  await restarted.publisher.publishNext();
-  expect(await restarted.publisher.pending()).toEqual([]);
+  const local = await appendSource(coordinator, log, working, "/note.md", () => ({ offset: 0, length: 3, replacement: "MINE" }));
+  coordinator.close(); coordinator = open();
+  expect(await view(coordinator)).toBe("MINE\r\n");
+  await coordinator.syncOnce();
+  expect(coordinator.state.kind).toBe("current");
+  expect(working.base!.conflicted).toBe(true);
+  expect(await view(coordinator)).toBe("PEER\r\n");
+  // An editor that captured its own change continues from it.
+  await appendSource(coordinator, log, working, "/note.md", () => ({ offset: 0, length: 4, replacement: "LATER" }), local);
+  await coordinator.syncOnce();
+  expect(await coordinator.pendingChanges()).toEqual([]);
   const current = await client.descriptor(tree);
+  expect(working.base!.update).toBe(current.tree.update);
   const inspection = await client.conflicts(tree, current.tree.update, current.tree.root);
   expect(inspection.decisions[0]!.alternatives.map(alternative => alternative.value)).toContainEqual({ file: hashObject(Buffer.from("LATER\r\n")) });
-  const beforeResolution = await restarted.document.snapshot();
   const second = new WireClient(running.url, token), decision = inspection.decisions[0]!;
   const resolved = await second.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: current.tree.root,
     trace: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
   expect(resolved.results[0]!.update.conflicted).toBe(false);
   expect(resolved.results[0]!.update.root).toBe(current.tree.root);
-  const refreshed = await restarted.document.snapshot();
-  expect(refreshed.revision).not.toBe(beforeResolution.revision);
-  expect(refreshed.source).toBe("PEER\r\n");
+  await coordinator.syncOnce();
+  expect(working.base).toMatchObject({ update: resolved.results[0]!.update.id, conflicted: false });
+  expect(await view(coordinator)).toBe("PEER\r\n");
+  coordinator.close();
   await running.canopy.verifyIntegrity();
 });
 
@@ -980,10 +980,10 @@ test("equal-byte round trips authored as ordinary edits stay unconflicted", asyn
 });
 
 test.each([false,true])("Markdown source copy accepts an independent edit and survives restart (copy first: %s)", async (copyFirst) => {
-  const {prepareSourceAdmission}=await import("@overstory/client");
+  const {prepareSourceChange}=await import("@overstory/working-tree");
   const {decodeCandidateUpdateJSON}=await import("@overstory/protocol");
   const graph=await client.snapshot(tree,root);
-  const record=prepareSourceAdmission({tree,change:"markdown-copy",basis:{kind:"accepted",root,update:base},graph,sourcePath:"/note.md",
+  const record=prepareSourceChange({tree,change:"markdown-copy",basis:{kind:"accepted",root,update:base},graph,sourcePath:"/note.md",
     intent:{basis:{tree,path:"/note",revision:base,source:"abc\r\n"},source:"abc\r\nabc\r\n",edits:[{offset:5,length:0,replacement:"abc\r\n",copies:[{source:[0,5],replacement:[0,5]}]}]}});
   const copied=decodeCandidateUpdateJSON(record.update), peer=await edit("ABC");
   await client.submitUpdates(tree,{base,updates:[copyFirst?copied:peer]});

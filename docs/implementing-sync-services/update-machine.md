@@ -9,17 +9,24 @@ decides when and how the log is published; the **runner** performs what the
 machine decides. An editor generation, a structural action, a review
 resolution, and (after [Clients 001](../../plans/clients/001-reconcile-client-state-machines.md)
 phase 4) a folder scan are all local changes. Today the Canopy app's
-`CanopyWorkingTree` runs the machine; the daemon's folder synchronizer
-(`TreeSynchronizer` in `@overstory/client`) still runs its own loop.
+`CanopyWorkingTree` runs the machine; the TypeScript runner in
+`@overstory/working-tree` passes the same runner vectors, and the daemon's
+folder synchronizer (`TreeSynchronizer` in `@overstory/client`) still runs its
+own loop until it is rebuilt on that runner.
 
 The machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`) and
-`reduceUpdate` (`@overstory/client`; exercised only by tests until the
-TypeScript runner lands). Both execute the `working-tree-updates` scenarios in
+`reduceUpdate` (`@overstory/working-tree`). Both execute the
+`working-tree-updates` scenarios in
 [`docs/overstory-spec/conformance/client-state-machines.json`](../overstory-spec/conformance/client-state-machines.json).
+Both runners execute
+[`tests/fixtures/update-runner.json`](../../tests/fixtures/update-runner.json),
+implementation vectors that drive a runner over a scripted host and check
+what the host received, the change log, and what the editor reads.
 
 ## The runner's contract
 
-`UpdateCoordinator` (Swift) is the runner. Its rule is **the machine decides;
+`UpdateCoordinator` is the runner, in Swift (`CanopyWorkingTree`) and in
+TypeScript (`@overstory/working-tree`). Its rule is **the machine decides;
 the runner performs**:
 
 - A runner turns I/O results into events and executes every effect it is
@@ -37,12 +44,12 @@ the runner performs**:
 - Presentation is derived from the machine's phase and the change log, never
   stored.
 
-Each effect, and what the Swift runner does for it:
+Each effect, and what the runners do for it:
 
 | Effect | Runner |
 |---|---|
 | `persistRequest(base, tip, extends)` | Cut `ChangeLog.request(through: tip)`: the chain from the oldest unsettled change's accepted basis through the tip, settled changes repeated without objects. Persist it as the immutable `UpdateAttempt`, then dispatch `requestPersisted`. An `extends` whose digests are not a prefix is retried exactly instead. |
-| `submit(request)` | Send the persisted body; validate every result digest and tree; read the host's current head (from the response or a descriptor); dispatch `accepted` with that head. |
+| `submit(request)` | Send the persisted body; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
 | `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark the request's changes settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first. |
 | `catchUp(cursor)` | Replay the watch batch that cursor names when it chains from the installed state, otherwise install the host's current state; dispatch `applied(installed:)`. |
 | `settle(tip)` | Mark the chain through `tip` settled without a request. |
@@ -54,6 +61,26 @@ dispatches `watchGap` (or `syncRequested` under pending work);
 `setTransportAvailable` and `credentialsRefreshed` dispatch their events; and
 `discardHeldChanges` removes a held request's changes and every change
 authored on them from the log, then dispatches `heldDiscarded`.
+
+## The TypeScript runner's ports
+
+`@overstory/working-tree` is browser-safe; `@overstory/working-tree/node` adds
+the file-backed `ChangeLog` and `FileControlStore`. The runner takes:
+
+- a **change log** (`ChangeLogPort`): `retained`, `nextPublication`,
+  `request`, `compact`, `discard`;
+- a **control store** (`ControlStore`): the `UpdateControl` record below;
+- a **transport**: `WireClient`'s `submitUpdates` and `descriptor`, and
+  `object` or `snapshot` for installs;
+- an **accepted tree** (`AcceptedTree`): its installed accepted state, its
+  local objects, `install`, and `recordAccepted`.
+
+`install` receives an `AcceptedSource` (objects the runner already holds, then
+the tree's own, then the host's, each verified) and whether local changes
+remain pending. An editor's tree installs the accepted base and derives its
+view from the log; a folder writes accepted bytes to disk only when nothing is
+pending and the folder still holds what it last wrote or scanned (spec 09 rule
+13). A source appends to the log and then calls `noteLocalChange()`.
 
 ## Durable state
 

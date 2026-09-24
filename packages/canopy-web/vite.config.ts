@@ -12,7 +12,6 @@ export default defineConfig({
       { find: "@overstory/arborsync-client/api", replacement: resolve(import.meta.dirname, "../arborsync-client/src/api.ts") },
       { find: "@overstory/arborsync-client/configuration", replacement: resolve(import.meta.dirname, "../arborsync-client/src/configuration.ts") },
       { find: "@overstory/arborsync-client", replacement: resolve(import.meta.dirname, "../arborsync-client/src/index.ts") },
-      { find: "@overstory/client/document-admission", replacement: resolve(import.meta.dirname, "../client/src/document-admission.ts") },
       { find: "@overstory/protocol/hash", replacement: protocol("model/hash.ts") },
       { find: "@overstory/protocol/logical-path", replacement: protocol("model/logical-path.ts") },
       { find: "@overstory/protocol/logical-url", replacement: protocol("model/logical-url.ts") },
