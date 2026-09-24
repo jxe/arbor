@@ -115,10 +115,9 @@ func validatePolicyYAML(_ source: String) throws {
     for (_, declaration) in resources {
         guard let fields = declaration.mapping,
               fields.allSatisfy({ ["canonical", "access"].contains($0.key.string ?? "") }) else { throw ResourcePolicyError.invalid }
-        if let access = fields.first(where: { $0.key.string == "access" })?.value.sequence,
-           access.contains(where: { $0.mapping?.contains(where: { $0.key.string == "who" }) == true }) {
+        if let access = fields.first(where: { $0.key.string == "access" })?.value.sequence {
+            // Resource rules only: an earlier `subject` / `access` rule fails to decode here.
             let rules = try access.map { try YAMLDecoder().decode(WireResourceAccessRule.self, from: Yams.serialize(node: $0)) }
-            // Legacy policy uses a different rule type and is checked on decode.
             for (i, rule) in rules.enumerated() where rules.prefix(i).contains(where: { $0.sameConsentKey(as: rule) }) {
                 throw ResourcePolicyError.invalid
             }

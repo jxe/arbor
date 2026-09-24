@@ -74,7 +74,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward. Locally, in a fresh data directory, a plain edit on the head takes about 15 ms (not yet deployed); divergent-merge and live latency are not established, and a merge after a restart can still take seconds while the sidecar rebuilds its state unless warm-up ran.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
-- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript parser, canopyd and the CLI ([check 016](packages/canopyd/migrations/016-resource-policy-only/README.md) lists any account still holding one; the Swift reader still decodes them). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
+- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript and Swift readers, canopyd and the CLI ([check 016](packages/canopyd/migrations/016-resource-policy-only/README.md) lists any account still holding one). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked
@@ -106,8 +106,10 @@ passes 1177 of 1181, and the 4 failures also fail on the base commit here
 unreadable-directory case as root); `bun test tests/unit/canopyd-merge tests/integration/canopyd-merge`
 passes 270 of 271 with the same byte-offset case; `bun run test:migration packages/canopyd/migrations/016-resource-policy-only`
 and `bun run test:performance` pass. The Swift half of `bun run test:protocol` and
-`swift test` were not run (no Swift toolchain in the Linux container), and the
-Swift reader still accepts legacy `trees.yaml` rules. Local plain-edit latency on
+`swift test` were not run (no Swift toolchain in the Linux container). The Swift
+reader (`AccountConfigurationYAML.swift`, `ResourceConsent.swift`) was then changed
+to accept and write resource rules only; that change is not yet compiled or
+tested on macOS. Local plain-edit latency on
 a 400-line note: median 35 to 40 ms before, about 15 ms after; first edit after
 start about 280 ms before, about 20 ms after. Before deploying, run check 016
 against a restored backup.

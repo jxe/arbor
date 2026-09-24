@@ -741,7 +741,7 @@ final class ArborWorkspaceState {
                 deviceID: account.deviceID,
                 devicesSource: devicesSource
             ),
-            resourceRules: (declaration.resourceAccess ?? []).filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
+            resourceRules: declaration.resourceAccess.filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
         )
     }
 
