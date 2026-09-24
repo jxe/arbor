@@ -13,6 +13,7 @@ import {
   decodeWireDirectory,
   encodeWireDirectory,
   hashObject,
+  stableJSONString,
   type ObjectHash,
   type TreeSnapshot,
   type WireDirectory,
@@ -93,18 +94,10 @@ export function semantic(graph: Omit<AccountConfigGraphV2, "sources">): Record<s
   };
 }
 
-function comparable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(comparable);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, comparable(entry)]));
-  }
-  return value;
-}
-
+/** Semantic equality of parsed configuration values: canonical JSON, whose
+ * key order is a total order rather than a locale's collation. */
 export function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+  return stableJSONString(left) === stableJSONString(right);
 }
 
 const missing = Symbol("missing");
@@ -192,17 +185,17 @@ function yaml(value: unknown): string {
   return stringify(value, { aliasDuplicateObjects: false, lineWidth: 0, sortMapEntries: true });
 }
 
-/** Canonical authored files shared by Canopy snapshots and offline migration. */
-export function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
-  const devices = Object.fromEntries(Object.entries(graph.devices).sort(([a], [b]) => a.localeCompare(b)).map(([id, device]) => [id, {
+/** Canonical authored files. yaml() sorts every map by key, so the inputs
+ * need no ordering of their own. */
+function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
+  const devices = Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
     label: device.label,
     ...(device.administrator ? { administrator: true } : {}),
   }]));
-  const trees = Object.fromEntries(Object.entries(graph.resources ?? graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
   return {
     "account.yaml": yaml(graph.account),
     "devices.yaml": yaml(devices),
-    "trees.yaml": yaml(trees),
+    "trees.yaml": yaml(graph.resources ?? graph.trees),
   };
 }
 

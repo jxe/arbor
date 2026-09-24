@@ -1,6 +1,6 @@
 import { SaxesParser } from "saxes";
 import type Parser from "web-tree-sitter";
-export interface SourceUnit {
+interface SourceUnit {
   key: string;
   start: number;
   end: number;

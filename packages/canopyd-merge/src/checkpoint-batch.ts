@@ -1,4 +1,3 @@
-import { hashObject } from "@overstory/protocol";
 import { checkpointIntent } from "./intent-engine.ts";
 import type { MergeObjects } from "./index.ts";
 import type { CheckpointBatchRequest, CheckpointBatchResponse } from "./checkpoint.ts";
@@ -24,9 +23,10 @@ export async function checkpointBatch(request: CheckpointBatchRequest, objects: 
       }
       return bytes;
     },
+    // The engine names each generated object by hashing it; staging checks
+    // the published bytes again, so they are not hashed a third time here.
     store: async values => {
       for (const {hash, bytes} of values) {
-        if (hashObject(bytes) !== hash) throw new Error("Checkpoint object hash mismatch");
         if (!generated.has(hash)) {
           generatedBytes += bytes.length;
           if (generatedBytes > 128 * 1024 * 1024) throw new CheckpointBatchLimitError("Checkpoint batch exceeds object byte budget");

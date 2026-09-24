@@ -1,5 +1,6 @@
 import { z } from "zod";
-const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+import { OBJECT_HASH } from "./state-value.ts";
+const hash = z.string().regex(OBJECT_HASH);
 const material = z.object({ object: hash, state: hash.optional() }).strict();
 /** Trusted caller supplies accepted projection/legacy decisions, never authored operations. */
 export const checkpointSchema = z
