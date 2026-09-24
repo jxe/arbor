@@ -8,24 +8,30 @@ import { SourceIntentStore } from "../../../packages/canopyd/src/updates/source-
 import { executeExactSourceEdits } from "../../../packages/canopyd/src/updates/source-edits.ts";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
+// canopyd no longer writes authored_changes; these rows are retained history
+// the readers must keep serving until the planned migration folds them away.
 let db: Database, dir: string, store: AcceptedUpdateStore;
 const bytes = new TextEncoder().encode("abc"), file = hashObject(bytes);
 const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
 const root = hashObject(directory);
 const operations: SourceOperation[] = [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.md", object: file } }, text: "abc" }];
 const executed = await executeExactSourceEdits(root, operations, async hash => hash === root ? directory : bytes);
-const sourceIntent = { change: "change-one", trace: [{ before: root, after: executed.root, operations }], evidence: executed.evidence };
+const trace = [{ before: root, after: executed.root, operations }];
+
 function initialize(tree: string) {
   db.run("INSERT INTO trees VALUES (?, ?, 1)", [tree, root]);
-  store.insert({entryChanges:NO_ENTRY_CHANGES, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
+  store.insert({ entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
 }
-function input(tree = "one", digest = "sha256:request") {
-  return { entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedUpdate: store.current(tree)!.id,
-    kind: "accepted" as const, acceptedAt: 2, subject: "device:one", requestDigest: digest,
-    baseRoot: root, candidateRoot: root, sourceIntent };
-}
-function state() {
-  return ["trees", "accepted_updates", "authored_changes"].map(table => db.query(`SELECT * FROM ${table}`).all());
+/** Accept one update of `tree` and seed a retained authored-change row for it. */
+function seed(tree: string, change: string, candidateRoot = root, digest = `sha256:${change}`) {
+  const accepted = store.commit({
+    entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedUpdate: store.current(tree)!.id,
+    kind: "accepted", acceptedAt: 2, subject: "device:one", requestDigest: digest,
+    baseRoot: root, candidateRoot, change,
+  })!;
+  db.run("INSERT INTO authored_changes (accepted_id, trace_json, evidence_json) VALUES (?, ?, ?)",
+    [accepted.id, JSON.stringify(trace), JSON.stringify(executed.evidence)]);
+  return accepted;
 }
 beforeEach(() => {
   dir = mkdtempSync(`${tmpdir()}/arbor-intent-`);
@@ -38,48 +44,26 @@ beforeEach(() => {
 });
 afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
 
-test("equal-byte intent survives reopening, receipts replay, snapshots leave it intact", () => {
-  const prior = store.current("one")!;
-  const accepted = store.commit(input())!;
-  expect(accepted.id).not.toBe(prior.id);
-  expect(accepted.root).toBe(prior.root);
-  const record = new SourceIntentStore(db).get("one", sourceIntent.change)!;
-  expect(record.evidence).toEqual(executed.evidence);
-  db.close(); db = new Database(`${dir}/state.sqlite`); db.run("PRAGMA foreign_keys = ON"); store = new AcceptedUpdateStore(db);
-  expect(new SourceIntentStore(db).get("one", sourceIntent.change)).toEqual(record);
-  const before = state();
-  expect(store.acceptedRequest("one", "device:one", "sha256:request")?.result.update).toEqual(accepted);
-  expect(state()).toEqual(before);
-  store.commit({ ...input("one", "sha256:snapshot"), sourceIntent: undefined });
-  expect(new SourceIntentStore(db).get("one", sourceIntent.change)).toEqual(record);
+test("retained intent reads back by change and by accepted update, and survives later snapshots", () => {
+  const accepted = seed("one", "change-one");
+  const record = new SourceIntentStore(db).get("one", "change-one")!;
+  expect(record).toEqual({ tree: "one", change: "change-one", acceptedUpdate: accepted.id, basisRoot: root, candidateRoot: root, trace, evidence: executed.evidence });
+  expect(new SourceIntentStore(db).forAccepted(accepted.id)).toEqual(record);
+  store.commit({ entryChanges: NO_ENTRY_CHANGES, tree: "one", root, previousRoot: root, expectedUpdate: accepted.id,
+    kind: "accepted", acceptedAt: 3, subject: "device:one", requestDigest: "sha256:snapshot", change: "snapshot" });
+  expect(new SourceIntentStore(db).get("one", "change-one")).toEqual(record);
+  expect(new SourceIntentStore(db).forAccepted(store.current("one")!.id)).toBeNull();
   expect(() => db.run("DELETE FROM accepted_updates WHERE id = ?", [accepted.id])).toThrow();
-  expect(new SourceIntentStore(db).roots()).toEqual([root]);
 });
-test("change identity is immutable within its tree and independent across trees", () => {
-  store.commit(input());
-  const before = state();
-  expect(() => store.commit({ ...input("one", "sha256:other"), subject: "device:other" })).toThrow();
-  expect(state()).toEqual(before);
-  initialize("two"); store.commit(input("two"));
-  expect(new SourceIntentStore(db).get("two", sourceIntent.change)?.tree).toBe("two");
+test("change identity is scoped to its tree", () => {
+  seed("one", "change-one");
+  initialize("two");
+  expect(new SourceIntentStore(db).get("two", "change-one")).toBeNull();
+  seed("two", "change-one");
+  expect(new SourceIntentStore(db).get("two", "change-one")?.tree).toBe("two");
 });
-test("failure after provenance insertion rolls back all authority state", () => {
-  db.run("CREATE TRIGGER fail_intent AFTER INSERT ON authored_changes BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
-  const before = state();
-  expect(() => store.commit(input())).toThrow("injected failure");
-  expect(state()).toEqual(before);
-});
-test("invalid evidence and missing receipt cannot leave partial state", () => {
-  const before = state();
-  expect(() => store.commit({ ...input(), sourceIntent: { ...sourceIntent, evidence: [] } })).toThrow("Source evidence");
-  expect(() => store.commit({ ...input(), requestDigest: undefined })).toThrow("does not match");
-  expect(state()).toEqual(before);
-});
-test("retains a candidate graph even when reconciliation projects the basis", async () => {
-  const edits: SourceOperation[] = [{ ...operations[0]!, text: "different" } as SourceOperation];
-  const result = await executeExactSourceEdits(root, edits, async hash => hash === root ? directory : bytes);
-  store.commit({ ...input(), candidateRoot: result.root, sourceIntent: { change: "other", trace: [{ before: root, after: result.root, operations: edits }], evidence: result.evidence } });
-  expect(new Set(new SourceIntentStore(db).roots())).toEqual(new Set([root, result.root]));
-  const record = new SourceIntentStore(db).get("one", "other")!;
-  expect(() => new SourceIntentStore(db).insert(record)).toThrow("transaction");
+test("retains a candidate graph even when reconciliation projects the basis", () => {
+  const candidate = hashObject(new TextEncoder().encode("candidate"));
+  seed("one", "other", candidate as typeof root);
+  expect(new Set(new SourceIntentStore(db).roots())).toEqual(new Set([root, candidate]));
 });

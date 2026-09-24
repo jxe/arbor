@@ -10,7 +10,7 @@ import {
   type ObjectHash,
   type UpdateResult,
 } from "@overstory/protocol";
-import { SourceIntentStore, type SourceIntent } from "./source-intent-store.ts";
+import { SourceIntentStore } from "./source-intent-store.ts";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
 
 export interface StoredAcceptedResponse {
@@ -34,7 +34,6 @@ export interface AcceptedUpdateInput {
   requestDigest?: string;
   transition?: AcceptedTransitionPayload;
   change?: string;
-  sourceIntent?: SourceIntent;
   conflicts?: ConflictState;
   mergeState?: MergeStateRecord;
   /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
@@ -93,7 +92,7 @@ export class AcceptedUpdateStore {
       WHERE request_digest IS NOT NULL
     `);
     db.run("CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_change ON accepted_updates(tree_id, change_id) WHERE change_id IS NOT NULL");
-    // Both indexes end in the rowid, so `(tree_id, ordinal)` order is free.
+    // `ordinal` is the rowid, so the tree index alone serves `(tree_id, ordinal)` order.
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_root ON accepted_updates(tree_id, root)");
     SourceIntentStore.createSchema(db);
@@ -143,13 +142,6 @@ export class AcceptedUpdateStore {
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
-  /** Distinct roots of the tree's retained accepted updates, most recently accepted first. */
-  roots(tree: string): ObjectHash[] {
-    return (this.db.query(
-      "SELECT root FROM accepted_updates WHERE tree_id = ? GROUP BY root ORDER BY MAX(ordinal) DESC",
-    ).all(tree) as Array<{ root: ObjectHash }>).map(({ root }) => root);
-  }
-
   /** Whether this exact root belongs to any retained accepted update of the tree. */
   hasRoot(tree: string, root: ObjectHash): boolean {
     return this.db.query(
@@ -181,11 +173,6 @@ export class AcceptedUpdateStore {
   changeForAccepted(update: string): string | null {
     const row = this.db.query("SELECT change_id FROM accepted_updates WHERE id = ?").get(update) as { change_id: string | null } | null;
     return row?.change_id ?? null;
-  }
-
-  mergeSummary(update: string): MergeSummary | null {
-    const row = this.db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(update) as { merge_summary: string | null } | null;
-    return row?.merge_summary ? JSON.parse(row.merge_summary) : null;
   }
 
   /** Follow accepted identities, never root equality. Missing history is not evidence. */
@@ -255,15 +242,11 @@ export class AcceptedUpdateStore {
       input.merge ? JSON.stringify(input.merge) : null,
       input.requestDigest ?? null,
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
-      input.change ?? input.sourceIntent?.change ?? null,
+      input.change ?? null,
     ]);
     new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
     if (state && !input.mergeState) conflicts.insert(id, state);
     if (input.mergeState) new MergeStateStore(this.db).insert(id, input.mergeState);
-    if (input.sourceIntent) {
-      if (!input.baseRoot || !input.candidateRoot) throw new Error("Source intent requires authored basis and candidate roots");
-      new SourceIntentStore(this.db).insert({ ...input.sourceIntent, acceptedUpdate: id });
-    }
     return this.get(id)!;
   }
 
