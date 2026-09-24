@@ -6,8 +6,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * Stamped into `meta.schema_version` when the database is created. A stored
  * value that differs from this constant means the data root was written by an
  * incompatible build; the operator runs the offline migration tool after backing up retained
- * history. The migration sets the stamp. "1" is the implicit stamp of
- * every database created before the profile-kind columns were removed.
+ * history. The migration sets the stamp.
  */
 export const CANOPY_SCHEMA_VERSION = "16";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
@@ -145,7 +144,7 @@ export function assertCanopySchemaVersion(db: Database): void {
     : null;
   if (stamp !== CANOPY_SCHEMA_VERSION) {
     throw new Error(
-      `Canopy data root was written by schema version ${stamp ?? "1 (unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
+      `Canopy data root was written by schema version ${stamp ?? "(unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
       + "run the offline migration for this version after backing up retained history",
     );
   }
@@ -167,9 +166,6 @@ export function assertCurrentCanopySchema(db: Database): void {
     }
   }
   if (!issues.length) {
-    if (db.query("SELECT 1 FROM trees WHERE policy = ? LIMIT 1").get("account-config-v1")) {
-      throw new Error("Canopy account-config-v1 requires offline migration to account-config-v2 before startup");
-    }
     const missingHistory = db.query(`
       SELECT COUNT(*) AS count FROM trees t
       WHERE NOT EXISTS (SELECT 1 FROM accepted_updates u WHERE u.tree_id = t.id)
@@ -198,10 +194,7 @@ export function openCanopyDatabase(path: string): Database {
   const databaseExists = existsSync(path);
   const db = new Database(path, { create: true });
   try {
-    if (databaseExists) {
-      assertCanopySchemaVersion(db);
-      assertCurrentCanopySchema(db);
-    }
+    if (databaseExists) assertCurrentCanopySchema(db);
     else db.transaction(() => createCanopySchema(db))();
     db.transaction(() => ensureCanopyReadIndexes(db))();
   } catch (error) {

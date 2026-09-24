@@ -61,7 +61,7 @@ import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
 import { rootProfileFacts, type RootProfileFacts } from "./profile.ts";
-import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
+import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyAuthentication, type CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
@@ -333,7 +333,7 @@ export class CanopyDaemon implements AsyncDisposable {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: row.policy.startsWith("account-config-") ? "account-configuration" : "ordinary",
+      kind: isAccountConfigPolicy(row.policy) ? "account-configuration" : "ordinary",
       ref: row.ref,
       publicAccess: row.public_access ?? "none",
       updatedAt: row.updated_at,
@@ -1190,7 +1190,7 @@ export class CanopyDaemon implements AsyncDisposable {
     for (const [index, update] of request.updates.entries()) {
       if (
         (request.base === null ||
-          this.get(treeID)?.policy.startsWith("account-config-")) &&
+          isAccountConfigPolicy(this.get(treeID)?.policy ?? "ordinary")) &&
         update.trace !== null
       ) {
         throw new UpdateProtocolError(
@@ -1215,7 +1215,7 @@ export class CanopyDaemon implements AsyncDisposable {
     let recordedThrough = -1;
     const retainedTree = this.get(treeID);
     if (retainedTree && (this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) {
-      const policy = retainedTree.policy.startsWith("account-config-")
+      const policy = isAccountConfigPolicy(retainedTree.policy)
         ? this.accountConfigPolicy(retainedTree, request.updates[0]!, baseRoot ?? retainedTree.ref, account, credentialSubject)
         : this.ordinaryPolicy(retainedTree, request.updates[0]!, account, linkDigest, credentialSubject);
       for (let index = digests.length - 1; index >= 0; index--) {
@@ -1232,7 +1232,7 @@ export class CanopyDaemon implements AsyncDisposable {
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
         const tree = this.get(treeID)!;
-        const subject = tree.policy.startsWith("account-config-")
+        const subject = isAccountConfigPolicy(tree.policy)
           ? this.accountConfigPolicy(
               tree,
               request.updates[0]!,
@@ -1470,7 +1470,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
-    const policy = tree.policy.startsWith("account-config-")
+    const policy = isAccountConfigPolicy(tree.policy)
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
@@ -1510,7 +1510,7 @@ export class CanopyDaemon implements AsyncDisposable {
     markPhase("validate-candidate");
     const semanticCurrent = this.currentUpdate(treeID)!;
     if (
-      !tree.policy.startsWith("account-config-") &&
+      !isAccountConfigPolicy(tree.policy) &&
       (preparedIntent ||
         this.semantic.store.get(semanticCurrent.id)?.decisions.length) &&
       (request.ifCurrent === undefined ||
@@ -1558,7 +1558,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
       let resolutionGuardFailed = false;
-      if (tree.policy === "account-config-v2" && !preconditionFailed) {
+      if (isAccountConfigPolicy(tree.policy) && !preconditionFailed) {
         // Governed policy conflicts retain the conservative projection. Further
         // edits must explicitly resolve the complete current decision set; an
         // ordinary snapshot or stale device cannot silently restore authority.
@@ -1594,7 +1594,7 @@ export class CanopyDaemon implements AsyncDisposable {
       // accepted projection. The validated/replayed prefix proves that relationship.
       // Retain differences introduced by acceptance as concurrent input; never
       // reinterpret their absence from the author's candidate as a deletion.
-      const ordinary = !tree.policy.startsWith("account-config-");
+      const ordinary = !isAccountConfigPolicy(tree.policy);
       const acceptedBasis = this.update(basisUpdate!);
       const authoredProjectionDiffers = acceptedBasis?.root !== baseRoot;
       const unresolved = reconciled.outcome === "rejected" ||

@@ -1,7 +1,7 @@
 import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
-import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./model.ts";
+import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
@@ -119,7 +119,7 @@ export class AccessControl {
   canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree) return false;
-    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
+    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest)) return true;
     if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
@@ -130,7 +130,7 @@ export class AccessControl {
   canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree) return false;
-    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
+    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest)) return true;
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) === "write") return true;
@@ -141,7 +141,7 @@ export class AccessControl {
   canAdminister(account: CanopyAccount, treeID: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree || !account.profileTree) return false;
-    if (tree.policy.startsWith("account-config-")) return tree.accountID === account.id;
+    if (isAccountConfigPolicy(tree.policy)) return tree.accountID === account.id;
     if (tree.accountID === account.id) return true;
     if (tree.id === account.profileTree) return true;
     if (tree.accountID && this.db.query("SELECT 1 FROM resource_policy WHERE account_id=? AND tree_id=?").get(tree.accountID, treeID)) return false;
