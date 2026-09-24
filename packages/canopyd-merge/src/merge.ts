@@ -107,20 +107,33 @@ export async function mergeWireTrees(
     return undefined;
   };
 
+  /** A page's frontmatter id by file object: the three sides mostly share their pages, so each is parsed once. */
+  const pageIDs = new Map<ObjectHash, Promise<string | undefined>>();
+  const pageID = (file: ObjectHash): Promise<string | undefined> => {
+    let id = pageIDs.get(file);
+    if (!id) {
+      id = (async () => {
+        const value = await context.file(file);
+        let source: string;
+        try {
+          source = new TextDecoder("utf-8", { fatal: true }).decode(value);
+        } catch {
+          return undefined;
+        }
+        return frontmatter(source)?.get("id");
+      })();
+      pageIDs.set(file, id);
+    }
+    return id;
+  };
+
   /** Markdown pages keyed by a unique frontmatter id, so a rename and an edit on the other side still meet as one node. */
   const pagesByID = async (directory: Map<string, WireDirectoryEntry>): Promise<Map<string, WireDirectoryEntry>> => {
     const unique = new Map<string, WireDirectoryEntry>();
     const duplicates = new Set<string>();
     for (const entry of directory.values()) {
       if (!entry.file || !entry.name.endsWith(".md")) continue;
-      const value = await context.file(entry.file);
-      let source: string;
-      try {
-        source = new TextDecoder("utf-8", { fatal: true }).decode(value);
-      } catch {
-        continue;
-      }
-      const id = frontmatter(source)?.get("id");
+      const id = await pageID(entry.file);
       if (!id) continue;
       if (unique.has(id)) {
         unique.delete(id);
