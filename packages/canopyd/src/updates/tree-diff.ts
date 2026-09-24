@@ -72,8 +72,10 @@ interface TreeDiffVisitor {
   entry(pair: EntryPair): boolean | void | Promise<boolean | void>;
 }
 
+/** A wire entry is its name and exactly one of `file`, `directory`, `tree`
+ * (`decodeWireDirectory` admits no other key), so those fields decide equality. */
 function sameEntry(a: WireDirectoryEntry | undefined, b: WireDirectoryEntry | undefined): boolean {
-  return a === b || (!!a && !!b && JSON.stringify(a) === JSON.stringify(b));
+  return a === b || (!!a && !!b && a.name === b.name && a.file === b.file && a.directory === b.directory && a.tree === b.tree);
 }
 
 /**

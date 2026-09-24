@@ -27,6 +27,26 @@ test("a shared reader reads each object once across the transition and entry-cha
   expect([...s.reads.values()].every((count) => count === 1)).toBe(true);
 });
 
+test("entries are skipped only when name and target match exactly", async () => {
+  const s = store();
+  const leaf = s.file("L"), sub = s.dir([{ name: "x.md", file: leaf }]);
+  const before = s.dir([
+    { name: "same.md", file: leaf },
+    { name: "edited.md", file: s.file("old") },
+    { name: "kind", file: leaf },
+    { name: "nested", tree: "tr_a" },
+  ]);
+  const after = s.dir([
+    { name: "same.md", file: leaf },
+    { name: "edited.md", file: s.file("new") },
+    { name: "kind", directory: sub },
+    { name: "nested", tree: "tr_b" },
+  ]);
+  const visited: string[] = [];
+  await walkTreeDiff(before, after, s.load, { entry: ({ path }) => { visited.push(path); } });
+  expect(visited).toEqual(["/edited.md", "/kind", "/nested"]);
+});
+
 test("a reader refuses bytes whose hash does not match", async () => {
   const s = store();
   const root = s.dir([{ name: "a.md", file: s.file("A") }]);
