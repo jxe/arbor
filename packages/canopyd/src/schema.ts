@@ -8,10 +8,10 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "19";
+export const CANOPY_SCHEMA_VERSION = "20";
 
 export const AUTHORITY_SCHEMA = {
-  trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
+  trees: ["id", "ref", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
@@ -19,10 +19,10 @@ export const AUTHORITY_SCHEMA = {
   accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
-  account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
+  account_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
   resource_policy: ["account_id", "tree_id", "rules_json"],
   access: ["id", "tree_id", "subject_kind", "subject", "access"],
-  tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
+  tree_reservations: ["id", "account_id", "canonical_path"],
   entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   meta: ["key", "value"],
@@ -48,7 +48,6 @@ export function createCanopySchema(db: Database): void {
     CREATE TABLE trees (
       id TEXT PRIMARY KEY,
       ref TEXT NOT NULL,
-      updated_at INTEGER NOT NULL,
       policy TEXT NOT NULL DEFAULT 'ordinary',
       status TEXT NOT NULL DEFAULT 'active',
       account_id TEXT
@@ -100,17 +99,14 @@ export function createCanopySchema(db: Database): void {
       id TEXT PRIMARY KEY,
       challenge_json TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
-      consumed_at INTEGER,
-      claim_digest TEXT
+      consumed_at INTEGER
     )
   `);
   db.run(`
     CREATE TABLE tree_reservations (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
-      canonical_path TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL,
-      error TEXT
+      canonical_path TEXT NOT NULL UNIQUE
     )
   `);
   createAccessTable(db);

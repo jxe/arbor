@@ -1,11 +1,11 @@
-import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, sha256, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
+import type { Database } from "bun:sqlite";
+import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
 
 type ResourceRules = ReturnType<typeof parseResourceRules>;
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
-import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
-import type { Database } from "bun:sqlite";
-import { isAccountConfigPolicy, type CanopyAccessEntry, type CanopyAccount, type CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
@@ -28,7 +28,13 @@ export function accessRule(entry: CanopyAccessEntry): AccessRule {
   };
 }
 
-/** Tree access rules and the read/write/administer decisions derived from them. */
+/**
+ * Tree access rules and the read/write/administer decisions derived from them.
+ * A tree an account owns (`trees.account_id`) is governed by that account's
+ * resource rules alone (`resource_policy`, from its `trees.yaml`). The
+ * `access` table holds the rules of a tree no account owns: trees created at
+ * bootstrap, and the community root until an account hosts it.
+ */
 export class AccessControl {
   private readonly parsedRules = new Map<string, ResourceRules>();
 
@@ -47,7 +53,20 @@ export class AccessControl {
     return rules;
   }
 
+  /** A tree's whole-tree rules as access entries: an owned tree's from its
+   * owner's resource rules (rules scoped below the root, through code, or for
+   * the owner alone have no entry), an unowned tree's as stored. */
   entries(tree: string): CanopyAccessEntry[] {
+    const owner = this.host.tree(tree)?.accountID;
+    if (owner) return (this.rules(owner, tree) ?? []).flatMap((rule): CanopyAccessEntry[] => {
+      if (rule.via || (rule.within ?? "/") !== "/" || rule.who === "me") return [];
+      const access = rule.allow.includes("write") ? "write" : rule.allow.includes("read") ? "read" : null;
+      if (!access) return [];
+      const [subjectKind, subject]: [CanopyAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
+        : "profile" in rule.who ? ["profile", rule.who.profile] : ["link", rule.who.link];
+      // A stable id per tree and subject, as a stored entry's would be.
+      return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
+    });
     return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {
@@ -68,7 +87,7 @@ export class AccessControl {
       });
   }
 
-  /** Insert or update one rule; callers run this inside their own transaction. */
+  /** Insert or update one rule of a tree no account owns; callers run this inside their own transaction. */
   set(treeID: string, subjectKind: CanopyAccessEntry["subjectKind"], subject: string, access: ReadWriteAccess): void {
     const existing = this.db.query(
       "SELECT id FROM access WHERE tree_id = ? AND subject_kind = ? AND subject = ?",
@@ -83,14 +102,6 @@ export class AccessControl {
     }
   }
 
-  /** Store each declared rule as an access entry; callers run this inside their own transaction. */
-  setRules(treeID: string, rules: readonly AccessRule[]): void {
-    for (const rule of rules) {
-      const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
-      this.set(treeID, rule.subject.kind, subject, rule.access);
-    }
-  }
-
   safePolicy(account: string, tree: string) {
     return this.rules(account, tree)?.map(safeResourceRule);
   }
@@ -99,9 +110,16 @@ export class AccessControl {
     return (this.db.query("SELECT profile_tree FROM accounts WHERE id = ? AND enabled = 1").get(account) as { profile_tree: string } | null)?.profile_tree ?? null;
   }
 
+  /** A tree owner's Profile TreeID, which `who: me` rules name. An owner the
+   * community disabled can no longer sign in, but the rules it accepted keep
+   * governing its trees, as they did before it was disabled. */
+  private ownerProfile(account: string): string | null {
+    return (this.db.query("SELECT profile_tree FROM accounts WHERE id = ?").get(account) as { profile_tree: string | null } | null)?.profile_tree ?? null;
+  }
+
   private policyAllows(policyAccount: string, caller: string | null, tree: string, path: string, operation: AccessOperation, via?: string, linkDigest?: string): boolean {
     if (!policyAccount) return false;
-    const ownerProfile = this.profile(policyAccount);
+    const ownerProfile = this.ownerProfile(policyAccount);
     if (!ownerProfile) return false;
     const rules = this.rules(policyAccount, tree);
     if (!rules) return false;
@@ -119,7 +137,7 @@ export class AccessControl {
     const tree = this.host.tree(treeID);
     if (!tree?.accountID || tree.policy !== "ordinary") return undefined;
     const policy = this.rules(tree.accountID, treeID);
-    const ownerProfile = this.profile(tree.accountID);
+    const ownerProfile = this.ownerProfile(tree.accountID);
     if (!policy || !ownerProfile) return undefined;
     const rules = policy.filter(rule => !rule.via && ruleMatches(rule, {
       ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
@@ -159,7 +177,7 @@ export class AccessControl {
     const treeID = tree.id;
     if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
-    if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest)) return true;
+    if (tree.accountID) return this.policyAllows(tree.accountID, account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest);
     if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) !== "none") return true;
     return account ? this.effectiveAccess(account, treeID) !== "none" : false;
@@ -171,7 +189,7 @@ export class AccessControl {
     const treeID = tree.id;
     if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
-    if (this.policyAllows(tree.accountID ?? "", account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest)) return true;
+    if (tree.accountID) return this.policyAllows(tree.accountID, account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest);
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) === "write") return true;
     if (!account) return tree.publicAccess === "write";
     return this.effectiveAccess(account, treeID) === "write" || tree.publicAccess === "write";
@@ -180,10 +198,8 @@ export class AccessControl {
   canAdminister(account: CanopyAccount, treeID: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree || !account.profileTree) return false;
-    if (isAccountConfigPolicy(tree.policy)) return tree.accountID === account.id;
-    if (tree.accountID === account.id) return true;
+    if (isAccountConfigPolicy(tree.policy) || tree.accountID) return tree.accountID === account.id;
     if (tree.id === account.profileTree) return true;
-    if (tree.accountID && this.db.query("SELECT 1 FROM resource_policy WHERE account_id=? AND tree_id=?").get(tree.accountID, treeID)) return false;
     return this.subjectAccess("profile", account.profileTree, treeID) === "write";
   }
 

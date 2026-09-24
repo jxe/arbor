@@ -64,7 +64,8 @@ sends `refresh` or `revoked` SSE events with empty payloads; it conservatively
 invalidates on accepted updates, revocation notifies immediately, and expiry
 and session changes are polled, so providers refresh authority after a
 disconnect. `GET /access` keeps the legacy `snapshot` projection and adds a
-safe `policy` field. The supported scoped update subset: new files and
+safe `policy` field. An owned tree's `snapshot` is derived from its owner's
+whole-tree rules; only a tree no account owns has stored entries (schema 20). The supported scoped update subset: new files and
 directories need `create-child` at the logical parent, raw content changes
 `update-content`, file deletion `delete`; Markdown replacement conservatively
 needs `write` because it can change frontmatter, as do directory deletion or
