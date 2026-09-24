@@ -96,9 +96,9 @@ FIFO queue, stages each question's uncommitted inputs, checks the answer, then c
 staging before the next job. A verified answer, a well-formed refusal and a well-formed
 `{error}` line all leave the process in service with its cache. A timeout, a crash,
 unparseable or malformed output, or an answer that fails the checks below retires it:
-it is reaped before cleanup, and the queued successor starts a replacement. canopyd shutdown drains the active job, rejects queued
-work, and closes the process. A custom executable (`ARBOR_MERGE_EXECUTABLE`) speaks the
-same protocol.
+it is reaped before cleanup, and the queued successor starts a replacement. canopyd
+shutdown drains the active job, rejects queued work, and closes the process. A custom
+executable (`ARBOR_MERGE_EXECUTABLE`) speaks the same protocol.
 
 ### Answer checks
 
