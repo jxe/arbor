@@ -1761,6 +1761,55 @@ export class CanopyDaemon implements AsyncDisposable {
     throw new UpdateProtocolError("server-busy", "Server update changed repeatedly during merge");
   }
 
+  /** Checkpoint decisions for a conflicting snapshot: one per conflicting
+   * file (a file against its deletion included), so the rest of the snapshot
+   * merges. Anything else keeps the single whole-root decision. */
+  private async snapshotDecisions(
+    change: string,
+    currentRoot: ObjectHash,
+    candidate: ObjectHash,
+    projection: ObjectHash,
+    conflicts: Array<{ path: string }>,
+    proposed: Map<ObjectHash, Uint8Array>
+  ) {
+    const roots = [...new Set([currentRoot, candidate, projection])];
+    const whole = [{
+      key: `snapshot:${change}`,
+      selected: roots.indexOf(projection),
+      alternatives: roots.map((object) => ({ object, contributions: [] })),
+    }];
+    if (!conflicts.length) return whole;
+    const entryAt = async (root: ObjectHash, path: string) => {
+      let directory: ObjectHash = root;
+      const names = path.slice(1).split("/");
+      for (const [index, name] of names.entries()) {
+        const entry = decodeWireDirectory(await this.objects.load(directory, proposed)).entries.find((e) => e.name === name);
+        if (!entry || index === names.length - 1) return entry ?? null;
+        if (!entry.directory) return null;
+        directory = entry.directory as ObjectHash;
+      }
+      return null;
+    };
+    const decisions = [];
+    for (const { path } of conflicts) {
+      if (path === "/") return whole;
+      const [mine, theirs, shown] = await Promise.all([currentRoot, candidate, projection].map((root) => entryAt(root, path)));
+      if ([mine, theirs, shown].some((entry) => entry && !entry.file) || (!mine && !theirs)) return whole;
+      const selected = [mine, theirs].findIndex((entry) => (entry?.file ?? null) === (shown?.file ?? null));
+      if (selected < 0) return whole;
+      decisions.push({
+        key: `snapshot:${change}:${path}`,
+        path: path.slice(1).split("/"),
+        selected,
+        alternatives: [
+          { object: currentRoot, contributions: [] },
+          { object: candidate, contributions: [{ change, operation: null }] },
+        ],
+      });
+    }
+    return decisions;
+  }
+
   private async submitSemanticCandidate(
     tree: CanopyTree,
     baseRoot: string,
@@ -1856,17 +1905,8 @@ export class CanopyDaemon implements AsyncDisposable {
             change: request.change,
             resolves: guards,
             decisions: ambiguous
-              ? [
-                  {
-                    key: `snapshot:${request.change}`,
-                    selected: [
-                      ...new Set([current.root, request.candidate, projection]),
-                    ].indexOf(projection),
-                    alternatives: [
-                      ...new Set([current.root, request.candidate, projection]),
-                    ].map((object) => ({ object, contributions: [] })),
-                  },
-                ]
+              ? await this.snapshotDecisions(request.change, current.root, request.candidate, projection,
+                  merged.outcome === "merged" ? merged.conflicts : [], proposed)
               : [],
           },
           proposed

@@ -7,8 +7,9 @@
  *   bun swift/scripts/conflict-lab.ts app [--build] launch the Debug app against the lab
  *   bun swift/scripts/conflict-lab.ts make <scenario>
  *   bun swift/scripts/conflict-lab.ts edit <page> <find> <replace>
+ *   bun swift/scripts/conflict-lab.ts put <entry> [text]   untraced snapshot, as folder sync sends; no text deletes
  *   bun swift/scripts/conflict-lab.ts inspect       accepted decisions, as the server holds them
- *   bun swift/scripts/conflict-lab.ts resolve <decision> <alternative>
+ *   bun swift/scripts/conflict-lab.ts resolve <decision>   keep what the tree shows now
  *   bun swift/scripts/conflict-lab.ts down | reset
  *
  * Every command prints one JSON object on stdout. Everything lives under
@@ -344,12 +345,24 @@ async function edit(page: string, find: string, replace: string) {
   out({ outcome: response.results[0]!.outcome, conflicted: response.results[0]!.update.conflicted });
 }
 
-async function resolve(decision: string, alternative: string) {
+async function put(name: string, text: string | undefined) {
   const state = await loadState(), wire = await client();
   const now = await current(wire, state.tree);
+  const update = await entriesCandidate(now, { [name]: text === undefined ? null : { text } });
+  const response = await wire.submitUpdates(state.tree, { base: now.state, updates: [update as never] });
+  out({ outcome: response.results[0]!.outcome, conflicted: response.results[0]!.update.conflicted });
+}
+
+async function resolve(decision: string) {
+  const state = await loadState(), wire = await client();
+  const now = await current(wire, state.tree);
+  const page = await wire.conflicts(state.tree, now.state, now.root, { conflict: decision });
+  const found = page.decisions.find((d) => d.id === decision);
+  if (!found) throw new Error(`No open decision ${decision}`);
+  // A resolution names every alternative it considered; the unchanged root keeps what shows.
   const response = await wire.submitUpdates(state.tree, { base: now.state, updates: [{
     change: crypto.randomUUID(), candidate: now.root, trace: null,
-    resolves: [{ state: now.state, conflict: decision, alternatives: [alternative] }], objects: [], deltas: [],
+    resolves: [{ state: now.state, conflict: decision, alternatives: found.alternatives.map((a) => a.id) }], objects: [], deltas: [],
   } as never] });
   out({ outcome: response.results[0]!.outcome, conflicted: response.results[0]!.update.conflicted });
 }
@@ -368,8 +381,9 @@ switch (command) {
   case "app": await app(rest.includes("--build")); break;
   case "make": await make(rest[0] ?? ""); break;
   case "edit": await edit(rest[0]!, rest[1]!, rest[2] ?? ""); break;
+  case "put": await put(rest[0]!, rest[1]); break;
   case "inspect": { const state = await loadState(); out(await inspect(await client(), state.tree)); break; }
-  case "resolve": await resolve(rest[0]!, rest[1]!); break;
+  case "resolve": await resolve(rest[0]!); break;
   case "down": await down(); break;
   case "reset": {
     // Everything but the app build, which is slow to redo and holds no lab state.
