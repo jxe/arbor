@@ -7,7 +7,7 @@ Stage 1 (every acceptance records a merge state) ships in the same deploy; this
 migration makes the code that served rows written before it unreachable, and that code
 is deleted.
 
-**Status: implemented and tested, not rehearsed on a backup, not run.**
+**Status: rehearsed green on the 2026-09-24 backup, not run.**
 
 ## What changes
 
@@ -222,4 +222,21 @@ AUTOINCREMENT sequence that ran ahead. It checks that:
 
 ## Rehearsal log
 
-Not yet rehearsed.
+**2026-09-24, green.** Backup `016-squash` taken 10:54Z from live schema 17
+(2,747 updates, 5 trees; row counts match live), local copy
+`.backups/railway/20260924T105457Z/volume.tar`, sha256 `7c7d1c01…6f700c`, matching
+the volume.
+
+- Replay check (`--last 20`): `ok: true`, 30 updates replayed on the three ordinary
+  trees with published windows (`/` 10, `/~joe/todos` 15, `/~joe` 5; 29 traced),
+  every root and flag matched, none skipped.
+- `run.ts migrated`: 5 heads kept, 2,742 updates and 1,761 merge states removed,
+  394 conflict rows and 406 traces dropped, `respelledHeads` 0, 3 profiles rebuilt,
+  `nextOrdinal` 4329, 282 ms. Heads: `/` 3494, account configuration 2654,
+  `/~joe/todos` 4328, `/~joe` 3499, `tr_unkaimbksfitula6i5n4acid6y` 1586. The Mac's
+  three placements hold exactly these ids. A second run reports `migrated: false`.
+- `compare-canopy-roots`: root unchanged for all 5 trees.
+- Served with this build: `/.arbor/integrity` `{"status":"ok"}`; `verify.ts --no-sync`
+  ok with no failures; entry metadata served at each head; `/` and `/~joe` pages
+  byte-identical to live. Entry metadata and document versions (in rowid order) are
+  identical between `before` and `migrated`.
