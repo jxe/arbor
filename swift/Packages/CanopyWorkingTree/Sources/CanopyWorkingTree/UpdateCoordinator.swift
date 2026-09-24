@@ -108,15 +108,15 @@ public actor UpdateCoordinator {
               let update = control.nextBase?.update ?? heads.acceptedUpdate else { return }
         dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor, conflicted: control.acceptedConflicted))
         if let attempt = control.attempt {
-            machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
+            machine.phase = .prepared(request: preparedRequest(attempt), tip: nil)
         } else if let head = control.head, let attempt = try? recoverAttempt(from: head, tree: await workingTree.treeID().rawValue) {
             // The process stopped between the durable head and its publication:
             // the head's own objects make it a self-contained one-element request.
-            machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
+            machine.phase = .prepared(request: preparedRequest(attempt), tip: nil)
         } else if sourceOperationEmission, let pending = try? await pendingSourceRecords(), let last = pending.last {
-            dispatch(.localHead(root: last.candidate.root, origin: .editor))
+            dispatch(.localChange(change: last.change, root: last.candidate.root))
         } else if heads.pendingRoot != nil {
-            dispatch(.localHead(root: heads.materializedRoot, origin: .editor))
+            dispatch(.localChange(change: Self.headChange(heads.materializedRoot), root: heads.materializedRoot))
         }
     }
 
@@ -161,9 +161,13 @@ public actor UpdateCoordinator {
         )
     }
 
-    private static func preparedRequest(_ attempt: UpdateAttempt) -> UpdateMachine.PreparedRequest {
-        .init(id: attempt.digest, base: attempt.base.update, candidate: attempt.candidate, digests: attempt.allRequestDigests)
+    private func preparedRequest(_ attempt: UpdateAttempt) -> UpdateMachine.PreparedRequest {
+        .init(id: attempt.digest, base: attempt.base.update, candidate: attempt.candidate,
+              tip: control.sourceAttemptChange ?? Self.headChange(attempt.candidate), digests: attempt.allRequestDigests)
     }
+
+    /// A snapshot head has no authored change identity; its root stands in for one.
+    private static func headChange(_ root: String) -> String { "head:" + root }
 
     private func dispatch(_ event: UpdateMachine.Event) {
         let (next, effects) = UpdateMachine.reduce(machine, event, options: machineOptions)
@@ -186,6 +190,8 @@ public actor UpdateCoordinator {
             case .max:
                 maxPublicationTask?.cancel()
                 maxPublicationTask = task
+            case .poll:
+                task.cancel()
             }
         case .cancelTimers:
             publicationTask?.cancel()
@@ -202,7 +208,7 @@ public actor UpdateCoordinator {
                 do { _ = try await self.synchronize(admission: admission, extendExistingAttempt: extend) }
                 catch { Self.syncLog.error("scheduled publication failed: \(String(describing: error), privacy: .public)") }
             }
-        case .submit, .apply, .catchUp, .stop:
+        case .submit, .apply, .catchUp, .settle, .stop:
             // Submission, materialization, and catch-up are performed inline by
             // the pass that dispatched the event; they report back with
             // `applied` or a failure.
@@ -218,6 +224,8 @@ public actor UpdateCoordinator {
         case .max:
             maxPublicationTask = nil
             dispatch(.maxDelayElapsed)
+        case .poll:
+            dispatch(.pollElapsed)
         }
     }
 
@@ -455,15 +463,16 @@ public actor UpdateCoordinator {
         await ensureMachineEntered()
         if case let .locallyPending(_, preparing) = machine.phase, !preparing {
             // Prepare through the pass below rather than through a timer.
-            machine.phase = .locallyPending(head: currentHead(), preparing: true)
+            machine.phase = .locallyPending(tip: currentHead(), preparing: true)
             run(.cancelTimers)
         }
         return try await synchronize(admission: latestAdmission)
     }
 
-    private func currentHead() -> UpdateMachine.LocalHead {
-        if case let .locallyPending(head, _) = machine.phase { return head }
-        return UpdateMachine.LocalHead(root: latestAdmission?.candidateRoot ?? "", origin: .editor)
+    private func currentHead() -> UpdateMachine.LocalTip {
+        if case let .locallyPending(tip, _) = machine.phase { return tip }
+        let root = latestAdmission?.candidateRoot ?? ""
+        return UpdateMachine.LocalTip(change: Self.headChange(root), root: root)
     }
 
     /// Retain a patch admission on disk before acknowledging the editor. This
@@ -477,7 +486,7 @@ public actor UpdateCoordinator {
         // (rule 1): a process that stops before the publication delay recovers
         // it as one request instead of losing the edit.
         try await persistHead()
-        dispatch(.localHead(root: admission.candidateRoot, origin: .editor))
+        dispatch(.localChange(change: Self.headChange(admission.candidateRoot), root: admission.candidateRoot))
     }
 
     private func persistHead() async throws {
@@ -565,7 +574,7 @@ public actor UpdateCoordinator {
         machine.transportAvailable = available
         if !available, case let .locallyPending(head, _) = phase {
             run(.cancelTimers)
-            machine.phase = .offline(availability: .transport, request: nil, transmitted: false, head: head)
+            machine.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: head)
         }
         guard resumed else { return }
         if syncActive, control.attempt != nil, control.sourceAttemptChange == nil {
@@ -762,11 +771,11 @@ public actor UpdateCoordinator {
     private func notePersisted(_ attempt: UpdateAttempt) {
         switch machine.phase {
         case .current, .prepared, .submitting, .submittingPending, .acceptedPendingApply:
-            machine.phase = .locallyPending(head: .init(root: attempt.candidate, origin: .editor), preparing: true)
+            machine.phase = .locallyPending(tip: .init(change: preparedRequest(attempt).tip, root: attempt.candidate), preparing: true)
         default:
             break
         }
-        dispatch(.requestPersisted(Self.preparedRequest(attempt)))
+        dispatch(.requestPersisted(preparedRequest(attempt)))
     }
 
     /** Persist and return a longer request while an older prefix remains in flight. */
@@ -803,7 +812,7 @@ public actor UpdateCoordinator {
         files.retainObjects([])
         try faultInjector.reached(.afterRequestPersistence)
         if case .offline = machine.phase {
-            dispatch(.requestPersisted(Self.preparedRequest(attempt)))
+            dispatch(.requestPersisted(preparedRequest(attempt)))
         } else {
             notePersisted(attempt)
         }
@@ -893,7 +902,7 @@ public actor UpdateCoordinator {
                 setAppliedPresentation(accepted: accepted)
                 control.presentation.acceptedConflicted = control.acceptedConflicted
                 try files.write(control)
-                dispatch(.applied)
+                dispatch(.applied())
                 return
             }
             if heads.pendingRoot == nil {
@@ -908,7 +917,7 @@ public actor UpdateCoordinator {
                 setAppliedPresentation(accepted: accepted)
                 control.presentation.acceptedConflicted = control.acceptedConflicted
                 try files.write(control)
-                dispatch(.applied)
+                dispatch(.applied())
                 _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
                 return
             }
@@ -939,14 +948,14 @@ public actor UpdateCoordinator {
             try files.write(control)
             // The accepted decision is durable; the retained successor publishes
             // against the advanced base as the next pass.
-            if case let .acceptedPendingApply(result, request, head) = machine.phase {
+            if case let .acceptedPendingApply(result, request, tip) = machine.phase {
                 machine.phase = .acceptedPendingApply(
                     result: result,
                     request: request,
-                    head: head ?? .init(root: heads.materializedRoot, origin: .editor)
+                    tip: tip ?? .init(change: Self.headChange(heads.materializedRoot), root: heads.materializedRoot)
                 )
             }
-            dispatch(.applied)
+            dispatch(.applied())
             syncAgain = true
             return
         }
@@ -990,7 +999,7 @@ public actor UpdateCoordinator {
         control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
-        dispatch(.applied)
+        dispatch(.applied())
     }
 
     /// Every hash reachable from `root`, walking directory objects only. File
@@ -1143,7 +1152,7 @@ public actor UpdateCoordinator {
         try await admissions().retain(prepared.record)
         preparedStructures[key] = nil
         await ensureMachineEntered()
-        dispatch(.localHead(root: prepared.record.candidate.root, origin: .editor))
+        dispatch(.localChange(change: prepared.record.change, root: prepared.record.candidate.root))
         if syncActive { syncAgain = true }
         await workingTree.invalidateDocumentViews()
         return prepared.node
@@ -1421,7 +1430,7 @@ public actor UpdateCoordinator {
         let local = try await localSourceView(record)
         sourceViews[local.document.contentRevision] = local
         await ensureMachineEntered()
-        dispatch(.localHead(root: record.candidate.root, origin: .editor))
+        dispatch(.localChange(change: record.change, root: record.candidate.root))
         if syncActive { syncAgain = true }
         await workingTree.invalidateDocumentViews()
         return local.document
@@ -1528,7 +1537,7 @@ public actor UpdateCoordinator {
                 control.sourceAcceptedChanges = (control.sourceAcceptedChanges ?? []).filter { retained.contains($0) }
                 try files.write(control)
             }
-            dispatch(.applied)
+            dispatch(.applied())
             machine.base = .init(root: installation.root, update: current.update,
                 cursor: current.observedThrough, conflicted: current.conflicted)
             await workingTree.invalidateDocumentViews()

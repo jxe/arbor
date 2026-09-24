@@ -12,8 +12,8 @@ The working-tree update machine that runs beneath it is described in
 [the update machine](../implementing-sync-services/update-machine.md).
 
 The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
-(Swift) and `reduceAdmission` in `@overstory/client` (TypeScript). Both are
-pure reducers that execute every `document-admission` scenario in
+(Swift); the TypeScript `reduceAdmission` has been deleted. It is a pure
+reducer that executes every `document-admission` scenario in
 [`docs/overstory-spec/conformance/client-state-machines.json`](../overstory-spec/conformance/client-state-machines.json);
 the Swift editor host (`ArborDocumentBinding`) runs the effects. No TypeScript
 host exists: `packages/canopy-web/src/editor-coordinator.ts` is out of the
@@ -169,7 +169,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 
 An editor runs the admission machine against its own working tree: admission
 is working-tree durability, and the working tree's update machine (spec
-[working-tree updates §2](../overstory-spec/09-client-synchronization.md#2-the-update-machine))
+[working-tree updates §2](../overstory-spec/09-client-synchronization.md#3-the-update-machine))
 publishes durable heads behind a trailing delay and materializes only accepted
 state. Arbor Sync admits no editor generations; its folder is always a
 source (the reducers have no filesystem role), and every daemon request is

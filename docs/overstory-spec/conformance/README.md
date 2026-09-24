@@ -26,16 +26,16 @@ identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query o
 hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
-`client-state-machines.json` freezes the transition scenarios of the two
-client state machines: `document-admission` for an editor against its
-working tree's document session (`DocumentAdmissionMachine` in `CanopyAppKit`,
-`reduceAdmission` in `@overstory/client`; one transport), and `working-tree-updates` for the update
-machine a working tree runs against Overstory (`UpdateMachine` in
-`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`; every working
-tree is a source, there is no filesystem role). Roots, updates, cursors, and
-digests are tokens. The fixture pins the reducers only; in TypeScript nothing
-in production runs either reducer yet, and the daemon's folder
-synchronization runs its own loop.
+`client-state-machines.json` freezes the transition scenarios of the one
+client synchronization machine, `working-tree-updates` (`UpdateMachine` in
+`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`): a working tree
+publishes the local changes in its change log, whether an editor or a folder
+appended them. Changes, roots, updates, cursors, and digests are tokens. The
+fixture pins the reducers only; in TypeScript nothing in production runs the
+reducer yet, and the daemon's folder synchronization runs its own loop. The
+`document-admission` section is retained only for the Swift editor machine
+that [Clients 001](../../../plans/clients/001-reconcile-client-state-machines.md)
+deletes; no TypeScript reducer executes it.
 
 `protocol-update-intent.json` also carries `envelopeIndependence`: several
 packings of object envelopes across the same plural request produce

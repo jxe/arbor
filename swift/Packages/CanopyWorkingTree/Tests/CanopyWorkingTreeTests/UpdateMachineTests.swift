@@ -46,10 +46,14 @@ struct UpdateMachineTests {
         for scenario in scenarios {
             let name = try #require(scenario["name"] as? String)
             var state = try Self.state(from: try #require(scenario["initial"] as? [String: Any]))
+            var options = UpdateMachine.Options()
+            if let poll = (scenario["options"] as? [String: Any])?["pollIntervalMs"] as? Int {
+                options.pollInterval = .milliseconds(poll)
+            }
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
                 let event = try Self.event(from: try #require(step["event"] as? [String: Any]))
-                let (nextState, effects) = UpdateMachine.reduce(state, event)
+                let (nextState, effects) = UpdateMachine.reduce(state, event, options: options)
                 state = nextState
                 let label = "\(name) / step \(index + 1)"
                 #expect(state.kind == step["state"] as? String, Comment(rawValue: label))
@@ -88,12 +92,9 @@ struct UpdateMachineTests {
         )
     }
 
-    private static func head(_ json: [String: Any]?) throws -> UpdateMachine.LocalHead? {
+    private static func tip(_ json: [String: Any]?) throws -> UpdateMachine.LocalTip? {
         guard let json else { return nil }
-        return .init(
-            root: try #require(json["root"] as? String),
-            origin: try Self.enumValue(UpdateMachine.HeadOrigin.self, from: json, key: "origin")
-        )
+        return .init(change: try #require(json["change"] as? String), root: try #require(json["root"] as? String))
     }
 
     private static func request(_ json: [String: Any]?) throws -> UpdateMachine.PreparedRequest? {
@@ -102,6 +103,7 @@ struct UpdateMachineTests {
             id: try #require(json["id"] as? String),
             base: try #require(json["base"] as? String),
             candidate: try #require(json["candidate"] as? String),
+            tip: try #require(json["tip"] as? String),
             digests: try #require(json["digests"] as? [String])
         )
     }
@@ -126,21 +128,21 @@ struct UpdateMachineTests {
         case "current":
             phase = .current
         case "locally-pending":
-            phase = .locallyPending(head: try #require(try head(json["head"] as? [String: Any])), preparing: json["preparing"] as? Bool ?? false)
+            phase = .locallyPending(tip: try #require(try tip(json["tip"] as? [String: Any])), preparing: json["preparing"] as? Bool ?? false)
         case "prepared":
-            phase = .prepared(request: try #require(try request(json["request"] as? [String: Any])), head: try head(json["head"] as? [String: Any]))
+            phase = .prepared(request: try #require(try request(json["request"] as? [String: Any])), tip: try tip(json["tip"] as? [String: Any]))
         case "submitting":
             phase = .submitting(request: try #require(try request(json["request"] as? [String: Any])))
         case "submitting-pending":
             phase = .submittingPending(
                 request: try #require(try request(json["request"] as? [String: Any])),
-                head: try #require(try head(json["head"] as? [String: Any]))
+                tip: try #require(try tip(json["tip"] as? [String: Any]))
             )
         case "accepted-pending-apply":
             phase = .acceptedPendingApply(
                 result: try result(try #require(json["result"] as? [String: Any])),
                 request: try request(json["request"] as? [String: Any]),
-                head: try head(json["head"] as? [String: Any])
+                tip: try tip(json["tip"] as? [String: Any])
             )
         case "offline":
             let availability = try #require(json["availability"] as? [String: Any])
@@ -151,7 +153,14 @@ struct UpdateMachineTests {
                 availability: availabilityValue,
                 request: try request(json["request"] as? [String: Any]),
                 transmitted: json["transmitted"] as? Bool ?? false,
-                head: try head(json["head"] as? [String: Any])
+                tip: try tip(json["tip"] as? [String: Any])
+            )
+        case "held":
+            phase = .held(
+                reason: try Self.enumValue(UpdateMachine.HeldReason.self, from: json, key: "reason"),
+                detail: json["detail"] as? String,
+                request: try #require(try request(json["request"] as? [String: Any])),
+                tip: try tip(json["tip"] as? [String: Any])
             )
         default:
             throw FixtureError.unknownState(kind)
@@ -172,11 +181,22 @@ struct UpdateMachineTests {
                 cursor: json["cursor"] as? String,
             conflicted: json["conflicted"] as? Bool
             )
-        case "localHead":
-            return .localHead(
-                root: try #require(json["root"] as? String),
-                origin: try Self.enumValue(UpdateMachine.HeadOrigin.self, from: json, key: "origin")
+        case "recovered":
+            return .recovered(
+                request: try #require(try request(json["request"] as? [String: Any])),
+                held: try (json["held"] as? String).map { try #require(UpdateMachine.HeldReason(rawValue: $0)) },
+                detail: json["detail"] as? String
             )
+        case "localChange":
+            return .localChange(change: try #require(json["change"] as? String), root: try #require(json["root"] as? String))
+        case "pollElapsed":
+            return .pollElapsed
+        case "rejected":
+            return .rejected(id: try #require(json["id"] as? String), detail: json["detail"] as? String)
+        case "unsupported":
+            return .unsupported(id: try #require(json["id"] as? String), detail: json["detail"] as? String)
+        case "heldDiscarded":
+            return .heldDiscarded
         case "publishDelayElapsed":
             return .publishDelayElapsed
         case "maxDelayElapsed":
@@ -199,7 +219,9 @@ struct UpdateMachineTests {
         case "watchGap":
             return .watchGap
         case "applied":
-            return .applied
+            return .applied(installed: try (json["installed"] as? [String: Any]).map(base))
+        case "syncRequested":
+            return .syncRequested
         case "transportFailed":
             return .transportFailed(id: json["id"] as? String)
         case "authenticationFailed":

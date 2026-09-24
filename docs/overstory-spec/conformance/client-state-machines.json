@@ -9,236 +9,36 @@
       "scenarios": [
         {
           "name": "equal bytes with captured operation intent still require durable admission",
-          "initial": {
-            "accepted": {
-              "source": "same",
-              "revision": "r1"
-            }
-          },
+          "initial": { "accepted": { "source": "same", "revision": "r1" } },
           "steps": [
-            {
-              "event": {
-                "type": "edit",
-                "source": "same",
-                "preservesIntent": true
-              },
-              "state": "dirty",
-              "effects": [
-                "schedule"
-              ]
-            },
-            {
-              "event": {
-                "type": "flush"
-              },
-              "state": "submitting",
-              "effects": [
-                "cancelTimer",
-                "admit"
-              ]
-            },
-            {
-              "event": {
-                "type": "admitted",
-                "generation": 1,
-                "result": {
-                  "source": "same",
-                  "revision": "r2"
-                }
-              },
-              "state": "clean",
-              "effects": [
-                "acknowledge"
-              ]
-            }
+            { "event": { "type": "edit", "source": "same", "preservesIntent": true }, "state": "dirty", "effects": ["schedule"] },
+            { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
+            { "event": { "type": "admitted", "generation": 1, "result": { "source": "same", "revision": "r2" } }, "state": "clean", "effects": ["acknowledge"] }
           ]
         },
         {
           "name": "retained-basis sessions cannot enter local review or acknowledge equal projected bytes",
           "admissionPolicy": "retained-basis",
-          "initial": {
-            "accepted": {
-              "source": "s1",
-              "revision": "r1"
-            }
-          },
+          "initial": { "accepted": { "source": "s1", "revision": "r1" } },
           "steps": [
-            {
-              "event": {
-                "type": "edit",
-                "source": "mine"
-              },
-              "state": "dirty",
-              "effects": [
-                "schedule"
-              ]
-            },
-            {
-              "event": {
-                "type": "flush"
-              },
-              "state": "submitting",
-              "effects": [
-                "cancelTimer",
-                "admit"
-              ]
-            },
-            {
-              "event": {
-                "type": "edit",
-                "source": "newer"
-              },
-              "state": "submitting-dirty",
-              "effects": []
-            },
-            {
-              "event": {
-                "type": "admissionConflicted",
-                "generation": 1,
-                "current": {
-                  "source": "mine",
-                  "revision": "r2"
-                }
-              },
-              "state": "failed",
-              "effects": [
-                "surfaceFailure"
-              ],
-              "expect": {
-                "accepted.revision": "r1",
-                "accepted.source": "s1",
-                "pending.source": "mine",
-                "latest.source": "newer",
-                "error.retryable": false
-              }
-            },
-            {
-              "event": {
-                "type": "flush"
-              },
-              "state": "submitting",
-              "effects": [
-                "admit"
-              ],
-              "effectExpect": {
-                "0.source": "newer",
-                "0.baseRevision": "r1",
-                "0.baseSource": "s1"
-              }
-            },
-            {
-              "event": {
-                "type": "admitted",
-                "generation": 2,
-                "result": {
-                  "source": "newer",
-                  "revision": "local2"
-                }
-              },
-              "state": "clean",
-              "effects": [
-                "acknowledge"
-              ],
-              "expect": {
-                "accepted.revision": "local2"
-              }
-            }
+            { "event": { "type": "edit", "source": "mine" }, "state": "dirty", "effects": ["schedule"] },
+            { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
+            { "event": { "type": "edit", "source": "newer" }, "state": "submitting-dirty", "effects": [] },
+            { "event": { "type": "admissionConflicted", "generation": 1, "current": { "source": "mine", "revision": "r2" } }, "state": "failed", "effects": ["surfaceFailure"], "expect": { "accepted.revision": "r1", "accepted.source": "s1", "pending.source": "mine", "latest.source": "newer", "error.retryable": false } },
+            { "event": { "type": "flush" }, "state": "submitting", "effects": ["admit"], "effectExpect": { "0.source": "newer", "0.baseRevision": "r1", "0.baseSource": "s1" } },
+            { "event": { "type": "admitted", "generation": 2, "result": { "source": "newer", "revision": "local2" } }, "state": "clean", "effects": ["acknowledge"], "expect": { "accepted.revision": "local2" } }
           ]
         },
         {
           "name": "a newer watch and a failed retention never relabel the authored source basis",
-          "initial": {
-            "accepted": {
-              "source": "s1",
-              "revision": "r1"
-            }
-          },
+          "initial": { "accepted": { "source": "s1", "revision": "r1" } },
           "steps": [
-            {
-              "event": {
-                "type": "edit",
-                "source": "mine"
-              },
-              "state": "dirty",
-              "effects": [
-                "schedule"
-              ]
-            },
-            {
-              "event": {
-                "type": "observed",
-                "observation": {
-                  "source": "peer",
-                  "revision": "r2"
-                }
-              },
-              "state": "submitting",
-              "effects": [
-                "cancelTimer",
-                "admit"
-              ],
-              "effectExpect": {
-                "1.baseRevision": "r1",
-                "1.baseSource": "s1",
-                "1.source": "mine"
-              }
-            },
-            {
-              "event": {
-                "type": "observed",
-                "observation": {
-                  "source": "later peer",
-                  "revision": "r3"
-                }
-              },
-              "state": "submitting",
-              "effects": [],
-              "expect": {
-                "accepted.revision": "r1"
-              }
-            },
-            {
-              "event": {
-                "type": "admissionFailed",
-                "generation": 1,
-                "error": {
-                  "message": "durable storage unavailable",
-                  "retryable": true
-                }
-              },
-              "state": "failed",
-              "effects": [
-                "surfaceFailure"
-              ]
-            },
-            {
-              "event": {
-                "type": "retry"
-              },
-              "state": "submitting",
-              "effects": [
-                "admit"
-              ],
-              "effectExpect": {
-                "0.baseRevision": "r1",
-                "0.baseSource": "s1",
-                "0.source": "mine"
-              }
-            },
-            {
-              "event": {
-                "type": "admitted",
-                "generation": 1,
-                "result": {
-                  "source": "mine",
-                  "revision": "local1"
-                }
-              },
-              "state": "clean",
-              "effects": [
-                "acknowledge"
-              ]
-            }
+            { "event": { "type": "edit", "source": "mine" }, "state": "dirty", "effects": ["schedule"] },
+            { "event": { "type": "observed", "observation": { "source": "peer", "revision": "r2" } }, "state": "submitting", "effects": ["cancelTimer", "admit"], "effectExpect": { "1.baseRevision": "r1", "1.baseSource": "s1", "1.source": "mine" } },
+            { "event": { "type": "observed", "observation": { "source": "later peer", "revision": "r3" } }, "state": "submitting", "effects": [], "expect": { "accepted.revision": "r1" } },
+            { "event": { "type": "admissionFailed", "generation": 1, "error": { "message": "durable storage unavailable", "retryable": true } }, "state": "failed", "effects": ["surfaceFailure"] },
+            { "event": { "type": "retry" }, "state": "submitting", "effects": ["admit"], "effectExpect": { "0.baseRevision": "r1", "0.baseSource": "s1", "0.source": "mine" } },
+            { "event": { "type": "admitted", "generation": 1, "result": { "source": "mine", "revision": "local1" } }, "state": "clean", "effects": ["acknowledge"] }
           ]
         },
         {
@@ -396,9 +196,9 @@
       ]
     },
     "working-tree-updates": {
-      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "offline", "terminal"],
-      "events": ["bootstrapInstalled", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed"],
-      "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "stop"],
+      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "offline", "held", "terminal"],
+      "events": ["bootstrapInstalled", "recovered", "localChange", "publishDelayElapsed", "maxDelayElapsed", "pollElapsed", "syncRequested", "requestPersisted", "submitStarted", "accepted", "rejected", "unsupported", "heldDiscarded", "watch", "watchGap", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed"],
+      "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "settle", "stop"],
       "scenarios": [
         {
           "name": "accepted conflicts advance identity at the same root without blocking ordinary edits",
@@ -406,14 +206,14 @@
           "steps": [
             { "event": { "type": "watch", "root": "r0", "update": "u1", "cursor": "u1", "digests": [], "transitions": true, "conflicted": true }, "state": "accepted-pending-apply", "effects": ["catchUp"], "expect": { "result.conflicted": true } },
             { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "r0", "base.update": "u1", "base.conflicted": true } },
-            { "event": { "type": "localHead", "root": "r2", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "base.conflicted": true } }
+            { "event": { "type": "localChange", "change": "c-r2", "root": "r2" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "base.conflicted": true } }
           ]
         },
         {
           "name": "bootstrap installation is the only entry into current; earlier events are ignored",
           "initial": { "kind": "unplaced", "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "unplaced", "effects": [] },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "unplaced", "effects": [] },
             { "event": { "type": "bootstrapInstalled", "root": "A", "update": "uA", "cursor": "cA" }, "state": "current", "effects": [], "expect": { "base.root": "A", "base.update": "uA" } },
             { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": [], "transitions": true }, "state": "accepted-pending-apply", "effects": ["catchUp"] },
             { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "B", "base.update": "uB" } }
@@ -423,23 +223,23 @@
           "name": "fifteen durable heads before the delay become one persisted request carrying the final head",
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "head.root": "h1" } },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h3", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h4", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h5", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h6", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h7", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h8", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h9", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h10", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h11", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h12", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h13", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h14", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
-            { "event": { "type": "localHead", "root": "h15", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "head.root": "h15" } },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "tip.root": "h1" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h4", "root": "h4" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h5", "root": "h5" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h6", "root": "h6" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h7", "root": "h7" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h8", "root": "h8" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h9", "root": "h9" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h10", "root": "h10" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h11", "root": "h11" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h12", "root": "h12" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h13", "root": "h13" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h14", "root": "h14" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "localChange", "change": "c-h15", "root": "h15" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "tip.root": "h15" } },
             { "event": { "type": "maxDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
-            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h15", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.candidate": "h15" } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h15", "tip": "c-h15", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.candidate": "h15" } },
             { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h15", "update": "u1", "cursor": "c1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
             { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "h15", "base.update": "u1" } }
@@ -447,19 +247,19 @@
         },
         {
           "name": "a head during submission is one replaceable successor, never a concurrent request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "head.root": "h2" } },
-            { "event": { "type": "localHead", "root": "h3", "origin": "editor" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "head.root": "h3" } },
-            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "head.root": "h3" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.update": "u1", "head.root": "h3" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h3" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.update": "u1", "tip.root": "h3" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h3", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h3", "tip": "c-h3", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
           ]
         },
         {
           "name": "response and watch arrive in either order; the second is deduplicated",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["q1"], "transitions": true }, "state": "accepted-pending-apply", "effects": ["apply"] },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": [] },
@@ -469,7 +269,7 @@
         },
         {
           "name": "a lost response is recovered by exact replay of the immutable request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true, "request.id": "q1" } },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [] },
@@ -480,15 +280,15 @@
         },
         {
           "name": "an offline burst retains only the latest durable head and appends it once to the ambiguous prefix on reconnection",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [] },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "head.root": "h2" } },
-            { "event": { "type": "localHead", "root": "h3", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "head.root": "h3" } },
-            { "event": { "type": "localHead", "root": "h4", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "head.root": "h4", "request.candidate": "h1" } },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "expect": { "request.id": "q1", "head.root": "h4" } },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h4", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q1", "q2"] } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "offline", "effects": [], "expect": { "tip.root": "h3" } },
+            { "event": { "type": "localChange", "change": "c-h4", "root": "h4" }, "state": "offline", "effects": [], "expect": { "tip.root": "h4", "request.candidate": "h1" } },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "expect": { "request.id": "q1", "tip.root": "h4" } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h4", "tip": "c-h4", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q1", "q2"] } },
             { "event": { "type": "submitStarted", "id": "q2" }, "state": "submitting", "effects": [] }
           ]
         },
@@ -496,10 +296,10 @@
           "name": "an offline replica with unsent work publishes immediately on reconnection",
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": false },
           "steps": [
-            { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "transmitted": false, "head.root": "h1" } },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "head.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "offline", "effects": [], "expect": { "transmitted": false, "tip.root": "h1" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [], "expect": { "tip.root": "h2" } },
             { "event": { "type": "transportAvailable", "available": true }, "state": "locally-pending", "effects": ["persistRequest"], "expect": { "preparing": true } },
-            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h2", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] }
+            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h2", "tip": "c-h2", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] }
           ]
         },
         {
@@ -512,7 +312,7 @@
         },
         {
           "name": "restart in prepared resubmits the persisted request exactly",
-          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } }
@@ -528,42 +328,42 @@
         },
         {
           "name": "a merged result applies the authority result, then submits the retained head against the new base",
-          "initial": { "kind": "submitting-pending", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "head": { "root": "h2", "origin": "editor" }, "transportAvailable": true },
+          "initial": { "kind": "submitting-pending", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true, "tip": { "change": "c-h2", "root": "h2" } },
           "steps": [
-            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "merged", "root": "M1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "head.root": "h2" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "M1", "head.root": "h2" } },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "merged", "root": "M1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "M1", "tip.root": "h2" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h2", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h2", "tip": "c-h2", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
           ]
         },
         {
           "name": "a malformed result is terminal without materialization or base advancement",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "validationFailed", "reason": "returned root does not rehash" }, "state": "terminal", "effects": ["cancelTimers", "stop"], "expect": { "base.root": "A" } },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "terminal", "effects": [] }
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "terminal", "effects": [] }
           ]
         },
         {
           "name": "accepted conflict projection applies and publishes later work without a review hold",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "R", "update": "uR", "digests": ["q1"], "conflicted": true } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "result.conflicted": true, "request.id": "q1" } },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "accepted-pending-apply", "effects": [], "expect": { "head.root": "h2" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "R", "base.update": "uR", "base.conflicted": true, "head.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "accepted-pending-apply", "effects": [], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "R", "base.update": "uR", "base.conflicted": true, "tip.root": "h2" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true, "base.conflicted": true } }
           ]
         },
         {
           "name": "a watch arriving under unsent local work publishes now and never overwrites the head",
-          "initial": { "kind": "locally-pending", "base": { "root": "A", "update": "uA" }, "head": { "root": "h1", "origin": "editor" }, "transportAvailable": true },
+          "initial": { "kind": "locally-pending", "base": { "root": "A", "update": "uA" }, "transportAvailable": true, "tip": { "change": "c-h1", "root": "h1" } },
           "steps": [
-            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "head.root": "h1", "base.root": "A" } }
+            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "tip.root": "h1", "base.root": "A" } }
           ]
         },
         {
           "name": "authentication failure does not retry automatically; refreshed credentials resume the exact request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "authenticationFailed", "reason": "device-revoked" }, "state": "offline", "effects": [], "expect": { "availability.kind": "authentication", "transmitted": true } },
             { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": [] },
@@ -571,36 +371,122 @@
           ]
         },
         {
-          "name": "a head equal to the accepted root publishes nothing",
+          "name": "a change back to the accepted root settles locally without a request",
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localHead", "root": "A", "origin": "filesystem" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
-            { "event": { "type": "publishDelayElapsed" }, "state": "current", "effects": ["cancelTimers"] }
+            { "event": { "type": "localChange", "change": "c-A", "root": "A" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "current", "effects": ["cancelTimers", "settle"], "effectExpect": { "1.tip.change": "c-A" } }
           ]
-        }
-,
+        },
         {
           "name": "restart in prepared with a plural request resubmits it exactly; a later head is one successor",
-          "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
+          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["f1", "q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [], "expect": {"request.digests": ["f1", "q1"], "request.candidate": "h1"} },
-            { "event": {"type": "localHead", "root": "h2", "origin": "editor"}, "state": "submitting-pending", "effects": [], "expect": {"request.digests": ["f1", "q1"], "head.root": "h2"} },
-            { "event": {"type": "localHead", "root": "h3", "origin": "editor"}, "state": "submitting-pending", "effects": [], "expect": {"request.candidate": "h1", "head.root": "h3"} },
-            { "event": {"type": "accepted", "id": "q1", "result": {"kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"]}}, "state": "accepted-pending-apply", "effects": ["apply"], "expect": {"head.root": "h3"} },
-            { "event": {"type": "applied"}, "state": "locally-pending", "effects": ["schedule"], "expect": {"base.update": "u1", "head.root": "h3"} },
-            { "event": {"type": "publishDelayElapsed"}, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": {"preparing": true} },
-            { "event": {"type": "requestPersisted", "request": {"id": "q2", "base": "u1", "candidate": "h3", "digests": ["q2"]}}, "state": "prepared", "effects": ["submit"], "expect": {"request.digests": ["q2"], "request.base": "u1"} }
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [], "expect": { "request.digests": ["f1", "q1"], "request.candidate": "h1" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [], "expect": { "request.digests": ["f1", "q1"], "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h3" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.update": "u1", "tip.root": "h3" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h3", "tip": "c-h3", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q2"], "request.base": "u1" } }
           ]
         },
         {
           "name": "watch delivers a partial request digest before the response",
-          "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
+          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["f1", "q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [] },
-            { "event": {"type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1"], "transitions": true}, "state": "accepted-pending-apply", "effects": ["apply"], "expect": {"result.update": "u1", "request.digests": ["f1", "q1"]} },
-            { "event": {"type": "accepted", "id": "q1", "result": {"kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"]}}, "state": "accepted-pending-apply", "effects": [] },
-            { "event": {"type": "applied"}, "state": "current", "effects": [], "expect": {"base.root": "h1", "base.update": "u1"} },
-            { "event": {"type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1", "q1"], "transitions": true}, "state": "current", "effects": [] }
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
+            { "event": { "type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1"], "transitions": true }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "result.update": "u1", "request.digests": ["f1", "q1"] } },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"] } }, "state": "accepted-pending-apply", "effects": [] },
+            { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "h1", "base.update": "u1" } },
+            { "event": { "type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1", "q1"], "transitions": true }, "state": "current", "effects": [] }
+          ]
+        },
+        {
+          "name": "a definitive rejection holds the request and later work until the chain is discarded",
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "rejected", "id": "q1", "detail": "stale resolution guard" }, "state": "held", "effects": [], "expect": { "reason": "rejected", "request.id": "q1", "tip.change": "c-h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "held", "effects": [], "expect": { "tip.change": "c-h3" } },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "held", "effects": [] },
+            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "held", "effects": [] },
+            { "event": { "type": "heldDiscarded" }, "state": "accepted-pending-apply", "effects": ["catchUp"], "effectExpect": { "0.cursor": "cA" } },
+            { "event": { "type": "applied" }, "state": "current", "effects": [] }
+          ]
+        },
+        {
+          "name": "an unsupported operation holds the exact request instead of failing the tree",
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "unsupported", "id": "other", "detail": "moveSource" }, "state": "submitting", "effects": [] },
+            { "event": { "type": "unsupported", "id": "q1", "detail": "moveSource" }, "state": "held", "effects": [], "expect": { "reason": "unsupported", "detail": "moveSource", "request.id": "q1" } }
+          ]
+        },
+        {
+          "name": "a retained request found at startup is resubmitted exactly, or held again",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.id": "q1" } },
+            { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": [] }
+          ]
+        },
+        {
+          "name": "a held request found at startup stays held",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "held": "rejected" }, "state": "held", "effects": [], "expect": { "reason": "rejected" } },
+            { "event": { "type": "pollElapsed" }, "state": "held", "effects": [] }
+          ]
+        },
+        {
+          "name": "a retained request found offline is treated as possibly transmitted",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": false },
+          "steps": [
+            { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "effectExpect": { "0.tip.change": "c-h2", "0.extends.id": "q1" } }
+          ]
+        },
+        {
+          "name": "polling catches a clean tree up and retries a transport failure while online",
+          "options": { "pollIntervalMs": 30000 },
+          "initial": { "kind": "unplaced", "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "bootstrapInstalled", "root": "A", "update": "uA", "cursor": "cA" }, "state": "current", "effects": ["schedule"], "effectExpect": { "0.timer": "poll" } },
+            { "event": { "type": "pollElapsed" }, "state": "accepted-pending-apply", "effects": ["catchUp", "schedule"], "effectExpect": { "0.cursor": "cA" } },
+            { "event": { "type": "applied" }, "state": "current", "effects": [] },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
+            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] },
+            { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": false } },
+            { "event": { "type": "pollElapsed" }, "state": "prepared", "effects": ["submit", "schedule"], "expect": { "request.id": "q1" } },
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
+            { "event": { "type": "authenticationFailed", "reason": "expired" }, "state": "offline", "effects": [] },
+            { "event": { "type": "pollElapsed" }, "state": "offline", "effects": ["schedule"], "expect": { "availability.kind": "authentication" } }
+          ]
+        },
+        {
+          "name": "explicit synchronization catches up, publishes now, and repeats an unfinished apply",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "syncRequested" }, "state": "accepted-pending-apply", "effects": ["catchUp"], "effectExpect": { "0.cursor": "cA" } },
+            { "event": { "type": "applied", "installed": { "root": "B", "update": "uB", "cursor": "cB" } }, "state": "current", "effects": [], "expect": { "base.root": "B", "base.update": "uB", "base.cursor": "cB" } },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "syncRequested" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uB", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] },
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "syncRequested" }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "h1", "base.update": "u1" } }
+          ]
+        },
+        {
+          "name": "a watch for the installed update only advances the observation cursor",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "watch", "cursor": "cA2", "root": "A", "update": "uA", "digests": ["q0"], "transitions": true }, "state": "current", "effects": [], "expect": { "base.cursor": "cA2", "base.update": "uA" } },
+            { "event": { "type": "watch", "cursor": "cA2", "root": "A", "update": "uA", "digests": [], "transitions": true }, "state": "current", "effects": [] }
           ]
         }
       ]

@@ -470,7 +470,7 @@ than reporting the tree as conflict-free.
 [Source intent and provenance](10-source-intent.md) defines operation identities,
 alternative edits, format-aware explicit automatic resolution, and continued
 editing of accepted decisions on the ordinary update route. The
-[client synchronization contract](09-client-synchronization.md#accepted-conflicts-and-unaccepted-local-work)
+[client synchronization contract](09-client-synchronization.md#5-accepted-conflicts-and-held-local-work)
 requires safe independent work to continue around held changes without rewriting
 an immutable request or changing sequential prefix semantics.
 These semantics require no extension negotiation or parallel API version.
