@@ -7,7 +7,7 @@ that needs it stores each accepted update as an immutable log entry in the objec
 and asks the merge sidecar one question; see
 [writing a sidecar](../../../../docs/architecture/canopyd/writing-a-sidecar.md).
 
-**Status: written and tested; not rehearsed, not run.** Joe runs it from his laptop.
+**Status: rehearsed green on a live backup (2026-09-24); not run live.** Joe runs it from his laptop.
 
 ## What changes
 
@@ -144,4 +144,33 @@ inspections, evidence, the request with its resolution declarations). It checks 
 
 ## Rehearsal log
 
-Not yet rehearsed.
+**2026-09-24, green.** Backup `.backups/railway/20260924T131328Z/volume.tar` (sha256
+`7468b0d3…`, matches `/data/backups/018-log-entries/volume.tar`; live and vacuumed copy
+both 5 trees, 22 accepted updates, 22 merge states, 2,812 document versions, 113 entry
+dates, schema 18). Build: this branch with `main` merged (`249a3484`).
+
+- Check 017 on `before`: 1 account configuration checked, none failing.
+- `run.ts migrated`: 22 entries, 15 traced, 0 open decisions at heads,
+  `unmappedResolutions` 0, `nextOrdinal` 4346, 11 ms. A second run reported
+  `migrated: false` with the same heads.
+- `compare-canopy-roots`: every tree `root unchanged`; migration-specific differences only.
+- `rebuild-check`: all 5 trees `same: true`; the longest chain replayed 18 entries in
+  120 ms, the others 1 entry in 1 to 6 ms.
+- Served on 127.0.0.1:4399: `/.arbor/integrity` `{"status":"ok"}` (once);
+  `verify.ts --no-sync` ok, no failures.
+- No accepted row is conflicted, so there was no conflict page to compare; decision
+  conversion is covered only by `migrate.test.ts`.
+
+Heads the live run must reproduce (tree, update, root, entry):
+
+| Tree | Update | Root | Entry |
+|---|---|---|---|
+| `tr_2y2grqksa3klhhv6aziplhl2ha` | 3494 | `ad65cac8…` | `d3ae20c9…` |
+| `tr_boseki5agb24ysc6cxakwcq57i` | 2654 | `7962a24e…` | `30b63d71…` |
+| `tr_owozr6aegt5z7x6qyllvzljl5u` | 4345 | `59755e67…` | `802925ca…` |
+| `tr_tkgfsmtkauhinhjg7wp6rcuf5mrxpo7gyfyherkbetd72jgln4ua` | 3499 | `e99b1fa6…` | `edb51e2e…` |
+| `tr_unkaimbksfitula6i5n4acid6y` | 1586 | `92bbe39c…` | `2e1589c4…` |
+
+Any update accepted on live after this backup changes a head (and `nextOrdinal`); the live
+report then matches this table only for trees nobody edited. Take the backup again at
+cutover if anything was edited, and rehearse on that one.
