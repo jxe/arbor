@@ -80,6 +80,26 @@ struct ConflictReviewCompilerTests {
         #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [a]), base: f.snapshot(root), material: f.objects, allDecisions: [a, b]) }
     }
 
+    @Test func sourceChoiceInsideWholeFileChoiceResolvesWithTheFile() throws {
+        var f = Fixture()
+        // The range names an older basis the preview never fetches.
+        let older = WireObjectCodec.hash(Data("older page with a block\n".utf8))
+        let current = try f.file("current page\n"), previous = try f.file("previous page\n")
+        let removed = try f.file(""), block = try f.file("a block\n")
+        let root = try f.directory([.init(name: "page.md", file: current)])
+        let inner = try sourceDecision("inner", range: [11, 19], file: older, alternatives: [removed, block])
+        let outer = try f.decision("outer", path: "/page.md", values: [["file": current], ["file": previous]], dependencies: ["inner"], root: root)
+        var proposal = draft(root, [inner, outer])
+        try proposal.choose(outer.id, alternative: "outer-0")
+        let kept = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        #expect(kept.changes.allSatisfy { $0.after?.file == current || $0.path != "/page.md" })
+        // Only the whole file's version can change the file.
+        proposal.alternative = "inner-1"
+        #expect(throws: ConflictReviewProposalError.self) {
+            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        }
+    }
+
     private func draft(_ root: String, _ decisions: [ConflictReviewDecision]) -> ConflictReviewDraft {
         let snapshot = ConflictReviewSnapshot(tree: "tr_review", state: "accepted", root: root, decisions: decisions)
         return .init(snapshot: snapshot, decision: decisions[0], alternative: decisions[0].selected)

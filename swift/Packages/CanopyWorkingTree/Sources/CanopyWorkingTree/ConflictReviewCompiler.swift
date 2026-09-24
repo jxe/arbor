@@ -63,10 +63,19 @@ enum ConflictReviewCompiler {
         var rangeEdits: [String: [RangeEdit]] = [:]
         var rangeOperations: [WireSourceOperation] = []
         let onlyRanges = draft.decisions.allSatisfy { $0.sourceRange != nil }
+        // Files a whole-file choice in this group assigns; a source choice
+        // inside one is decided by that file's chosen version.
+        let wholeFiles = Set(draft.decisions.filter { $0.sourceRange == nil }.compactMap(\.path))
         for decision in draft.decisions {
             guard let selection = draft.selection(for: decision.id),
                   let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
                   let old = decision.path else { throw ConflictReviewError.unsupported }
+            if decision.sourceRange != nil, wholeFiles.contains(old) {
+                guard selection.source == nil, selection.remove != true, selection.alternative == decision.selected else {
+                    throw ConflictReviewProposalError("This part lies within a whole-file choice. Choose that file's version instead.")
+                }
+                continue
+            }
             if let range = decision.sourceRange {
                 let currentFile = try entry(old, in: base.root)?.file
                 guard let projected = decision.affected[0].material.object,

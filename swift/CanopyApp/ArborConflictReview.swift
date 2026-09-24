@@ -204,17 +204,43 @@ final class ArborConflictReviewModel {
     /// members nobody chose keep what they show now. The preview still runs and
     /// guards the submission, exactly as when the person asks for it.
     func keep(_ alternative: String) async {
-        guard var value = draft, let decision = selectedDecision else { return }
+        guard var value = draft, let decision = selectedDecision,
+              decision.alternatives.contains(where: { $0.id == alternative }) else { return }
+        // Keeping a version keeps it exactly: no composed text, move or removal.
+        value.set(.init(alternative: alternative), for: decision.id)
         do {
-            try value.choose(decision.id, alternative: alternative)
             for member in value.decisions where value.selection(for: member.id) == nil {
                 try value.choose(member.id, alternative: member.selected)
             }
         } catch { message = error.localizedDescription; return }
         draft = value; save(value)
+        await previewAndApply()
+    }
+
+    /// Submit the draft as it stands (a composed, moved or removed result),
+    /// previewing first so the fingerprint guard still holds.
+    func previewAndApply() async {
         do { try await flushDraft() } catch { message = error.localizedDescription; return }
         await previewResult()
         await apply()
+    }
+
+    enum Content {
+        case text(String), removed, emptyFile, directory([WireDirectoryEntry]), binary(Int), loading, unavailable(String)
+    }
+
+    /// An empty source range is a removal; an empty whole file is still a file.
+    func content(of alternative: ConflictReviewAlternative, in decision: ConflictReviewDecision) -> Content {
+        if alternative.value.absent == true { return .removed }
+        if let entries = directories[alternative.id] { return .directory(entries) }
+        guard let data = contents[alternative.id] else {
+            return message == nil ? .loading : .unavailable(alternative.summary)
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return .binary(data.count) }
+        // A range reduced to its separating whitespace removed the content.
+        if decision.sourceRange != nil, text.allSatisfy(\.isWhitespace) { return .removed }
+        if text.isEmpty { return .emptyFile }
+        return .text(text)
     }
 
     func selectMember(_ id: String) async {
@@ -320,10 +346,6 @@ final class ArborConflictReviewModel {
 }
 
 struct ArborChoiceReviewPanel: View {
-    /// Every source presentation (comparison, composition, directory listing,
-    /// placeholders) shares one height so switching between them never reflows
-    /// the page.
-    static let sourceHeight: CGFloat = 240
     @Bindable var review: ArborConflictReviewModel
     var previous: () -> Void
     var next: () -> Void
@@ -331,6 +353,7 @@ struct ArborChoiceReviewPanel: View {
     var showsClose = true
     @State private var discardComposition = false
     @State private var discardDraft = false
+    @State private var showsOptions = false
 
     private static let evidenceEncoder: JSONEncoder = {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -341,148 +364,304 @@ struct ArborChoiceReviewPanel: View {
         (try? String(decoding: Self.evidenceEncoder.encode(change), as: UTF8.self)) ?? change.path
     }
 
+    private var busy: Bool { review.applying || review.previewing || review.pending || review.stale || review.showingAppliedResult }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(review.selectedDecision?.title ?? "Review choices", systemImage: "arrow.triangle.branch")
-                    .font(.headline)
-                Spacer()
-                Button(action: previous) { Image(systemName: "chevron.up") }.accessibilityLabel("Previous choice")
-                    .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                Button(action: next) { Image(systemName: "chevron.down") }.accessibilityLabel("Next choice")
-                    .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                if showsClose {
-                    Button { review.expanded = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close review")
-                }
-            }
+            header
             if let draft = review.draft, let decision = review.selectedDecision {
-                if draft.decisions.count > 1 {
-                    Text("Resolve \(draft.decisions.count) dependent choices together").font(.subheadline)
-                    Picker("Choice in group", selection: Binding(get: { decision.id }, set: { id in Task { await review.selectMember(id) } })) {
-                        ForEach(draft.decisions) { member in
-                            Text("\(draft.selection(for: member.id) == nil ? "○" : "✓") \(member.path ?? member.title)").tag(member.id)
-                        }
-                    }
-                }
-                Text(decision.scope).font(.caption).foregroundStyle(.secondary)
+                if draft.decisions.count > 1 { linkedChoices(draft, decision) }
                 if review.resolvedElsewhere {
-                    Label("Choice resolved · Your draft retained", systemImage: "doc")
+                    Label("Resolved elsewhere · your draft is kept", systemImage: "doc")
                 } else if review.stale && review.completedID != draft.id {
-                    Label("This choice has changed. Your draft is retained.", systemImage: "arrow.clockwise")
-                    Button("Review latest alternatives") { Task { await review.reviewLatest() } }
+                    Label("This choice changed since you opened it. Your draft is kept.", systemImage: "arrow.clockwise")
+                    Button("Review latest versions") { Task { await review.reviewLatest() } }
                 }
-                Picker("Alternative", selection: Binding(get: { review.selection?.alternative ?? "" }, set: { review.choose($0) })) {
-                    if review.selection == nil { Text("Choose a version…").tag("") }
-                    ForEach(Array(decision.alternatives.enumerated()), id: \.element.id) { index, alternative in
-                        Text("Version \(index + 1)\(alternative.id == decision.selected ? " · Currently displayed" : "")")
-                            .tag(alternative.id)
-                    }
-                }.disabled(review.pending || review.showingAppliedResult)
-                if let selection = review.selection {
-                    if decision.path != "/" {
-                        Toggle(decision.sourceRange != nil && draft.decisions.allSatisfy({ $0.sourceRange != nil }) ? "Remove this source range" : "Remove this entry in the combined result", isOn: Binding(
-                            get: { review.selection?.remove == true }, set: { review.removeEntry($0) }))
-                            .disabled(review.pending || review.showingAppliedResult)
-                        if selection.remove == true {
-                            Text(decision.sourceRange != nil && draft.decisions.allSatisfy({ $0.sourceRange != nil })
-                                 ? "The retained versions stay in this draft. Only the indicated source range will be removed."
-                                 : "The retained versions stay in this draft, but this entry will be absent from the submitted tree.")
-                                .font(.caption).foregroundStyle(.secondary)
+                if review.selection?.source != nil {
+                    composition
+                } else {
+                    ArborChoiceVersionCards(review: review, decision: decision, busy: busy)
+                }
+                adjustments(draft, decision)
+                options(draft, decision)
+                if let preview = review.preview, review.showingAppliedResult || review.message != nil {
+                    DisclosureGroup("Result · \(preview.changes.count) changed \(preview.changes.count == 1 ? "path" : "paths")") {
+                        ForEach(preview.changes) { change in
+                            DisclosureGroup("\(change.summary) \(change.path)") {
+                                Text(effectEvidence(change)).font(.caption.monospaced()).textSelection(.enabled)
+                            }.font(.callout)
                         }
-                    }
-                    if selection.source != nil {
-                        Text(review.draftRetentionLabel).font(.caption)
-                        TextEditor(text: Binding(get: { review.selection?.source ?? "" }, set: { review.edit($0) }))
-                            .font(.body.monospaced()).frame(height: ArborChoiceReviewPanel.sourceHeight)
-                            .accessibilityLabel("Proposed resolution source")
-                            .disabled(review.showingAppliedResult || review.pending)
-                        if !review.showingAppliedResult {
-                            Button("Use selected version instead…") { discardComposition = true }
-                        }
-                    } else if let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }) {
-                        if let entries = review.directories[alternative.id] {
-                            Text("\(entries.count) entries in this directory version").font(.caption)
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 8) {
-                                    ForEach(entries, id: \.name) { entry in
-                                        Label(entry.name, systemImage: entry.directory != nil ? "folder" : entry.tree != nil ? "link" : "doc")
-                                    }
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.frame(height: ArborChoiceReviewPanel.sourceHeight)
-                        } else if alternative.value.absent == true {
-                            Label("This version removes the entry.", systemImage: "trash")
-                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
-                        } else if let data = review.contents[alternative.id], let text = String(data: data, encoding: .utf8), alternative.value.file != nil || alternative.value.text != nil {
-                            ArborChoiceSourceComparison(
-                                current: review.contents[decision.selected].flatMap { String(data: $0, encoding: .utf8) },
-                                proposed: text, sameAlternative: selection.alternative == decision.selected)
-                            Button("Compose a result") { review.compose() }.disabled(review.showingAppliedResult || review.pending)
-                        } else if let data = review.contents[alternative.id] {
-                            Text("Binary content · \(data.count.formatted()) bytes")
-                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
-                        } else {
-                            Text(alternative.summary).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
-                        }
-                    }
-                    if let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
-                       decision.path != "/", alternative.value.absent != true, selection.remove != true,
-                       (decision.sourceRange == nil || draft.decisions.contains(where: { $0.sourceRange == nil })) {
-                            TextField("Destination", text: Binding(
-                                get: { review.selection?.destination ?? alternative.placement?.path ?? decision.path ?? "" },
-                                set: { review.move(to: $0) }))
-                                .disabled(review.pending || review.showingAppliedResult)
-                            Text("Absolute path within this tree. The parent must exist in the proposed result.")
-                                .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                ForEach(Array(draft.obligations.enumerated()), id: \.offset) { _, obligation in
-                    Label(obligation, systemImage: "circle").font(.callout)
-                }
-                if let preview = review.preview {
-                    Text("Combined result · \(preview.changes.count) changed paths").font(.headline)
-                    if preview.changes.isEmpty { Text("Keep the displayed tree and resolve the selected choices.") }
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 6) {
-                            ForEach(preview.changes) { change in
-                                DisclosureGroup("\(change.summary) \(change.path)") {
-                                    Text(effectEvidence(change)).font(.caption.monospaced()).textSelection(.enabled)
-                                }.font(.callout)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(maxHeight: 200)
-                }
-                if let source = review.selectedText {
-                    Button("Copy exact source") { arborCopyToPasteboard(source) }
+                    }.font(.callout)
                 }
                 HStack {
-                    Button(review.previewing ? "Preparing preview…" : "Preview combined result") { Task { await review.previewResult() } }
-                        .disabled(review.previewing || review.stale || review.pending || !draft.obligations.isEmpty)
-                    Button("Apply and resolve") { Task { await review.apply() } }
-                        .buttonStyle(.borderedProminent).disabled(!review.canApply)
-                    if review.applying { ProgressView().controlSize(.small) }
+                    if review.applying || review.previewing { ProgressView().controlSize(.small) }
+                    if review.showingAppliedResult { Label("Resolved", systemImage: "checkmark.circle") }
                     Spacer()
-                    if review.showingAppliedResult {
-                        Button("Close review") { review.expanded = false }
-                    } else {
-                        Button("Discard draft…", role: .destructive) { discardDraft = true }.disabled(review.pending)
-                    }
+                    if review.showingAppliedResult { Button("Close") { review.expanded = false } }
                 }
             }
             if review.pending {
-                Label("Checking whether applied · Draft retained", systemImage: "arrow.triangle.2.circlepath")
+                Label("Checking whether it applied · your draft is kept", systemImage: "arrow.triangle.2.circlepath")
                 Button("Check again") { Task { await review.retry() } }.disabled(review.applying)
             }
             if let message = review.message { Text(message).font(.callout).textSelection(.enabled) }
         }
         .padding(16)
         .background(.regularMaterial)
-        .confirmationDialog("Discard the composed result and use the selected version?", isPresented: $discardComposition) {
-            Button("Discard composed result", role: .destructive) { review.useSelectedVersion() }
+        .confirmationDialog("Discard the edited version?", isPresented: $discardComposition) {
+            Button("Discard edited version", role: .destructive) { review.useSelectedVersion() }
         }
         .confirmationDialog("Discard this review draft?", isPresented: $discardDraft) {
             Button("Discard draft", role: .destructive) { Task { await review.discard() } }
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(review.selectedDecision?.title ?? "Review choices", systemImage: "arrow.triangle.branch")
+                    .font(.headline)
+                if let decision = review.selectedDecision {
+                    Text("\(decision.summary) · \(decision.scope)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(action: previous) { Image(systemName: "chevron.up") }.accessibilityLabel("Previous choice")
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+            Button(action: next) { Image(systemName: "chevron.down") }.accessibilityLabel("Next choice")
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            if showsClose {
+                Button { review.expanded = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close review")
+            }
+        }
+    }
+
+    private func linkedChoices(_ draft: ConflictReviewDraft, _ decision: ConflictReviewDecision) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("Linked choice", selection: Binding(get: { decision.id }, set: { id in Task { await review.selectMember(id) } })) {
+                ForEach(Array(draft.decisions.enumerated()), id: \.element.id) { index, member in
+                    Text("\(index + 1). \(member.title) · \(member.summary)").tag(member.id)
+                }
+            }
+            Text("These \(draft.decisions.count) choices depend on each other and resolve together. Any you leave alone keep what they show now.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var composition: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(review.draftRetentionLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            TextEditor(text: Binding(get: { review.selection?.source ?? "" }, set: { review.edit($0) }))
+                .font(.body.monospaced()).frame(height: 240)
+                .accessibilityLabel("Edited version")
+                .disabled(busy)
+            HStack {
+                Button("Apply edited version") { Task { await review.previewAndApply() } }
+                    .buttonStyle(.borderedProminent).disabled(busy || !(review.draft?.obligations.isEmpty ?? false))
+                Button("Use a version instead…") { discardComposition = true }.disabled(busy)
+            }
+        }
+    }
+
+    /// Removal and moves are rare, deliberate and consequential; they stay
+    /// folded away and, once set, say plainly what applying will do.
+    @ViewBuilder private func adjustments(_ draft: ConflictReviewDraft, _ decision: ConflictReviewDecision) -> some View {
+        if let selection = review.selection, selection.source == nil, selection.remove == true || selection.destination != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if selection.remove == true {
+                    Label(removesRange(draft, decision) ? "Applying removes this part of the page."
+                          : "Applying deletes \(decision.path ?? decision.title).", systemImage: "trash")
+                }
+                if let destination = selection.destination {
+                    Label("Applying moves it to \(destination).", systemImage: "arrow.right")
+                }
+                Button("Apply") { Task { await review.previewAndApply() } }
+                    .buttonStyle(.borderedProminent).disabled(busy || !draft.obligations.isEmpty)
+            }
+        }
+    }
+
+    private func removesRange(_ draft: ConflictReviewDraft, _ decision: ConflictReviewDecision) -> Bool {
+        // In a group that also holds whole-file choices, removal applies to the file.
+        decision.sourceRange != nil && draft.decisions.allSatisfy { $0.sourceRange != nil }
+    }
+
+    private func options(_ draft: ConflictReviewDraft, _ decision: ConflictReviewDecision) -> some View {
+        DisclosureGroup("More options", isExpanded: $showsOptions) {
+            VStack(alignment: .leading, spacing: 10) {
+                if review.selection?.source == nil, review.selectedText != nil {
+                    Button("Edit a combined version…") { review.compose() }.disabled(busy)
+                }
+                if decision.path != "/", review.selection != nil {
+                    Toggle(removesRange(draft, decision) ? "Remove this part of the page" : "Delete \(decision.path ?? "this entry")",
+                           isOn: Binding(get: { review.selection?.remove == true }, set: { review.removeEntry($0) }))
+                        .disabled(busy)
+                }
+                if let selection = review.selection,
+                   let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
+                   decision.path != "/", alternative.value.absent != true, selection.remove != true,
+                   (decision.sourceRange == nil || draft.decisions.contains(where: { $0.sourceRange == nil })) {
+                    TextField("Location", text: Binding(
+                        get: { review.selection?.destination ?? alternative.placement?.path ?? decision.path ?? "" },
+                        set: { review.move(to: $0) }))
+                        .disabled(busy)
+                    Text("Change to move it: an absolute path whose folder exists.").font(.caption).foregroundStyle(.secondary)
+                }
+                if let source = review.selectedText {
+                    Button("Copy the selected version's source") { arborCopyToPasteboard(source) }
+                }
+                ForEach(Array(draft.obligations.enumerated()), id: \.offset) { _, obligation in
+                    Label(obligation, systemImage: "circle").font(.caption)
+                }
+                if !review.showingAppliedResult {
+                    Button("Discard draft…", role: .destructive) { discardDraft = true }.disabled(review.pending)
+                }
+            }
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.callout)
+    }
+}
+
+/// Every version of one decision side by side (stacked when narrow), each
+/// with its own Keep. Shared by the page panel and the inline card.
+struct ArborChoiceVersionCards: View {
+    @Bindable var review: ArborConflictReviewModel
+    let decision: ConflictReviewDecision
+    let busy: Bool
+
+    private func label(_ alternative: ConflictReviewAlternative, _ index: Int) -> String {
+        if alternative.id == decision.selected { return "Showing now" }
+        return decision.alternatives.count == 2 ? "Other version" : "Version \(index + 1)"
+    }
+
+    var body: some View {
+        let contents = decision.alternatives.map { review.content(of: $0, in: decision) }
+        let texts = contents.map { content -> String? in if case let .text(text) = content { text } else { nil } }
+        let listings = contents.map { content -> [WireDirectoryEntry]? in if case let .directory(entries) = content { entries } else { nil } }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) { cards(contents, texts, listings) }
+            VStack(alignment: .leading, spacing: 10) { cards(contents, texts, listings) }
+        }
+    }
+
+    @ViewBuilder private func cards(_ contents: [ArborConflictReviewModel.Content], _ texts: [String?],
+                                    _ listings: [[WireDirectoryEntry]?]) -> some View {
+        ForEach(Array(decision.alternatives.enumerated()), id: \.element.id) { index, alternative in
+            ArborChoiceVersionCard(
+                title: label(alternative, index), content: contents[index],
+                baseline: texts.enumerated().first { $0.offset != index && $0.element != nil }?.element ?? nil,
+                baselineEntries: listings.enumerated().first { $0.offset != index && $0.element != nil }?.element ?? nil,
+                keepTitle: {
+                    if case .removed = contents[index] { return decision.sourceRange != nil ? "Keep removed" : "Keep deleted" }
+                    return "Keep this"
+                }(),
+                busy: busy
+            ) { Task { await review.keep(alternative.id) } }
+        }
+    }
+}
+
+struct ArborChoiceVersionCard: View {
+    let title: String
+    let content: ArborConflictReviewModel.Content
+    let baseline: String?
+    var baselineEntries: [WireDirectoryEntry]? = nil
+    let keepTitle: String
+    let busy: Bool
+    let keep: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            body(for: content)
+            Button(keepTitle, action: keep).disabled(busy).controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder private func body(for content: ArborConflictReviewModel.Content) -> some View {
+        switch content {
+        case let .text(source):
+            let comparison = ArborSourceLineComparison(displayed: source, baseline: baseline)
+            let lines = Self.trimmed(comparison.lines)
+            let rows = VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line.isEmpty ? " " : line)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(comparison.changedLines.contains(index) ? Color.orange.opacity(0.18) : .clear)
+                }
+            }
+            if lines.count > 12 { ScrollView { rows }.frame(maxHeight: 260) } else { rows }
+        case .removed:
+            placeholder("Removed")
+        case .emptyFile:
+            placeholder("Empty file")
+        case let .directory(entries):
+            // A folder (often the whole tree) is mostly the same in every
+            // version; show what this version has differently.
+            let differences = Self.differences(entries, from: baselineEntries)
+            VStack(alignment: .leading, spacing: 4) {
+                if baselineEntries != nil, differences.isEmpty {
+                    Text("Same entries as the other version").font(.caption).foregroundStyle(.secondary)
+                } else if baselineEntries != nil {
+                    ForEach(differences.prefix(12), id: \.name) { difference in
+                        Label { Text(difference.name) + Text(" · \(difference.state)").foregroundStyle(.secondary) }
+                            icon: { Image(systemName: difference.symbol) }
+                    }
+                    if differences.count > 12 { Text("and \(differences.count - 12) more").font(.caption).foregroundStyle(.secondary) }
+                } else {
+                    Text("\(entries.count) \(entries.count == 1 ? "item" : "items")").font(.caption).foregroundStyle(.secondary)
+                    ForEach(entries.prefix(12), id: \.name) { entry in
+                        Label(entry.name, systemImage: entry.directory != nil ? "folder" : entry.tree != nil ? "link" : "doc")
+                    }
+                    if entries.count > 12 { Text("and \(entries.count - 12) more").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+        case let .binary(size):
+            placeholder("Binary file · \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))")
+        case .loading:
+            ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 28)
+        case let .unavailable(summary):
+            placeholder(summary)
+        }
+    }
+
+    struct Difference { let name: String; let state: String; let symbol: String }
+
+    /// Entries of `entries` that the other version lacks or holds differently,
+    /// then the other version's entries this one lacks.
+    static func differences(_ entries: [WireDirectoryEntry], from other: [WireDirectoryEntry]?) -> [Difference] {
+        guard let other else { return [] }
+        let theirs = Dictionary(other.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let ours = Set(entries.map(\.name))
+        func symbol(_ entry: WireDirectoryEntry) -> String { entry.directory != nil ? "folder" : entry.tree != nil ? "link" : "doc" }
+        func kind(_ entry: WireDirectoryEntry) -> String { entry.directory != nil ? "folder" : entry.tree != nil ? "linked tree" : "file" }
+        var result: [Difference] = []
+        for entry in entries {
+            guard let match = theirs[entry.name] else { result.append(.init(name: entry.name, state: "only here", symbol: symbol(entry))); continue }
+            if kind(match) != kind(entry) { result.append(.init(name: entry.name, state: "a \(kind(entry)) here", symbol: symbol(entry))) }
+            else if match != entry { result.append(.init(name: entry.name, state: "changed", symbol: symbol(entry))) }
+        }
+        for entry in other where !ours.contains(entry.name) {
+            result.append(.init(name: entry.name, state: "deleted here", symbol: "trash"))
+        }
+        return result
+    }
+
+    private func placeholder(_ text: String) -> some View {
+        Text(text).italic().foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+    }
+
+    /// Sources usually end in a separating blank line; it carries no meaning here.
+    static func trimmed(_ lines: [String]) -> [String] {
+        var lines = lines
+        while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+        return lines
     }
 }
 
@@ -595,75 +774,6 @@ struct ArborChoiceReviewList: View {
     }
 }
 
-/// Comparison is a presentation of exact source, never an independently resolvable hunk.
-private struct ArborChoiceSourceComparison: View {
-    let current: String?
-    let proposed: String
-    let sameAlternative: Bool
-    @State private var showCurrent = false
-    @State private var viewportWidth: CGFloat = 0
-    @State private var comparisons = ArborSourceLineComparisonCache()
-    var body: some View {
-        let displayed = showCurrent && !sameAlternative ? current ?? proposed : proposed
-        let comparison = comparisons.comparison(
-            displayed: displayed,
-            baseline: sameAlternative ? nil : (showCurrent ? proposed : current))
-        VStack(alignment: .leading, spacing: 6) {
-            // One header row in every mode keeps the comparison's height fixed.
-            HStack {
-                Text(showCurrent && !sameAlternative ? "Currently displayed" : "Proposed result").font(.caption).bold()
-                Spacer()
-                if !sameAlternative, current != nil {
-                    Text(comparison.status).font(.caption).foregroundStyle(.secondary)
-                    Button(showCurrent ? "Show proposed" : "Compare with displayed") { showCurrent.toggle() }
-                        .controlSize(.small)
-                }
-            }
-            .frame(height: 22)
-            ScrollView([.horizontal, .vertical]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(comparison.lines.indices, id: \.self) { index in
-                        Text(displayed.isEmpty ? "(Empty file)" : comparison.lines[index].isEmpty ? " " : comparison.lines[index])
-                            .font(.body.monospaced())
-                            .foregroundStyle(Color.primary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: true)
-                            // Highlight bands span at least the visible width.
-                            .frame(minWidth: max(viewportWidth - 16, 0), alignment: .leading)
-                            .background(comparison.changedLines.contains(index) ? Color.accentColor.opacity(0.25) : Color.clear)
-                    }
-                }.padding(8)
-            }
-            .onGeometryChange(for: CGFloat.self, of: \.size.width) { viewportWidth = $0 }
-            .frame(height: ArborChoiceReviewPanel.sourceHeight - 40)
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-}
-
-/// The last line comparison a view rendered, so a resize or unrelated render
-/// does not diff the same sources again. Keys compare exact bytes.
-private final class ArborSourceLineComparisonCache {
-    private var cached: (displayed: String, baseline: String?, value: ArborSourceLineComparison)?
-
-    func comparison(displayed: String, baseline: String?) -> ArborSourceLineComparison {
-        if let cached, Self.sameBytes(cached.displayed, displayed), Self.sameBytes(cached.baseline, baseline) {
-            return cached.value
-        }
-        let value = ArborSourceLineComparison(displayed: displayed, baseline: baseline)
-        cached = (displayed, baseline, value)
-        return value
-    }
-
-    private static func sameBytes(_ lhs: String?, _ rhs: String?) -> Bool {
-        switch (lhs, rhs) {
-        case (nil, nil): true
-        case let (lhs?, rhs?): lhs.utf8.elementsEqual(rhs.utf8)
-        default: false
-        }
-    }
-}
-
 /// Byte-exact comparisons preserve Unicode spelling and original line endings.
 struct ArborSourceLineComparison {
     /// Combined line count beyond which a line diff is not attempted.
@@ -734,10 +844,8 @@ struct ArborInlineChoice: View {
             } else if !loaded {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 60)
             } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 10) { cards }
-                    VStack(alignment: .leading, spacing: 10) { cards }
-                }
+                ArborChoiceVersionCards(review: review, decision: decision,
+                    busy: review.applying || review.previewing || review.pending || review.stale)
                 if review.stale {
                     Label("This choice changed. Review the latest versions.", systemImage: "arrow.clockwise").font(.caption)
                 }
@@ -753,60 +861,5 @@ struct ArborInlineChoice: View {
         .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.orange.opacity(0.35)))
         .task(id: decision.id) { await review.openInline(decision) }
-    }
-
-    @ViewBuilder private var cards: some View {
-        let others = decision.alternatives.map { text($0) ?? "" }
-        ForEach(Array(decision.alternatives.enumerated()), id: \.element.id) { index, alternative in
-            let source = others[index]
-            let other = others.enumerated().first { $0.offset != index }?.element
-            ArborInlineAlternative(
-                title: alternative.id == decision.selected ? "Showing now" : "Other version",
-                source: source, baseline: other,
-                keepTitle: source.isEmpty ? "Keep removed" : "Keep this",
-                busy: review.applying || review.previewing || review.pending || review.stale
-            ) { Task { await review.keep(alternative.id) } }
-        }
-    }
-}
-
-private struct ArborInlineAlternative: View {
-    let title: String
-    let source: String
-    let baseline: String?
-    let keepTitle: String
-    let busy: Bool
-    let keep: () -> Void
-
-    var body: some View {
-        let comparison = ArborSourceLineComparison(displayed: source, baseline: baseline)
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if source.isEmpty {
-                Text("Removed").italic().foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(trimmed(comparison.lines).enumerated()), id: \.offset) { index, line in
-                        Text(line.isEmpty ? " " : line)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(comparison.changedLines.contains(index) && baseline?.isEmpty == false
-                                        ? Color.orange.opacity(0.18) : .clear)
-                    }
-                }
-            }
-            Button(keepTitle, action: keep).disabled(busy).controlSize(.small)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    /// Source ranges usually end in their separating blank line; it carries no meaning here.
-    private func trimmed(_ lines: [String]) -> [String] {
-        var lines = lines
-        while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
-        return lines
     }
 }

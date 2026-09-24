@@ -40,11 +40,26 @@ const pages: Record<string, string> = {
   "Table.md": "---\nid: pg_lab_table\n---\n\n# Table\n\n| Day | Plan |\n| --- | --- |\n| Mon | Swim |\n| Tue | Run |\n",
   "Two.md": "---\nid: pg_lab_two\n---\n\n# Two\n\nThe first paragraph talks about apples.\n\nA quiet middle paragraph.\n\nThe last paragraph talks about pears.\n",
   "Title.md": "---\nid: pg_lab_title\ntitle: Title\n---\n\n# Title\n\nFrontmatter clash.\n",
+  "Notes.txt": "Plain notes, not a page.\nSecond line.\n",
+  "Photo.bin": "original\0",
+  "Assets": "Assets is a file for now.\n",
 };
+
+/** A whole-entry writer: each named entry becomes this text, bytes, folder, or is deleted. */
+type EntryValue = { text: string } | { folder: Record<string, string> } | null;
 
 type Edit = [page: string, find: string, replace: string];
 /** Each scenario is a set of concurrent writers; each writer's edits apply from the same base. */
-const scenarios: Record<string, { page: string; writers: Edit[][]; after?: Edit[] }> = {
+const scenarios: Record<string, { page: string; writers: (Edit[] | Record<string, EntryValue>)[]; after?: Edit[] }> = {
+  binary: { page: "Photo.bin", writers: [{ "Photo.bin": { text: "left\0" } }, { "Photo.bin": { text: "right\0" } }] },
+  "delete-file": { page: "Notes.txt", writers: [
+    { "Notes.txt": { text: "Plain notes, rewritten on the laptop.\nSecond line.\n" } },
+    { "Notes.txt": null },
+  ] },
+  kind: { page: "Assets", writers: [
+    { Assets: { text: "Assets is still a file, edited.\n" } },
+    { Assets: { folder: { "logo.txt": "logo\n", "notes.txt": "notes\n" } } },
+  ] },
   sentence: { page: "Sentence.md", writers: [
     [["Sentence.md", "the farmers market", "the co-op"]],
     [["Sentence.md", "the farmers market", "the corner bakery"]],
@@ -146,6 +161,27 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
     trace: [{ before: base.root, after: executed.root, operations }], resolves: [],
     objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [],
   };
+}
+
+/** One snapshot candidate replacing whole root entries (no source trace). */
+async function entriesCandidate(base: { root: string; objects: Map<string, Uint8Array> }, entries: Record<string, EntryValue>) {
+  const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@overstory/protocol");
+  const objects = new Map<string, Uint8Array>();
+  const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
+  const folder = (value: { type: "directory"; entries: any[] }) => {
+    value.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+    return put(encodeWireDirectory(value as never));
+  };
+  const root = decodeWireDirectory(base.objects.get(base.root)!);
+  for (const [name, value] of Object.entries(entries)) {
+    root.entries = root.entries.filter((entry) => entry.name !== name);
+    if (value && "text" in value) root.entries.push({ name, file: put(new TextEncoder().encode(value.text)) } as never);
+    else if (value) root.entries.push({ name, directory: folder({ type: "directory", entries:
+      Object.entries(value.folder).map(([child, text]) => ({ name: child, file: put(new TextEncoder().encode(text)) })) }) } as never);
+  }
+  const candidate = folder(root as never);
+  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
+    objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 
 async function inspect(wire: Awaited<ReturnType<typeof client>>, tree: string) {
@@ -264,7 +300,7 @@ async function make(name: string) {
   const base = await current(wire, state.tree);
   const results = [];
   for (const edits of scenario.writers) {
-    const update = await candidate(base, edits);
+    const update = Array.isArray(edits) ? await candidate(base, edits) : await entriesCandidate(base, edits);
     const response = await wire.submitUpdates(state.tree, { base: base.state, updates: [update] });
     results.push(response.results.map((result) => ({ outcome: result.outcome, conflicted: result.update.conflicted })));
   }
@@ -310,7 +346,14 @@ switch (command) {
   case "inspect": { const state = await loadState(); out(await inspect(await client(), state.tree)); break; }
   case "resolve": await resolve(rest[0]!, rest[1]!); break;
   case "down": await down(); break;
-  case "reset": await down(); await rm(lab, { recursive: true, force: true }); out({ reset: lab }); break;
+  case "reset": {
+    // Everything but the app build, which is slow to redo and holds no lab state.
+    await down();
+    const { readdir } = await import("node:fs/promises");
+    for (const name of existsSync(lab) ? await readdir(lab) : []) if (name !== "DerivedData") await rm(join(lab, name), { recursive: true, force: true });
+    out({ reset: lab });
+    break;
+  }
   default:
     console.error("usage: conflict-lab.ts up | app [--build] | make <scenario> | edit <page> <find> <replace> | inspect | resolve <decision> <alternative> | down | reset");
     process.exit(2);
