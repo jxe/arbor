@@ -48,7 +48,8 @@ export class AccessControl {
   }
 
   entries(tree: string): CanopyAccessEntry[] {
-    return this.db.query("SELECT * FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
+    // access.claimed_profile is never written; the column stays only for the schema check.
+    return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {
         const value = row as {
@@ -57,7 +58,6 @@ export class AccessControl {
           subject_kind: CanopyAccessEntry["subjectKind"];
           subject: string;
           access: ReadWriteAccess;
-          claimed_profile: string | null;
         };
         return {
           id: value.id,
@@ -65,7 +65,6 @@ export class AccessControl {
           subjectKind: value.subject_kind,
           subject: value.subject,
           access: value.access,
-          ...(value.claimed_profile ? { claimedProfile: value.claimed_profile } : {}),
         };
       });
   }

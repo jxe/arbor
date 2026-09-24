@@ -40,5 +40,4 @@ export interface CanopyAccessEntry {
   subjectKind: "everyone" | "profile" | "link";
   subject: string;
   access: ReadWriteAccess;
-  claimedProfile?: string;
 }
