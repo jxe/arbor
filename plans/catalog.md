@@ -19,12 +19,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
 - [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
 
-## Client state machines
-
-`clients/` — The portable update machine, the change log, and the runners and sources that use them.
-
-- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–4 DONE (Mac and daemon running them).** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are on `main`, and Arbor Sync runs the TypeScript runner per folder. Remaining: the iPhone update (Joe's go-ahead) and a Hetzner sync lab run.
-
 ## Web client
 
 `canopy-web/` — Restore the browser working-tree client, then its interface and editor features.

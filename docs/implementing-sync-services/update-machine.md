@@ -7,8 +7,7 @@ Every working tree runs one machine, specified in
 sources append **local changes** to a durable **change log**; the machine
 decides when and how the log is published; the **runner** performs what the
 machine decides. An editor generation, a structural action, a review
-resolution, and (after [Clients 001](../../plans/clients/001-reconcile-client-state-machines.md)
-phase 4) a folder scan are all local changes. The Canopy app's
+resolution, and a folder scan are all local changes. The Canopy app's
 `CanopyWorkingTree` runs the Swift runner; Arbor Sync runs the TypeScript
 runner in `@overstory/working-tree` once per placed folder (`FolderSync`).
 Both pass the same runner vectors.
