@@ -3,18 +3,11 @@ import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
 import { json, errorResponse } from "./http.ts";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function localContentUnavailable(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && (error as NodeJS.ErrnoException).code === "EDEADLK";
-}
+import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 
 type SyncHTTPService = Pick<ArborSyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
-  "objectBytes" | "treeConflictWorkspace" | "resolveReviewedTreeConflict" | "resolveLocator">;
+  "objectBytes" | "discardHeldChanges" | "resolveLocator">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -73,7 +66,7 @@ export function syncHandler(service: SyncHTTPService, options: {
       try {
         return json(await service.bootstrapTree(tree));
       } catch (error) {
-        if (localContentUnavailable(error)) {
+        if (isCloudPlaceholderError(error)) {
           throw new ProtocolError(
             "internal-error",
             "Arbor Sync could not read local file content while opening the tree. One or more files may be unavailable cloud placeholders; make them available locally, then reconnect.",
@@ -102,30 +95,11 @@ export function syncHandler(service: SyncHTTPService, options: {
         },
       });
     }
-    if (request.method === "GET" && url.pathname === "/v1/conflicts") {
-      const tree = url.searchParams.get("tree");
-      if (!tree) throw new ProtocolError("invalid-request", "conflicts requires explicit tree scope", 400);
-      return json(await service.treeConflictWorkspace(tree));
-    }
-    if (request.method === "POST" && url.pathname === "/v1/conflicts/resolve") {
-      const body = await request.json() as { tree?: unknown; identity?: unknown; resolutions?: unknown };
-      if (typeof body.tree !== "string" || typeof body.identity !== "string" || !isRecord(body.resolutions)) {
-        throw new ProtocolError("invalid-request", "Conflict resolution requires tree, identity, and resolutions", 400);
-      }
-      const resolutions: Record<string, import("@overstory/protocol").SyncConflictResolution> = {};
-      for (const [path, value] of Object.entries(body.resolutions)) {
-        if (!isRecord(value) || typeof value.choice !== "string") {
-          throw new ProtocolError("invalid-request", `Invalid conflict resolution for ${path}`, 400);
-        }
-        if (["current", "mine", "both"].includes(value.choice) && Object.keys(value).length === 1) {
-          resolutions[path] = { choice: value.choice as "current" | "mine" | "both" };
-        } else if (value.choice === "edit" && typeof value.text === "string" && Object.keys(value).every((key) => key === "choice" || key === "text")) {
-          resolutions[path] = { choice: "edit", text: value.text };
-        } else {
-          throw new ProtocolError("invalid-request", `Invalid conflict resolution for ${path}`, 400);
-        }
-      }
-      return json({ effects: await service.resolveReviewedTreeConflict(body.tree, body.identity, resolutions) });
+    if (request.method === "POST" && url.pathname === "/v1/held/discard") {
+      const body = await request.json() as { tree?: unknown };
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", "Discarding held changes requires a tree", 400);
+      await service.discardHeldChanges(body.tree);
+      return json({ tree: body.tree });
     }
     if (request.method === "GET" && url.pathname === "/v1/resolve") {
       const locator = url.searchParams.get("locator");

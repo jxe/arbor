@@ -52,6 +52,31 @@ runner and never contains request content, subjects, or object identities.
 The Canopy app's network log is its client-side counterpart
 ([local system](../canopy-browser/local-state.md#diagnostic-streams)).
 
+## Retention and object collection
+
+`retention.ts` is the one definition of what the object store keeps; the
+integrity audit (`/.arbor/integrity`) verifies it and the object collector
+deletes only outside it. Required, and verified by the audit: every accepted
+row's root and log entry, every entry reached through `previous` and
+`asked.base`, each entry's root and decision alternatives (whole trees, or
+single objects for a range and its `at` file), and every
+`document_versions.content_hash`. Kept when present: what a sidecar reads to
+replay an entry's question (trace frame roots, `asked.candidate`, prefix
+roots, alternative bindings) and any other hash-shaped string in an entry,
+such as one in the sidecar's evidence. Nested tree entries are left to their
+own tree's rows.
+
+`collect-objects.ts` is an operator command, run beside a serving canopyd
+([deployment](../../../packages/canopyd/deploy/README.md#collecting-unreferenced-objects)).
+It reads the database read-only, keeps every unreferenced object used within a
+grace period (24 hours by default), and deletes the rest. "Used" is the file's
+modification time: `ObjectStore` sets it when it stores bytes that already
+exist, and acceptance freshens every stored object a candidate or merge answer
+takes without uploading it before committing the row that names it. The
+collector renames each candidate aside and checks its time again, putting back
+one freshened in between; a freshen that finds the file gone fails its
+acceptance rather than committing a reference to a missing object.
+
 A tree watch reauthorizes before every event it sends and every 250 ms while
 idle, and an execution authority watch every 250 ms; revocation closes the
 stream within that interval. Between checks canopyd reuses the previous

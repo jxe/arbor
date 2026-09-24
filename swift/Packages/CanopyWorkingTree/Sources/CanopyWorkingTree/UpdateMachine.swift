@@ -7,7 +7,7 @@ import Foundation
 /// request digests are opaque tokens. `UpdateCoordinator` maps its
 /// `UpdateControl` onto these states, persists what each state retains,
 /// and executes the effects the reducer returns. It executes the same fixture
-/// scenarios as the TypeScript reducer in `@overstory/client`.
+/// scenarios as the TypeScript reducer in `@overstory/working-tree`.
 public enum UpdateMachine {
     /// Trailing delay before unsent durable local work is published.
     public static let publicationDelay: Duration = .milliseconds(250)

@@ -5,7 +5,8 @@ import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
-import { answerRoots, MergeTool, type MergeToolOptions } from "./merge-tool.ts";
+import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
+import { retainedObjects } from "./retention.ts";
 import { checkPlainTrace, type DecisionPage } from "@overstory/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -1837,10 +1838,10 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private async auditIntegrity(): Promise<void> {
     this.verifyDatabase();
-    const roots = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
-      .map(({ root }) => root);
-    await this.objects.verifyReachable(roots);
-    // Every row's entry, and every entry and alternative its chain reaches.
+    // The same closure the object collector keeps: every object it names is
+    // present and hash-consistent.
+    await retainedObjects(this.db, this.objects);
+    // Each row agrees with its entry, and each chain stays within its tree.
     const rows = this.db.query("SELECT ordinal, tree_id, root, previous_ordinal, conflicted, entry FROM accepted_updates ORDER BY ordinal").all() as Array<{
       ordinal: number; tree_id: string; root: ObjectHash; previous_ordinal: number | null; conflicted: number; entry: ObjectHash;
     }>;
@@ -1857,10 +1858,6 @@ export class CanopyDaemon implements AsyncDisposable {
         checked.add(at);
         const value = await this.history.entry(at);
         if (value.tree !== row.tree_id) throw new Error("Log entry chain crosses trees");
-        await this.objects.verifyReachable(answerRoots(value.root, value.decisions));
-        for (const d of value.decisions)
-          if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) await this.objects.read(hash);
-        if (value.asked?.base) await this.history.entry(value.asked.base);
         at = value.previous;
       }
     }
@@ -2236,7 +2233,15 @@ export class CanopyDaemon implements AsyncDisposable {
     let basis = acceptedBasis ? this.validatedGraphs.get(acceptedBasis) : undefined;
     if (acceptedBasis && !basis)
       basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), collection);
-    const result = await validateGraphChange(root, hash => this.objects.read(hash), proposed, collection, basis);
+    // An object the candidate takes from the store outside its accepted basis
+    // is one no client sent; freshen it so a concurrent object collection
+    // cannot remove it before the accepted row names it.
+    const load = async (hash: ObjectHash) => {
+      const bytes = await this.objects.read(hash);
+      await this.objects.freshen([hash]);
+      return bytes;
+    };
+    const result = await validateGraphChange(root, load, proposed, collection, basis);
     this.validatedGraphs.delete(root);
     this.validatedGraphs.set(root, result);
     while (this.validatedGraphs.size > 8 || [...this.validatedGraphs.values()].reduce((n, graph) => n + graph.objects.size, 0) > 200_000)

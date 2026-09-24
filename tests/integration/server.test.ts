@@ -199,16 +199,26 @@ describe("arborsync object route", () => {
     }
   });
 
-  test("serves objects held only by the stored pending update body", async () => {
-    const { hashObject } = await import("@overstory/protocol");
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
+  test("serves objects held only by a pending local change", async () => {
+    const { hashObject, encodeCandidateUpdateJSON } = await import("@overstory/protocol");
+    const { snapshotJSON } = await import("@overstory/working-tree");
+    const { ChangeLog } = await import("@overstory/working-tree/node");
+    const { folderStateRoot } = await import("../../packages/arborsync/src/folder-sync.ts");
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
-    await savePendingTreeUpdate(scope, pendingFromSnapshot(null, { root: hash, objects: new Map([[hash, bytes]]) }));
+    const empty = encodeWireDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
+    const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash }] }), directoryHash = hashObject(directory);
+    const change = "folder-pending-object";
+    const log = new ChangeLog(scope, folderStateRoot(scope));
+    await log.retain({ change, tree: scope, basis: { kind: "accepted", root: emptyHash, update: "up_pending_fixture" },
+      graph: snapshotJSON({ root: emptyHash, objects: new Map([[emptyHash, empty]]) }), sourcePath: null, document: null,
+      candidate: snapshotJSON({ root: directoryHash, objects: new Map([[directoryHash, directory], [hash, bytes]]) }),
+      update: encodeCandidateUpdateJSON({ change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
+        objects: [{ hash: directoryHash, bytes: directory }, { hash, bytes }].sort((a, b) => a.hash.localeCompare(b.hash)) }) });
     try {
       expect(await client.object(scope, hash)).toEqual(bytes);
     } finally {
-      await clearPendingTreeUpdate(scope);
+      await log.discard(new Set([change]));
     }
     const gone = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
     expect(gone.status).toBe(404);
@@ -346,11 +356,6 @@ describe("arborsync bootstrap and credential routes", () => {
     await rm(sandbox, { recursive: true, force: true });
   });
 
-  async function folderSnapshot() {
-    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    return resolveSnapshot(await snapshotDirectory(treeDir));
-  }
-
   test("bootstraps a clean placed tree with a sparse spine", async () => {
     const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@overstory/protocol");
     const bootstrap = await placedClient.bootstrap(tree);
@@ -383,12 +388,10 @@ describe("arborsync bootstrap and credential routes", () => {
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
   });
 
-  test("bootstraps the accepted Canopy root while the folder has a pending edit", async () => {
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
+  test("bootstraps the accepted Canopy root while the folder has an unpublished edit", async () => {
     const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@overstory/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
-    await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, await folderSnapshot()));
     try {
       const bootstrap = await placedClient.bootstrap(tree);
       expect(bootstrap.accepted).toEqual(accepted);
@@ -400,64 +403,6 @@ describe("arborsync bootstrap and credential routes", () => {
       expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
     } finally {
       await writeFile(join(treeDir, "note.md"), "A note\n");
-      await clearPendingTreeUpdate(tree);
-    }
-  });
-
-  test("daemon conflict state does not block an accepted-root bootstrap", async () => {
-    const { saveTreeConflict, clearTreeConflict } = await import("@overstory/client");
-    const { decodeSparseSnapshotBundle } = await import("@overstory/protocol");
-    const accepted = (await placedClient.bootstrap(tree)).accepted;
-    await saveTreeConflict(tree, {
-      error: "conflict",
-      message: "fixture conflict",
-      retryable: false,
-      tree,
-      details: {
-        kind: "server-update",
-        completed: [],
-        failedIndex: 0,
-        current: { id: accepted.update, tree, root: accepted.root as never, previous: null, conflicted: false, acceptedAt: 0, subject: null },
-        base: accepted.root as never,
-        candidate: accepted.root as never,
-        draft: { root: accepted.root as never, objects: [], deltas: [] },
-        conflicts: [],
-      },
-    });
-    try {
-      const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.accepted).toEqual(accepted);
-      expect("blocked" in bootstrap).toBe(false);
-      expect(decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64")).size).toBe(5);
-      expect("files" in bootstrap).toBe(false);
-    } finally {
-      await clearTreeConflict(tree);
-    }
-  });
-
-  test("stale daemon pending state does not block an accepted-root bootstrap", async () => {
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
-    const { hashObject } = await import("@overstory/protocol");
-    const snapshot = await folderSnapshot();
-    const accepted = (await placedClient.bootstrap(tree)).accepted;
-    // Stale base: the chain no longer starts at the accepted update.
-    await savePendingTreeUpdate(tree, pendingFromSnapshot("stale-update", snapshot));
-    try {
-      const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.accepted).toEqual(accepted);
-      expect("blocked" in bootstrap).toBe(false);
-    } finally {
-      await clearPendingTreeUpdate(tree);
-    }
-    // Right base, but the last candidate is not the folder root.
-    const bytes = encodeWireDirectory({ type: "directory", entries: [] });
-    await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, { root: hashObject(bytes), objects: new Map([[hashObject(bytes), bytes]]) }));
-    try {
-      const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.accepted).toEqual(accepted);
-      expect("blocked" in bootstrap).toBe(false);
-    } finally {
-      await clearPendingTreeUpdate(tree);
     }
   });
 

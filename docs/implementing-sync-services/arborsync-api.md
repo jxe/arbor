@@ -9,7 +9,7 @@ do not acquire new capabilities from that specification.
 Arbor Sync makes placed folders content-addressable and keeps each one equal
 to canopyd's accepted root in both directions. Everything below is either that
 store's read surface (objects, bootstrap, credential) or the control surface
-for placements, accounts, and conflicts.
+for placements, accounts, and held changes.
 
 Arbor Sync binds to loopback and rejects cross-origin browser requests. JSON is
 UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
@@ -19,16 +19,16 @@ credentials or access-link secrets.
 **REST v1 is a control surface, not an editor path.** The daemon is the
 placed folder's synchronization client plus the loopback services a
 working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
-`GET /v1/accounts`, `GET /v1/resolve`, `GET /v1/conflicts` and
-`POST /v1/conflicts/resolve`, `POST /v1/sync`, `POST /v1/placements/move`,
+`GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`,
+`POST /v1/sync`, `POST /v1/placements/move`,
 `GET /v1/bootstrap` and `GET /v1/credential` (§3b),
 `GET /v1/objects/{hash}` (§3a), the account bootstrap routes (§4), and
 `GET /v1/events` (§5). The Swift package `ArborSyncClient` launches or
 attaches to the control-mode daemon (`arborsync --control`) and uses exactly
 these routes. The former node, children, search, backlinks, recovery, file,
 mutation, document, asset, and import routes were deleted with the
-daemon's editor path (Native 022 Phase 7): editors run the document admission
-and update machines against their own working tree. Those paths now answer
+daemon's editor path (Native 022 Phase 7): editors run the update machine
+against their own working tree, as the daemon does for each placed folder. Those paths now answer
 `405 unsupported-operation` like any unknown `/v1/` route. **The web editor is
 unavailable until Plan B** rebuilds it as a working-tree client; app routes
 serve a short notice instead of the bundle, while static hosting of tree files
@@ -72,7 +72,6 @@ type LocalTreeDescriptor = TreeDescriptor & {
   placement: "placed" | "replica" | "remote";
   osPath?: string;
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  reviewableConflict?: boolean;
   missing?: boolean;
 };
 
@@ -152,9 +151,10 @@ characters encoding 128 random bits. Minting edits no file and reserves no
 server state, so it is not a daemon operation.
 
 `GET /v1/trees` returns `{ snapshot: LocalTreeDescriptor[], observedThrough }`.
-When `sync` is `conflict`, `reviewableConflict: true` means the daemon can
-produce durable content evidence through the conflict endpoint. Clients must
-not infer that a conflict is resolvable merely from its status label.
+`sync` is the folder's update machine (spec 09): `idle` is current,
+`syncing` has local changes publishing or an accepted state installing,
+`offline` retries automatically, `error` needs credentials or has stopped, and
+`conflict` means the host refused the folder's changes and they are held (§4).
 It includes placed trees, pathless replicas, known remote placements, and the
 implicit authenticated account-configuration tree.
 
@@ -247,9 +247,9 @@ with `details.kind: "unsynchronized"`). The response is:
 for the placement. `cursor` is the protocol watch cursor a client seeds its own
 watch from, which is the update id. The spine is rooted at this accepted root.
 The `tree` value contains placement and canopyd-routing metadata, not the
-daemon's `sync`, `root`, `update`, `conflicted`, `reviewableConflict`, or
-`missing` fields. Arbor Sync's mutable folder head, pending request, conflict,
-availability, and tree-list sync state are intentionally absent: they belong
+daemon's `sync`, `root`, `update`, `conflicted`, or `missing` fields. Arbor
+Sync's folder changes, held request, availability, and tree-list sync state
+are intentionally absent: they belong
 to the folder client and cannot seed or block another working-tree client.
 
 **The sparse spine.** `spine` is a snapshot bundle in the exact CBOR shape of
@@ -283,7 +283,7 @@ local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
-## 4. Account bootstrap, forget, and conflict review
+## 4. Account bootstrap, forget, and held changes
 
 Narrow operations remain for states that cannot yet be represented by editing
 an authenticated configuration tree:
@@ -345,28 +345,21 @@ therefore has no `connectCommunity`, `disconnectCommunity`,
 `createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`,
 `setTreeAccess`, local device list/revoke proxy, or `/v1/remote` route.
 
-Tree-level conflict review uses:
+Each placed folder runs the update machine (spec 09): a folder edit is
+scanned into a local change in the folder's change log and published; a
+request the host refuses is **held** with its later changes, the folder keeps
+its bytes, and the tree reports `sync: "conflict"`. Held changes are never
+retried, rebased, or merged locally. The one way out is explicit:
 
 ```text
-GET  /v1/conflicts?tree=<TreeID>
-POST /v1/conflicts/resolve
+POST /v1/held/discard   { "tree": "<TreeID>" }
 ```
 
-The read returns an identity-fenced workspace containing canopyd's reported
-paths and reasons plus hash-validated Base, Current, Mine, and Draft content.
-`Both` is advertised only when canopyd's draft has a distinct combined value;
-textual paths may also be edited. Resolution submits a choice for every path
-with the workspace identity. Arbor Sync rechecks the accepted canopyd update
-and the local candidate before recording the reviewed result as new durable
-intent. It never asks a REST client to merge object graphs. The daemon
-submits one filesystem head per request, so `unattemptedCount` is always `0`
-here; a working-tree client that retains a suffix behind the failed element
-reports its own count.
-
-A tree may report `sync: "conflict"` while review evidence is unavailable—for
-example, legacy in-memory state created before a durable conflict body was
-written. In that case the conflict endpoint returns an error and clients must
-not invent choices or clear state.
+It removes the held request and every change authored on it from the change
+log, catches up to the host's current state, and writes that state to the
+folder, replacing the refused bytes. Accepted alternatives (`conflicted: true`)
+are not held: they are accepted state, reviewed through the host's conflict
+inspection like any other working-tree client's.
 
 ## 5. Snapshot then observe
 
@@ -423,7 +416,7 @@ readable through the daemon.
 
 The TypeScript and Swift reference clients consume the REST JSON and SSE
 fixtures under [`tests/fixtures/arborsync`](../../tests/fixtures/arborsync):
-`status.json`, `conflict-workspace.json`, `error.json` and `errors.json`,
+`status.json`, `error.json` and `errors.json`,
 `cursors.json`, and the `events.sse` / `malformed-event.sse` frames. Their
 shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline
 data, keepalives, conflicting-cursor rejection, and terminal

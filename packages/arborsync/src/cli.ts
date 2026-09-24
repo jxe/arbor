@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
 import { serveArborSync, serveArborSyncControl } from "./index.ts";
+import { allowCloudPlaceholderDownloads } from "./cloud-placeholders.ts";
 
 function usage(): never {
   console.error(`Usage:
@@ -30,6 +31,12 @@ export async function runArborSyncDaemon(args = process.argv.slice(2)): Promise<
   const unknown = args.filter((arg) => arg.startsWith("--") && !known.has(arg));
   if (unknown.length || positionals.length > 1 || (control && positionals.length)) usage();
 
+  // Placed folders may live in iCloud Drive; a launchd agent cannot otherwise
+  // download evicted files and would fail their reads with EDEADLK.
+  const placeholders = await allowCloudPlaceholderDownloads();
+  if (placeholders.kind === "failed") {
+    console.warn(`[arborsync:cloud-placeholders] cannot enable on-demand downloads: ${placeholders.reason}`);
+  }
   const serverOptions = {
     port,
     ...(runtimeKind ? { runtimeKind: runtimeKind as "persistent" | "foreground" | "cloud" } : {}),

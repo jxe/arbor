@@ -4,18 +4,13 @@
 
 - **Priority:** P2
 - **Effort:** M remaining
-- **Risk:** HIGH at cutover: migration 018 changes the stored data model (schema 19),
-  though not the wire protocol clients speak.
-- **State:** IMPLEMENTED on `claude/dazzling-keller-29kiss`, 2026-09-24: steps 1 to 7
-  and the documentation; not deployed. What was built, and its evidence, is in
+- **Risk:** Low: the cutover is done; what remains is measurement and performance.
+- **State:** DEPLOYED 2026-09-24 at schema 19 by migration 018 (build `dd5313c8`), with
+  steps 1 to 7 and the documentation. What was built, the cutover and its evidence are in
   [status](../../status.md#log-entries-and-one-merge-question--2026-09-24); the design
   is [writing a sidecar](../../docs/architecture/canopyd/writing-a-sidecar.md) and
   [the merge sidecar](../../docs/architecture/canopyd/merge-tool.md). What remains is
-  the cutover, the measurements the plan required before shipping, and the sidecar's
-  per-file cache.
-- **Depends on:** the merge boundary, also undeployed on this branch, so
-  [check 017](../../packages/canopyd/migrations/017-resource-policy-only/README.md)
-  runs against a restored backup before this deploy.
+  the differential replay, the sidecar's per-file cache and 1,000-file latency.
 
 ## Why
 
@@ -25,29 +20,21 @@ entries) and one merge question, and plain edits on the head no longer ask a sid
 
 ## Remaining work
 
-1. **Rehearse and run migration 018** from Joe's laptop, following
-   [its runbook](../../packages/canopyd/migrations/018-log-entries/README.md): back up,
-   rehearse on restored copies (including `rebuild-check.ts`, the cold-rebuild
-   measurement below), deploy with check 017 clean, migrate in place, verify. Record the
-   rehearsal and the live run in that README and in `status.md`.
-2. **Cold rebuilds, measured on a copy of production.** `rebuild-check.ts` reports, per
-   tree, the time for a fresh sidecar to rebuild its head from the chain's start (the
-   first merge after a restart). If a tree is too slow, add a snapshot entry that lets a
-   chain start later; not a persistent cache.
-3. **A differential run on production history.** The plan asked for every accepted
+1. **A differential run on production history.** The plan asked for every accepted
    update replayed through the old worker and the new sidecar with equal roots and
    equivalent decisions. Migration 016 cut history to 2026-09-24, so the useful form is
    the 016 replay check's: on the rehearsal copy, re-submit the last client updates of
    each ordinary tree through this build and compare each root and conflict flag with the
    recorded one. Adapt `016-squash-history/replay-check.ts` (it needs the schema-18 code
-   it shipped with) or write it against this build's acceptance path.
-4. **The sidecar's cache per file.** Step 6 kept the engine's tree-wide state: every
+   it shipped with) or write it against this build's acceptance path. The pre-cutover
+   backup `.backups/railway/20260924T131328Z/volume.tar` is the copy to use.
+2. **The sidecar's cache per file.** Step 6 kept the engine's tree-wide state: every
    replayed plain edit loads, clones and stores the whole active state, so the cost
    moves from canopyd's request to the next question. Split the retained state so a plain
    edit touches only its file's state and its directories. Measure with
    `FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts` and the `replayed`
    count in the sidecar's timings.
-5. **Latency at 1,000 files.** A plain traced edit on the head takes about 155 ms of
+3. **Latency at 1,000 files.** A plain traced edit on the head takes about 155 ms of
    server time with 1,000 files in one directory, not the 20 ms targeted: canopyd's graph
    validation, candidate validation, entry diff and the plain-trace check each decode the
    1,000-entry directory. A snapshot beside an open choice is about 25% slower than

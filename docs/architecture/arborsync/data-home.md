@@ -87,9 +87,9 @@ A declared placement may sit beneath the data home as a separate mounted tree. L
 
 ## Scopes and durability
 
-The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, conflicts, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `GET /v1/conflicts`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
+The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, held changes, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `POST /v1/held/discard`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
 
-A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are observed and become the next filesystem candidate, and accepted canopyd state is materialized only after its objects, heads, and requests are durable. Editors keep their own working tree, journal, and recovery.
+A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are scanned into local changes in the folder's change log (`<data home>/.state/trees/<base64url TreeID>/sync/`), and accepted canopyd state is written to the folder only when no local change is pending and the folder still holds what it last wrote or scanned. Editors keep their own working tree, journal, and recovery.
 
 ## Loopback credential exposure
 
@@ -132,6 +132,26 @@ logs with the `[arborsync:object-read]` prefix and structured source/reason fiel
 Permission denial, IO failure, network/HTTP failure, malformed pending data and
 hash mismatch remain distinguishable. Ordinary missing files and uncached old
 hashes do not produce warnings. Use `arbor daemon logs` to inspect these records.
+
+### Cloud placeholders
+
+A placed folder may live in iCloud Drive or another macOS File Provider that
+evicts file bytes and leaves dataless placeholders. Whether a read downloads a
+placeholder or fails is a per-process kernel policy, and a launchd agent starts
+with downloads off, so its reads of placeholder files and directories fail with
+`EDEADLK`. The daemon entry point (`arborsync/src/cli.ts`, which the CLI's
+LaunchAgent and the app's bundled helper both run) therefore turns on-demand
+downloads on for its own process at startup
+(`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, …_ON)` through
+`bun:ffi`, in `cloud-placeholders.ts`); the call is skipped off macOS. A read
+of a placeholder then waits on a file-system worker while the provider
+downloads it, and the event loop keeps serving. If the policy cannot be set,
+startup logs `[arborsync:cloud-placeholders]` and continues. A read that still
+returns `EDEADLK` is logged with reason `cloud-placeholder`, the placement
+reports `error`, and the next periodic sync retries it. The daemon hashes
+every synchronized file, so the 30-minute object audit downloads files the
+provider evicted since the last one. To keep a placed folder from churning,
+mark it Keep Downloaded in Finder.
 
 Records contain the requested hash, tree or local path where available, and
 safe error codes/HTTP status. They omit exception messages, response bodies,

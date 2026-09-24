@@ -52,6 +52,9 @@ elapsed calendar time alone is insufficient.
   cross-device publication and restart have later evidence; the full original observation matrix
   is not certified. If a stall recurs, capture the machine phase and preparation error before
   retrying. Phone foreground refresh is expected, not a background-sync defect.
+- [ ] **Clients 001 / Hetzner sync lab:** run `packages/canopyd/deploy/hcloud-sync-lab` against
+  the update-machine daemon. Its binary scenario now expects Canopy to accept both versions as an
+  unresolved alternative instead of a daemon conflict; it has not run since that rewrite.
 
 Historical plans: Native 022 (completed plan, deleted; see git history),
 Arbor Sync 001 (completed plan, deleted; see git history),

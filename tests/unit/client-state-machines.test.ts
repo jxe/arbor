@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { reduceUpdate, type UpdateEvent, type UpdateOptions, type UpdateState } from "@overstory/client";
+import { reduceUpdate, type UpdateEvent, type UpdateOptions, type UpdateState } from "@overstory/working-tree";
 
 interface Step {
   event: Record<string, unknown>;

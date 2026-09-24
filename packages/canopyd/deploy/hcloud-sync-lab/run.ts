@@ -660,29 +660,28 @@ async function authorityHistoryCount(state: LabState, tree: string): Promise<num
   return count;
 }
 
-async function hasConflict(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
+async function treeDescriptor(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<{ sync?: string; conflicted?: boolean } | undefined> {
   const response = await sshBash(state, role,
     "curl -fsS 'http://127.0.0.1:4317/v1/trees'",
     { allowFailure: true, quiet: true });
-  if (response.exitCode !== 0) return false;
-  let body: { snapshot?: Array<{ id?: string; sync?: string }> };
+  if (response.exitCode !== 0) return undefined;
   try {
-    body = JSON.parse(response.stdout) as typeof body;
+    const body = JSON.parse(response.stdout) as { snapshot?: Array<{ id?: string; sync?: string; conflicted?: boolean }> };
+    return body.snapshot?.find((descriptor) => descriptor.id === tree);
   } catch {
-    return false;
+    return undefined;
   }
-  if (body.snapshot?.find((descriptor) => descriptor.id === tree)?.sync !== "conflict") return false;
-  // A durable, reviewable conflict answers the review endpoint with its evidence.
-  const review = await sshBash(state, role,
-    `curl -fsS 'http://127.0.0.1:4317/v1/conflicts?tree=${tree}'`,
-    { allowFailure: true, quiet: true });
-  if (review.exitCode !== 0) return false;
-  try {
-    const workspace = JSON.parse(review.stdout) as { identity?: string; items?: unknown[] };
-    return typeof workspace.identity === "string" && Array.isArray(workspace.items) && workspace.items.length > 0;
-  } catch {
-    return false;
-  }
+}
+
+/** The host refused this client's changes; they are held until discarded. */
+async function hasConflict(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
+  return (await treeDescriptor(state, role, tree))?.sync === "conflict";
+}
+
+/** The client is current on an accepted state that retains unresolved alternatives. */
+async function acceptedConflicted(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
+  const descriptor = await treeDescriptor(state, role, tree);
+  return descriptor?.sync === "idle" && descriptor.conflicted === true;
 }
 
 async function smoke(state: LabState): Promise<void> {
@@ -827,29 +826,18 @@ async function acceptance(state: LabState): Promise<void> {
   await sshBash(state, "bob", `printf 'binary-from-bob' > '${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin'`);
   await ssh(state, "alice", ["systemctl", "start", "arbor-client.service"]);
   await waitUntil("Alice binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 1);
+  // Canopy accepts Bob's divergent bytes as an unresolved alternative; nothing is held.
   await ssh(state, "bob", ["systemctl", "start", "arbor-client.service"]);
-  await waitUntil("Bob durable binary conflict", () => hasConflict(state, "bob", conflictTree));
-  if (await authorityHistoryCount(state, conflictTree) !== before + 1) {
-    throw new Error("Rejected binary conflict appeared in Canopy history");
-  }
-  const localBinary = await ssh(state, "bob", ["cat", `${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin`], { quiet: true });
-  if (localBinary.stdout !== "binary-from-bob") throw new Error("Bob's conflicting bytes were not retained locally");
+  await waitUntil("Bob accepted binary alternative", async () => await authorityHistoryCount(state, conflictTree) === before + 2
+    && await acceptedConflicted(state, "bob", conflictTree));
   await setClients(state, "restart", ["bob"] as const);
-  await waitUntil("Bob conflict recovery after restart", () => hasConflict(state, "bob", conflictTree));
-
-  // Resolve through the review endpoint: every conflicting path keeps Bob's bytes.
-  await sshBash(state, "bob", [
-    `review=$(curl -fsS 'http://127.0.0.1:4317/v1/conflicts?tree=${conflictTree}')`,
-    `body=$(printf '%s' "$review" | jq -c --arg tree '${conflictTree}' '{tree: $tree, identity: .identity, resolutions: (.items | map({key: .path, value: {choice: "mine"}}) | from_entries)}')`,
-    "curl -fsS -H 'content-type: application/json' -d \"$body\" http://127.0.0.1:4317/v1/conflicts/resolve >/dev/null",
-  ].join("\n"));
-  await waitUntil("resolved binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 2);
+  await waitUntil("Bob accepted alternative after restart", () => acceptedConflicted(state, "bob", conflictTree));
+  if (await hasConflict(state, "bob", conflictTree)) throw new Error("An accepted binary alternative was held as a refusal");
   await setClients(state, "start", ["alice", "carol"] as const);
   await waitForConvergence(state, conflictScenario);
-  for (const role of ["alice", "bob", "carol"] as const) {
-    const value = await ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${conflictScenario}/sample.bin`], { quiet: true });
-    if (value.stdout !== "binary-from-bob") throw new Error(`${role} did not materialize the explicit conflict resolution`);
-  }
+  const values = await Promise.all((["alice", "bob", "carol"] as const).map(async (role) =>
+    (await ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${conflictScenario}/sample.bin`], { quiet: true })).stdout));
+  if (new Set(values).size !== 1) throw new Error(`Clients disagree on the accepted binary projection: ${values.join(", ")}`);
 
   await sshBash(state, "community", [
     ". /etc/arbor-canopy.env",

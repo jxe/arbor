@@ -35,7 +35,6 @@ final class ArborSyncClientTests: XCTestCase {
         let status = try decode(ArborSyncStatus.self, "status.json")
         let error = try decode(ArborSyncErrorValue.self, "error.json")
         let errors = try decode([ArborSyncErrorValue].self, "errors.json")
-        let conflict = try decode(ArborSyncConflictWorkspace.self, "conflict-workspace.json")
         let credential = try decode(TreeCredential.self, "credential.json")
         let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: fixtures.appending(path: "cursors.json"))
@@ -51,8 +50,6 @@ final class ArborSyncClientTests: XCTestCase {
         XCTAssertEqual(status.runtimeKind, "cloud")
         XCTAssertEqual(error.code, "future-error-code")
         XCTAssertEqual(errors.last?.code, "future-error-code")
-        XCTAssertEqual(conflict.items.first?.draft.text, "both\n")
-        XCTAssertEqual(conflict.items.first?.offersBoth, true)
         XCTAssertFalse(credential.token.isEmpty)
         XCTAssertEqual(cursors["current"]?.hasSuffix(":5"), true)
         XCTAssertEqual(mergeFixtures["version"] as? Int, 2)

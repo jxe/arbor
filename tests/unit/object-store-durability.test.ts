@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ObjectStore } from "@overstory/object-store";
-import { hashObject } from "@overstory/protocol";
+import { holdsObject, ObjectStore } from "@overstory/object-store";
+import { encodeWireDirectory, hashObject } from "@overstory/protocol";
 
 let directory: string;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "object-durability-")); });
@@ -70,4 +70,30 @@ test("durable store still rejects mismatched existing bytes", async () => {
   await store.store([a]);
   const other = new ObjectStore(join(directory, "objects"));
   await expect(other.store([{ hash: a.hash, bytes: object("wrong").bytes }])).rejects.toThrow("Object hash mismatch");
+});
+
+const twoDaysAgo = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+const recent = async (path: string) => (await stat(path)).mtimeMs > Date.now() - 60_000;
+
+test("storing an object that already exists freshens it for the object collector", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const value = object("kept by reuse");
+  await store.store([value]);
+  await utimes(store.path(value.hash), twoDaysAgo(), twoDaysAgo());
+  await store.store([value]);
+  expect(await recent(store.path(value.hash))).toBe(true);
+  expect(store.writes.written).toBe(1);
+});
+
+test("a verified walk freshens only stored objects, and freshening a vanished object throws", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const leaf = object("leaf"), proposed = object("proposed");
+  const bytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash }, { name: "b", file: proposed.hash }] });
+  const root = { hash: hashObject(bytes), bytes };
+  await store.store([leaf, root]);
+  for (const { hash } of [leaf, root]) await utimes(store.path(hash), twoDaysAgo(), twoDaysAgo());
+  await store.verifyReachable([root.hash], new Map([[proposed.hash, proposed.bytes]]), { freshen: true });
+  for (const { hash } of [leaf, root]) expect(await recent(store.path(hash))).toBe(true);
+  expect(await holdsObject(store, proposed.hash)).toBe(false);
+  await expect(store.freshen([proposed.hash])).rejects.toThrow("Stored object vanished");
 });

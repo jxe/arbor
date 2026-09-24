@@ -6,7 +6,7 @@
 |---|---|
 | [Getting started](getting-started/README.md) | Introduction, quickstarts, CLI usage, and development setup |
 | [Overstory specification](overstory-spec/README.md) | Normative portable behavior and shared conformance fixtures |
-| [Implementing editors](implementing-editors/README.md) | Editor integration, document admission, interaction design, and conflict review |
+| [Implementing editors](implementing-editors/README.md) | Editor integration, editor sources, interaction design, and held folder changes |
 | [Implementing sync services](implementing-sync-services/README.md) | Host and synchronizer contracts, local service APIs, and implementation verification |
 | [Architecture](architecture/README.md) | Reference implementation choices, organized by subcomponent |
 

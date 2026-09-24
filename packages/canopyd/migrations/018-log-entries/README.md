@@ -7,7 +7,7 @@ that needs it stores each accepted update as an immutable log entry in the objec
 and asks the merge sidecar one question; see
 [writing a sidecar](../../../../docs/architecture/canopyd/writing-a-sidecar.md).
 
-**Status: rehearsed green on a live backup (2026-09-24); not run live.** Joe runs it from his laptop.
+**Status: ran live 2026-09-24 at build `dd5313c8`; the live report matched the rehearsal.** Keep this directory and its backup until about 2026-10-08, then delete both.
 
 ## What changes
 
@@ -174,3 +174,15 @@ Heads the live run must reproduce (tree, update, root, entry):
 Any update accepted on live after this backup changes a head (and `nextOrdinal`); the live
 report then matches this table only for trees nobody edited. Take the backup again at
 cutover if anything was edited, and rehearse on that one.
+
+## Live run
+
+**2026-09-24, green.** Live was unchanged since the backup (22 updates, newest 4345).
+Mac placements idle at the heads (after `brctl download` of iCloud-evicted files in the
+Console folder); authored manifest (111 files) and `dot-arbor.before` taken; daemon
+stopped. Pushed `dd5313c8`; the new build served maintenance mode by itself. `run.ts
+/data` reported the rehearsal's exact heads, 22 entries, `unmappedResolutions` 0,
+`nextOrdinal` 4346, 147 ms. After `railway redeploy --from-source -y` it served;
+`verify.ts --sync` passed; the authored manifest diff was empty; the round trip was
+accepted as 4346 (entry chained from the migrated head's) and 4347. The concurrent-edit
+check ran in the conflict lab on this build instead (see `status.md`).

@@ -1,4 +1,4 @@
-import { access, link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { access, link, mkdir, open, readFile, unlink, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   applyObjectDelta,
@@ -164,13 +164,30 @@ export class ObjectStore {
     return { root, objects };
   }
 
-  /** Confirm every object reachable from the given roots is present and hash-consistent. */
-  async verifyReachable(roots: ObjectHash[], proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map()): Promise<void> {
-    const seen = new Set<ObjectHash>();
+  /** Confirm every object reachable from the given roots is present and
+   * hash-consistent. With `freshen`, every one found in the store rather than
+   * in `proposed` is then freshened: a caller about to commit a reference to
+   * those objects uses this to keep them from a concurrent collector. */
+  async verifyReachable(roots: ObjectHash[], proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(), options: { freshen?: boolean } = {}): Promise<void> {
+    const seen = new Set<ObjectHash>(), stored = new Set<ObjectHash>();
     for (const root of roots) {
-      const { complete } = await this.walk(root, proposed, () => {}, seen);
+      const { complete } = await this.walk(root, proposed, (hash) => { if (!proposed.has(hash)) stored.add(hash); }, seen);
       if (!complete) throw new Error(`Retained history is missing an object under ${root}`);
     }
+    if (options.freshen) await this.freshen(stored);
+  }
+
+  /**
+   * Mark stored objects as just used, as a write of identical bytes does.
+   * The object collector never deletes an unreferenced object used within
+   * its grace period, so an object an update is about to name survives a
+   * concurrent collection. Throws when an object is gone: the collector took
+   * it first, and the caller must not commit a reference to it.
+   */
+  async freshen(hashes: Iterable<ObjectHash>): Promise<void> {
+    await mapLimit(new Set(hashes), WRITE_CONCURRENCY, async (hash) => {
+      if (!await touch(this.path(hash))) throw new Error(`Stored object vanished: ${hash}`);
+    });
   }
 
   /**
@@ -238,8 +255,10 @@ export class ObjectStore {
       const path = this.path(hash);
       const directory = dirname(path);
       // Stored bytes are always re-checked; only the fsync is skipped once
-      // this process has made the object durable.
-      if (await this.verifyExisting(path, hash)) {
+      // this process has made the object durable. An existing object is
+      // freshened, as git does, so a collector treats it as new; one that
+      // vanishes in between is written again.
+      if (await this.verifyExisting(path, hash) && await touch(path)) {
         // An existing object may have been published as scratch data. Complete
         // file and directory durability without rewriting identical bytes.
         if (durable && !this.durable.has(hash)) { await this.sync(path); directories.add(directory); }
@@ -327,6 +346,18 @@ export interface ObjectWriteCounters {
 
 const WRITE_CONCURRENCY = 32;
 const DURABLE_MEMORY = 200_000;
+
+/** Set a file's times to now; false when it does not exist. */
+async function touch(path: string): Promise<boolean> {
+  const now = new Date();
+  try {
+    await utimes(path, now, now);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 async function mapLimit<T>(items: Iterable<T>, limit: number, task: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];

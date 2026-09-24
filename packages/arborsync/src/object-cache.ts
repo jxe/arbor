@@ -1,6 +1,5 @@
 import { objectReadError, reportObjectRead, type ObjectReadReporter } from "./object-read-diagnostics.ts";
-import { pendingTreeUpdate } from "@overstory/client";
-import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@overstory/protocol";
+import { hashObject, type ObjectHash, type WireClient } from "@overstory/protocol";
 import type { Workspace } from "./workspace.ts";
 
 export const OBJECT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -9,6 +8,8 @@ export interface TreeObjectCacheDeps {
   workspaceFor(tree: string): Promise<Workspace | undefined>;
   boundariesFor(workspace: Workspace): ReadonlyMap<string, string>;
   exclusionsFor(workspace: Workspace): readonly string[];
+  /** Bytes a tree's pending local changes carry. */
+  pendingBytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined>;
   /** The account client for a placed tree, or an anonymous client for `origin`. */
   clientFor(tree: string, origin?: string): Promise<WireClient | undefined>;
   /** Bounded bytes retained for fetched-through objects. */
@@ -49,8 +50,8 @@ class ByteLRU {
 
 /**
  * Serves tree objects by hash from, in order, the placed workspace's object
- * index (re-encoding the file or directory on disk), the stored pending
- * update body, and Canopy through the tree's account client. Every result is
+ * index (re-encoding the file or directory on disk), the tree's pending
+ * local changes, and Canopy through the tree's account client. Every result is
  * hash-verified before it is returned, so a stale index row falls through
  * rather than serving wrong bytes.
  */
@@ -86,22 +87,13 @@ export class TreeObjectCache {
   }
 
   private async fromPending(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
-    const pending = await pendingTreeUpdate(tree).catch((error) => {
+    const bytes = await this.deps.pendingBytes(tree, hash).catch((error) => {
       this.report(objectReadError({ source: "pending", tree, hash }, error));
       return undefined;
     });
-    if (!pending) return undefined;
-    const bodies = [pending, ...(pending.successors ?? [])];
-    for (const body of bodies) {
-      let envelopes: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-      try { envelopes = decodeObjectEnvelopes(body.objects); } catch {
-        this.report({ source: "pending", reason: "invalid-data", tree, hash });
-        continue;
-      }
-      const match = envelopes.find((object) => object.hash === hash);
-      if (match && hashObject(match.bytes) === hash) return match.bytes;
-      if (match) this.report({ source: "pending", reason: "hash-mismatch", tree, hash });
-    }
+    if (!bytes) return undefined;
+    if (hashObject(bytes) === hash) return bytes;
+    this.report({ source: "pending", reason: "hash-mismatch", tree, hash });
     return undefined;
   }
 

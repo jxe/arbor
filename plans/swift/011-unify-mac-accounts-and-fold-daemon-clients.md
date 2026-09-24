@@ -37,7 +37,7 @@ ability to install and supervise the daemon, stay.
 | Bootstrap and objects | `GET /v1/bootstrap` seeds the in-memory working tree; `GET /v1/objects` is the platform object store | Durable working tree on disk, objects from the host through `CanopyObjectStore` | Unchanged on the Mac: the daemon is the folder's object store |
 | Accounts and credentials | `GET /v1/accounts`, `GET /v1/credential`, claim and pair through `/v1/bootstrap/*` | `Credentials` in the platform store, claim and pair through `OverstoryClient` against the host, YAML edited in the checkout | The Mac uses the iOS path. The app edits `~/.arbor/accounts/<cfg>/*.yaml` on disk (it already does for `trees.yaml`) and holds the credential in the same platform store the daemon reads. The daemon only observes the checkout and pushes it |
 | Placements | `GET /v1/trees` and `POST /v1/placements/move` | `WorkingTreePlacementService` over `placements.yaml` and the checkout | The Mac uses `WorkingTreePlacementService`; moves become a checkout edit plus a request to the daemon to re-place, not a daemon-owned operation |
-| Conflicts | `GET /v1/conflicts` and `POST /v1/conflicts/resolve` for filesystem-sync conflicts; accepted-choice review in the app | Accepted-choice review through `CanopyWorkingTree` (`ConflictReview`) against the host | Accepted-choice review is the iOS path on both platforms. Filesystem-sync conflicts on a placed folder stay a daemon concern and keep their route, shown by the Mac only because it has a folder |
+| Conflicts | `POST /v1/held/discard` for a placed folder's refused changes; accepted-choice review in the app | Accepted-choice review through `CanopyWorkingTree` (`ConflictReview`) against the host | Accepted-choice review is the iOS path on both platforms. A placed folder's held changes stay a daemon concern and keep their route, shown by the Mac only because it has a folder |
 
 Publication and watch are already direct: the Mac's `UpdateCoordinator`
 publishes durable heads to the host and follows the host's watch, not the
@@ -55,7 +55,7 @@ Routes the Mac app still needs, and that the CLI or tests also use:
 | `GET /v1/credential` | The CLI's cloud sessions read the stored credential; the Mac app stops needing it once it holds the credential itself |
 | `POST /v1/sync` | `arbor sync`, and the app's "re-place after a checkout edit" request |
 | `GET /v1/events` | CLI and tests observe the daemon |
-| `GET /v1/conflicts`, `POST /v1/conflicts/resolve` | Filesystem-sync conflicts on a placed folder |
+| `POST /v1/held/discard` | Discarding a placed folder's held changes |
 | `POST /v1/resolve` | CLI locator resolution |
 
 Routes that become Mac-unused and are candidates for removal once the CLI is

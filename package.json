@@ -45,6 +45,7 @@
     "@overstory/object-store": "workspace:*",
     "@overstory/fs": "workspace:*",
     "@overstory/client": "workspace:*",
+    "@overstory/working-tree": "workspace:*",
     "@overstory/canopyd": "workspace:*",
     "@overstory/canopyd-merge": "workspace:*",
     "@overstory/merge-protocol": "workspace:*",

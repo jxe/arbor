@@ -157,40 +157,10 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   name: string;
   osPath?: string;
   placement: "placed" | "replica" | "remote";
+  /** `conflict`: the host refused the folder's changes; they are held until discarded. */
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  /** True only when the daemon has durable Canopy evidence that can be reviewed. */
-  reviewableConflict?: boolean;
   missing?: boolean;
 }
-
-export type SyncConflictContent =
-  | { kind: "missing" }
-  | { kind: "text"; text: string }
-  | { kind: "binary"; bytes: string }
-  | { kind: "directory"; entries: string[] }
-  | { kind: "boundary"; tree: string };
-
-export interface SyncConflictItem {
-  path: string;
-  reasons: string[];
-  base: SyncConflictContent;
-  current: SyncConflictContent;
-  mine: SyncConflictContent;
-  draft: SyncConflictContent;
-  offersBoth: boolean;
-}
-
-/** A restart-safe, identity-fenced view of one Canopy conflict. */
-export interface SyncConflictWorkspace {
-  identity: string;
-  tree: TreeID;
-  items: SyncConflictItem[];
-  unattemptedCount: number;
-}
-
-export type SyncConflictResolution =
-  | { choice: "current" | "mine" | "both" }
-  | { choice: "edit"; text: string };
 
 /** A one-time device pairing offer; identical on the Wire and through Arbor Sync. */
 export interface PairingOffer {
@@ -530,7 +500,7 @@ export interface PlainSourceEdit { offset: number; length: number; replacement: 
  * pieces. Copied pieces stay in original order, so the composed edits are
  * ascending, non-adjacent and never share an anchor.
  *
- * The same rule runs in `@overstory/client` (`compactTrace`), in the Swift
+ * The same rule runs in `@overstory/working-tree` (`compactTrace`), in the Swift
  * queue and in Canopy's `composeFrames`, and `docs/overstory-spec/conformance/source-admission-queue.json`
  * holds the shared vectors. Only plain edits compose; lineage and copies name
  * the generation they were captured against and are never rebased here.

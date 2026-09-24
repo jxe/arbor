@@ -1,24 +1,21 @@
-import { publicationTip } from "./update-machine.ts";
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
-import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import { applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit } from "@overstory/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeWireDirectory,
   encodeWireDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
-  encodeObjectEnvelopes, type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
+  type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
 
-export type SourceAdmissionBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
+export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
 /** One editor generation of a coalesced intent: its edits against the source
  * the previous generation produced, and the source it produced. */
-export interface SourceAdmissionGeneration { edits: SourceEdit[]; source: string }
+export interface SourceGeneration { edits: SourceEdit[]; source: string }
 /** `edits` always take the basis to `source` in one step. `generations`, when
  * present, is the same change as the editor captured it, one generation after
  * another, ending at `source`; plain generations may coalesce into one frame. */
-export interface SourceAdmissionIntent {
+export interface SourceIntent {
   basis: { tree: string; path: string; revision: string; source: string };
   edits: SourceEdit[];
   source: string;
-  generations?: SourceAdmissionGeneration[];
+  generations?: SourceGeneration[];
 }
 export interface SourcePageCreation { document: {tree: string; path: string}; removals: string[] }
 /** What a source record remembers of its editor capture: enough to serve the
@@ -26,32 +23,31 @@ export interface SourcePageCreation { document: {tree: string; path: string}; re
 export interface SourceDocumentCapture { path: string; basisRevision: string; intentDigest: string }
 /** Records keep hashes, the wire element, and a capture summary; undo is an
  * ordinary edit and no document source or editor transaction is retained. */
-export interface SourceAdmissionRecord {
+export interface LocalChange {
   creation?: SourcePageCreation;
-  change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshotJSON;
+  change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshotJSON;
   sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
 }
-interface StoredSourceSnapshot { root: string; objects: string[] }
-type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candidate" | "update"> & {
-  graph: StoredSourceSnapshot; candidate: StoredSourceSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
+export interface StoredSnapshot { root: string; objects: string[] }
+export type StoredLocalChange = Omit<LocalChange, "graph" | "candidate" | "update"> & {
+  graph: StoredSnapshot; candidate: StoredSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
 };
 /** Schema 4 stores the wire element verbatim with its frame chain. */
-interface SourceAdmissionJournal { schema: 4; tree: string; records: StoredSourceAdmissionRecord[] }
-export function sourceIntentDigest(intent: SourceAdmissionIntent): string { return canonicalCBORHash(intent); }
-interface JournalFingerprint { size: number; modified: number; inode: number }
+export interface ChangeLogJournal { schema: 4; tree: string; records: StoredLocalChange[] }
+export function sourceIntentDigest(intent: SourceIntent): string { return canonicalCBORHash(intent); }
 /** Durable platform objects addressable by canonical wire hash. Source queues
  * keep only admission-created objects when this shared store is supplied. */
-export interface SourceAdmissionObjectStore {
+export interface ChangeLogObjectStore {
   bytes(hash: string): Promise<Uint8Array | undefined>;
 }
 const encoder = new TextEncoder();
-const equal = (a: unknown, b: unknown): boolean => {
+export const equal = (a: unknown, b: unknown): boolean => {
   if (a === b) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
   const keys = Object.keys(a).sort(), other = Object.keys(b).sort();
   return keys.length === other.length && keys.every((k, i) => k === other[i] && equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 };
-function snapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
+export function snapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
   return encodeTreeSnapshotJSON({ root: snapshot.root, objects: new Map([...snapshot.objects].sort(([a], [b]) => a.localeCompare(b))) });
 }
 
@@ -95,10 +91,10 @@ function validEdits(edits: unknown, decoder: TextDecoder): edits is SourceEdit[]
  * `edit-<frame>-<index>`; `compact` (default) then merges adjacent frames of
  * plain edits (`compactTrace`). Only the final candidate's objects travel; the
  * authority reproduces intermediate roots by executing the frames. */
-export function prepareSourceAdmission(input: {
-  change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot;
-  sourcePath: string; intent: SourceAdmissionIntent; compact?: boolean;
-}): SourceAdmissionRecord & {document: SourceDocumentCapture; sourcePath: string} {
+export function prepareSourceChange(input: {
+  change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot;
+  sourcePath: string; intent: SourceIntent; compact?: boolean;
+}): LocalChange & {document: SourceDocumentCapture; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
@@ -240,7 +236,7 @@ export function prepareSourceAdmission(input: {
 
 /** `edits` must take the basis to `source`; each generation must reproduce
  * the next exactly and the chain must end at `source`. */
-export function validateSourceIntent(intent: SourceAdmissionIntent): void {
+export function validateSourceIntent(intent: SourceIntent): void {
   if (applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw Error("Invalid source intent");
   let previous = intent.basis.source;
   for (const generation of intent.generations ?? []) {
@@ -319,7 +315,7 @@ function reproduces(frame: SourceFrame, sourcePath: string, sources: ReadonlyMap
  * names that branch and proves that removing it restores the original graph, so
  * the candidate is exactly the basis plus the addition. Undoing a conversion in
  * the editor is a plain source edit. */
-export function preparePageCreation(input: {change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): SourceAdmissionRecord {
+export function preparePageCreation(input: {change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): LocalChange {
   const {change,tree,basis,graph,candidate,creation} = input;
   if (creation.document.tree !== tree) throw Error("Invalid creation scope");
   const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
@@ -350,9 +346,9 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
     return {key: `add-${index}`, kind: "addEntry", destination: {parent: {material: {kind: "basis", path: parts.length ? "/" + parts.join("/") : "/", object: parent}}, name}, value};
   });
 }
-export function prepareEntryAdmission(input: {
-  change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
-}): SourceAdmissionRecord {
+export function prepareEntryChange(input: {
+  change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
+}): LocalChange {
   const change=input.change ?? crypto.randomUUID();
   if(!!input.entryTransfer === !!input.entryActions)throw Error("Specify one entry intent representation");
   const context={change,candidate:input.candidate};
@@ -365,7 +361,7 @@ export function prepareEntryAdmission(input: {
 
 /** Structural integrity of one record: hash-checked graphs, a wire element
  * naming this candidate and change, update objects drawn from the candidate. */
-export function validateSourceAdmission(record: SourceAdmissionRecord): void {
+export function validateLocalChange(record: LocalChange): void {
   if (!record.change || record.update.change !== record.change || record.update.candidate !== record.candidate.root) throw new Error("Wire element does not name its record");
   const graph = decodeTreeSnapshotJSON(record.graph), candidate = decodeTreeSnapshotJSON(record.candidate);
   if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length ||
@@ -384,219 +380,14 @@ export function validateSourceAdmission(record: SourceAdmissionRecord): void {
   if (record.entryTransfer && record.entryActions) throw new Error("Multiple entry intent representations");
 }
 
-export function validateSourceAdmissions(records: SourceAdmissionRecord[], tree: string): void {
-  const prior = new Map<string, SourceAdmissionRecord>();
+export function validateLocalChanges(records: LocalChange[], tree: string): void {
+  const prior = new Map<string, LocalChange>();
   for (const record of records) {
     if (record.tree !== tree || prior.has(record.change)) throw new Error("Invalid queue scope or duplicate identity");
-    validateSourceAdmission(record);
+    validateLocalChange(record);
     if (record.basis.kind === "accepted") {
       if (!record.basis.update || record.basis.root !== record.graph.root) throw new Error("Accepted basis does not match graph");
     } else if (record.basis.kind !== "authored" || !equal(prior.get(record.basis.change)?.candidate, record.graph)) throw new Error("Missing or altered authored basis");
     prior.set(record.change, record);
-  }
-}
-
-const writers = new Map<string, Promise<unknown>>();
-/** One client process owns a state directory, as with the existing sync state.
- * Instances in that process serialize commits to the same canonical path.
- * SourceAdmissionPublisher consumes the journal only when its host enables emission.
- */
-export class SourceAdmissionQueue {
-  readonly path: string;
-  readonly objectsPath: string;
-  private records?: SourceAdmissionRecord[];
-  private fingerprint?: JournalFingerprint;
-  private readonly objects = new Map<string, Uint8Array>();
-  constructor(readonly tree: string, stateRoot: string, private readonly platform?: SourceAdmissionObjectStore) {
-    this.path = resolve(stateRoot, "sync", "source-admissions.json");
-    this.objectsPath = resolve(stateRoot, "sync", "source-admission-objects");
-  }
-  async retained(): Promise<SourceAdmissionRecord[]> {
-    const fingerprint = await this.currentFingerprint();
-    if (!this.records || !equal(fingerprint, this.fingerprint)) await this.load();
-    return structuredClone(this.records!);
-  }
-  async retain(value: SourceAdmissionRecord | SourceAdmissionRecord[]): Promise<void> {
-    const batch = structuredClone(Array.isArray(value) ? value : [value]);
-    const previous = writers.get(this.path) ?? Promise.resolve();
-    const next = previous.catch(() => {}).then(async () => {
-      const records = await this.retained();
-      for (const record of batch) {
-        const prior = records.find(r => r.change === record.change);
-        if (prior && !equal(prior, record)) throw new Error("Authored identity was reused");
-        if (!prior) records.push(record);
-      }
-      // Repeat the durable write on an exact retry: an earlier rename may have
-      // succeeded before directory synchronization failed.
-      validateSourceAdmissions(records, this.tree);
-      await this.write(records);
-    });
-    writers.set(this.path, next);
-    try { await next; } finally { if (writers.get(this.path) === next) writers.delete(this.path); }
-  }
-  /** Remove settled records unless a pending authored descendant still needs
-   * them. The newest record per open document and its ancestry stay while the
-   * tail is preserved; nothing else survives acceptance. */
-  async compact(settled: ReadonlySet<string>, preservingSettledTail = true): Promise<boolean> {
-    const previous = writers.get(this.path) ?? Promise.resolve();
-    const next = previous.catch(() => {}).then(async () => {
-      await this.load();
-      const records = this.records!;
-      const required = new Set(records.filter(record => !settled.has(record.change)).map(record => record.change));
-      if (preservingSettledTail && records.length) {
-        required.add(records.at(-1)!.change);
-        const documents = new Set<string>();
-        for (const record of records.slice().reverse()) if (record.document && !documents.has(record.document.path)) {
-          documents.add(record.document.path); required.add(record.change);
-        }
-      }
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const record of records) if (required.has(record.change) && record.basis.kind === "authored" && !required.has(record.basis.change)) {
-          required.add(record.basis.change); changed = true;
-        }
-      }
-      const retained = records.filter(record => required.has(record.change));
-      if (retained.length !== records.length) await this.write(retained);
-      return retained.length === 0;
-    });
-    writers.set(this.path, next);
-    try { return await next; } finally { if (writers.get(this.path) === next) writers.delete(this.path); }
-  }
-  async nextPublication(accepted: ReadonlySet<string>): Promise<string | undefined> {
-    return publicationTip((await this.retained()).map(record => ({
-      change: record.change, parent: record.basis.kind === "authored" ? record.basis.change : undefined,
-    })), accepted);
-  }
-  async request(through: string, accepted: ReadonlySet<string> = new Set()): Promise<{ base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } }> {
-    const records = new Map((await this.retained()).map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
-    let current = through;
-    for (;;) {
-      const record = records.get(current); if (!record) throw new Error("Missing authored dependency");
-      updates.unshift(accepted.has(current) ? { ...record.update, objects: [], deltas: [] } : record.update);
-      if (record.basis.kind === "accepted") return { base: { root: record.basis.root, update: record.basis.update }, request: { base: record.basis.update, updates } };
-      current = record.basis.change;
-    }
-  }
-
-  private async load(settled: ReadonlySet<string> = new Set()): Promise<void> {
-    let value: unknown;
-    try { value = JSON.parse(await readFile(this.path, "utf8")); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        this.records = []; this.fingerprint = undefined; return;
-      }
-      throw error;
-    }
-    const journal = value as Partial<SourceAdmissionJournal>;
-    if (journal.schema !== 4 || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
-    if (journal.records.length && journal.records.every(record => typeof record.change === "string" && settled.has(record.change))) {
-      await this.write([]); return;
-    }
-    const hashes = new Set(journal.records.flatMap(record => [...record.graph.objects, ...record.candidate.objects, ...record.updateObjects]));
-    await Promise.all([...hashes].map(async hash => {
-      if (!this.objects.has(hash)) this.objects.set(hash, await this.objectBytes(hash));
-    }));
-    const records = journal.records.map(record => this.materialize(record));
-    validateSourceAdmissions(records, this.tree);
-    this.records = records;
-    this.fingerprint = await this.currentFingerprint();
-  }
-
-  private async write(records: SourceAdmissionRecord[]): Promise<void> {
-    const snapshots = records.flatMap(record => [decodeTreeSnapshotJSON(record.graph), decodeTreeSnapshotJSON(record.candidate)]);
-    const presented = new Map<string, Uint8Array>();
-    for (const snapshot of snapshots) for (const [hash, bytes] of snapshot.objects) {
-      if (!this.platform) presented.set(hash, bytes);
-      this.objects.set(hash, bytes);
-    }
-    // Update envelopes are exactly the objects introduced relative to each
-    // graph. They remain queue-owned until the admission settles.
-    for (const record of records) for (const object of decodeCandidateUpdateJSON(record.update).objects) {
-      presented.set(object.hash, object.bytes);
-    }
-    await mkdir(this.objectsPath, { recursive: true, mode: 0o700 });
-    await Promise.all([...presented].map(([hash, bytes]) => this.writeObject(hash, bytes)));
-    const journal: SourceAdmissionJournal = { schema: 4, tree: this.tree, records: records.map(record => this.stored(record)) };
-    const directory = dirname(this.path), temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    try {
-      const file = await open(temporary, "wx", 0o600);
-      try { await file.writeFile(JSON.stringify(journal)); await file.sync(); } finally { await file.close(); }
-      await rename(temporary, this.path);
-      const dir = await open(directory, "r"); try { await dir.sync(); } finally { await dir.close(); }
-      const parent = await open(dirname(directory), "r"); try { await parent.sync(); } finally { await parent.close(); }
-    } finally { await rm(temporary, { force: true }); }
-    const retained = new Set(journal.records.flatMap(record => [...record.graph.objects, ...record.candidate.objects, ...record.updateObjects]));
-    for (const name of await readdir(this.objectsPath)) {
-      const hash = `sha256:${name}`;
-      if (/^[0-9a-f]{64}$/.test(name) && !retained.has(hash)) await rm(resolve(this.objectsPath, name), { force: true });
-    }
-    for (const hash of this.objects.keys()) if (!retained.has(hash)) this.objects.delete(hash);
-    this.records = structuredClone(records);
-    this.fingerprint = await this.currentFingerprint();
-  }
-
-  private stored(record: SourceAdmissionRecord): StoredSourceAdmissionRecord {
-    const { graph, candidate, update, ...rest } = record;
-    return { ...rest,
-      graph: { root: graph.root, objects: graph.objects.map(object => object.hash).sort() },
-      candidate: { root: candidate.root, objects: candidate.objects.map(object => object.hash).sort() },
-      update: { ...update, objects: [] }, updateObjects: update.objects.map(object => object.hash).sort() };
-  }
-
-  private materialize(record: StoredSourceAdmissionRecord): SourceAdmissionRecord {
-    const snapshot = (stored: StoredSourceSnapshot): TreeSnapshotJSON => snapshotJSON({ root: stored.root,
-      objects: new Map(stored.objects.map(hash => {
-        const bytes = this.objects.get(hash); if (!bytes) throw new Error(`Missing source admission object ${hash}`); return [hash, bytes];
-      })) });
-    const { updateObjects, ...stored } = record;
-    const update = { ...stored.update, objects: encodeObjectEnvelopes(updateObjects.map(hash => {
-      const bytes = this.objects.get(hash); if (!bytes) throw new Error(`Missing source admission object ${hash}`); return [hash, bytes] as const;
-    })) };
-    return { ...stored, update, graph: snapshot(record.graph), candidate: snapshot(record.candidate) } as SourceAdmissionRecord;
-  }
-
-  private objectPath(hash: string): string {
-    if (!/^sha256:[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid source admission object hash");
-    return resolve(this.objectsPath, hash.slice("sha256:".length));
-  }
-  private async readObject(hash: string): Promise<Uint8Array> {
-    const bytes = new Uint8Array(await readFile(this.objectPath(hash)));
-    if (hashObject(bytes) !== hash) throw new Error(`Source admission object hash mismatch: ${hash}`);
-    return bytes;
-  }
-  private async objectBytes(hash: string): Promise<Uint8Array> {
-    try { return await this.readObject(hash); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !this.platform) throw error;
-    }
-    const bytes = await this.platform.bytes(hash);
-    if (!bytes) throw new Error(`Missing source admission object ${hash}`);
-    if (hashObject(bytes) !== hash) throw new Error(`Source admission object hash mismatch: ${hash}`);
-    return bytes;
-  }
-  private async writeObject(hash: string, bytes: Uint8Array): Promise<void> {
-    if (hashObject(bytes) !== hash) throw new Error(`Source admission object hash mismatch: ${hash}`);
-    const destination = this.objectPath(hash);
-    try {
-      const existing = await this.readObject(hash);
-      if (!equal([...existing], [...bytes])) throw new Error(`Source admission object changed: ${hash}`);
-      return;
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
-    try {
-      const file = await open(temporary, "wx", 0o600);
-      try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
-      await rename(temporary, destination);
-      const dir = await open(this.objectsPath, "r"); try { await dir.sync(); } finally { await dir.close(); }
-    } finally { await rm(temporary, { force: true }); }
-  }
-  private async currentFingerprint(): Promise<JournalFingerprint | undefined> {
-    try {
-      const value = await stat(this.path);
-      return { size: value.size, modified: value.mtimeMs, inode: Number(value.ino) };
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
   }
 }

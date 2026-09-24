@@ -11,6 +11,7 @@
   "dependencies": {
     "@overstory/protocol": "workspace:*",
     "@overstory/client": "workspace:*",
+    "@overstory/working-tree": "workspace:*",
     "@overstory/fs": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
     "zod": "4.3.6",

@@ -16,13 +16,8 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 006 — Preview and resume initial working-tree bootstrap](swift/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
 - [Native 008 — Complete native move, copy, and undo capture](swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
 - [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
+- [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
 - [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
-
-## Client state machines
-
-`clients/` — The portable update machine, the change log, and the runners and sources that use them.
-
-- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 DONE (Mac verified); phase 4 in progress.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are on `main`; remaining: the iPhone update (Joe's go-ahead), the TypeScript runner with a `FolderSource` for the daemon, and the Web 025 handoff.
 
 ## Web client
 
@@ -49,7 +44,8 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
 - [canopyd 009 — Merge rule selection per host and per tree](canopyd/009-merge-rule-selection.md) — **P3 · PLANNED.** Governed host and per-tree choice among the merge tool's existing rules, recorded in each merge's evidence.
 - [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
-- [canopyd 016 — A merge sidecar built on objects and history](canopyd/016-sidecar-on-objects-and-history.md) — **P2 · IMPLEMENTED, not deployed.** Accepted history is hash-chained log entries in the object store, a sidecar needs only the object store and one merge question, and plain edits on the head skip it. Remaining: rehearse and run migration 018, measure cold rebuilds and replay on a production copy, a per-file sidecar cache, and 1,000-file latency.
+- [canopyd 017 — Run the object collector live](canopyd/017-collect-objects-live.md) — **P2 · READY; gated on Joe.** The collector is implemented and rehearsed; deploy it, back up, dry-run, delete, then schedule `railway ssh` runs. Open: a document-version retention bound, which holds most of what remains.
+- [canopyd 016 — A merge sidecar built on objects and history](canopyd/016-sidecar-on-objects-and-history.md) — **P2 · DEPLOYED 2026-09-24; measurement and performance remain.** Accepted history is hash-chained log entries in the object store, a sidecar needs only the object store and one merge question, and plain edits on the head skip it. Remaining: replay on a production copy, a per-file sidecar cache, and 1,000-file latency.
 - **Sidebar creations as `addEntry`** — candidate. Editor page creation and a directory's first body are traced (canopyd 011, [closeout](../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); the sidebar's `createMarkdown`/`createDirectory` actions still publish snapshots because their admission records carry no editor document. Emit `addEntry` from `retainStructure` for those actions too.
 
 ## CLI and external agents

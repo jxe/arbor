@@ -167,11 +167,16 @@ export class MergeTool {
       for (const hash of answer.objects)
         objects.set(hash, (await staging.find(hash)) ?? await this.shared.read(hash));
       // The accepted root and every alternative root must be complete trees;
-      // a range alternative is one object.
+      // a range alternative is one object. What the answer takes from the
+      // shared store is freshened, so a concurrent object collection cannot
+      // take it before the accepted row names it.
       const available = new Map([...inputs, ...objects]);
-      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available);
+      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true });
       for (const d of answer.decisions)
-        if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) await this.shared.load(hash, available);
+        if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) {
+          await this.shared.load(hash, available);
+          if (!available.has(hash)) await this.shared.freshen([hash]);
+        }
       mark("output-objects");
       healthy = true;
       return { answer, objects };

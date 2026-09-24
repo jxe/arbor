@@ -68,7 +68,6 @@ struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let placement: String
     let access: String?
     let sync: String?
-    let reviewableConflict: Bool
     let missing: Bool
 }
 
@@ -588,7 +587,7 @@ final class ArborWorkspaceState {
     ) async throws {
         if localArborSyncOverview?.trees.contains(where: { $0.id == configurationTree && $0.sync == "conflict" }) == true {
             throw ArborWireValidationError.invalidValue(
-                "The account configuration has a conflict; review it in Sync Status before changing it"
+                "The host refused the account configuration's last changes; discard them in Sync Status before changing it"
             )
         }
         try ArborAccountConfigurationYAML.editFile(
@@ -1401,7 +1400,6 @@ final class ArborWorkspaceState {
                 placement: $0.placement,
                 access: $0.access,
                 sync: $0.sync,
-                reviewableConflict: $0.reviewableConflict == true,
                 missing: $0.missing == true
             )
         }

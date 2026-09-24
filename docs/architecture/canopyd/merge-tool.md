@@ -200,7 +200,7 @@ a trace to 64 frames and 1024 operations. `undoOperation` is not in the
 grammar; editors express undo and redo as ordinary edits, and the evaluator
 answers `unsupported` if it sees the kind. Clients compact a burst of plain
 `editSource` frames before publication: `compactTrace` in
-`packages/client/src/source-admission-queue.ts` (and the Swift `ChangeLog`) composes
+`packages/working-tree/src/local-change.ts` (and the Swift `ChangeLog`) composes
 them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/editor-source.md#trace-compaction)).
 The evaluator does not compact; it checks the trace it receives.
 `composeFrames` in `tests/support/source-edits.ts` implements the same rule by
