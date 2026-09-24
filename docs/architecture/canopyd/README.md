@@ -38,6 +38,17 @@ The spec leaves placement to each host; this is canopyd's policy.
 - **Group membership.** A profile subject that is a `type: group` tree grants
   its access to every member whose Profile TreeID its `members` list names;
   a legacy scalar `/~handle` member still matches by handle.
+- **Tree ownership.** A tree an account activated, or hosts in its
+  `trees.yaml` while no account owns it, is that account's (`trees.account_id`):
+  only the owner administers it, and the owner's resource rules alone decide
+  who else reads or writes it, whether or not the community has since
+  disabled the owner. The community root cannot be retired through a
+  configuration. A tree no account owns (trees created at bootstrap until
+  their account's configuration exists) keeps stored `access` entries; the
+  accounts those entries let write it administer it.
+- **Errors.** A request canopyd cannot accept is a 400 with the reason; a
+  failure of canopyd's own state, a component it trusts, or a system call is
+  a logged 500 (`ServerFaultError`, `isServerFault` in `errors.ts`).
 
 ## Durability and observation
 

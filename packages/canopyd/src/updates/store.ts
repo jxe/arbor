@@ -196,9 +196,8 @@ export class AcceptedUpdateStore {
    */
   advance(input: AcceptedUpdateInput): AcceptedUpdate | null {
     if (!this.db.inTransaction) throw new ServerFaultError("Advancing a ref requires a transaction");
-    const moved = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
+    const moved = this.db.run("UPDATE trees SET ref = ? WHERE id = ? AND ref = ?", [
       input.root,
-      input.acceptedAt,
       input.tree,
       input.previousRoot,
     ]);

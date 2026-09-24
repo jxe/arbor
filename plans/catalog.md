@@ -78,12 +78,13 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Security boundaries
 
-`security/` — Search rendering, URL decoding, host responses and access-link secrets.
+`security/` — Search rendering, URL decoding, host responses, access-link secrets and tree configuration.
 
 - [Security 001 — Render search excerpts without treating indexed content as HTML](security/001-search-excerpts.md) — **P1 · TODO; rescoped by Native 022.** The daemon's search route and FTS index were deleted in Phase 7; the requirement applies to the native search index now and to the Plan B client text index when the web editor returns.
 - [Security 002 — Decode URL paths once at the external boundary](security/002-path-decoding.md) — **P1 · TODO.**
 - [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
+- [Security 005 — Configure each hosted tree in its own configuration tree](security/005-tree-configuration-trees.md) — **P3 · PROPOSED, not decided.** Move a tree's address, access rules and administrators (person or group profiles) out of each account's `trees.yaml` into a private per-tree configuration tree, making ownership explicit and allowing co-administration and group-owned trees; eight open questions first.
 
 ## Testing and CI
 

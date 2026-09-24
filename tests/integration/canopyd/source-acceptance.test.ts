@@ -375,7 +375,7 @@ test("inspection pages exceed 32 decisions, stay state-bound, and partial resolu
   await expect(client.conflicts(tree, next.id, next.root, { after: first.next! })).rejects.toThrow("token");
   expect((await client.conflicts(tree, accepted.id, accepted.root, { conflict: d.id })).decisions).toEqual([d]);
   const db = new Database(`${dir}/canopy.sqlite3`);
-  db.run("DELETE FROM access WHERE tree_id = ? AND subject_kind = 'everyone'", [tree]); db.close();
+  db.run("UPDATE resource_policy SET rules_json = '[]' WHERE tree_id = ?", [tree]); db.close();
   const denied = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts?state=${accepted.id}&after=${first.next}`);
   expect(denied.status).toBe(404);
 });

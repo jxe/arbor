@@ -743,7 +743,8 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   async ensureAccountConfigTrees(origin: string): Promise<void> {
-    const accounts = this.db.query("SELECT id FROM accounts WHERE config_tree IS NULL ORDER BY id").all() as Array<{ id: string }>;
+    // In creation order: the first account to host a tree no account owns becomes its owner.
+    const accounts = this.db.query("SELECT id FROM accounts WHERE config_tree IS NULL ORDER BY rowid").all() as Array<{ id: string }>;
     for (const { id } of accounts) {
       const account = this.account(id)!;
       if (!account.profileTree) continue;
@@ -780,6 +781,8 @@ export class CanopyDaemon implements AsyncDisposable {
       this.db.transaction(() => {
         this.insertConfigTree({ tree: configID, account: account.id, root: snapshot.root, acceptedAt: now, entryChanges: changes, entry });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
+        this.writeResourcePolicy(account.id, declarations);
+        for (const id of Object.keys(declarations)) this.adoptTree(id, account.id);
       })();
     }
   }
@@ -806,12 +809,11 @@ export class CanopyDaemon implements AsyncDisposable {
         const reserved = this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, accountID]).changes > 0;
         if (!reserved) {
           const active = this.get(id);
-          if (!active || active.policy !== "ordinary" || active.accountID !== accountID) {
+          if (!active || active.policy !== "ordinary" || active.accountID !== accountID || active.canonicalPath === "/") {
             throw new Error(`Account cannot retire tree declaration: ${id}`);
           }
-          this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
           this.db.run("DELETE FROM boundaries WHERE tree_id = ?", [id]);
-          this.db.run("UPDATE trees SET status = 'retired', updated_at = ? WHERE id = ?", [now, id]);
+          this.db.run("UPDATE trees SET status = 'retired' WHERE id = ?", [id]);
         }
       }
     }
@@ -823,14 +825,14 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       if (active.status === "retired") throw new Error(`Retired TreeID cannot be reactivated: ${id}`);
       if (active.policy !== "ordinary") throw new Error(`Configuration may not declare governed tree ${id}`);
+      if (active.accountID === null) this.adoptTree(id, accountID);
+      else if (active.accountID !== accountID) throw new Error(`Configuration may not host another account's tree: ${id}`);
       const boundary = this.boundary(declaration.canonicalPath);
       if (boundary && boundary.id !== id) throw new Error(`Canonical boundary is occupied: ${declaration.canonicalPath}`);
       const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
       this.db.run("UPDATE boundaries SET path = ?, parent_tree = ? WHERE tree_id = ?", [
         declaration.canonicalPath, parent?.id ?? null, id,
       ]);
-      this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
-      this.access.setRules(id, declaration.access);
     }
   }
 
@@ -845,11 +847,19 @@ export class CanopyDaemon implements AsyncDisposable {
     entry: { hash: ObjectHash; conflicted: boolean };
   }): void {
     this.db.run(
-      "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
-      [input.tree, input.root, input.acceptedAt, input.account],
+      "INSERT INTO trees (id, ref, policy, status, account_id) VALUES (?, ?, 'account-config-v2', 'active', ?)",
+      [input.tree, input.root, input.account],
     );
     const { account: _account, ...update } = input;
     this.acceptedStore.insert({ ...update, previousRoot: null, subject: input.subject ?? null });
+  }
+
+  /** An account hosting a tree no account owns becomes its owner: from then
+   * on its resource rules alone govern the tree, so the tree's stored access
+   * entries are removed. Callers run this inside their transaction. */
+  private adoptTree(id: string, accountID: string): void {
+    this.db.run("UPDATE trees SET account_id = ? WHERE id = ? AND account_id IS NULL", [accountID, id]);
+    this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
   }
 
   /** Replace an account's governed rules with its configuration's; callers run this inside their transaction. */
@@ -863,8 +873,8 @@ export class CanopyDaemon implements AsyncDisposable {
   /** Reserve a declared TreeID for its first update, or move this account's
    * reservation; callers run this inside their transaction. */
   private reserveTree(id: string, accountID: string, canonicalPath: string): void {
-    const reserved = this.db.run(`INSERT INTO tree_reservations (id, account_id, canonical_path, status)
-      VALUES (?, ?, ?, 'awaiting-initialization')
+    const reserved = this.db.run(`INSERT INTO tree_reservations (id, account_id, canonical_path)
+      VALUES (?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET canonical_path = excluded.canonical_path WHERE account_id = excluded.account_id`,
     [id, accountID, canonicalPath]);
     if (reserved.changes !== 1) throw new Error(`TreeID is reserved by another account: ${id}`);
@@ -912,7 +922,6 @@ export class CanopyDaemon implements AsyncDisposable {
       "none",
       parent.id,
       (id) => {
-        this.access.setRules(id, declaration.access);
         this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, authentication.account.id]);
       },
       authentication.subject,
@@ -1905,7 +1914,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
     this.db.transaction(() => {
-      this.db.run("INSERT INTO trees (id, ref, updated_at, account_id) VALUES (?, ?, ?, ?)", [id, snapshot.root, now, accountID ?? null]);
+      this.db.run("INSERT INTO trees (id, ref, account_id) VALUES (?, ?, ?)", [id, snapshot.root, accountID ?? null]);
       this.db.run(
         "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
         [path, id, parentTree],

@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { decodeWireDirectory, encodeWireDirectory, generateArborID, hashObject, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
 import { stringify } from "yaml";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
@@ -595,8 +596,12 @@ test("community writers may address a tree at an unclaimed /~name, which then ca
 
   const community = running.canopy.community();
   const bobAccount = running.canopy.accountByHandle("bob")!;
-  const access = (running.canopy as unknown as { access: { set(tree: string, kind: string, subject: string, access: string): void } }).access;
-  access.set(community.id, "profile", bobAccount.profileTree!, "write");
+  // The owner's trees.yaml hosts the community root; its rules make bob a community writer.
+  const db = (running.canopy as unknown as { db: Database }).db;
+  const policy = db.query("SELECT account_id, rules_json FROM resource_policy WHERE tree_id = ? AND account_id = ?")
+    .get(community.id, community.accountID) as { account_id: string; rules_json: string };
+  const rules = JSON.stringify([...JSON.parse(policy.rules_json), { who: { profile: bobAccount.profileTree! }, allow: ["read", "write"] }]);
+  db.run("UPDATE resource_policy SET rules_json = ? WHERE tree_id = ? AND account_id = ?", [rules, community.id, policy.account_id]);
   try {
     expect((await declare(`${origin}/~garden-club`)).outcome).toBe("accepted");
     await expect(declare(`${origin}/~alice/garden`)).rejects.toThrow("reserved for a person");
@@ -615,6 +620,6 @@ test("community writers may address a tree at an unclaimed /~name, which then ca
     await expect(owner.submitUpdate(community.id, current.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested))))
       .rejects.toThrow("~garden-club is already the address of a tree");
   } finally {
-    access.set(community.id, "profile", bobAccount.profileTree!, "none");
+    db.run("UPDATE resource_policy SET rules_json = ? WHERE tree_id = ? AND account_id = ?", [policy.rules_json, community.id, policy.account_id]);
   }
 });
