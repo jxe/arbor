@@ -1,5 +1,4 @@
 import {
-  checkpointBatchSchema,
   checkpointSchema,
   isIntentRequest,
   projectionRequestSchema,
@@ -20,8 +19,6 @@ export {
 /** The worker's own request check: the shared shape, plus every authored
  * operation decoded. */
 export function parseRequest(raw: unknown): MergeRequest {
-  if (raw && typeof raw === "object" && "kind" in raw && raw.kind === "checkpoint-batch")
-    return checkpointBatchSchema.parse(raw);
   if (raw && typeof raw === "object" && "kind" in raw && raw.kind === "checkpoint")
     return checkpointSchema.parse(raw);
   if (raw && typeof raw === "object" && "kind" in raw && raw.kind === "retention-audit")

@@ -48,7 +48,6 @@ export class AccessControl {
   }
 
   entries(tree: string): CanopyAccessEntry[] {
-    // access.claimed_profile is never written; the column stays only for the schema check.
     return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
       .all(tree)
       .map((row) => {

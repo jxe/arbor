@@ -36,7 +36,9 @@ base root before the request's own objects are stored.
 the accepted state at that cursor and the current destination and builds one
 sparse payload between their roots. `from: { id, root }` is the transport
 basis while `update.previous` stays the destination's real predecessor.
-Missing retained basis data answers `resync-required`. Absence of a matching
+Missing retained basis data answers `resync-required`. A single new update is
+sent as its own transition from its predecessor's root, built the same way; the
+host stores no transition payloads (schema 18) and caches recent ones. Absence of a matching
 digest in a coalesced event is not proof of non-acceptance, so pending
 requests keep their exact retry procedure. Net frames may exceed the ordinary
 1 MiB frame target; the native SSE parser scans new bytes only.
@@ -46,7 +48,8 @@ requests keep their exact retry procedure. Net frames may exceed the ordinary
 returns the decisions retained at that accepted state. `after` and `conflict`
 are mutually exclusive; the reference page size is 32, with no cap of 32 on
 accepted decisions; historical pages keep their identities as current
-advances. Unknown, unavailable, or unauthorized state is 404; malformed query
+advances. Every retained accepted update has a merge state whose decisions the
+page lists; states accepted before migration 016 (schema 18) are not retained. Unknown, unavailable, or unauthorized state is 404; malformed query
 or token bindings are 400. A root decision is encoded as `kind: "directory"`
 with the root basis reference and `root: true`, no `placement`, and no
 synthetic filename.

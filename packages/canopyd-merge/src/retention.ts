@@ -58,16 +58,12 @@ async function referencesOf(
 
 const BUDGET = 1_000_000;
 
-/** A full audit of retained states: walk each root's complete typed closure,
- * reading and hash-checking every object, and return the hashes. A new audit
- * trusts nothing from an earlier one. Within one audit, parsed edges are
- * shared across roots, and a later root stops at an earlier root's complete
- * closure. `union` checks all roots as one traversal (the worker's
- * `retention-audit` request); per-root closures serve migration 013. */
+/** A full audit of retained states: walk the complete typed closure of all
+ * roots as one traversal, reading and hash-checking every object, and return
+ * the hashes. A new audit trusts nothing from an earlier one. The worker's
+ * `retention-audit` request runs it. */
 export function retentionAudit(load: (hash: string) => Promise<Uint8Array>) {
-  const edgesOf = new Map<string, Reference[]>();
-  const closures = new Map<string, Set<string>>();
-  return async (roots: string[], union = false): Promise<Set<string>> => {
+  return async (roots: string[]): Promise<Set<string>> => {
     const bytesByHash = new Map<string, Uint8Array>();
     const read = async (hash: string) => {
       const known = bytesByHash.get(hash);
@@ -76,39 +72,18 @@ export function retentionAudit(load: (hash: string) => Promise<Uint8Array>) {
       bytesByHash.set(hash, bytes);
       return bytes;
     };
-    const all = new Set<string>();
-    const unionVerified = new Set<string>(), unionVisited = new Set<string>();
-    for (const root of new Set(roots)) {
-      const verified = union ? unionVerified : new Set<string>();
-      const visited = union ? unionVisited : new Set<string>();
-      const pending: Reference[] = [{ hash: root, kind: "state" }];
-      while (pending.length) {
-        const ref = pending.pop()!, key = ref.kind + ":" + ref.hash;
-        if (visited.has(key)) continue;
-        visited.add(key);
-        verified.add(ref.hash);
-        if (verified.size > BUDGET) throw new Error("Retained graph exceeds verification budget");
-        const known = !union && ref.kind === "state" ? closures.get(ref.hash) : undefined;
-        if (known) {
-          for (const hash of known) verified.add(hash);
-          continue;
-        }
-        let edges = edgesOf.get(key);
-        if (!edges) {
-          const bytes = await read(ref.hash);
-          if (hashObject(bytes) !== ref.hash) throw new Error("Invalid retained object hash");
-          edges = await referencesOf(ref, bytes, read);
-          if (edgesOf.size >= BUDGET) edgesOf.clear();
-          edgesOf.set(key, edges);
-        }
-        pending.push(...edges);
-      }
-      if (!union) {
-        closures.set(root, verified);
-        for (const hash of verified) all.add(hash);
-      }
-      if (all.size > BUDGET) throw new Error("Retained graph exceeds verification budget");
+    const verified = new Set<string>(), visited = new Set<string>();
+    const pending: Reference[] = [...new Set(roots)].map((hash) => ({ hash, kind: "state" as const }));
+    while (pending.length) {
+      const ref = pending.pop()!, key = ref.kind + ":" + ref.hash;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      verified.add(ref.hash);
+      if (verified.size > BUDGET) throw new Error("Retained graph exceeds verification budget");
+      const bytes = await read(ref.hash);
+      if (hashObject(bytes) !== ref.hash) throw new Error("Invalid retained object hash");
+      pending.push(...await referencesOf(ref, bytes, read));
     }
-    return union ? unionVerified : all;
+    return verified;
   };
 }

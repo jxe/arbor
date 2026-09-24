@@ -1,16 +1,17 @@
 import { Database } from "bun:sqlite";
 import type { InspectedDecision, CandidateUpdate } from "@overstory/protocol";
 import type { IntentEvaluation } from "@overstory/merge-protocol";
+import { updateOrdinal } from "./observations.ts";
+/** One accepted update's merge state. `state` and `authored` are the retained
+ * graph roots: the audit recomputes their closure, so no row stores one. */
 export interface MergeStateRecord {
   state: string;
   authored: string;
   decisions: Array<{ key: string; inspection: InspectedDecision }>;
-  /** The retained graph roots: `state` and `authored`, deduplicated. The audit
-   * recomputes the closure from them; no row stores a flattened closure. */
-  retention: { version: 1; roots: string[] };
   evidence:
     | IntentEvaluation["evidence"]
     | null;
+  /** The request as authored: the only stored copy of its candidate and trace. */
   request: Pick<
     CandidateUpdate,
     "change" | "candidate" | "trace" | "resolves"
@@ -21,7 +22,7 @@ export class MergeStateStore {
   constructor(private readonly db: Database) {}
   static createSchema(db: Database) {
     db.run(`CREATE TABLE IF NOT EXISTS accepted_merge_states (
- accepted_id TEXT PRIMARY KEY REFERENCES accepted_updates(id) ON DELETE RESTRICT,
+ accepted_id INTEGER PRIMARY KEY REFERENCES accepted_updates(ordinal) ON DELETE RESTRICT,
  record_json TEXT NOT NULL)`);
   }
   get(id: string): MergeStateRecord | null {
@@ -29,22 +30,22 @@ export class MergeStateStore {
       .query(
         "SELECT record_json FROM accepted_merge_states WHERE accepted_id=?"
       )
-      .get(id) as { record_json: string } | null;
+      .get(updateOrdinal(id)) as { record_json: string } | null;
     return row ? JSON.parse(row.record_json) : null;
   }
   insert(id: string, record: MergeStateRecord) {
     if (!this.db.inTransaction)
       throw new Error("Merge state requires accepted transaction");
     this.db.run("INSERT INTO accepted_merge_states VALUES (?,?)", [
-      id,
+      updateOrdinal(id),
       JSON.stringify(record),
     ]);
   }
   /** Audit one retained record at a time, bounded to the initial high-water mark. */
   *entries(): Generator<{accepted: string; record: MergeStateRecord}> {
-    const last = this.db.query("SELECT MAX(rowid) AS n FROM accepted_merge_states").get() as {n: number | null};
-    for (const row of this.db.query("SELECT accepted_id, record_json FROM accepted_merge_states WHERE rowid <= ? ORDER BY rowid").iterate(last.n ?? 0) as Iterable<{accepted_id: string; record_json: string}>) {
-      yield {accepted: row.accepted_id, record: JSON.parse(row.record_json)};
+    const last = this.db.query("SELECT MAX(accepted_id) AS n FROM accepted_merge_states").get() as {n: number | null};
+    for (const row of this.db.query("SELECT accepted_id, record_json FROM accepted_merge_states WHERE accepted_id <= ? ORDER BY accepted_id").iterate(last.n ?? 0) as Iterable<{accepted_id: number; record_json: string}>) {
+      yield {accepted: String(row.accepted_id), record: JSON.parse(row.record_json)};
     }
   }
 

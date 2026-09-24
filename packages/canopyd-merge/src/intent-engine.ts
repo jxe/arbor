@@ -20,7 +20,6 @@ import {
   parseIntentRequest,
   traceOperations,
   type Effect,
-  type EffectEdit,
   type IntentRequest,
   type IntentRequestInput,
   type IntentDecision,
@@ -66,6 +65,23 @@ const cloneState = (state: IntentState): IntentState => {
     changes: cloneHistory(changes, clone),
   };
 };
+/** Whether `id` is an active node reached from `view.root` through active parents. */
+const displayed = (view: View, id: string): boolean => {
+  const seen = new Set<string>();
+  for (let node = view.nodes[id]; node; node = node.parent === null ? undefined : view.nodes[node.parent]) {
+    if (!node.active || seen.has(node.id)) return false;
+    if (node.id === view.root) return true;
+    seen.add(node.id);
+  }
+  return false;
+};
+/** A checkpoint choice about one folder below the root: its alternatives are
+ * that folder's versions (`object` the folder, `state` rooted at it), its one
+ * affected node the folder, and its subject the folder's path. Every other
+ * directory decision is about the whole root and has no subject. */
+const folderDecision = (decision: IntentDecision): boolean =>
+  decision.kind === "directory" && decision.subject?.material.kind === "basis" &&
+  decision.subject.material.path !== "/";
 /** Whether `a` and `b` have one `stableJSONString` form, decided without
  * building either string (evaluation compares whole node maps with it).
  * Evaluation data is JSON, so equal references and primitives serialize
@@ -174,6 +190,9 @@ class Engine {
   }
   eager = false;
   private projection?: {previous?: ProjectedMaterial; next: ProjectedMaterial};
+  /** Byte lengths of file objects already known from projected material, so
+   * an import need not read them again. */
+  knownLengths?: Map<string, number>;
   authoredResult?: { object: string; state: string };
   readonly pendingEnclosures = new Set<string>();
   readonly formatEvidence: FormatEvidence[] = [];
@@ -269,22 +288,22 @@ class Engine {
     kind: Node["kind"],
     id: string,
     parent: string | null,
-    name: string
+    name: string,
+    // Counted once per import rather than per node, which was quadratic.
+    count = { nodes: Object.keys(view.nodes).length }
   ): Promise<string> {
     if (id.length > 16_384)
       throw new IntentError("limit", "Material nesting budget exceeded");
-    if (
-      Object.keys(view.nodes).length >=
-      (this.request.rules.config?.maxNodes ?? 20_000)
-    )
+    if (count.nodes >= (this.request.rules.config?.maxNodes ?? 20_000))
       throw new IntentError("limit", "Evaluation node budget exceeded");
     if (view.nodes[id]) return fail("Duplicate material identity");
     const node: Node = { id, parent, name, kind, object, active: true };
     view.nodes[id] = node;
+    count.nodes++;
     if (kind === "file") {
-      const bytes = await this.read(object);
-      node.pieces = bytes.length
-        ? [{ origin: id, start: 0, object, offset: 0, length: bytes.length }]
+      const size = this.knownLengths?.get(object) ?? (await this.read(object)).length;
+      node.pieces = size
+        ? [{ origin: id, start: 0, object, offset: 0, length: size }]
         : [];
     }
     if (kind === "directory") {
@@ -297,7 +316,8 @@ class Engine {
           entry.file ? "file" : entry.directory ? "directory" : "tree",
           `${id}/${encodeURIComponent(entry.name)}`,
           id,
-          entry.name
+          entry.name,
+          count
         );
       }
     }
@@ -1188,6 +1208,7 @@ class Engine {
         : {}),
       before: {},
       after: {},
+      edits: {},
       undone: false,
     };
     for (const id of validatedBasisObject ? Object.keys(before) : new Set([
@@ -1204,7 +1225,7 @@ class Engine {
             removed: clone(slice(old.pieces!, ...edit.range)),
             inserted: clone(edit.pieces),
           }));
-          if (edits.length) (effect.edits ??= {})[id] = edits;
+          if (edits.length) effect.edits[id] = edits;
           const { pieces: _before, ...slimBefore } = old;
           const { pieces: _after, ...slimAfter } = clone(now);
           effect.before[id] = slimBefore;
@@ -1236,7 +1257,7 @@ class Engine {
     const realm = this.realms(state);
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
-      for (const [id, edits] of Object.entries(effectEdits(effect))) {
+      for (const [id, edits] of Object.entries(effect.edits)) {
         for (const edit of edits) {
           if (edit.inserted.length || edit.range[0] === edit.range[1]) continue;
           for (const node of Object.values(state.nodes))
@@ -1259,7 +1280,7 @@ class Engine {
     for (const decision of state.decisions) {
       if (decision.kind !== "directory") continue;
       for (const alternative of decision.alternatives)
-        if (alternative.node && (!state.nodes[alternative.node] ||
+        if (alternative.node && (!state.nodes[alternative.node]?.active ||
             await this.project(state, alternative.node) !== alternative.object))
           delete alternative.node;
     }
@@ -1333,6 +1354,17 @@ class Engine {
                   "Hidden alternative material is unavailable"
                 );
             }
+          } else if (folderDecision(retained)) {
+            // The context keeps its own folder; only alternatives it still
+            // holds keep their occurrence.
+            for (const alternative of updated.alternatives)
+              if (
+                alternative.node &&
+                (!displayed(context, alternative.node) ||
+                  (await this.project(context, alternative.node)) !==
+                    alternative.object)
+              )
+                delete alternative.node;
           } else if (retained.kind === "directory") {
             const selected = updated.alternatives[updated.selected]!;
             if ((await this.project(context)) !== selected.object) {
@@ -1449,7 +1481,7 @@ class Engine {
   }
   /** Read history on demand when the basis is an editable state: its nodes
    * already reflect every deletion in its effects, so evaluation only needs
-   * the records it touches. Snapshot, imported and legacy states load eagerly. */
+   * the records it touches. Non-editable states (transported, kept-current, imported beside history) load eagerly. */
   async detectLazy(ref: { state?: string }): Promise<boolean> {
     this.lazy = !this.eager && !!ref.state &&
       await isEditableState(ref.state, (hash) => this.read(hash));
@@ -1636,6 +1668,12 @@ class Engine {
             this.realm(authored, node.id) === authored.root
           )
             continue;
+          if (folderDecision(decision) && alternative.node === decision.affected[0] && !displayed(authored, node.id)) {
+            // A displayed folder choice whose folder the edit removed is
+            // enclosed, as a file choice whose file disappears is.
+            wrapped.add(decision.key);
+            continue;
+          }
           const object = await this.project(authored, node.id);
           if (object !== alternative.object) {
             alternative.object = object;
@@ -2818,10 +2856,15 @@ export async function checkpointIntent(
   // A checkpoint of an editable state needs its active material and the
   // records it writes, never the whole history: the trusted projection seeds
   // per-file objects from the accepted root, and lazy views path-copy on store.
-  const editable = await engine.detectLazy(request.current);
-  const previous = await engine.load(request.current),
-    state = cloneState(previous);
-  const previousRecord = await engine.record(previous);
+  // A first import has no effects, so it vacuously enforces every deletion
+  // they name: it is editable, and the tree's first edit can fast-forward.
+  const editable = (await engine.detectLazy(request.current)) || !request.current.state;
+  const previous = await engine.load(request.current);
+  const state = cloneState(previous);
+  // The previous state as a record: a wrapped decision's context and the kept
+  // alternative. Only decisions need it, so a plain snapshot never stores it.
+  let previousRecorded: Promise<{ object: string; state: string }> | undefined;
+  const previousRecord = () => (previousRecorded ??= engine.record(previous));
   const resolved = new Set(request.resolves ?? []);
   for (const key of resolved) {
     const decision = state.decisions.find((d) => d.key === key);
@@ -2837,13 +2880,35 @@ export async function checkpointIntent(
     decision.dependencies = decision.dependencies.filter(
       (d) => !resolved.has(d)
     );
-  const fresh = await engine.initial(request.projection);
   const oldObjects = new Map<string, string>();
+  engine.knownLengths = new Map();
+  const previousChildren = engine.childIndex(previous);
   for (const node of Object.values(previous.nodes))
-    if (node.active && node.kind === "file")
-      oldObjects.set(node.id, await engine.project(previous, node.id));
-  const freshChildren = engine.childIndex(fresh),
-    previousChildren = engine.childIndex(previous);
+    if (node.active && node.kind === "file") {
+      const object = await engine.project(previous, node.id, new Set(), previousChildren);
+      oldObjects.set(node.id, object);
+      if (node.pieces) engine.knownLengths.set(object, length(node.pieces));
+    }
+  const fresh = await engine.initial(request.projection);
+  engine.knownLengths = undefined;
+  // New material is named by this change and its path, never by the projected
+  // root: checkpoints of one change onto one state (the accepted projection
+  // and the author's own candidate) then agree wherever their bytes agree, so
+  // a batch suffix authored against the candidate still finds its material.
+  const local = (id: string) => id.startsWith(fresh.root) ? id.slice(fresh.root.length) || "/" : id;
+  const freshChildren = engine.childIndex(fresh);
+  // Each old directory's active children by name, the first of a name winning.
+  const previousNames = new Map<string, Map<string, Node>>();
+  const priorChild = (parent: string, name: string) => {
+    let names = previousNames.get(parent);
+    if (!names) {
+      names = new Map();
+      for (const node of engine.children(previous, parent, previousChildren))
+        if (!names.has(node.name)) names.set(node.name, node);
+      previousNames.set(parent, names);
+    }
+    return names.get(name);
+  };
   const rebind = (
     id: string,
     parent: string | null,
@@ -2852,7 +2917,7 @@ export async function checkpointIntent(
     const value = fresh.nodes[id]!,
       old = oldID ? previous.nodes[oldID] : undefined;
     const next =
-      old?.kind === value.kind ? old.id : `snapshot:${request.change}:${id}`;
+      old?.kind === value.kind ? old.id : `snapshot:${request.change}:${local(id)}`;
     state.nodes[next] = {
       ...clone(value),
       id: next,
@@ -2868,12 +2933,10 @@ export async function checkpointIntent(
     )
       state.nodes[next]!.pieces = state.nodes[next]!.pieces!.map((p) => ({
         ...p,
-        origin: `snapshot:${request.change}:${p.origin}`,
+        origin: `snapshot:${request.change}:${local(p.origin)}`,
       }));
     for (const child of engine.children(fresh, id, freshChildren)) {
-      const prior = old
-        ? engine.children(previous, old.id, previousChildren).find((n) => n.name === child.name)
-        : undefined;
+      const prior = old ? priorChild(old.id, child.name) : undefined;
       rebind(child.id, next, prior?.id);
     }
     return next;
@@ -2973,6 +3036,25 @@ export async function checkpointIntent(
         } });
         continue;
       }
+    } else if (folderDecision(decision)) {
+      // A choice about one folder concerns only that folder.
+      const id = decision.affected[0]!,
+        before = displayed(previous, id) ? await engine.project(previous, id, new Set(), previousChildren) : undefined,
+        after = displayed(state, id) ? await engine.project(state, id) : undefined;
+      if (before === after) continue;
+      const selected = decision.alternatives[decision.selected]!;
+      if (request.continueSelected !== false && !request.decisions.length &&
+          selected.node === id && before !== undefined && after !== undefined) {
+        // Editing the displayed folder edits that alternative, as a traced edit would.
+        continuations.push({ decision, apply: async () => {
+          const context = cloneState(state);
+          context.root = id;
+          selected.object = after;
+          selected.contributions.push({ change: request.change, operation: null });
+          selected.state = (await engine.record(context)).state;
+        } });
+        continue;
+      }
     } else if (decision.kind === "directory" && request.continueSelected !== false &&
         !request.decisions.length && decision.alternatives[decision.selected]!.node === previous.root) {
       // A snapshot of the displayed tree edits that alternative, as a traced edit would.
@@ -2985,7 +3067,7 @@ export async function checkpointIntent(
       } });
       continue;
     }
-    decision.context = previousRecord.state;
+    decision.context = (await previousRecord()).state;
     wrapped.push(decision.key);
   }
   // Continuing an alternative claims the snapshot's material. When another
@@ -2995,7 +3077,7 @@ export async function checkpointIntent(
     request.current.object !== request.projection && request.conflictProjection === "current";
   for (const { decision, apply } of continuations) {
     if (!withheld) { await apply(); continue; }
-    decision.context = previousRecord.state;
+    decision.context = (await previousRecord()).state;
     wrapped.push(decision.key);
   }
   for (const input of request.decisions) {
@@ -3006,7 +3088,7 @@ export async function checkpointIntent(
         for (const name of input.path!)
           node =
             engine.children(view, node.id).find((n) => n.name === name) ??
-            fail("Legacy alternative path absent");
+            fail("Checkpoint decision path is absent");
         return node;
       };
       const find = (view: View) => { try { return locate(view); } catch { return undefined; } };
@@ -3015,7 +3097,7 @@ export async function checkpointIntent(
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
         if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
-          throw new Error("Legacy existence alternative is not a file");
+          throw new Error("Checkpoint existence alternative is not a file");
         const kept = present.find((node) => node)!;
         let target = find(state);
         if (!target) {
@@ -3023,7 +3105,7 @@ export async function checkpointIntent(
           const parentPath = input.path.slice(0, -1);
           let parent = state.nodes[state.root]!;
           for (const name of parentPath)
-            parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Legacy alternative parent absent");
+            parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Checkpoint decision parent is absent");
           target = { ...clone(kept), id: `existence:${input.key}`, parent: parent.id, name: input.path.at(-1)!, active: false };
           state.nodes[target.id] = target;
         }
@@ -3051,14 +3133,45 @@ export async function checkpointIntent(
         continue;
       }
       const selected = locate(state);
+      if (selected.kind === "directory") {
+        // A choice about one folder: each alternative is that folder's version
+        // in its root, recorded as a state rooted at the folder. The displayed
+        // one is the live folder, so edits inside it continue that alternative.
+        const shown = await engine.project(state, selected.id);
+        const alternatives = [];
+        for (const [index, a] of input.alternatives.entries()) {
+          const folder = locate(contexts[index]!);
+          if (folder.kind !== "directory")
+            throw new Error("Checkpoint folder alternative is not a directory");
+          const recorded = await engine.record(await engine.initial(folder.object));
+          if (index === input.selected && recorded.object !== shown)
+            throw new Error("Checkpoint projection does not show the selected folder");
+          alternatives.push({
+            ...recorded,
+            ...(index === input.selected ? { node: selected.id } : {}),
+            contributions: a.contributions,
+          });
+        }
+        state.decisions.push({
+          key: input.key,
+          kind: "directory",
+          affected: [selected.id],
+          selected: input.selected,
+          alternatives,
+          dependencies: input.dependencies ?? [],
+          reason: "Retained folder ambiguity",
+          subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: shown } },
+        });
+        continue;
+      }
       if (!selected.pieces)
-        throw new Error("Legacy file decision has no file placement");
+        throw new Error("Checkpoint file decision has no file placement");
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
         const context = await engine.initial(a.object),
           material = clone(locate(context));
         if (!material.pieces)
-          throw new Error("Legacy file alternative is not a file");
+          throw new Error("Checkpoint file alternative is not a file");
         material.id = `legacy:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);
@@ -3138,7 +3251,7 @@ export async function checkpointIntent(
     const extra =
       request.candidate &&
       request.candidate !== projected.object &&
-      request.candidate !== previousRecord.object
+      request.candidate !== (await previousRecord()).object
         ? [
             {
               ...(await engine.record(await engine.initial(request.candidate))),
@@ -3153,7 +3266,7 @@ export async function checkpointIntent(
       selected: request.conflictProjection === "current" ? 0 : 1,
       alternatives: [
         {
-          ...previousRecord,
+          ...(await previousRecord()),
           ...(request.conflictProjection === "current"
             ? { node: state.root }
             : {}),
@@ -3180,22 +3293,21 @@ export async function checkpointIntent(
   await objects.store(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );
-  return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions: decisionReports(state) };
-}
-
-/** An `editSource` effect's piece edits per file node: stored on new records,
- * recomputed from the whole piece copies on legacy ones. */
-export function effectEdits(effect: Effect): Record<string, EffectEdit[]> {
-  if (effect.edits) return effect.edits;
-  const result: Record<string, EffectEdit[]> = {};
-  for (const [id, before] of Object.entries(effect.before)) {
-    const after = effect.after[id];
-    if (!before.pieces || !after?.pieces) continue;
-    result[id] = pieceEdits(before.pieces, after.pieces).map((edit) => ({
-      range: edit.range,
-      removed: slice(before.pieces!, ...edit.range),
-      inserted: edit.pieces,
-    }));
-  }
-  return result;
+  const decisions = decisionReports(state);
+  if (!request.authored)
+    return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
+  // The author's checkpoint of the same projection differs from this one only
+  // where a decision is added or enclosed (the conflict projection, the
+  // candidate alternative): with neither, both requests yield the same state.
+  const own = request.candidate ?? request.projection;
+  if (!wrapped.length && !request.decisions.length && own === request.projection)
+    return { kind: "checkpoint", result, authored: result, objects: [...engine.generated.keys()], decisions };
+  const author = await checkpointIntent({
+    kind: "checkpoint", tree: request.tree, current: request.current, projection: own,
+    change: request.change, decisions: [], ...(request.resolves ? { resolves: request.resolves } : {}),
+  }, objects);
+  return {
+    kind: "checkpoint", result, authored: author.result,
+    objects: [...new Set([...engine.generated.keys(), ...author.objects])], decisions,
+  };
 }

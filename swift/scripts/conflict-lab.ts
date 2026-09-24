@@ -149,7 +149,7 @@ async function fileHash(objects: Map<string, Uint8Array>, root: string, name: st
 
 /** One candidate made of exact source edits located by UTF-8 byte offset. */
 async function candidate(base: { root: string; objects: Map<string, Uint8Array> }, edits: Edit[]) {
-  const { executeExactSourceEdits } = await import("../../packages/canopyd/src/updates/source-edits.ts");
+  const { executeExactSourceEdits } = await import("../../tests/support/source-edits.ts");
   const operations = [];
   for (const [index, [page, find, replace]] of edits.entries()) {
     const object = await fileHash(base.objects, base.root, page);

@@ -20,9 +20,9 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Client state machines
 
-`clients/` — The portable client state machines and the runners that execute them.
+`clients/` — The portable update machine, the change log, and the runners and sources that use them.
 
-- [Clients 001 — Reconcile the client state machines with the clients that run them](clients/001-reconcile-client-state-machines.md) — **NEEDS DESIGN.** Neither TypeScript reducer runs in production, and the Swift runners bypass their machines' effects and phases; decide per behaviour whether the machine or the runner is right, revise spec 09 and the vectors, make the runners effect-driven, and add runner conformance before Web 025 needs them.
+- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **DESIGN AGREED; Swift first.** Editors (traced frames) and folders (`trace: null`) append local changes to one durable `ChangeLog`, and one `UpdateMachine` runner publishes them; the document admission machine, editor recovery journal and daemon conflict workspace are deleted, rejection is `held`, and shared runner vectors pin Swift and TypeScript before Web 025.
 
 ## Web client
 
@@ -49,7 +49,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
 - [canopyd 009 — Merge rule selection per host and per tree](canopyd/009-merge-rule-selection.md) — **P3 · PLANNED.** Governed host and per-tree choice among the merge tool's existing rules, recorded in each merge's evidence.
 - [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
-- [canopyd 015 — One merge-state model, then squash retained history](canopyd/015-squash-history-and-one-merge-state-model.md) — **P2 · PLANNED.** Route every acceptance through merge states, then migration 017 squashes history to head roots and drops the legacy tables, columns and readers. Conflicts with the 2026-09-24 host fast-forward, which relies on replay; decide first.
+- [canopyd 015 — One merge-state model, then squash retained history](canopyd/015-squash-history-and-one-merge-state-model.md) — **P2 · PLANNED.** Route every acceptance through merge states, then migration 016 squashes history to head roots and drops the legacy tables, columns and readers.
 - **Sidebar creations as `addEntry`** — candidate. Editor page creation and a directory's first body are traced (canopyd 011, [closeout](../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); the sidebar's `createMarkdown`/`createDirectory` actions still publish snapshots because their admission records carry no editor document. Emit `addEntry` from `retainStructure` for those actions too.
 
 ## CLI and external agents

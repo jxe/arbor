@@ -525,10 +525,8 @@ describe("private self-sync", () => {
       await daemon.synchronizeNow();
       const metadata = (await owner.submitUpdate(tree, initial.descriptor.tree.update, candidate("right"))).update;
       expect(metadata.conflicted).toBe(true);
-      // Move the newest row's cursor (its ordinal) away from its id.
-      const metadataCursor = String(Number(metadata.id) + 1000);
-      db.run("UPDATE accepted_updates SET ordinal = ? WHERE id = ?", [Number(metadataCursor), metadata.id]);
-      db.run("UPDATE sqlite_sequence SET seq = ? WHERE name = 'accepted_updates'", [Number(metadataCursor)]);
+      // An accepted update's cursor is its id.
+      const metadataCursor = metadata.id;
       await daemon.synchronizeNow();
       expect(daemon.trees.placementFor(tree)?.cursor).toBe(metadataCursor);
       expect((await daemon.trees.descriptors()).find(d => d.id === tree)).toMatchObject({ conflicted: true, sync: "idle" });

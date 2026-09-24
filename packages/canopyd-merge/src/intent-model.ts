@@ -136,10 +136,11 @@ export interface Effect {
   preserves?: boolean;
   before: Record<string, Node>;
   after: Record<string, Node>;
-  /** The piece edits of an `editSource` effect, per file node. When present,
-   * `before`/`after` copies omit `pieces`: the edits carry exactly what
-   * deletion enforcement and retention read. Legacy records keep the pieces. */
-  edits?: Record<string, EffectEdit[]>;
+  /** The piece edits of an `editSource` effect, per file node (empty for
+   * every other kind). An edited file's `before`/`after` copies omit
+   * `pieces`: the edits carry exactly what deletion enforcement and retention
+   * read. */
+  edits: Record<string, EffectEdit[]>;
   undone: boolean;
 }
 export interface EffectEdit {
@@ -283,7 +284,7 @@ const stateSchema = z
             range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
             removed: z.array(pieceSchema).max(100_000),
             inserted: z.array(pieceSchema).max(100_000),
-          }).strict())).optional(),
+          }).strict())),
           undone: z.boolean(),
         })
         .strict()

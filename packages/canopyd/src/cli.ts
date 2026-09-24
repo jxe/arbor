@@ -100,7 +100,6 @@ export async function initCommunity(args: string[]): Promise<void> {
     throw new Error(`${dataRoot} already holds a community; run \`canopyd serve ${dataRoot}\` instead`);
   }
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  process.env.ARBOR_CANOPY_NO_WARMUP ||= "1";
   const canopy = await CanopyDaemon.open(dataRoot, {
     handle,
     name: handle,

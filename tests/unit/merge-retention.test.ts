@@ -56,7 +56,7 @@ function fixture() {
 }
 
 /** A fresh audit of one or more roots, as the worker's audit request runs it. */
-const audit = (load: (hash: string) => Promise<Uint8Array>, roots: string[]) => retentionAudit(load)(roots, true);
+const audit = (load: (hash: string) => Promise<Uint8Array>, roots: string[]) => retentionAudit(load)(roots);
 
 test("the audit returns a state's exact closure and rejects a missing or corrupt object", async () => {
   const f = fixture();
@@ -70,7 +70,7 @@ test("the audit returns a state's exact closure and rejects a missing or corrupt
   await expect(audit(f.load, [f.state])).rejects.toThrow("Missing object");
 });
 
-test("an audit shares history across records and union traversal without trusting earlier audits", async () => {
+test("a fresh audit shares history across records in one union traversal", async () => {
   const f = fixture();
   const state = await loadIntentState(f.state, f.load);
   const roots = [f.state];
@@ -84,16 +84,13 @@ test("an audit shares history across records and union traversal without trustin
     roots.push(storeIntentState(state, f.put));
   }
   const expected = await audit(f.load, [roots.at(-1)!]);
-  const perRoot = retentionAudit(f.load);
   const before = f.reads();
-  for (const root of roots) await perRoot([root]);
-  // Per root: its own parts plus one rewritten map leaf, not every earlier change.
+  expect(await audit(f.load, roots)).toEqual(expected);
+  // One traversal of the union: each root adds its own parts plus one
+  // rewritten map leaf, not every earlier change.
   expect(f.reads()-before).toBeLessThan(roots.length*16);
-  expect(await perRoot(roots,true)).toEqual(expected);
-  const unionAudit=retentionAudit(f.load);
-  expect(await unionAudit(roots,true)).toEqual(expected);
   // A union never becomes an incorrectly broad closure for its first root.
-  expect(await unionAudit([f.state])).toEqual(await audit(f.load, [f.state]));
+  expect((await audit(f.load, [f.state])).size).toBeLessThan(expected.size);
   f.objects.delete(f.file);
   await expect(audit(f.load, roots)).rejects.toThrow("Missing object");
 });

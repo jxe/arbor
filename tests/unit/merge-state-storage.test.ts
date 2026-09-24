@@ -151,6 +151,7 @@ test("growing history shares piece pages instead of storing quadratic copies", a
         operation: "edit",
         kind: "editSource",
         undone: false,
+        edits: {},
         before: { file: node(i) },
         after: { file: node(i + 1) },
       };

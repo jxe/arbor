@@ -4,12 +4,8 @@ import { fileURLToPath } from "node:url";
 import { hashObject, type ObjectHash } from "@overstory/protocol";
 import { absentFrom, ObjectStore } from "@overstory/object-store";
 import {
-  CHECKPOINT_BATCH_TOO_LARGE,
-  CheckpointBatchLimitError,
   MAX_AUDIT_ROOTS,
   parseResponse,
-  type CheckpointBatchRequest,
-  type CheckpointBatchResponse,
   type CheckpointRequest,
   type CheckpointResponse,
   type IntentEvaluation,
@@ -25,7 +21,6 @@ import type { MergeResult } from "./updates/reconcile.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
-  | CheckpointBatchResponse
   | ProjectionResponse
   | IntentEvaluation
   | RetentionAuditResponse;
@@ -53,9 +48,11 @@ export class MergeWorkerError extends Error {
     super(message);
     this.name = "MergeWorkerError";
   }
-  /** Budget failures (the worker's `limit` code) may pass on a retry once the host is less loaded. */
+  /** Budget failures (the worker's `limit` code) may pass on a retry once the
+   * host is less loaded; so may a worker that could not start, exited or timed
+   * out (`unavailable`). Nothing was accepted, so the client keeps its request. */
   get retryable(): boolean {
-    return this.code === "limit";
+    return this.code === "limit" || this.code === "unavailable";
   }
 }
 
@@ -107,7 +104,6 @@ export class MergeTool {
   }
 
   evaluate(request: RetentionAuditRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:RetentionAuditResponse;objects:Map<ObjectHash,Uint8Array>}>;
-  evaluate(request: CheckpointBatchRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:CheckpointBatchResponse;objects:Map<ObjectHash,Uint8Array>}>;
   evaluate(
     request: CheckpointRequest,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
@@ -190,11 +186,13 @@ export class MergeTool {
     let worker: PersistentMergeWorker | undefined;
     let healthy = false;
     try {
-      worker = await this.currentWorker();
+      const unavailable = (error: unknown) => new MergeWorkerError(
+        `Merge worker unavailable: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`, "unavailable");
+      worker = await this.currentWorker().catch((error) => { throw unavailable(error); });
       const staging = new ObjectStore(join(worker.directory, "objects"));
       await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000);
+      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000).catch((error) => { throw unavailable(error); });
       mark("worker-process");
       try {
         for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
@@ -204,8 +202,6 @@ export class MergeTool {
       } catch { /* diagnostics only */ }
       const raw = JSON.parse(stdout);
       if (raw && typeof raw === "object" && "error" in raw) {
-        if (request.kind === "checkpoint-batch" && raw.error?.code === CHECKPOINT_BATCH_TOO_LARGE)
-          throw new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget");
         // The worker reports evaluation failures as {error}; never let that
         // shape reach the response schema, whose complaint would hide it.
         throw new MergeWorkerError(
@@ -320,9 +316,10 @@ export class MergeTool {
         "Merge tool unavailable; preserving ambiguity:",
         error instanceof Error ? error.message.split("\n")[0] : "invalid result"
       );
-      // Ordinary content becomes an accepted whole-root choice.
+      // Ordinary content becomes an accepted whole-root choice that keeps the
+      // current tree displayed.
       return {
-        root: candidate,
+        root: current,
         objects: new Map(),
         conflicts: [{ path: "/", reason: "node-conflict" }],
         unresolvedDirectories: ["/"],

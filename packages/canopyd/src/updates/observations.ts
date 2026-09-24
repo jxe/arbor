@@ -1,5 +1,13 @@
 import type { Database } from "bun:sqlite";
 
+/** The ordinal an update id or cursor names: its canonical decimal spelling,
+ * or null for anything else. */
+export function updateOrdinal(id: string): number | null {
+  if (!/^[1-9][0-9]*$/.test(id)) return null;
+  const ordinal = Number(id);
+  return Number.isSafeInteger(ordinal) ? ordinal : null;
+}
+
 /** One accepted update at its position in a tree's observation order. */
 export interface ObservationRecord {
   ordinal: number;
@@ -11,42 +19,33 @@ export interface ObservationRecord {
 interface ObservationRow {
   ordinal: number;
   tree_id: string;
-  id: string;
 }
 
-const COLUMNS = "ordinal, tree_id, id";
+const COLUMNS = "ordinal, tree_id";
 
 function toRecord(row: ObservationRow): ObservationRecord {
-  return { ordinal: row.ordinal, cursor: String(row.ordinal), tree: row.tree_id, updateID: row.id };
-}
-
-/** The ordinal a cursor names, or null for anything that is not a positive decimal ordinal. */
-function ordinalOf(cursor: string): number | null {
-  if (!/^[1-9][0-9]*$/.test(cursor)) return null;
-  const ordinal = Number(cursor);
-  return Number.isSafeInteger(ordinal) ? ordinal : null;
+  return { ordinal: row.ordinal, cursor: String(row.ordinal), tree: row.tree_id, updateID: String(row.ordinal) };
 }
 
 /**
  * Cursor order over accepted updates, the sole source of watch order. An
  * accepted update's cursor is its decimal `accepted_updates.ordinal`, a
- * server-wide AUTOINCREMENT position that is never reused; the update's `id`
- * is its separate wire identity. A cursor that names no retained accepted
+ * server-wide AUTOINCREMENT position that is never reused, spelled exactly as
+ * the update's wire id. A cursor that names no retained accepted
  * update of the tree is not retained.
  */
 export class ObservationLog {
   constructor(private readonly db: Database) {}
 
   get(cursor: string): ObservationRecord | null {
-    const ordinal = ordinalOf(cursor);
+    const ordinal = updateOrdinal(cursor);
     if (ordinal === null) return null;
     const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE ordinal = ?`).get(ordinal) as ObservationRow | null;
     return row ? toRecord(row) : null;
   }
 
   forUpdate(update: string): ObservationRecord | null {
-    const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE id = ?`).get(update) as ObservationRow | null;
-    return row ? toRecord(row) : null;
+    return this.get(update);
   }
 
   latestCursor(tree?: string): string | null {

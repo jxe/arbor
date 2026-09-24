@@ -1,4 +1,4 @@
-# Check 016: resource-only `trees.yaml`
+# Check 017: resource-only `trees.yaml`
 
 Not a schema change. This release reads an account's `trees.yaml` only in the
 resource-rule grammar (`who` / `allow` / `within` / `via`); the legacy
@@ -10,8 +10,8 @@ Before deploying, run the read-only check against a restored backup (step 3
 of [the procedure](../README.md#the-procedure)):
 
 ```sh
-bun run test:migration packages/canopyd/migrations/016-resource-policy-only
-bun run packages/canopyd/migrations/016-resource-policy-only/check.ts before | tee policy-report.json
+bun run test:migration packages/canopyd/migrations/017-resource-policy-only
+bun run packages/canopyd/migrations/017-resource-policy-only/check.ts before | tee policy-report.json
 ```
 
 It opens the database read-only and exits nonzero if any active

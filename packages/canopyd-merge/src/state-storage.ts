@@ -111,10 +111,8 @@ type IndexedRoot = {
 function indexedRoot(raw: any): IndexedRoot {
   if (
     raw?.format !== "arbor-merge-intent-state-v3" ||
-    !["active,editable,format,maps", "active,format,maps"].includes(
-      Object.keys(raw).sort().join(),
-    ) ||
-    (Object.hasOwn(raw, "editable") && typeof raw.editable !== "boolean") ||
+    Object.keys(raw).sort().join() !== "active,editable,format,maps" ||
+    typeof raw.editable !== "boolean" ||
     typeof raw.active !== "string" ||
     !OBJECT_HASH.test(raw.active) ||
     !raw.maps ||
@@ -125,7 +123,7 @@ function indexedRoot(raw: any): IndexedRoot {
     )
   )
     throw Error("Invalid indexed state root");
-  return { ...raw, editable: raw.editable ?? false };
+  return raw;
 }
 function activeState(state: IntentState): IntentState {
   return {

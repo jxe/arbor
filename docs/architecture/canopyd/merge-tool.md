@@ -63,10 +63,9 @@ clients emit additional operations.
 ### Trusted semantic basis
 
 For operation-bearing tree requests, the host supplies `base` and `current`
-state/root pairs within the named tree. canopyd takes them from its accepted
-records, from checkpoints and replays the worker returned for accepted history,
-or from earlier results in the same batch. They are not client-provided
-assertions. This is the worker contract;
+state/root pairs within the named tree. canopyd takes them from the merge states
+of accepted records or from states the worker returned earlier in the same
+request. They are not client-provided assertions. This is the worker contract;
 there is no trust flag or optional untrusted-basis mode.
 
 Exact-basis source execution loads active state and directory metadata to obtain
@@ -76,20 +75,45 @@ remain hash-checked, operation selectors remain checked, and the computed result
 must match the supplied candidate. General merges currently retain their full
 projection work; extending incremental execution is separate remaining work.
 
-## Historical checkpoints
+## Checkpoints and recorded merge states
 
-canopyd reconstructs missing semantic states that no trace explains with `checkpoint-batch`
-requests containing an initial material reference and up to 64 ordered accepted
-projections, change identities and legacy decisions. The worker applies the same
-checkpoint semantics at each step and returns every intermediate state reference.
-canopyd checks each against its accepted projection before persisting objects
-and caching references.
+Every accepted update records a merge state beside its row: a traced edit its
+evaluated state, a snapshot its checkpoint (below), and each acceptance canopyd
+makes itself its own checkpoint of the new root onto the tree's current state:
+a tree's first root (imported with no prior state), pairing, account
+configuration, and the boundary rewrite of a canonical parent. The row's
+`conflicted` flag is that state's open decisions, and inspection pages read
+them. There is no other conflict record: migration 016 (schema 18) removed the
+whole-entry conflict rows and the updates accepted before this model, keeping
+each tree's head with a fresh first-import state.
 
-Each batch retains at most 128 MiB of generated objects and 32 MiB of cached input
-bytes. Exceeding the generated-object budget returns the error code
-`checkpoint-batch-too-large`; canopyd retries a smaller slice against the same
-basis. Other failures remain failures. These are
-internal worker requests, with no public Overstory or database schema change.
+A `checkpoint` request may set `authored: true` with a `candidate`: one job
+then returns, beside the accepted projection's `result`, the author's own
+candidate checkpointed onto the same state without decisions (`authored`), the
+basis a later batch suffix continues from. When no decision is added or
+enclosed the two are the same request, and the worker returns the one state
+twice. Both are recorded as the worker returns them ([response checks](#response-checks)).
+
+A checkpoint decision names whole alternative roots. With a `path` it
+concerns one entry below the root: a content choice when every alternative
+holds a file there, an existence choice when one lacks it, and a folder choice
+when every alternative holds a directory there. A file choice is placed on
+that file's node; a folder choice records each alternative's version of the
+folder (its object, and a state rooted at it) and names the folder's node as
+its one affected node and the displayed alternative's occurrence. Either way
+edits elsewhere leave it alone, and an edit inside the displayed file or
+folder, traced or snapshot, continues that alternative. A snapshot or edit
+that removes a folder with an open folder choice encloses it. Without a
+`path` it is one choice about the whole root. Inspection reports a file or
+folder choice as an `entry` decision placed at its path, with `file` or
+`directory` alternative values, as the whole-entry conflict rows did before
+schema 18; a whole-root choice is a `directory` decision at `/`.
+
+A first import is editable (it has no effects to enforce), so a new tree's
+first edit fast-forwards. A checkpoint names new material by its change and
+path rather than by the projected root, so the accepted projection and the
+author's candidate agree wherever their bytes agree.
+
 Bun uses native SHA-256 with the same object identities as the portable fallback.
 
 ## Incremental retained state
@@ -118,59 +142,31 @@ alternative names a present entry, and contributions), its subject, and, when
 it has a placement, the placed file's logical `path` and, when that file is
 active and the decision has no context, its affected byte `range`. The worker
 resolves its own node identities into those paths, so canopyd needs nothing
-else to assign durable decision and alternative identities and to present them.
+else to assign durable decision and alternative identities and to present them,
+including folder choices, whose subject is the folder's path.
 
 ## Response checks
 
 canopyd trusts the worker it runs. It checks each response's shape and its
 correspondence to the request (rule identity, change, operation keys, candidate
-root, checkpoint projections), hash-checks every generated object as it reads it
-back, verifies the reachable closure of a snapshot merge's result tree, and
-requires a stateful result's root to be present. It does not re-execute
-operations, re-validate retained state, or compare a response's decisions
-against that state. Earlier releases did, with a second copy of the worker's
-validator; `ARBOR_STATE_PROOF_MB`, `ARBOR_HISTORY_CACHE_MB` and
-`ARBOR_STATE_VALIDATION_MS` configured it and no longer exist.
-
-## Fast-forward without the worker
-
-A single traced update whose base is the tree's current accepted update, with
-no decisions open there, no resolutions, no stale `ifCurrent` guard, and only
-`editSource` operations, is checked by canopyd itself: every frame must follow
-its predecessor and reproduce its own `after` exactly from plain basis edits
-(`validateSourceTrace` in `packages/canopyd/src/updates/source-edits.ts`). When
-it does, canopyd accepts it without calling the worker and keeps its frames and
-per-operation evidence in `authored_changes`, inside the accepted transaction.
-An edit that leaves the bytes unchanged still records intent, so it goes to the
-worker. The fast path never rejects: anything canopyd cannot verify, including
-an invalid trace, is evaluated by the worker as before, and the worker remains
-the authority on validity. If the head moves between verification and commit,
-the request fails with a retryable `server-busy`; a traced edit is never merged
-as a snapshot.
-
-The worker's state then lags. canopyd rebuilds it from its accepted log: in
-the background right after the commit, and in the foreground whenever a later
-request needs the state first. Walking back to the nearest recorded or cached
-state, an update whose retained trace explains it exactly (its basis and
-candidate are its predecessor's root and its own) is replayed as an authored
-evaluation and its result recorded; any other missing update is checkpointed
-as its accepted projection, as before. A replay that does not reproduce the
-accepted root, or fails, falls back to a checkpoint for that update. Builds are
-serialized per tree, so a catch-up never replays history another has already
-recorded, and shutdown waits for pending catch-ups.
-
-On a 400-line note in a fresh data directory, sequential plain edits took a
-35 to 40 ms median before this path and about 15 ms with it; the first edit
-after start fell from about 280 ms to about 20 ms.
+root, checkpoint projection and authored candidate), hash-checks every
+generated object as it reads it back, verifies the reachable closure of a
+snapshot merge's result tree, and requires a stateful result's root to be
+present. It does not re-execute operations, re-validate retained state, or
+compare a response's decisions against that state. Earlier releases did, with
+a second copy of the worker's validator; `ARBOR_STATE_PROOF_MB`,
+`ARBOR_HISTORY_CACHE_MB`, `ARBOR_STATE_VALIDATION_MS` and the startup warm-up
+(`ARBOR_CANOPY_NO_WARMUP`) served it and no longer exist.
 
 ## Account configuration
 
 The three account-configuration files are canopyd's policy: it parses them,
 authorizes every change before and after merging, and writes them itself. So
 their three-way merge is in canopyd (`packages/canopyd/src/account-policy-v2.ts`),
-beside that authorization, and the worker has no account rule. Parsing and the
-canonical three-file writer are in `@overstory/protocol`. `trees.yaml` is read in
-the resource-rule grammar only.
+beside that authorization, and the worker has no account rule; the merged root
+is then checkpointed like any snapshot. Parsing and the canonical three-file
+writer are in `@overstory/protocol`. `trees.yaml` is read in the resource-rule
+grammar only.
 
 ## Operation evaluation
 
@@ -216,10 +212,9 @@ answers `unsupported` if it sees the kind. Clients compact a debounced burst of
 plain `editSource` frames before admission: `compactTrace` in
 `packages/client/src/source-admission-queue.ts` (and the Swift queue) composes
 them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/document-admission.md#trace-compaction)).
-The evaluator does not compact; it checks the trace it receives. canopyd's
-`composeFrames` in `packages/canopyd/src/updates/source-edits.ts` implements
-the same rule by executing the composition, and serves as a test reference
-for it.
+The evaluator does not compact; it checks the trace it receives.
+`composeFrames` in `tests/support/source-edits.ts` implements the same rule by
+executing the composition, and serves as a test reference for it.
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a
@@ -259,13 +254,31 @@ and changed on the other is an existence choice about that file alone: its
 kept alternative is the file, the deleted alternative names no node, and every
 other concurrent change still merges into the projection.
 
-An untraced snapshot (as filesystem sync sends) is checkpointed onto the
-current state. It encloses only choices whose own material it touches: a
+An untraced snapshot (as filesystem sync sends) is merged as a tree against
+the current accepted root and then checkpointed onto the current state, on
+every tree policy. It encloses only choices whose own material it touches: a
 choice about one file is untouched by edits elsewhere, and a snapshot of the
 displayed version continues that alternative, as a traced edit would. When a
-snapshot itself conflicts, each conflicting file (or file against its
-deletion) becomes its own choice and the rest of the snapshot merges; folders
-and the root keep a single whole-root choice.
+snapshot itself conflicts, each conflict becomes a choice about one entry and
+the rest of the snapshot merges: a conflicting file (or file against its
+deletion) is a choice about that file, and a conflict inside a folder the tree
+merge could not reconcile (a divergent page move, a collection schema
+conflict), or at an entry that is not a file in both versions, is a choice
+about the nearest folder both versions hold. A choice inside another choice's
+folder is part of that choice, and a folder choice depends on the open choices
+already inside it, so replacing the folder must resolve them too. Only a
+conflict at the root, or one no folder below the root contains, is a single
+whole-root choice. The current material stays displayed and the candidate's
+is the alternative. The current alternative is
+attributed to each change accepted since the request's base that touched the
+path (as a change, never an operation); the candidate to its own change. A
+batch suffix whose basis showed a hidden alternative of an open file or folder
+choice continues that alternative: the choice keeps its identity, and the
+alternative becomes the suffix's version instead of a second choice about the
+same entry. An access-policy conflict on an account-configuration tree keeps
+the restrictive merge as one whole-configuration choice that later
+configuration edits must resolve exactly; other governed conflicts are
+refused.
 
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
 retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations
@@ -319,17 +332,20 @@ Retained state has active material (nodes, decisions) and five history maps
 hash-partitioned map of immutable records. A state is `editable` when the
 evaluation that recorded it enforced every deletion in its effects map on its
 nodes. Transported results, results kept under `conflictProjection:
-"current"`, and imported states are not editable and take one complete scan,
-after which their result is editable. A checkpoint (snapshot candidate) of an
+"current"`, and states imported beside existing history are not editable and
+take one complete scan, after which their result is editable. A tree's first
+import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
-their enforced pieces, and replaced files get fresh origins. Reading a record that was
+their enforced pieces, and replaced files get fresh origins. Every state root
+records its `editable` flag; a root without one is invalid. Reading a record that was
 not loaded is an evaluator error, never "absent".
 
-An `editSource` effect records its piece delta per file node (`edits`: each
-edit's `range`, `removed` and `inserted` pieces), and its `before`/`after` node
-copies omit `pieces`. Deletion enforcement and retention read only the delta.
-Records written before the delta keep whole piece copies and are read by
-recomputing the same edits; there is no migration of stored history.
+Every effect records `edits`: for an `editSource` effect its piece delta per
+file node (each edit's `range`, `removed` and `inserted` pieces), and nothing
+for other kinds. An edited file's `before`/`after` node copies omit `pieces`.
+Deletion enforcement and retention read only the delta. Records with whole
+piece copies and no delta were written only into history that migration 016
+squashed, and are no longer read.
 
 ### Limits
 
@@ -369,11 +385,13 @@ inputs, results awaiting commit, hidden alternatives and provenance dependencies
 
 canopyd uses one worker, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
-limit. Runtime options can change the timeout, but not add workers. Worker launch, timeout,
-validation or execution failure preserves ordinary snapshot content as accepted
-ambiguity where the existing snapshot path can do so safely. Authoritative operation
-execution and semantic checkpoint failures cannot become unchecked snapshot writes:
-no acceptance is recorded, and the client retains its durable request for retry.
+limit. Runtime options can change the timeout, but not add workers. A failed tree merge
+of ordinary content is preserved as an accepted whole-root choice that keeps the
+current tree, since its checkpoint still records the merge state. Every acceptance
+records a merge state, so a worker that cannot start, exits or times out accepts
+nothing: canopyd answers a retryable 503 (`merge-failed`), and the client retains its
+durable request for retry. Authoritative operation execution and semantic checkpoint
+failures cannot become unchecked snapshot writes.
 An exact accepted retry uses its receipt without requiring the worker. Governed account
 configuration retains its authorization/rejection policy. The client keeps its
 usual durable retry behavior for unrelated storage or transaction failures.
@@ -402,7 +420,6 @@ conservative format rules are described next.
 ```sh
 bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts
 bun test tests/unit/canopyd-merge tests/unit/canopyd/account-policy-v2.test.ts
-bun test tests/integration/canopyd/source-acceptance.test.ts
 bun tests/performance/benchmark-merge-tool.ts
 bun run typecheck
 bun run test:protocol
@@ -416,9 +433,7 @@ HTTP case verifies accepted ambiguity, replay, continued publication, restart,
 and integrity with a missing worker. A process test runs a collection merge
 with an empty environment from a working directory outside the checkout.
 `tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded
-result against an eager reference that reads all history. The source-acceptance
-suite covers host fast-forwards: acceptance without a worker, replay after an
-outage, a stale guard, equal-byte edits, and catch-up across eighty updates.
+result against an eager reference that reads all history.
 
 
 Ordinary plain list edits, including splitting, removing, and rearranging list

@@ -6,22 +6,17 @@
 - **Effort:** M
 - **Risk:** HIGH. The migration rewrites live history, and a mistake in the
   unification step changes conflict behavior on every ordinary tree.
-- **State:** PLANNED, 2026-09-24. Joe accepts losing accepted history to
-  retire legacy storage.
+- **State:** Stages 1 and 2 DONE in code, 2026-09-24, on
+  `claude/canopyd-code-review-pvrk0p`; not deployed. Remaining: the rehearsal
+  (replay check, migration on restored copies) and the live run, both in the
+  [migration 016 runbook](../../packages/canopyd/migrations/016-squash-history/README.md).
+  Delete this plan once 016 has run and its evidence is in `status.md`. Joe
+  accepts losing accepted history to retire legacy storage, keeps
+  `document_versions` and entry dates, and resolves open conflicts first.
 - **Depends on:** the no-migration cleanup of the same review, which removed
   dead readers, the one-shot merge mode, the source-proposal request and other
   code that needed no data change. Migrations 013 to 015 must be out of their
   rollback window (backups from 2026-09-23 age out around 2026-10-07).
-- **Conflicts with the merge boundary change (2026-09-24, [status](../../status.md#merge-boundary--2026-09-24)).**
-  canopyd now accepts a verified plain edit on the head without the merge
-  sidecar and without a merge state; the state is recorded later by replaying
-  the edit's trace from `authored_changes`. That relies on `SourceIntentStore`,
-  `validateSourceTrace` in `updates/source-edits.ts`, `SemanticMerge` replay
-  and, for untraced gaps, `checkpoint-batch`, all of which stage 2 below
-  deletes, and it adds rows without a merge state, which stage 1 forbids.
-  Decide which model wins before starting this plan. Account-config merging
-  also moved into canopyd (`account-policy-v2.ts`); `account-v2.ts` is gone.
-  Check 016 took the next migration number, so this plan's migration is 017.
 
 ## Why
 
@@ -46,34 +41,69 @@ Squashing history alone would not delete any of this, because the snapshot
 path keeps producing rows without a merge state. So there are two stages:
 unify first (code only, no data change), then squash (a migration).
 
-## Stage 1: every acceptance records a merge state (no migration)
+## Stage 1: every acceptance records a merge state (done in code)
 
-1. Route ordinary snapshot candidates through `submitSemanticCandidate`, which
-   already handles snapshots through checkpoints (`canopy.ts` ~1911-1976).
-   Retire `reconcileUpdate`, `reconcileEntryAmbiguity` and
-   `updates/entry-ambiguity.ts` for ordinary trees.
-2. Record a merge state on every other path that inserts an accepted update:
-   - tree creation (`canopy.ts` ~851);
-   - pairing (~717);
-   - account-config writes (~1131, ~2407, through `insertAcceptedUpdate`).
+Every path that inserts an accepted update now records a merge state, and
+`AcceptedUpdateInput.mergeState` is required: ordinary and governed
+snapshots go through `submitSemanticCandidate`; tree creation, pairing,
+account-configuration creation and nested-boundary rewrites checkpoint their
+root. Account-configuration policy conflicts are merge-state decisions, so
+nothing writes `accepted_conflicts` and no conflict row is copied forward.
+`reconcileEntryAmbiguity` and `updates/entry-ambiguity.ts` are gone. A snapshot
+takes one worker job for its two checkpoints (`authored: true`), plus a tree
+merge only when concurrent. Profile facts rows are written only for accepted
+person and group roots, inside the accepting transaction. The behavior is in
+the [merge tool](../../docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states).
 
-   Account-config policy conflicts either become merge-state decisions or stay
-   the only writer of `accepted_conflicts`. Decide this after reading
-   `account-policy-v2.ts`. The recommendation is to move them, so that
-   `ConflictStore` only reads.
-3. Stop copying conflict state forward. Write a conflict row only when
-   decisions or resolutions change, and read "latest row at or before".
-4. Collapse the snapshot-on-semantic-tree case from three worker round trips
-   (a tree merge and then two `checkpoint` jobs) to one request.
-5. Verification: the full canopyd suites, `self-sync`, the protocol
-   conformance run, and a rehearsal on a restored backup. Replaying the
-   rehearsal's last N accepted updates through the new path must produce
-   byte-identical roots and equivalent decisions.
+Not yet done: the rehearsal on a restored backup, replaying its last N
+accepted updates through the new path and comparing roots and conflict flags.
+`packages/canopyd/migrations/016-squash-history/replay-check.ts` does it; the
+runbook runs it before the migration. Stage 1 deploys with stage 2.
 
-After stage 1, `checkpoint-batch` replay is reached only for rows written
-before it. Stage 2 removes those rows.
+Stage 2 must know:
 
-## Stage 2: migration 017 squashes history (schema 18)
+- Legacy readers are marked `Legacy rows only; deleted by migration 016`.
+  Once no row lacks a merge state, `ConflictStore` (and `entryValue`,
+  `decisionDependencies`), `openDecisions`' fallback, the `conflictPage` and
+  preflight fallbacks, the audit's conflict-row checks and the preflight's
+  receipt replay branch all go.
+- A snapshot now costs a checkpoint, which is linear in the tree's nodes
+  (active-state load, store and host validation), like a traced edit: on a
+  synthetic 1000-file tree a snapshot fast-forward went from about 90 ms to
+  about 380 ms (`tests/performance/snapshot-acceptance-cost.ts`). An
+  incremental checkpoint that path-copies the active state, as the traced fast
+  path does for history, is the follow-up if folder sync of large trees
+  matters.
+- An unavailable worker now refuses every acceptance with a retryable 503,
+  including tree creation, pairing and account claims.
+- Old `profile:<root>` rows exist for every root ever validated, in older
+  formats too; `storedProfileFacts` reads them all. Rebuild only current
+  person and group heads.
+
+## Stage 2: migration 016 squashes history (schema 18)
+
+**Implemented (2026-09-24), not run.** As planned, with these choices:
+
+- Each head keeps its old ordinal, so its wire id and cursor are unchanged and
+  placements only resume. Its `previous` becomes `null`.
+- `previous_ordinal` is a foreign key; the wire `previous.root` is joined from
+  the predecessor.
+- `document_versions.update_id` stays as opaque text without a foreign key;
+  `entry_metadata` keeps only `modified_at`.
+- The merge-state record drops `retention` but keeps `request` (after the
+  squash it is the only stored copy of an authored candidate and trace) and
+  the engine's `evidence`, whose input roots the tests read.
+- The engine's checkpoint `path` branch was not legacy-only: stage 1's
+  per-entry snapshot choices use it. It stays, with its errors reworded, and
+  now also takes a folder path: stage 1 had turned every folder conflict into
+  a whole-root choice, and the folder choice restores the pre-stage-1 scope
+  and inspection shape (an `entry` decision with `directory` values at the
+  folder's path). See the
+  [merge tool](../../docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states).
+- `storedProfileFacts` reads only version-3 rows, since the migration rebuilt
+  every row.
+
+The plan as written:
 
 **Preconditions, checked by `run.ts`, which refuses to run otherwise:**
 
@@ -95,8 +125,8 @@ before it. Stage 2 removes those rows.
 - `authored_changes`;
 - every `accepted_conflicts` row (none are unresolved, by the precondition);
 - every `accepted_merge_states` row except the heads';
-- `profile:<root>` rows in `meta`. Rebuild them for current profile heads
-  only, and change the code to write them only for person and group roots.
+- `profile:<root>` rows in `meta`. Rebuild them for current person and group
+  profile heads only; the code already writes no others.
 
 **Drop (schema):**
 
@@ -121,16 +151,16 @@ before it. Stage 2 removes those rows.
 - the `editable ?? false` defaulting;
 - decision-ID reuse in `semantic.record` and `ConflictStore.forTree`;
 - `retentionAudit`'s non-union mode;
-- migration directories 013, 014 and 015, replaced by 017 as the template;
+- migration directories 013, 014 and 015, replaced by 016 as the template;
 - `updates/source-edits.ts`, moved to test support if the conformance run and
   `swift/scripts/conflict-lab.ts` still need it.
 
 **Objects:** the squash leaves old objects unreferenced. Do not delete them in
-017. Either prune in a later step behind a fresh full retention audit, or leave
+016. Either prune in a later step behind a fresh full retention audit, or leave
 them to [canopyd 001](001-pack-object-storage.md)'s packing, which then only
 packs live data.
 
-## Decisions for Joe before stage 2
+## Decisions for Joe before stage 2 (decided)
 
 1. **Document versions and entry dates.** `document_versions` feeds
    [canopyd 007](007-document-history-routes-and-restore.md) (P1) and

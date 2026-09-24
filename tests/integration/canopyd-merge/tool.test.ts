@@ -92,7 +92,7 @@ test("concurrent jobs share immutable inputs without publishing either output", 
   await expectNoStaging();
 });
 
-test("bad output, nonzero exit and timeout conservatively retain a whole-root decision", async () => {
+test("bad output, nonzero exit and timeout conservatively keep the current tree behind a whole-root decision", async () => {
   const base = snapshot("base"), current = snapshot("current"), incoming = snapshot("incoming");
   const { request, inputs } = await prepare(base, current, incoming);
   for (const [script, timeoutMs] of [
@@ -105,7 +105,7 @@ test("bad output, nonzero exit and timeout conservatively retain a whole-root de
     const broken = new MergeTool(directory, { command: [process.execPath, file], timeoutMs });
     await expect(broken.evaluate(request, inputs)).rejects.toThrow();
     const result = await broken.tree(base.root, incoming.root, current.root, inputs);
-    expect(result).toMatchObject({ root: incoming.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
+    expect(result).toMatchObject({ root: current.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
     await broken[Symbol.asyncDispose]();
     await expectNoStaging();
   }
@@ -179,45 +179,56 @@ test("unchanged shared outputs need no staging copies and existing objects are n
 });
 
 
-test("batched checkpoints exactly preserve individual states including legacy alternatives", async () => {
+test("checkpoints chain, and a decision scoped to a file below the root is retained", async () => {
   const roots = [snapshot("base"), snapshot("one"), snapshot("two"), snapshot("hidden")];
   await store.store(roots.flatMap(r => [...r.objects].map(([hash,bytes]) => ({hash,bytes}))));
   const steps = [
     {projection:roots[1]!.root,change:"first",decisions:[]},
     {projection:roots[2]!.root,change:"second",decisions:[{
-      key:"legacy-choice",path:["note.md"],dependencies:[],selected:0,
+      key:"file-choice",path:["note.md"],dependencies:[],selected:0,
       alternatives:[{object:roots[2]!.root,contributions:[{change:"second",operation:null}]},
         {object:roots[3]!.root,contributions:[{change:"hidden",operation:null}]}],
     }]},
   ];
   let current: {object:string;state?:string} = {object:roots[0]!.root};
-  const expected: Array<{object:string;state:string}> = [];
   for (const step of steps) {
     const value = await tool.evaluate({kind:"checkpoint",tree:"history-tree",current,...step},new Map());
     await store.store([...value.objects].map(([hash,bytes])=>({hash,bytes})));
-    expected.push(value.response.result); current = value.response.result;
+    expect(value.response.result.object).toBe(step.projection);
+    current = value.response.result;
   }
-  const request = {kind:"checkpoint-batch" as const,tree:"history-tree",current:{object:roots[0]!.root},steps};
-  const result = await tool.evaluate(request,new Map());
-  expect(result.response.checkpoints).toEqual(expected);
-  expect(result.response.result).toEqual(expected.at(-1)!);
-  const {parseResponse} = await import("@overstory/merge-protocol");
-  expect(() => parseResponse({...result.response,checkpoints:expected.slice(1)},request)).toThrow();
-  expect(() => parseResponse({...result.response,checkpoints:[...expected].reverse()},request)).toThrow();
+  const {loadIntentState} = await import("@overstory/canopyd-merge");
+  const state = await loadIntentState(current.state!, hash => store.read(hash));
+  expect(state.decisions.map(d => [d.key, d.kind])).toEqual([["file-choice", "content"]]);
 });
 
 
-test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
-  const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
-  const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
-  const fake=join(directory,"batch-limit.ts");
-  await writeFile(fake,lineWorker(`console.log(${JSON.stringify(JSON.stringify({error:{code:"checkpoint-batch-too-large",message:"Checkpoint batch exceeds object byte budget"}}))});`));
-  const request={kind:"checkpoint-batch" as const,tree:"tree",current:{object:base.root},steps:[{projection:base.root,change:"change",decisions:[]}]};
-  await using limited = new MergeTool(directory,{command:[process.execPath,fake]});
-  await expect(limited.evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchLimitError);
-  // Any other failure of a checkpoint batch stays an ordinary worker failure.
-  await expect(limited.evaluate({...request,kind:"checkpoint" as const,...request.steps[0]!},new Map())).rejects.not.toBeInstanceOf(CheckpointBatchLimitError);
-  await expectNoStaging();
+test("one checkpoint request returns the author's state beside the projection's", async () => {
+  const roots = [snapshot("base"), snapshot("one"), snapshot("two")];
+  await store.store(roots.flatMap(r => [...r.objects].map(([hash, bytes]) => ({ hash, bytes }))));
+  const keep = async (value: { objects: Map<string, Uint8Array> }) => store.store([...value.objects].map(([hash, bytes]) => ({ hash, bytes })));
+  const initial = await tool.evaluate({ kind: "checkpoint", tree: "combined", current: { object: roots[0]!.root }, projection: roots[0]!.root, change: "first", decisions: [] }, new Map());
+  await keep(initial);
+  const current = initial.response.result;
+  // The projection and the author's candidate differ: two states, one request.
+  const combined = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [], authored: true }, new Map());
+  await keep(combined);
+  const author = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[2]!.root, change: "change", decisions: [] }, new Map());
+  const projection = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [] }, new Map());
+  expect(combined.response.result).toEqual(projection.response.result);
+  expect(combined.response.authored).toEqual(author.response.result);
+  expect(projection.response.authored).toBeUndefined();
+  // With nothing to decide, the author's candidate is the projection's state.
+  const same = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[1]!.root,
+    change: "same", decisions: [], authored: true }, new Map());
+  expect(same.response.authored).toEqual(same.response.result);
+  const { parseResponse } = await import("@overstory/canopyd-merge");
+  const request = { kind: "checkpoint" as const, tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root, change: "change", decisions: [], authored: true as const };
+  expect(() => parseResponse({ ...combined.response, authored: undefined }, request)).toThrow("authored");
+  expect(() => parseResponse({ ...combined.response, authored: combined.response.result }, request)).toThrow("authored");
+  expect(() => parseResponse(combined.response, { ...request, authored: undefined })).toThrow("authored");
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {

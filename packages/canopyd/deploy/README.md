@@ -90,7 +90,6 @@ canopyd reads these variables at start; all are optional.
 | `ARBOR_CANOPY_DATA` | `/data` in the image | Data directory: `canopy.sqlite3` plus `objects/`. |
 | `ARBOR_DOMAIN` | from `RAILWAY_PUBLIC_DOMAIN` | Public hostname used to derive the canonical URL; pass `--url` instead for plain HTTP or a nonstandard port. |
 | `ARBOR_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects; the merge worker reads through the same store. |
-| `ARBOR_CANOPY_NO_WARMUP` | unset | Set to skip resolving every tree's current semantic state in the background at startup; the first edit after a restart then pays that cost. |
 | `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker implementing `serve`; see [the merge tool](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
 
 ### Health and readiness

@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
-import { executeExactSourceEdits } from "../../../packages/canopyd/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../../support/source-edits.ts";
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
@@ -47,7 +47,7 @@ async function editAt(path: string, text: string, basis = root, range: [number, 
 }
 function records() {
   const db = new Database(`${dir}/canopy.sqlite3`);
-  try { return db.query("SELECT u.change_id, u.base_root AS basis_root, u.candidate_root, m.record_json FROM accepted_merge_states m JOIN accepted_updates u ON u.id=m.accepted_id WHERE u.tree_id = ? AND json_extract(m.record_json, '$.request.trace') IS NOT NULL").all(tree); } finally { db.close(); }
+  try { return db.query("SELECT u.change_id, json_extract(m.record_json, '$.evidence.inputs.base') AS basis_root, json_extract(m.record_json, '$.request.candidate') AS candidate_root, m.record_json FROM accepted_merge_states m JOIN accepted_updates u ON u.ordinal=m.accepted_id WHERE u.tree_id = ? AND json_extract(m.record_json, '$.request.trace') IS NOT NULL").all(tree); } finally { db.close(); }
 }
 test("accepts exact source, retains evidence across restart, and replays after snapshot advancement", async () => {
   const update = await edit("ABC"), request = { base, updates: [update] };
@@ -391,7 +391,6 @@ test("a failed conflict-state insert cannot acknowledge or partially publish a c
   db.run("CREATE TRIGGER fail_conflict AFTER INSERT ON accepted_merge_states BEGIN SELECT RAISE(ABORT, 'injected conflict failure'); END");
   await expect(client.submitUpdates(tree, { base, updates: [b] })).rejects.toThrow("injected conflict failure");
   expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
-  expect(db.query("SELECT * FROM accepted_conflicts").all()).toHaveLength(0);
   db.run("DROP TRIGGER fail_conflict"); db.close();
   expect((await client.submitUpdates(tree, { base, updates: [b] })).results[0]!.update.conflicted).toBe(true);
 });
@@ -899,70 +898,6 @@ test("source admission preserves an existing snapshot conflict's public identiti
  await running.canopy.verifyIntegrity();
 });
 
-
-test("cold history reads durable checkpoints without restaging its growing prefix", async () => {
-  let current = root, accepted = base;
-  for (let i = 0; i < 70; i++) {
-    const update = await edit(String(i).padStart(3, "0"), current);
-    const result = await client.submitUpdates(tree, {
-      base: accepted, updates: [{ ...update, trace: null }],
-    });
-    current = result.results[0]!.update.root;
-    accepted = result.results[0]!.update.id;
-  }
-  await stop(); await start();
-  const tool = (running.canopy as unknown as {
-    mergeTool: import("../../../packages/canopyd/src/merge-tool.ts").MergeTool;
-  }).mergeTool;
-  const original = tool.evaluate.bind(tool);
-  const checkpointInputs: string[][] = [];
-  const sizes: number[] = [];
-  tool.evaluate = (async (request: any, inputs: ReadonlyMap<string, Uint8Array>) => {
-    if (request.kind === "checkpoint-batch") {
-      checkpointInputs.push([...inputs.keys()].sort()); sizes.push(request.steps.length);
-    }
-    return original(request, inputs);
-  }) as typeof tool.evaluate;
-  const update = await edit("new", current);
-  const result = await client.submitUpdates(tree, { base: accepted, updates: [update] });
-  expect(result.results[0]!.update.root).toBe(update.candidate);
-  expect(checkpointInputs).toHaveLength(2);
-  expect(sizes[0]).toBe(64);
-  expect(sizes.reduce((a,b)=>a+b,0)).toBeGreaterThan(70);
-  for (const inputs of checkpointInputs) expect(inputs).toEqual(checkpointInputs[0]!);
-  await stop(); await start();
-  expect((await client.submitUpdates(tree, { base: accepted, updates: [update] })).results[0]!.update.id)
-    .toBe(result.results[0]!.update.id);
-  await running.canopy.verifyIntegrity();
-});
-
-
-test("large historical batches split without changing their accepted basis", async () => {
-  let current = root, accepted = base;
-  for (let i=0;i<10;i++) {
-    const update=await edit(String(i).padStart(3,"0"),current);
-    const result=await client.submitUpdates(tree,{base:accepted,updates:[{...update,trace:null}]});
-    current=result.results[0]!.update.root;accepted=result.results[0]!.update.id;
-  }
-  await stop();await start();
-  const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
-  const tool=(running.canopy as unknown as {mergeTool:import("../../../packages/canopyd/src/merge-tool.ts").MergeTool}).mergeTool;
-  const evaluate=tool.evaluate.bind(tool);let splits=0,successfulSteps=0;
-  tool.evaluate=(async(request:any,inputs:ReadonlyMap<string,Uint8Array>)=>{
-    if(request.kind==="checkpoint-batch"){
-      if(request.steps.length>4){splits++;throw new CheckpointBatchLimitError("test budget");}
-      successfulSteps+=request.steps.length;
-    }
-    return evaluate(request,inputs);
-  }) as typeof tool.evaluate;
-  const update=await edit("new",current),request={base:accepted,updates:[update]};
-  const result=await client.submitUpdates(tree,request);
-  expect(splits).toBeGreaterThan(0);expect(successfulSteps).toBeGreaterThan(10);
-  expect(result.results[0]!.update.root).toBe(update.candidate);
-  await stop();await start();
-  expect((await client.submitUpdates(tree,request)).results[0]!.update.id).toBe(result.results[0]!.update.id);
-  await running.canopy.verifyIntegrity();
-});
 
 test("independent source conflicts expose ranges and resolve separately across restart", async () => {
   await stop(); await start({contentChoices:"source"});

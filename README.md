@@ -28,9 +28,8 @@ as `@overstory/<name>`; Swift packages live under `swift/Packages/`.
   `OverstoryObjectStore`, `OverstoryClient`, `CanopyWorkingTree`.
 - **canopyd, the host**: serves communities, accounts, hosted trees, and
   public pages over HTTPS, accepts updates, and runs two sidecars: the merge
-  tool for concurrent and non-trivial updates (canopyd accepts plain edits on
-  the current head itself) and the executable-document runtime for queries and
-  mutations. `canopyd`, `canopyd-merge`, `merge-protocol` (the JSON contract
+  tool for every accepted update and the executable-document runtime for
+  queries and mutations. `canopyd`, `canopyd-merge`, `merge-protocol` (the JSON contract
   between the two), `apps-runtime`.
 - **Arbor Sync, the local daemon**, with the `arbor` command: keeps placed
   folders on a Mac synchronized with their hosts and serves them to local

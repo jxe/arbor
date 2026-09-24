@@ -40,9 +40,11 @@ describe("Canopy schema version stamp", () => {
     db.close();
     expect(columns(database, "boundaries")).toEqual(["path", "tree_id", "parent_tree"]);
     expect(columns(database, "tree_reservations")).toEqual(["id", "account_id", "canonical_path", "status", "error"]);
-    expect(columns(database, "authored_changes")).toEqual(["accepted_id", "trace_json", "evidence_json"]);
-    expect(columns(database, "accepted_updates").slice(0, 2)).toEqual(["ordinal", "id"]);
-    for (const table of ["reflog", "observations"]) expect(columns(database, table)).toEqual([]);
+    expect(columns(database, "accepted_updates")).toEqual([
+      "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id",
+    ]);
+    expect(columns(database, "entry_metadata")).toEqual(["tree_id", "path", "modified_at"]);
+    for (const table of ["reflog", "observations", "authored_changes", "accepted_conflicts"]) expect(columns(database, table)).toEqual([]);
 
     const reopened = await CanopyDaemon.open(root);
     expect(reopened.community().kind).toBe("ordinary");
@@ -62,15 +64,15 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 17 is current: a schema-15 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("17");
+  test("schema 18 is current: a schema-17 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("18");
     const root = await dataRoot();
     const first = await CanopyDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
-    db.run("UPDATE meta SET value = '15' WHERE key = 'schema_version'");
+    db.run("UPDATE meta SET value = '17' WHERE key = 'schema_version'");
     db.close();
-    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version 15 but this build requires 17.*run the offline migration/);
+    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version 17 but this build requires 18.*run the offline migration/);
   });
 
   test("refuses a database stamped with a different version", async () => {

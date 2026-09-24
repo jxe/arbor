@@ -18,13 +18,10 @@ depends on it except tests and the deployment tooling.
   `observations.ts` (cursor order over accepted updates, the only source of
   watch order), `watch-frames.ts`
   (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
-  the per-update object reader the transition and entry-change diffs share),
-  `graph-validation.ts`, `source-edits.ts` (exact source
-  execution, the trace check behind host fast-forwards, and `composeFrames`),
-  `conflict-store.ts`, `merge-state-store.ts`, `source-intent-store.ts`
-  (the traces of fast-forwarded edits), `entry-ambiguity.ts`,
-  `semantic-merge.ts` (the sidecar's state per accepted update, rebuilt by
-  replaying fast-forwards and checkpointing everything else).
+  the per-update object reader), `entry-metadata.ts` (entry dates and
+  document versions), `graph-validation.ts`, `merge-state-store.ts` (each
+  accepted update's merge state, the only conflict record), `semantic-merge.ts`
+  (merge states from the sidecar's decision reports).
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, response
   checks, and the worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
 - `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,

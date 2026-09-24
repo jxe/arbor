@@ -112,3 +112,24 @@ export async function walkTreeDiff(
   };
   await walk(before, after, "", 0);
 }
+
+/** The paths whose entries differ between two roots. A changed file, nested
+ * tree or entry kind stays at its entry; a directory whose own metadata
+ * changed is named itself. Physical changes are evidence of a change, never
+ * of an editor operation. */
+export async function changedEntryPaths(before: ObjectHash, after: ObjectHash, load: Load | TreeReader): Promise<string[]> {
+  const paths: string[] = [];
+  const metadata = ({ entries: _entries, ...rest }: WireDirectory) => JSON.stringify(rest);
+  const value = (entry?: WireDirectoryEntry) =>
+    entry?.file ? `file:${entry.file}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
+  await walkTreeDiff(before, after, load, {
+    directory: ({ path, before: old, after: next }) => {
+      if (old && next && metadata(old.directory) !== metadata(next.directory)) paths.push(path);
+    },
+    entry: ({ path, before: a, after: b }) => {
+      if (a?.directory && b?.directory) return true;
+      if (value(a) !== value(b)) paths.push(path);
+    },
+  });
+  return paths;
+}

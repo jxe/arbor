@@ -4,8 +4,6 @@ import { IntentError } from "./intent-model.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { merge, wireResponse } from "./index.ts";
 import { workerObjects } from "./worker-objects.ts";
-import { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
-import { CHECKPOINT_BATCH_TOO_LARGE } from "@overstory/merge-protocol";
 import { engineDiagnostics } from "./intent-engine.ts";
 import type { MergeObjects } from "./index.ts";
 
@@ -86,8 +84,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       process.stdout.write(
         JSON.stringify({
           error: {
-            ...(error instanceof CheckpointBatchLimitError ? {code: CHECKPOINT_BATCH_TOO_LARGE}
-              : error instanceof IntentError ? {code: error.code} : {}),
+            ...(error instanceof IntentError ? {code: error.code} : {}),
             message:
               error instanceof Error
                 ? error.message

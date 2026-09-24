@@ -24,7 +24,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Accepted-state contract: simplified receipts, predecessor identity and root chains, required unresolved signals, paged conflict inspection without a decision-count cap | deployed, installed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Merge sidecar: canopyd forwards all eight operation kinds to `arbor-merge`, which executes exact authored operations, retains source choices, applies the conservative format rules, and returns retained state; canopyd owns acceptance, authorization, retention, and identities (schema 12) | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md) |
 | Incremental merge state and lazy history: shared history pages, editable-state reuse, one persistent FIFO worker, accepted-prefix preflight reuse; per-request phase logging and `Server-Timing` | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state-and-lazy-history), [deployment](packages/canopyd/deploy/README.md#canopyd-runtime-environment) |
-| Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and treats its retained state as opaque (decision reports, a `retention-audit` request, no host re-validation); canopyd merges account configuration itself; verified plain edits on the current head are accepted without the sidecar, which catches up by replaying their traces; `trees.yaml` is resource-rule grammar only | implemented, not deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#fast-forward-without-the-worker), [check 016](packages/canopyd/migrations/016-resource-policy-only/README.md) |
+| Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and treats its retained state as opaque (decision reports, a `retention-audit` request, no host re-validation); canopyd merges account configuration itself; `trees.yaml` is resource-rule grammar only | implemented, not deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#response-checks), [check 017](packages/canopyd/migrations/017-resource-policy-only/README.md) |
 | Accepted whole-entry and source-range conflicts: competing edits retained as alternatives with attribution, root decisions, guarded partial resolution, authorized historical inspection (schema 10 and 11) | deployed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Resource policy and execution authority: shared `who` / `via` / `allow` / `within` grammar, governed policy index, host-private execution tokens, guarded scoped snapshot effects, revocation stream, restrictive-intersection conflict acceptance, Canopy consent review (schema 13) | deployed, installed | [access control](docs/overstory-spec/05-access-control.md), [reference implementation](docs/architecture/protocol/README.md#resource-policy) |
 | Client state machines: the document admission machine and the working-tree update machine are pure reducers in both languages executing one shared fixture; one request in flight per document session and per tree, with one retained successor | installed | [client state machines](docs/implementing-editors/document-admission.md) |
@@ -34,7 +34,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Canopy editor recovery: saves wait for durable coordinator heads; committed generations keep exact-source local recovery copies with Local History restore; reconnection retries pending work; restart, divergent-draft review, disk-failure retry, and keystroke races have regressions | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#editor-recovery-store) |
 | Canopy operation capture: ordinary and compound sibling-body entry moves and copies, explicit current-page path rename with subtree relocation and proactive link healing, post-copy page-ID edits, explicit removals for private Trash, same-document and cross-document copies, page-conversion undo and redo, durable undo-horizon collection, exact CRLF and BOM preservation | installed | [client design](docs/implementing-editors/design.md#labels-and-actions), [Native 008](plans/swift/008-complete-native-move-copy-undo-capture.md) |
 | Canopy conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [Native 010](plans/swift/010-client-conflict-review.md) |
-| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16) and served by `/entry-metadata`; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [migration 014](packages/canopyd/migrations/014-entry-metadata/README.md) |
+| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16) and served by `/entry-metadata`; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/canopyd/migrations/README.md#schema-history) |
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state-and-lazy-history) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `arbor me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/canopyd/deploy/README.md) |
@@ -42,6 +42,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status` | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
+| One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | implemented, not deployed; migration 016 not rehearsed or run | [merge tool](docs/architecture/canopyd/merge-tool.md#checkpoints-and-recorded-merge-states), [migration 016](packages/canopyd/migrations/016-squash-history/README.md), [canopyd 015](plans/canopyd/015-squash-history-and-one-merge-state-model.md) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
 
 ## In progress
@@ -67,14 +68,14 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Migration 016 (implemented, not run) cuts the database's accepted history to each tree's head but deletes no objects: squashed roots and states stay in `objects/`, unreferenced. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome** (`arbor mv` between Canopy accounts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone.
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
-- **Latency.** The target is under 100 ms of server processing for a small fast-forward. Locally, in a fresh data directory, a plain edit on the head takes about 15 ms (not yet deployed); divergent-merge and live latency are not established, and a merge after a restart can still take seconds while the sidecar rebuilds its state unless warm-up ran.
-- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
-- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript and Swift readers, canopyd and the CLI ([check 016](packages/canopyd/migrations/016-resource-policy-only/README.md) lists any account still holding one). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
+- **Latency.** The target is under 100 ms of server processing for a small fast-forward. Locally, in a fresh data directory, a plain edit on the head takes about 30 ms, one merge-worker round trip; divergent-merge and live latency, and the first edit after a restart on a large history, are not established.
+- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Once migration 016 runs, retained accepted history starts at its cut (each tree's head then); document versions and entry dates from before the cut are kept. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
+- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript and Swift readers, canopyd and the CLI ([check 017](packages/canopyd/migrations/017-resource-policy-only/README.md) lists any account still holding one). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked
@@ -86,33 +87,44 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Merge boundary — 2026-09-24
 
-Implemented on `claude/merge-tool-canopyd-api-dcic82`; not deployed. canopyd no
-longer imports `@overstory/canopyd-merge`: the two share `@overstory/object-store`
-and the new `@overstory/merge-protocol` (request and response schemas, decision
-reports, rule summaries, error codes). canopyd dropped its copy of the sidecar's
-state validator (proofs, history caches, typed retention, their warm-up) and reads
-decision reports instead of the sidecar's state; the integrity audit asks the
-sidecar to walk its retained closure. Account configuration is merged in canopyd
-beside its authorization, and `trees.yaml` accepts only the resource-rule grammar,
-so cross-account `arbor mv` now refuses until a policy transfer is reviewed. A
-single traced plain edit on the current head with no open decisions is verified
-and accepted by canopyd itself; the sidecar's state catches up by replaying the
-stored trace, in the background or on the next request that needs it.
+Implemented on `claude/merge-tool-canopyd-api-dcic82` on top of the one merge-state
+model; not deployed. canopyd no longer imports `@overstory/canopyd-merge`: the two
+share `@overstory/object-store` and the new `@overstory/merge-protocol` (request and
+response schemas, decision reports, rule summaries, error codes). canopyd dropped its
+copy of the sidecar's state validator (proofs, history caches, typed retention and
+the startup warm-up that primed them) and builds each merge state from the
+sidecar's decision reports instead of reading its state; the integrity audit asks
+the sidecar to walk its retained closure. The sidecar's now-unused validation code
+is deleted. Account configuration is merged in canopyd beside its authorization, and
+`trees.yaml` accepts only the resource-rule grammar in TypeScript and Swift, so
+cross-account `arbor mv` now refuses until a policy transfer is reviewed. A host
+fast-forward that skipped the sidecar was reverted when this work was ported onto
+the one merge-state model; it is to be redesigned.
 
-Evidence: `bun run typecheck` has only the existing
-`013-compact-merge-evidence/migrate.test.ts` error; `ARBOR_CREDENTIAL_STORE=file bun run test`
-passes 1177 of 1181, and the 4 failures also fail on the base commit here
-(missing `react/jsx-dev-runtime` twice, one surrogate byte-offset case, one
-unreadable-directory case as root); `bun test tests/unit/canopyd-merge tests/integration/canopyd-merge`
-passes 270 of 271 with the same byte-offset case; `bun run test:migration packages/canopyd/migrations/016-resource-policy-only`
-and `bun run test:performance` pass. The Swift half of `bun run test:protocol` and
-`swift test` were not run (no Swift toolchain in the Linux container). The Swift
-reader (`AccountConfigurationYAML.swift`, `ResourceConsent.swift`) was then changed
-to accept and write resource rules only; that change is not yet compiled or
-tested on macOS. Local plain-edit latency on
-a 400-line note: median 35 to 40 ms before, about 15 ms after; first edit after
-start about 280 ms before, about 20 ms after. Before deploying, run check 016
-against a restored backup.
+Evidence: `bun run typecheck` is clean; `ARBOR_CREDENTIAL_STORE=file bun run test`
+passes all but 4, which also fail on `main` in this container (missing
+`react/jsx-dev-runtime` twice, one surrogate byte-offset case, one
+unreadable-directory case as root); the merge suites pass all but the same
+byte-offset case. The Swift half of `bun run test:protocol`, `swift test` and the
+`Canopy` build were not run (no Swift toolchain in the Linux container), so the
+Swift reader change is not yet compiled. Before deploying, run check 017 against
+a restored backup.
+
+## One merge-state model and history squash — 2026-09-24
+
+Implemented on `claude/canopyd-code-review-pvrk0p`, not deployed. Stage 1 of
+[canopyd 015](plans/canopyd/015-squash-history-and-one-merge-state-model.md): every acceptance
+records a merge state, and nothing writes whole-entry conflict rows. Stage 2 requires schema 18
+and deletes the code that served older rows: the conflict and authored-intent stores and their
+fallbacks, checkpoint replay with `checkpoint-batch`, the whole-piece effect fallback and other
+legacy defaults: about 600 fewer lines of host and merge-tool code, and 1,500 lines of retired
+migrations 013 to 015.
+[Migration 016](packages/canopyd/migrations/016-squash-history/README.md) keeps each tree's head
+(root, ordinal and so wire id, receipt), gives it a fresh editable merge state, drops everything
+older, and keeps entry dates and document versions. It refuses while any head has an unresolved
+decision. Its replay check re-accepts a backup's recent updates through this build and compares
+roots and conflict flags; neither it nor the migration has been run on a backup yet. The history
+cut date is recorded here when migration 016 runs.
 
 ## Accepted-history compaction — 2026-09-22
 
@@ -122,7 +134,8 @@ accepted update), `reflog` is dropped, `authored_changes` keeps only the trace a
 evidence, and the unread `accounts.token_digest` is dropped. `AcceptedUpdateStore.advance` is now the only writer of `trees.ref`. A merge
 that records decisions reads only its own tree's legacy conflict rows instead of every
 row in the database. See the
-[migration README](packages/canopyd/migrations/015-compact-history/README.md).
+[schema history](packages/canopyd/migrations/README.md#schema-history); the migration
+directory is deleted and lives in git history.
 
 ## 2026-09-21 onboarding and package verification
 

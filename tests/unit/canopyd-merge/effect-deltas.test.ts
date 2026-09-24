@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
-import { effectEdits, mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
+import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { intentDependencies, type Effect, type IntentState } from "../../../packages/canopyd-merge/src/intent-model.ts";
 import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
+import { pieceEdits, pieceSlice } from "../../../packages/canopyd-merge/src/pieces.ts";
 import { Fixture } from "./fixture.ts";
 
 type State = { object: string; state: string };
@@ -61,13 +62,15 @@ test("an editSource effect stores its piece delta and no whole piece copies", as
       expect(node.pieces).toBeUndefined();
     expect(effect.edits).toBeDefined();
     if (previous) {
-      // The legacy shape carried the file's whole pieces before and after.
-      // Recomputing from those must give exactly the stored delta.
-      const legacy: Effect = { ...effect, edits: undefined, before: {}, after: {} };
-      for (const id of Object.keys(effect.before)) legacy.before[id] = previous.nodes[id]!;
-      for (const id of Object.keys(effect.after)) legacy.after[id] = state.nodes[id]!;
-      const recomputed = Object.fromEntries(Object.entries(effectEdits(legacy)).filter(([, edits]) => edits.length));
-      expect(recomputed).toEqual(effect.edits!);
+      // The delta is exactly the piece edits between the file's whole pieces
+      // before and after, which the record no longer copies.
+      const recomputed: Effect["edits"] = {};
+      for (const id of Object.keys(effect.before)) {
+        const before = previous.nodes[id]!.pieces!, after = state.nodes[id]!.pieces!;
+        const edits = pieceEdits(before, after).map((edit) => ({ range: edit.range, removed: pieceSlice(before, ...edit.range), inserted: edit.pieces }));
+        if (edits.length) recomputed[id] = edits;
+      }
+      expect(recomputed).toEqual(effect.edits);
     }
     previous = state;
   }
@@ -87,7 +90,7 @@ test("effect records stay flat as a file's piece count grows", async () => {
   expect(late).toBeLessThan(early * 2);
 });
 
-test("delta records retain the same objects as whole-copy records", async () => {
+test("delta records retain the same objects as whole piece copies would", async () => {
   const f = new Fixture();
   const steps = await history(f, 30);
   const states = await Promise.all(steps.map((step) => load(f, step.state)));
@@ -95,10 +98,9 @@ test("delta records retain the same objects as whole-copy records", async () => 
   const legacy: IntentState = { ...last, effects: { ...last.effects } };
   for (let i = 1; i < steps.length; i++) {
     const [key, effect] = Object.entries(last.effects).find(([, e]) => e.change === steps[i]!.effect)!;
-    const rebuilt: Effect = { ...effect, edits: undefined, before: {}, after: {} };
+    const rebuilt: Effect = { ...effect, edits: {}, before: {}, after: {} };
     for (const id of Object.keys(effect.before)) rebuilt.before[id] = states[i - 1]!.nodes[id]!;
     for (const id of Object.keys(effect.after)) rebuilt.after[id] = states[i]!.nodes[id]!;
-    delete rebuilt.edits;
     legacy.effects[key] = rebuilt;
   }
   expect(intentDependencies(last)).toEqual(intentDependencies(legacy));

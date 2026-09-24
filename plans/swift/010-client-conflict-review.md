@@ -38,6 +38,9 @@ Quagmire own source selection, rendering and accessories, not conflict policy or
 another merge engine. Put correctness checks in client APIs and state transitions,
 so a view cannot accidentally bypass them. Mirror shared policy changes in Swift,
 TypeScript, conformance fixtures and the client state-machine specification.
+[Clients 001](../clients/001-reconcile-client-state-machines.md) makes a submitted draft an ordinary
+change-log record carrying `resolves`, which replaces the coordinator's separate review pass and
+review attempt; drafts and review UI stay here.
 
 ## Phase 1: Remaining work
 
