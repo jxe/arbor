@@ -142,6 +142,15 @@ const rethrowUnlessFallback = (error: unknown): void => {
 const absent = (error: unknown): boolean =>
   ((error instanceof MergeRefusal || error instanceof IntentError) && error.code === "missing-context") ||
   (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+/** A directory object's contents. Bytes that are not one are invalid
+ * material (a candidate can name any object), not an evaluator failure. */
+const directoryOf = (bytes: Uint8Array): WireDirectory => {
+  try {
+    return decodeWireDirectory(bytes);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Invalid directory object");
+  }
+};
 const components = (path: string): string[] => {
   if (
     !path.startsWith("/") ||
@@ -333,7 +342,7 @@ class Engine {
         : [];
     }
     if (kind === "directory") {
-      const directory = decodeWireDirectory(await this.read(object));
+      const directory = directoryOf(await this.read(object));
       node.directory = { ...directory, entries: [] };
       for (const entry of directory.entries) {
         await this.importNode(
@@ -2709,7 +2718,7 @@ class Engine {
       const node = state.nodes[id] ?? fail("Missing validated node");
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
-      const entries = new Map(decodeWireDirectory(await this.read(hash)).entries.map(e => [e.name, e]));
+      const entries = new Map(directoryOf(await this.read(hash)).entries.map(e => [e.name, e]));
       for (const child of this.children(state, id, index)) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
@@ -2883,13 +2892,13 @@ export async function checkpointIntent(
   const resolved = new Set(request.resolves ?? []);
   for (const key of resolved) {
     const decision = state.decisions.find((d) => d.key === key);
-    if (!decision) throw new Error("Resolution decision is unavailable");
+    if (!decision) return fail("Resolution decision is unavailable");
     if (
       !request.align &&
       request.projection !== request.current.object &&
       decision.dependencies.some((d) => !resolved.has(d))
     )
-      throw new Error("Snapshot resolution must guard dependent decisions");
+      return fail("Snapshot resolution must guard dependent decisions");
   }
   state.decisions = state.decisions.filter((d) => !resolved.has(d.key));
   for (const decision of state.decisions)
@@ -3105,7 +3114,7 @@ export async function checkpointIntent(
       let node = state.nodes[state.root]!;
       for (const name of input.path)
         node = engine.children(state, node.id).find((n) => n.name === name) ?? fail("Checkpoint decision path is absent");
-      if (!node.pieces) throw new Error("Checkpoint source choice is not a file");
+      if (!node.pieces) return fail("Checkpoint source choice is not a file");
       const [start, end] = input.range;
       const context = (await previousRecord()).state;
       const alternatives = [];
@@ -3147,7 +3156,7 @@ export async function checkpointIntent(
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
         if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
-          throw new Error("Checkpoint existence alternative is not a file");
+          return fail("Checkpoint existence alternative is not a file");
         const kept = present.find((node) => node)!;
         let target = find(state);
         if (!target) {
@@ -3192,10 +3201,10 @@ export async function checkpointIntent(
         for (const [index, a] of input.alternatives.entries()) {
           const folder = locate(contexts[index]!);
           if (folder.kind !== "directory")
-            throw new Error("Checkpoint folder alternative is not a directory");
+            return fail("Checkpoint folder alternative is not a directory");
           const recorded = await engine.record(await engine.initial(folder.object));
           if (index === input.selected && recorded.object !== shown)
-            throw new Error("Checkpoint projection does not show the selected folder");
+            return fail("Checkpoint projection does not show the selected folder");
           alternatives.push({
             ...recorded,
             ...(index === input.selected ? { node: selected.id } : {}),
@@ -3215,13 +3224,13 @@ export async function checkpointIntent(
         continue;
       }
       if (!selected.pieces)
-        throw new Error("Checkpoint file decision has no file placement");
+        return fail("Checkpoint file decision has no file placement");
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
         const context = await engine.initial(a.object),
           material = clone(locate(context));
         if (!material.pieces)
-          throw new Error("Checkpoint file alternative is not a file");
+          return fail("Checkpoint file alternative is not a file");
         material.id = `legacy:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);

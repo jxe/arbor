@@ -21,7 +21,17 @@ const token = z.string().min(1).max(1024);
 const schema = intentRequestSchema;
 /** What a caller hands the engine, before `parseIntentRequest` checks it. */
 export type IntentRequestInput = IntentRequest;
+/** Check a request's shape and decode every operation. Anything wrong with it
+ * is the request's fault, so every failure here is a typed refusal. */
 export function parseIntentRequest(raw: unknown): IntentRequest {
+  try {
+    return checkIntentRequest(raw);
+  } catch (error) {
+    if (error instanceof IntentError) throw error;
+    throw new IntentError("invalid", error instanceof Error ? error.message : "Invalid intent request");
+  }
+}
+function checkIntentRequest(raw: unknown): IntentRequest {
   if (
     raw &&
     typeof raw === "object" &&

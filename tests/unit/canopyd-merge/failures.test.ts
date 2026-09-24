@@ -35,6 +35,14 @@ test("an absent object is missing context; any other store failure propagates", 
   await expect(failed).rejects.toThrow("input/output error");
 });
 
+test("a malformed request or candidate is still an invalid request", async () => {
+  const f = new Fixture(), { request } = edit(f);
+  const notATree = f.put("not a directory");
+  expect((await f.evaluate({ ...request, incoming: { ...request.incoming, object: notATree,
+    trace: [{ ...request.incoming.trace[0]!, after: notATree }] } })).outcome).toBe("invalid");
+  expect((await f.evaluate({ ...request, base: { object: "not a hash" } } as never)).outcome).toBe("invalid");
+});
+
 test("an engine bug is not reported as an invalid request", async () => {
   const f = new Fixture(), { request } = edit(f);
   const broken = mergeIntent(request, {
