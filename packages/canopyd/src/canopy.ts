@@ -2134,6 +2134,17 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
+  /**
+   * Changes whenever anything an authorization decision reads may have
+   * changed: an execution invalidation, a write through this connection, or a
+   * commit by any other connection to the database. Equal values mean an
+   * earlier decision over database state still holds.
+   */
+  authorizationEpoch(): string {
+    const row = this.db.query("SELECT total_changes() AS local, (SELECT data_version FROM pragma_data_version) AS shared").get() as { local: number; shared: number };
+    return `${this.execution.epoch}:${row.local}:${row.shared}`;
+  }
+
   /** Live observation records for one tree, delivered after each durable append. */
   subscribeObservations(tree: string, listener: (record: ObservationRecord) => void): () => void {
     const listeners = this.observationListeners.get(tree) ?? new Set();

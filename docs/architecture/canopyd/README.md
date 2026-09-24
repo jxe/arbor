@@ -49,6 +49,14 @@ runner and never contains request content, subjects, or object identities.
 The Canopy app's network log is its client-side counterpart
 ([local system](../canopy-browser/local-state.md#diagnostic-streams)).
 
+A tree watch reauthorizes before every event it sends and every 250 ms while
+idle, and an execution authority watch every 250 ms; revocation closes the
+stream within that interval. Between checks canopyd reuses the previous
+decision until the database changes (a write through its connection, or a
+commit by any other) or execution authority is invalidated, so an idle
+check costs one trivial query. Execution token revocation, expiry, and its
+host validity callback are checked every time.
+
 ## Sidecars
 
 - [Merge tool](merge-tool.md)

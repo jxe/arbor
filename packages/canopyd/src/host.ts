@@ -180,6 +180,24 @@ function bodySnapshot(body: unknown): TreeSnapshot {
   return decodeTreeSnapshotJSON(body);
 }
 
+/**
+ * A long-lived stream's authorization check, re-evaluated only when
+ * `authorizationEpoch` shows the database or execution authority changed.
+ * Watches poll it often; between changes it costs one trivial query.
+ */
+function cachedAuthorization(canopy: CanopyDaemon, check: () => boolean): () => boolean {
+  let epoch: string | undefined;
+  let allowed = false;
+  return () => {
+    const current = canopy.authorizationEpoch();
+    if (current !== epoch) {
+      allowed = check();
+      epoch = current;
+    }
+    return allowed;
+  };
+}
+
 /** The request's device-authenticated account; execution tokens never qualify. */
 function requireAccount(authentication: CanopyAuthentication | null): CanopyAccount {
   if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
@@ -231,17 +249,21 @@ export async function serveCanopy(options: {
           if (!execution) return wireError("unauthenticated", "Execution authorization is required", 401);
           server.timeout(request, 0);
           let cleanup = () => {};
+          // Token validity (revocation, expiry, its host callback) is checked
+          // every time; the grants' database-backed permissions only on change.
+          const permitted = cachedAuthorization(canopy, () => canopy.execution.covered(execution));
+          const covered = () => canopy.execution.valid(execution) && permitted();
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               let closed = false;
               const publish = () => {
                 if (closed) return;
-                const allowed = canopy.execution.covered(execution);
+                const allowed = covered();
                 controller.enqueue(new TextEncoder().encode(`event: ${allowed ? "refresh" : "revoked"}\ndata: {}\n\n`));
                 if (!allowed) { closed = true; cleanup(); controller.close(); }
               };
               const stop = canopy.execution.subscribe(publish);
-              const timer = setInterval(() => { if (!canopy.execution.covered(execution)) publish(); }, 250);
+              const timer = setInterval(() => { if (!covered()) publish(); }, 250);
               timer.unref?.();
               cleanup = () => { closed = true; stop(); clearInterval(timer); };
               request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
@@ -618,10 +640,12 @@ export async function serveCanopy(options: {
           let wake: (() => void) | undefined;
           let stop = () => {};
           let resync = (_reason: string) => {};
-          const authorized = () => {
+          const readable = cachedAuthorization(canopy, () => {
             const active = !authentication || canopy.authenticationIsActive(authentication);
             return active && canopy.execution.run(execution, () => canopy.canRead(account, tree.id, requestedLinkDigest));
-          };
+          });
+          // Execution token validity is not database state, so it is never cached.
+          const authorized = () => (!execution || canopy.execution.valid(execution)) && readable();
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               resync = (reason: string) => {
