@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
-import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { ArborSyncRESTClient } from "./daemon-client.ts";
 import { materializeTree, snapshotDirectory } from "@overstory/fs";
 import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";

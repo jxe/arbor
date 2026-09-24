@@ -5,7 +5,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@overstory/arborsync-client": "workspace:*",
     "@overstory/protocol": "workspace:*",
     "@blocknote/core": "0.52.1",
     "@blocknote/mantine": "0.52.1",

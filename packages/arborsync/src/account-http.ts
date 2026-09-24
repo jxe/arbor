@@ -46,19 +46,6 @@ export function accountHandler(service: LocalAccountService) {
       await service.claimPairing(body.payload);
       return json({ paired: true });
     }
-    if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings") {
-      const body = request.headers.get("content-length") === "0"
-        ? {}
-        : await request.json().catch(() => ({})) as { configurationTree?: unknown };
-      if (body.configurationTree !== undefined && typeof body.configurationTree !== "string") {
-        throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400);
-      }
-      return json(await service.createPairingBootstrap(body.configurationTree as string | undefined), 201);
-    }
-    if (request.method === "POST" && url.pathname === "/v1/local/forget") {
-      await service.forgetLocalAccount();
-      return json({ forgotten: true });
-    }
     return undefined;
   };
 }

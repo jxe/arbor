@@ -26,7 +26,6 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
-import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { serveCanopy } from "@overstory/canopyd";
 import { arborPrivateRoot, sha256 } from "@overstory/protocol";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
@@ -86,8 +85,13 @@ try {
   // same data home and finds the account and placement there.
   const control = await serveArborSyncControl({ port: 0 });
   try {
-    await new ArborSyncRESTClient({ baseURL: control.url })
-      .claimAccount({ account: `${canopy.url}/~joe`, path: profile, displayName: "Hosted smoke Mac" });
+    // The Mac's data-home claim route; the CLI's daemon client has no claim method.
+    const claim = await fetch(`${control.url}/v1/bootstrap/accounts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ account: `${canopy.url}/~joe`, path: profile, displayName: "Hosted smoke Mac" }),
+    });
+    if (!claim.ok) throw new Error(`Account claim failed: ${claim.status} ${await claim.text()}`);
     await run(
       ["bun", "packages/cli/src/index.ts", "place", folder, `${canopy.url}/~joe/smoke-tree`],
       { ARBOR_DATA_HOME: dataHome, ARBOR_SYNC_URL: control.url },

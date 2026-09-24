@@ -3,8 +3,6 @@ import type {
   LocalTreeDescriptor,
   LocalAccountSummary,
   LocatorResolution,
-  MutationReceipt,
-  PairingOffer,
   ProfileIdentity,
   SnapshotEnvelope,
   TreeRef,
@@ -24,11 +22,13 @@ export type {
 } from "@overstory/protocol";
 
 /**
- * The TypeScript client of the daemon's control surface: status, trees,
- * accounts, conflicts, synchronization, placements, bootstrap, credential,
- * objects, pairings, and observation. The node, mutation, admission, asset,
- * and import methods were deleted with the daemon's editor path (Native 022
- * Phase 7); the web editor returns as a working-tree client in Plan B.
+ * The `arbor` command's client of the daemon's loopback surface: status,
+ * trees, accounts, resolution, synchronization, placement moves, and the
+ * working-tree loopback services (bootstrap, credential, objects) and
+ * observation that the disposable-daemon tests drive through it. It is CLI
+ * code, not a shared package (Native 011): the Mac app has its own Swift
+ * client, and Web 025's `LocalHost` writes a browser-safe one against the
+ * same reduced surface.
  */
 
 export interface ArborSyncStatus {
@@ -61,13 +61,11 @@ export class ArborSyncError extends Error {
 export interface ArborSyncRESTClientOptions {
   baseURL?: string;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  /** Accepted for compatibility with older callers; the client no longer retries anything. */
-  retryDelay?: (attempt: number) => Promise<void>;
 }
 
-// Account, identity, and pairing values are the shared vocabulary in @overstory/protocol:
+// Account and identity values are the shared vocabulary in @overstory/protocol:
 // Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
-export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@overstory/protocol";
+export type { LocalAccountSummary, ProfileIdentity } from "@overstory/protocol";
 
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
 export type BootstrapTreeDescriptor = Pick<
@@ -134,15 +132,6 @@ export class ArborSyncRESTClient {
     return this.request(`/v1/credential${query}`);
   }
 
-  /** Discard a tree's held request and every change authored on it; the folder returns to the accepted state. */
-  discardHeld(tree: string): Promise<{ tree: string }> {
-    return this.request("/v1/held/discard", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tree }),
-    });
-  }
-
   resolve(locator: string): Promise<LocatorResolution> {
     return this.request(`/v1/resolve?locator=${encodeURIComponent(locator)}`);
   }
@@ -169,35 +158,9 @@ export class ArborSyncRESTClient {
     });
   }
 
-  claimAccount(input: { account: string; path: string; displayName?: string }): Promise<MutationReceipt> {
-    return this.request("/v1/bootstrap/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
-  }
-
   /** The claimed Canopy accounts of this data home and the local person identity, if one exists. */
   accounts(): Promise<{ accounts: LocalAccountSummary[]; identity: ProfileIdentity | null }> {
     return this.request("/v1/accounts");
-  }
-
-  createProfileIdentity(path: string): Promise<{ identity: ProfileIdentity }> {
-    return this.request("/v1/me", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-  }
-
-  createCommunityPairing(configurationTree?: string): Promise<PairingOffer> {
-    return this.request("/v1/bootstrap/pairings", {
-      method: "POST",
-      ...(configurationTree ? {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ configurationTree }),
-      } : {}),
-    });
-  }
-
-  forgetLocalAccount(): Promise<{ forgotten: true }> {
-    return this.request("/v1/local/forget", { method: "POST" });
   }
 
   async *observe(after: string, signal?: AbortSignal): AsyncGenerator<WorkspaceEvent> {
@@ -251,12 +214,7 @@ export class ArborSyncRESTClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    let response: Response;
-    try {
-      response = await this.fetcher(`${this.baseURL}${path}`, init);
-    } catch (error) {
-      throw error;
-    }
+    const response = await this.fetcher(`${this.baseURL}${path}`, init);
     if (!response.ok) await this.throwResponse(response);
     return await response.json() as T;
   }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, serveArborSync } from "@overstory/arborsync";
-import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveCanopy } from "@overstory/canopyd";
@@ -50,7 +50,7 @@ async function launch(
     syncIntervalMs: 60_000,
     ...(options.faultInjector ? { faultInjector: options.faultInjector } : {}),
   });
-  const client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
+  const client = new ArborSyncRESTClient({ baseURL: running.url });
   const close = async () => {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();

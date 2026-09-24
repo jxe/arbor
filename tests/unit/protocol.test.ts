@@ -7,7 +7,7 @@ import type {
 } from "@overstory/protocol";
 import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
-import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@overstory/arborsync-client";
+import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `WireTreeDescriptor.validated()` and
 // `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor

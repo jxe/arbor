@@ -5,7 +5,6 @@
   "type": "module",
   "dependencies": {
     "@overstory/arborsync": "workspace:*",
-    "@overstory/arborsync-client": "workspace:*",
     "@overstory/canopyd": "workspace:*",
     "@overstory/protocol": "workspace:*",
     "@overstory/fs": "workspace:*",

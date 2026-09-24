@@ -4,7 +4,7 @@ import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, CanopyAccountStore, WireHTTPError, WireTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimCanopyAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -88,16 +88,8 @@ export class LocalAccountService {
 
   async cancelPendingClaim(): Promise<void> { await cancelPendingAccountClaim(); }
 
-  async forgetLocalAccount(): Promise<void> {
-    return forgetLocalAccount(this.deps);
-  }
-
   async accountList(): Promise<LocalAccountSummary[]> {
     return listLocalAccounts();
-  }
-
-  async createPairingBootstrap(configurationTree?: string) {
-    return createPairingBootstrap(configurationTree);
   }
 
 }

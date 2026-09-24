@@ -15,8 +15,7 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
 | Arbor local tools | [`arborsync`](arborsync/README.md) | The Arbor Sync daemon and the `arborsync` command |
-| | [`arborsync-client`](arborsync-client/README.md) | REST and SSE client for the daemon |
-| | [`cli`](cli/README.md) | The `arbor` command |
+| | [`cli`](cli/README.md) | The `arbor` command, including its REST and SSE client for the daemon (`src/daemon-client.ts`) |
 | Canopy browsers | [`canopy-web`](canopy-web/README.md) | The browser editor (currently out of the build) |
 
 Layering rules, checked by reading each `package.json`:
@@ -24,7 +23,7 @@ Layering rules, checked by reading each `package.json`:
 - `protocol` depends on nothing in the workspace.
 - `apps-runtime` depends only on `protocol`; `tree-merge` only on those two.
 - `object-store`, `fs`, `client`, `canopyd`, and `canopyd-merge` never depend
-  on `arborsync`, `arborsync-client`, or `cli`.
+  on `arborsync` or `cli`.
 - `cli` and `canopy-web` may depend on anything.
 
 The root `package.json` lists every member as a dependency so that files

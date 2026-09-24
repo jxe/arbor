@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@overstory/arborsync";
-import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import type { Workspace } from "@overstory/arborsync";
 
 let root: string;
@@ -340,7 +340,7 @@ describe("arborsync bootstrap and credential routes", () => {
     // A long fallback interval keeps the daemon from racing the stored-state tests below.
     daemon = await serveArborSync(treeDir, { port: 0, syncIntervalMs: 60_000 });
     placedBase = daemon.url;
-    placedClient = new ArborSyncRESTClient({ baseURL: placedBase, retryDelay: async () => {} });
+    placedClient = new ArborSyncRESTClient({ baseURL: placedBase });
     await placedClient.synchronizeNow();
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree);
     if (!descriptor?.root || !descriptor.update) throw new Error("Placed tree did not record its accepted base");

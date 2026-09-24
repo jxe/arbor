@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveCanopy } from "@overstory/canopyd";
-import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import { parseDocument } from "yaml";
 

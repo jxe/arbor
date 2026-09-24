@@ -1,11 +1,10 @@
 import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { MutationReceipt, PairingOffer } from "@overstory/protocol";
-import { SYSTEM_TREE, generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, CanopyAccountStore, arborDataRoot, arborPrivateRoot, loadCanopyAccountConfigurations, saveCurrentAccountDeviceID, WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import type { MutationReceipt } from "@overstory/protocol";
+import { generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, CanopyAccountStore, arborDataRoot, arborPrivateRoot, loadCanopyAccountConfigurations, saveCurrentAccountDeviceID, WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
-import { accountWireClient } from "./account-wire.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
 
 interface PendingAccountClaimBootstrap {
@@ -282,26 +281,6 @@ export async function claimCanopyAccountBootstrap(
 ): Promise<MutationReceipt["effects"]> {
   return withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"),
     () => claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName));
-}
-
-/** Disconnect this data home from every claimed account without revoking server devices or deleting user files. */
-export async function forgetLocalAccount(deps: AccountBootstrapDeps): Promise<void> {
-  for (const record of await CanopyAccountStore.list()) await new CanopyAccountStore(record.configurationTree).remove();
-  deps.trees.invalidateDescriptors();
-  deps.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/credentials", stableKey: null }, origin: "api" });
-}
-
-export async function createPairingBootstrap(configurationTree?: string): Promise<PairingOffer> {
-  if (!configurationTree) {
-    const plural = await CanopyAccountStore.list();
-    if (plural.length > 1) {
-      throw new ProtocolError("invalid-request", "Pairing requires an explicit configuration TreeID when several accounts are connected", 400);
-    }
-    if (plural.length === 0) throw new ProtocolError("not-found", "Claim or pair a Canopy account first", 409);
-    configurationTree = plural[0]!.configurationTree;
-  }
-  const selected = await accountWireClient({ configurationTree }, { required: true });
-  return selected.client.createPairing();
 }
 
 /** Only preparations which have never been submitted can be abandoned. */

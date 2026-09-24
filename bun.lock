@@ -7,7 +7,6 @@
       "dependencies": {
         "@overstory/apps-runtime": "workspace:*",
         "@overstory/arborsync": "workspace:*",
-        "@overstory/arborsync-client": "workspace:*",
         "@overstory/canopy-web": "workspace:*",
         "@overstory/canopyd": "workspace:*",
         "@overstory/canopyd-merge": "workspace:*",
@@ -63,13 +62,6 @@
         "zod": "4.3.6",
       },
     },
-    "packages/arborsync-client": {
-      "name": "@overstory/arborsync-client",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/protocol": "workspace:*",
-      },
-    },
     "packages/canopy-web": {
       "name": "@overstory/canopy-web",
       "version": "0.1.0",
@@ -78,7 +70,6 @@
         "@blocknote/mantine": "0.52.1",
         "@blocknote/react": "0.52.1",
         "@mantine/core": "8.3.10",
-        "@overstory/arborsync-client": "workspace:*",
         "@overstory/protocol": "workspace:*",
         "@tiptap/pm": "3.28.0",
         "katex": "0.18.1",
@@ -124,7 +115,6 @@
       },
       "dependencies": {
         "@overstory/arborsync": "workspace:*",
-        "@overstory/arborsync-client": "workspace:*",
         "@overstory/canopyd": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
@@ -328,8 +318,6 @@
     "@overstory/apps-runtime": ["@overstory/apps-runtime@workspace:packages/apps-runtime"],
 
     "@overstory/arborsync": ["@overstory/arborsync@workspace:packages/arborsync"],
-
-    "@overstory/arborsync-client": ["@overstory/arborsync-client@workspace:packages/arborsync-client"],
 
     "@overstory/canopy-web": ["@overstory/canopy-web@workspace:packages/canopy-web"],
 

@@ -53,7 +53,6 @@
     "@overstory/tree-merge": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
     "@overstory/arborsync": "workspace:*",
-    "@overstory/arborsync-client": "workspace:*",
     "@overstory/cli": "workspace:*",
     "@overstory/canopy-web": "workspace:*"
   },
