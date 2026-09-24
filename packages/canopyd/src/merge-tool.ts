@@ -10,7 +10,6 @@ import {
   type IntentResponse,
   type MergeObjects,
   type MergeRequest,
-  type MergeResult,
   type ProjectionRequest,
   type ProjectionResponse,
 } from "@overstory/canopyd-merge";
@@ -26,6 +25,7 @@ import { StateMapValidationCache, type MapProof } from "@overstory/canopyd-merge
 import { jsonHash } from "@overstory/canopyd-merge/state-value";
 import { absentFrom, holdsObject } from "@overstory/canopyd-merge/worker-objects";
 import { PersistentMergeWorker } from "./merge-worker.ts";
+import type { MergeResult } from "./updates/reconcile.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
@@ -482,7 +482,6 @@ export class MergeTool {
     candidate: ObjectHash,
     current: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
-    rule = "tree-default"
   ): Promise<MergeResult> {
     try {
       const { response, objects } = await this.evaluate(
@@ -491,7 +490,7 @@ export class MergeTool {
           base: { object: base },
           current: { object: current },
           incoming: { object: candidate },
-          rules: { id: rule, revision: 1 },
+          rules: { id: "tree-default", revision: 1 },
         },
         proposed
       );
@@ -515,19 +514,11 @@ export class MergeTool {
         "Merge tool unavailable; preserving ambiguity:",
         error instanceof Error ? error.message.split("\n")[0] : "invalid result"
       );
-      // Ordinary content becomes an accepted whole-root choice. Account policy
-      // retains its existing rejection semantics; no authorization is delegated.
+      // Ordinary content becomes an accepted whole-root choice.
       return {
         root: candidate,
         objects: new Map(),
-        conflicts: [
-          {
-            path: "/",
-            reason: rule.startsWith("account-config")
-              ? "account-configuration"
-              : "node-conflict",
-          },
-        ],
+        conflicts: [{ path: "/", reason: "node-conflict" }],
         unresolvedDirectories: ["/"],
       };
     }

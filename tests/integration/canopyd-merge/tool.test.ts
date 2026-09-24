@@ -9,7 +9,7 @@ import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { mergeWireTrees } from "../../../packages/canopyd-merge/src/merge.ts";
-import { snapshotAccountConfigV2 } from "../../../packages/canopyd-merge/src/account-v2.ts";
+import { snapshotAccountConfigV2 } from "@overstory/protocol";
 import fixtures from "../../fixtures/canopy/wire-merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
@@ -42,27 +42,20 @@ test.each(fixtures.markdownCases)("subprocess preserves exact legacy rule output
   const result = await tool.evaluate(request, inputs);
   expect(result.response.result.object).toBe(expected.root);
   expect(result.objects).toEqual(expected.objects);
-  expect(result.response.decisions.filter(d => d.kind === "conflict" && d.scope === "entry").map(({ path, reason }) => ({ path, reason }))).toEqual(expected.conflicts);
+  expect(result.response.decisions.filter(d => d.kind === "conflict" && d.scope === "entry").map(({ path, reason }) => ({ path, reason })) as unknown[]).toEqual(expected.conflicts);
   expect(result.response.evidence.summary).toEqual(expected.summary);
   await expectNoStaging();
   for (const [hash] of result.objects) if (!base.objects.has(hash) && !current.objects.has(hash)) expect(await store.find(hash)).toBeNull();
 });
 
-test("account configuration v2 rules run outside Canopy without authorization code", async () => {
-  const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", phone = "dv_bbbbbbbbbbbbbbbbbbbbbbbbbb";
-  const v2 = { account: { canopy: "https://canopy.example", profile }, trees: {}, devices: {
-    [admin]: { id: admin, label: "Mac", administrator: true }, [phone]: { id: phone, label: "Phone", administrator: false },
-  } };
-  for (const [id, make] of [
-    ["account-config-v2", (a: string, b: string) => snapshotAccountConfigV2({ ...v2, devices: { [admin]: { ...v2.devices[admin]!, label: a }, [phone]: { ...v2.devices[phone]!, label: b } } })],
-  ] as const) {
-    const base = make("Mac", "Phone"), current = make("Desktop", "Phone"), incoming = make("Mac", "Mobile");
-    const { request, inputs } = await prepare(base, current, incoming, id);
-    const { response } = await tool.evaluate(request, inputs);
-    expect(response.result.object).toBe(make("Desktop", "Mobile").root);
-    expect(response.decisions).toEqual([]);
-    expect(response.evidence.summary).toMatchObject({ version: id });
-  }
+test("account configuration is not a merge-tool rule", async () => {
+  const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const config = snapshotAccountConfigV2({ account: { canopy: "https://canopy.example", profile }, trees: {}, devices: {
+    [admin]: { id: admin, label: "Mac", administrator: true },
+  } });
+  const { request, inputs } = await prepare(config, config, config, "account-config-v2");
+  await expect(tool.evaluate(request, inputs)).rejects.toThrow("Unknown tree rule");
+  await expectNoStaging();
 });
 
 async function collection(rows: unknown[]): Promise<TreeSnapshot> {

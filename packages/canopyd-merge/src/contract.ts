@@ -64,7 +64,6 @@ const reason = z.enum([
   "binary-conflict",
   "path-kind-conflict",
   "nested-boundary-conflict",
-  "account-configuration",
   "page-id-move-conflict",
   "collection-file-row-conflict",
   "collection-file-schema-conflict",
@@ -155,17 +154,6 @@ export function parseResponse(
     new Set(value.objects).size !== value.objects.length
   )
     throw new Error("Merge response does not match request");
-  // Summaries are persisted as evidence: the schema accepts no arbitrary
-  // executable output, and account rules must report their own version.
-  const summary = value.evidence.summary;
-  if (
-    summary &&
-    ((request.rules.id.startsWith("account-config") &&
-      summary.version !== request.rules.id) ||
-      (request.rules.id === "tree-default" &&
-        summary.version.startsWith("account-config")))
-  )
-    throw new Error("Unexpected merge evidence");
   return value;
 }
 

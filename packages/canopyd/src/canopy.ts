@@ -50,6 +50,7 @@ import {
 } from "@overstory/protocol";
 import {
   authorizeAccountConfigTransitionV2,
+  mergeAccountConfigTreesV2,
   readAccountConfigGraphV2,
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
@@ -2127,8 +2128,9 @@ export class CanopyDaemon implements AsyncDisposable {
         if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
         authorize(acceptedGraph, candidateGraph, baseGraph);
       },
-      merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
-        "account-config-v2"),
+      // Unreadable inputs reject the update as a whole-root policy conflict.
+      merge: (base, candidate, current, load) => mergeAccountConfigTreesV2(base, candidate, current, load)
+        .catch(() => ({ root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: "account-configuration" }], unresolvedDirectories: ["/"] })),
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);

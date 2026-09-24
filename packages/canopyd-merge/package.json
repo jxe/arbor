@@ -1,11 +1,10 @@
 {
   "name": "@overstory/canopyd-merge",
   "version": "0.1.0",
-  "description": "canopyd's merge sidecar: tree merging, format rules, account-configuration merge, checkpoints, and the arbor-merge command.",
+  "description": "canopyd's merge sidecar: tree merging, format rules, checkpoints, and the arbor-merge command.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./account-v2": "./src/account-v2.ts",
     "./checkpoint": "./src/checkpoint.ts",
     "./intent-engine": "./src/intent-engine.ts",
     "./intent-model": "./src/intent-model.ts",

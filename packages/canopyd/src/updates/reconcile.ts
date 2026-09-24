@@ -1,7 +1,19 @@
-import type { MergeSummary } from "@overstory/canopyd-merge";
-export type { MergeSummary } from "@overstory/canopyd-merge";
+import type { MergeSummary as ToolSummary } from "@overstory/canopyd-merge";
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
-import type { MergeResult } from "@overstory/canopyd-merge";
+
+/** Rule evidence persisted beside an accepted merge: the merge worker's own,
+ * or canopyd's for account configuration. */
+export type MergeSummary = ToolSummary | { version: "account-config-v2"; mergedFields: number };
+
+export interface MergeResult {
+  root: ObjectHash;
+  objects: Map<ObjectHash, Uint8Array>;
+  conflicts: UpdateConflict[];
+  /** Coupled rule failures that require a whole-directory alternative. */
+  unresolvedDirectories?: string[];
+  /** Present only when a merge rule ran. */
+  summary?: MergeSummary;
+}
 
 type ReconciledUpdate =
   | { outcome: "current" }

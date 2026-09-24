@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   authorizeAccountConfigTransitionV2,
   mergeAccountConfigGraphsV2,
+  mergeAccountConfigTreesV2,
   readAccountConfigGraphV2,
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
@@ -53,6 +54,22 @@ describe("account-config-v2 policy", () => {
     const removed = roundTrip({ ...graph(), devices: { [admin]: graph().devices[admin]! } });
     const edited = roundTrip({ ...graph(), devices: { ...graph().devices, [phone]: { ...graph().devices[phone]!, label: "Edited" } } });
     expect(mergeAccountConfigGraphsV2(base, removed, edited).graph.devices[phone]).toBeUndefined();
+  });
+
+  test("canopyd merges the tree itself: independent labels merge, same-field edits conflict by file", async () => {
+    const labels = (a: string, b: string) => snapshotAccountConfigV2({ ...graph(), devices: {
+      [admin]: { ...graph().devices[admin]!, label: a }, [phone]: { ...graph().devices[phone]!, label: b },
+    } });
+    const snapshots = [labels("Mac", "Phone"), labels("Desktop", "Phone"), labels("Mac", "Mobile"), labels("Laptop", "Phone")];
+    const objects = new Map(snapshots.flatMap(s => [...s.objects]));
+    const load = async (hash: string) => objects.get(hash)!;
+    const [base, current, incoming, competing] = snapshots.map(s => s.root);
+    const merged = await mergeAccountConfigTreesV2(base!, incoming!, current!, load);
+    expect(merged.root).toBe(labels("Desktop", "Mobile").root);
+    expect(merged.conflicts).toEqual([]);
+    expect(merged.summary).toEqual({ version: "account-config-v2", mergedFields: 1 });
+    const conflicted = await mergeAccountConfigTreesV2(base!, competing!, current!, load);
+    expect(conflicted.conflicts).toEqual([{ path: "/devices.yaml", reason: "account-configuration" }]);
   });
 });
 
