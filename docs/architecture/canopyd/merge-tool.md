@@ -47,18 +47,8 @@ reason, and entry or coupled-directory scope. A successful partial merge may
 contain unresolved decisions. Empty decisions do not clear existing canopyd choices.
 canopyd reifies the rule output with retained alternatives and origins, assigning
 durable identities itself. Account merge selection uses `account-config-v2`; authorization remains in canopyd before and after evaluation.
-
-A `kind: "source"` request carries the same object-reference inputs plus `tree`,
-`path`, and `proposal: { object }`. Its incoming material also carries exact
-`changes: [{ change, operations }]` and ordered `contributions: [{ change, operation }]`.
-The two lists must agree. canopyd proves the causal history and reconstructs the
-proposal before asking a format rule whether it is valid. The source result is
-that proposal with a resolved/unresolved/inapplicable decision and reason. Existing
-plain-text and Markdown-prose rules validate it conservatively; they do not infer
-operations from snapshots. Authored execution and unresolved alternatives use the operation-bearing
+Authored execution and unresolved alternatives use the operation-bearing
 tree request described under [operation evaluation](#operation-evaluation).
-The proposal-only source rule remains a diagnostic API; it is not canopyd's
-source acceptance path.
 
 The rule revision identifies algorithm semantics; it is not a versioned client API.
 Unrecognized rules, invalid responses or missing material fail evaluation. There
@@ -145,8 +135,8 @@ are summed.
 ## Operation evaluation
 
 A tree request may carry authored operations. There is one evaluator; snapshot
-requests, source-proposal validation, and account rules are different inputs
-to the same executable, not separately deployed engines.
+requests, checkpoints, and account rules are different inputs to the same
+executable, not separately deployed engines.
 
 ```ts
 {
@@ -247,13 +237,6 @@ are the automatic subsets; other simultaneous changes retain alternatives.
 | CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
 | Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
 
-The `exact-source-disjoint-v1` rule merges concurrent disjoint edits from the
-same accepted basis when complete history is retained, with at most 64
-intervening accepted states and 4096 combined operations; automatic
-concurrency is limited to `.txt` and uncomplicated Markdown paragraphs, and
-both the original and the combined source must pass a conservative recognition
-check.
-
 The `markdown-source-transfer` rule replays identity-verified moves and copies
 of plain and self-contained formatted paragraphs, including across documents,
 when basis, current, authored, and replayed versions all preserve protected
@@ -351,8 +334,7 @@ caller's working directory or execute authored schemas in the host runtime.
 
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
-checks; plain-text and Markdown source-proposal validation; account configuration
-v2 merging. Exact authored-operation execution, nested choices, and the
+checks; account configuration v2 merging. Exact authored-operation execution, nested choices, and the
 conservative format rules are described next.
 
 ## Verification

@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises"
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@overstory/object-store";
-import { merge, type MergeRequest } from "@overstory/canopyd-merge";
+import { type MergeRequest } from "@overstory/canopyd-merge";
 import { encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
@@ -39,24 +39,6 @@ test.each(fixtures.markdownCases)("subprocess preserves exact legacy rule output
   expect(result.response.evidence.summary).toEqual(expected.summary);
   expect(await readdir(join(directory, "merge-jobs"))).toEqual([]);
   for (const [hash] of result.objects) if (!base.objects.has(hash) && !current.objects.has(hash)) expect(await store.find(hash)).toBeNull();
-});
-
-test.each(["plain-text-disjoint", "markdown-prose-disjoint"])("source rule %s receives exact authored operations and object references", async id => {
-  const inputs = new Map<string, Uint8Array>();
-  const ref = (s: string) => { const bytes = encoded(s), object = hashObject(bytes); inputs.set(object, bytes); return { object }; };
-  const base = ref("alpha beta"), current = ref("Alpha beta"), incoming = ref("alpha Beta"), proposal = ref("Alpha Beta");
-  const changes = [{ change: "change", operations: [{ key: "edit", kind: "editSource" as const,
-    source: { material: { kind: "basis" as const, path: "/note.md", object: base.object }, range: [6, 7] as [number, number] }, text: "B" }] }];
-  const request: MergeRequest = { kind: "source", tree: "tree", path: "/note.md", base, current,
-    incoming: { ...incoming, contributions: [{ change: "change", operation: "edit" }], changes }, proposal, rules: { id, revision: 1 } };
-  const { response } = await tool.evaluate(request, inputs);
-  expect(response.decisions[0]).toMatchObject({ kind: "source", outcome: "resolved" });
-  const compare = await merge(request, { read: async hash => inputs.get(hash)!, store: async () => {} });
-  expect(response).toEqual(compare);
-  if (id === "markdown-prose-disjoint") {
-    request.proposal = ref("# Alpha Beta");
-    expect((await tool.evaluate(request, inputs)).response.decisions[0]).toMatchObject({ outcome: "inapplicable" });
-  }
 });
 
 test("account configuration v2 rules run outside Canopy without authorization code", async () => {

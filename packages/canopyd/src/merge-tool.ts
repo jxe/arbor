@@ -375,7 +375,7 @@ export class MergeTool {
       const available = new Map([...inputs, ...objects]);
       // Semantic retention below already checks the complete typed graph. Do
       // not walk the same material tree again before validating that state.
-      if (!("state" in response.result) && request.kind !== "source")
+      if (!("state" in response.result))
         await this.shared.verifyReachable([response.result.object], available);
       else await this.shared.load(response.result.object, available);
       mark("output-objects");

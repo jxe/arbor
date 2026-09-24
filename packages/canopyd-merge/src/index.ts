@@ -6,13 +6,12 @@ import { decodeWireDirectory, wireEntryObject, type ObjectHash, type TreeSnapsho
 import type { ObjectStore } from "@overstory/object-store";
 import { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
-import { markdownProseSourceRule, plainTextSourceRule } from "./merge-rules.ts";
 import { readAccountConfigGraphV2, mergeAccountConfigGraphsV2, snapshotAccountConfigV2 } from "./account-v2.ts";
 export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeIntent } from "./intent-engine.ts";
 import type { IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
-export type { MergeSummary, SourceReconciliation } from "./summary.ts";
+export type { MergeSummary } from "./summary.ts";
 export { mergeWireTrees, type MergeResult } from "./merge.ts";
 export { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
 export { loadIntentState } from "./state-storage.ts";
@@ -50,16 +49,6 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
   if(request.kind === "checkpoint-batch")return checkpointBatch(request,objects);
   if(request.kind === "checkpoint")return checkpointIntent(request,objects);
   const evidence = { rule: request.rules };
-  if (request.kind === "source") {
-    const rule = [plainTextSourceRule, markdownProseSourceRule].find(rule => rule.id === request.rules.id);
-    if (!rule) throw new Error(`Unknown source rule: ${request.rules.id}`);
-    const [basis, current, candidate, proposed] = await Promise.all([
-      request.base.object, request.current.object, request.incoming.object, request.proposal.object,
-    ].map(hash => objects.read(hash)));
-    const decision = await rule.evaluate({ tree: request.tree, path: request.path, basis: basis!, current: current!,
-      candidate: candidate!, proposed: proposed!, contributions: request.incoming.contributions, changes: request.incoming.changes });
-    return parseResponse({ result: request.proposal, decisions: [{ kind: "source", path: request.path, ...decision }], objects: [], evidence }, request);
-  }
   let result: MergeResult;
   const { base, current, incoming } = request;
   if (request.rules.id === "tree-default") {
@@ -70,7 +59,7 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
     const merged = mergeAccountConfigGraphsV2(resourceInputs[0]!, resourceInputs[1]!, resourceInputs[2]!);
     const policyOnlyRemoval = (field: string) => {
       const match = /^resources\.([^.]+)$/.exec(field);
-      return !!match && !!resourceInputs && resourceInputs.every(graph => !graph.resources?.[match[1]!]?.canonical);
+      return !!match && resourceInputs.every(graph => !graph.resources?.[match[1]!]?.canonical);
     };
     const output = snapshotAccountConfigV2(merged.graph);
     result = { root: output.root, objects: output.objects, conflicts: merged.conflicts.map(field => ({
