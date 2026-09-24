@@ -36,6 +36,9 @@ export class PersistentMergeWorker {
           TMPDIR: process.env.TMPDIR,
           LANG: process.env.LANG,
           TZ: process.env.TZ,
+          // The sidecar's own cache budgets; never credentials.
+          ...Object.fromEntries(["ARBOR_MERGE_CACHE_MB", "ARBOR_OBJECT_CACHE_MB"]
+            .flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]])),
         },
       },
     );

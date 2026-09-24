@@ -4,6 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { serveCanopy } from "@overstory/canopyd";
+import { acceptedEntries } from "../../support/log-entries.ts";
+import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject,
   type CandidateUpdate, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
 
@@ -51,7 +53,10 @@ beforeEach(async () => {
   root = change(initial.root, { "asset.bin": { file: file("original\0") }, "note.md": { file: file("Base\n") } });
   base = (await submit(snapshot(root), descriptor.tree.update)).id;
 });
-afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  try { await expectReplayableHistory(dir, tree); }
+  finally { await stop(); await rm(dir, { recursive: true, force: true }); }
+});
 
 test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap creates accepted alternatives without prior decisions", async kind => {
   const nested = directory({ type: "directory", entries: [{ name: "child.bin", file: file("child") }] });
@@ -350,7 +355,7 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   const prior = await submit(left), db = new Database(`${dir}/canopy.sqlite3`);
   try {
-    db.run("CREATE TRIGGER fail_snapshot_conflict AFTER INSERT ON accepted_merge_states BEGIN SELECT RAISE(ABORT, 'injected snapshot conflict failure'); END");
+    db.run("CREATE TRIGGER fail_snapshot_conflict AFTER INSERT ON accepted_updates BEGIN SELECT RAISE(ABORT, 'injected snapshot conflict failure'); END");
     await expect(submit(right)).rejects.toThrow("injected snapshot conflict failure");
     expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
     db.run("DROP TRIGGER fail_snapshot_conflict");
@@ -359,7 +364,7 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   } finally { db.close(); }
 });
 
-test("every acceptance records a merge state, and only accepted profile roots have profile facts", async () => {
+test("every acceptance records a log entry after its predecessor's, and only accepted profile roots have profile facts", async () => {
   const left = snapshot(change(root, { "asset.bin": { file: file("left") } }));
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   await submit(left); const accepted = await submit(right);
@@ -368,10 +373,11 @@ test("every acceptance records a merge state, and only accepted profile roots ha
   const db = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
   try {
     // Bootstrap trees, their boundary attachments and every snapshot.
-    expect(db.query(`SELECT u.ordinal FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.ordinal
-      WHERE m.accepted_id IS NULL`).all()).toEqual([]);
-    const record = JSON.parse((db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(accepted.id) as { record_json: string }).record_json);
-    expect(record.decisions).toHaveLength(1);
+    const entries = acceptedEntries(dir);
+    const byID = new Map(entries.map((e) => [e.id, e]));
+    for (const row of db.query("SELECT ordinal, previous_ordinal FROM accepted_updates").all() as Array<{ ordinal: number; previous_ordinal: number | null }>)
+      expect(byID.get(String(row.ordinal))!.entry.previous).toBe(row.previous_ordinal === null ? null : byID.get(String(row.previous_ordinal))!.hash);
+    expect(byID.get(accepted.id)!.entry.decisions).toHaveLength(1);
     const profiles = db.query("SELECT key, value FROM meta WHERE key LIKE 'profile:%'").all() as Array<{ key: string; value: string }>;
     expect(profiles.map(p => JSON.parse(p.value).type).every(type => type === "person" || type === "group")).toBe(true);
     const keys = new Set(profiles.map(p => p.key));

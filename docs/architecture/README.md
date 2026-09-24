@@ -45,9 +45,9 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
 | `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
 | `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
-| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, account-configuration merging, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, merge-protocol |
-| `canopyd-merge` | The merge sidecar: intent engine and model, decision reports, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, merge-protocol, apps-runtime, tree-sitter, saxes |
-| `merge-protocol` | The JSON contract between canopyd and the merge sidecar: request and response schemas, decision reports, rule summaries, error codes; no merge logic ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
+| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge sidecar adapter and log entries, account-configuration merging, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, merge-protocol |
+| `canopyd-merge` | The merge sidecar: the question loop and its in-memory cache replayed from log entries, snapshot choices, intent engine and model, format rules, Markdown and web formats, state maps and storage, checkpoints, the `arbor-merge` CLI ([merge sidecar](canopyd/merge-tool.md)) | protocol, object-store, merge-protocol, apps-runtime, tree-sitter, saxes |
+| `merge-protocol` | The contract between canopyd and a merge sidecar: log entries, the merge question and answer, refusal codes; no merge logic ([writing a sidecar](canopyd/writing-a-sidecar.md)) ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
 | `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index) | protocol, client, fs, apps-runtime |
 | `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |
@@ -73,9 +73,8 @@ by xcodegen and committed; see [swift/README.md](../../swift/README.md).
 
 Bun tests, TypeScript checking, shared JSON and SSE fixtures, and Swift
 Package Manager tests. The usual gates are in [DEVELOPMENT.md](../../DEVELOPMENT.md).
-Diagnostics that are not gates: `bun tests/performance/merge-history.bench.ts`
-(synthetic, in memory), `bun tests/performance/replay-update-cost.ts <copy>` (per-phase
-timings replaying edits on a copy of host data), and
-`bun tests/performance/benchmark-merge-tool.ts`. Language-neutral vectors under
+Diagnostics that are not gates: `FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts`
+(acceptance latency and per-phase timings through a disposable host) and
+`bun tests/performance/benchmark-merge-tool.ts` (the engine alone, in memory). Language-neutral vectors under
 [`docs/overstory-spec/conformance/`](../overstory-spec/conformance/README.md) are the portable part; reference
 API and algorithm fixtures live under [`tests/fixtures/`](../../tests/fixtures/README.md).

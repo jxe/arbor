@@ -2,12 +2,10 @@ import {checkpointIntent} from "./intent-engine.ts";
 import type {CheckpointRequest,CheckpointResponse} from "./checkpoint.ts";
 import type { ObjectHash } from "@overstory/protocol";
 import type { ObjectStore } from "@overstory/object-store";
-import type { RetentionAuditRequest, RetentionAuditResponse } from "@overstory/merge-protocol";
 import { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
 export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeIntent } from "./intent-engine.ts";
-import { retentionAudit } from "./retention.ts";
 import type { IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export type { MergeSummary } from "./summary.ts";
@@ -17,7 +15,7 @@ export { type CheckpointRequest } from "./checkpoint.ts";
 
 /** In-process results: an authored evaluation also carries the engine's own
  * decision records. `wireResponse` is what the worker sends. */
-export type ToolResponse = ProjectionResponse | IntentResponse | CheckpointResponse | RetentionAuditResponse;
+export type ToolResponse = ProjectionResponse | IntentResponse | CheckpointResponse;
 export function wireResponse(response: ToolResponse): MergeResponse {
   if (!("outcome" in response) || response.outcome !== "evaluated") return response as MergeResponse;
   const { decisions: _records, reports, ...rest } = response;
@@ -30,7 +28,6 @@ export interface MergeObjects {
 }
 
 /** Pure rule evaluation plus immutable object IO. No accepted-state or database access. */
-export function merge(raw:RetentionAuditRequest,objects:MergeObjects):Promise<RetentionAuditResponse>;
 export function merge(raw:CheckpointRequest,objects:MergeObjects):Promise<CheckpointResponse>;
 export function merge(raw:IntentRequestInput,objects:MergeObjects):Promise<IntentResponse>;
 export function merge(raw:ProjectionRequest,objects:MergeObjects):Promise<ProjectionResponse>;
@@ -40,11 +37,6 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<T
   const request = parseRequest(raw);
   if(isIntentRequest(request))throw new Error("Unexpected intent request");
   if(request.kind === "checkpoint")return checkpointIntent(request,objects);
-  if(request.kind === "retention-audit"){
-    const roots=[...new Set(request.roots)];
-    await retentionAudit(hash=>objects.read(hash))(roots);
-    return {kind:"retention-audit",checked:roots.length};
-  }
   const evidence = { rule: request.rules };
   let result: MergeResult;
   const { base, current, incoming } = request;

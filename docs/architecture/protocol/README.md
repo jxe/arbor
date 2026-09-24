@@ -48,7 +48,7 @@ requests keep their exact retry procedure. Net frames may exceed the ordinary
 returns the decisions retained at that accepted state. `after` and `conflict`
 are mutually exclusive; the reference page size is 32, with no cap of 32 on
 accepted decisions; historical pages keep their identities as current
-advances. Every retained accepted update has a merge state whose decisions the
+advances. Every retained accepted update has a log entry whose decisions the
 page lists; states accepted before migration 016 (schema 18) are not retained. Unknown, unavailable, or unauthorized state is 404; malformed query
 or token bindings are 400. A root decision is encoded as `kind: "directory"`
 with the root basis reference and `root: true`, no `placement`, and no

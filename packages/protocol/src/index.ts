@@ -23,6 +23,7 @@ export * from "./updates/intent.ts";
 export * from "./updates/json.ts";
 export * from "./updates/apply.ts";
 export * from "./updates/delta.ts";
+export * from "./updates/source-trace.ts";
 export * from "./transport.ts";
 export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, Material, MaterialRef, EntryDestination, ResolutionDeclaration } from "./updates/authored-contract.ts";
 export { decodeMaterialRef } from "./updates/authored-contract.ts";

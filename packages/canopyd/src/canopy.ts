@@ -3,11 +3,10 @@ import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } fro
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
-import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic-merge.ts";
-import { IntentError, type CheckpointRequest, type DecisionReport } from "@overstory/merge-protocol";
-import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
-import { changedEntryPaths } from "./updates/tree-diff.ts";
-import type { DecisionPage } from "@overstory/protocol";
+import { MergeHistory } from "./updates/merge-history.ts";
+import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
+import { answerRoots, MergeTool, type MergeToolOptions } from "./merge-tool.ts";
+import { checkPlainTrace, type DecisionPage } from "@overstory/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -29,7 +28,6 @@ import { parseMarkdown, resourceRuleFromLegacy } from "@overstory/protocol";
 import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
 import {
   validateUpdateRequestIntent,
-  compareWireNames,
   decodeWireDirectory,
   encodeWireDirectory,
   hashObject,
@@ -46,7 +44,6 @@ import {
   type UpdateRequest,
   type UpdateResponse,
   type UpdateResult,
-  type WireDirectoryEntry,
 } from "@overstory/protocol";
 import {
   authorizeAccountConfigTransitionV2,
@@ -55,7 +52,7 @@ import {
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
 } from "./account-policy-v2.ts";
-import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
+import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
@@ -222,6 +219,35 @@ export { CANOPY_SCHEMA_VERSION, assertCanopySchemaVersion, assertCurrentCanopySc
  * subject is, how a candidate and an accepted root are validated, which merge
  * runs when both sides changed, and what commits alongside the accepted row.
  */
+/** The basis a batch element was authored on: an accepted log entry, and the
+ * earlier candidates of the batch authored on it that no entry records as
+ * their author wrote them. */
+interface AuthoredBasis {
+  entry: ObjectHash;
+  prefix: Candidate[];
+}
+
+/** What an entry records of the question that produced it, beyond its own
+ * fields: enough for a sidecar to ask it again with `previous` as the head. */
+function asked(question: MergeQuestion, root: ObjectHash): Asked {
+  const { candidate } = question;
+  const end = candidate.trace ? candidate.trace.at(-1)?.after ?? root : root;
+  return {
+    ...(question.base !== question.head ? { base: question.base } : {}),
+    ...(question.prefix?.length ? { prefix: question.prefix } : {}),
+    ...(candidate.root !== end ? { candidate: candidate.root } : {}),
+    ...(candidate.alternatives?.length ? { alternatives: candidate.alternatives } : {}),
+    rules: question.rules,
+  };
+}
+
+/** A question preflight already asked, reusable only verbatim. */
+interface PreparedAnswer {
+  question: MergeQuestion;
+  answer: MergeAnswer;
+  objects: Map<ObjectHash, Uint8Array>;
+}
+
 interface UpdatePolicy {
   subject: string;
   rejection?: { kind: "account-configuration"; message: string };
@@ -275,7 +301,7 @@ export class CanopyDaemon implements AsyncDisposable {
   private readonly observations: ObservationLog;
   private readonly objects: ObjectStore;
   private readonly mergeTool: MergeTool;
-  private readonly semantic: SemanticMerge;
+  private readonly history: MergeHistory;
   private readonly access: AccessControl;
   readonly execution: ExecutionAuthority;
   private readonly accounts: AccountDirectory;
@@ -297,12 +323,8 @@ export class CanopyDaemon implements AsyncDisposable {
       objects: this.objects,
       ...mergeTool,
     });
-    this.semantic = new SemanticMerge(
-      db,
-      this.mergeTool,
-      (hash, objects) => this.objects.load(hash, objects),
-    );
     this.acceptedStore = new AcceptedUpdateStore(db);
+    this.history = new MergeHistory(this.acceptedStore, this.objects);
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
@@ -480,17 +502,16 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /** Decision inspection is pinned to one retained accepted state. */
-  conflictPage(
+  async conflictPage(
     tree: string,
     state: string,
     after?: string,
     conflict?: string
-  ): DecisionPage | null {
+  ): Promise<DecisionPage | null> {
     const update = this.update(state);
     if (!update || update.tree !== tree) return null;
-    const semantic = this.semantic.store.get(state);
-    if (!semantic) return null;
-    const page = decisionPage(semantic.decisions.map((d) => d.inspection), tree, state, after, conflict);
+    const open = await this.history.decisions(update);
+    const page = decisionPage(open.map((d) => d.inspection), tree, state, after, conflict);
     if (!page) return null;
     return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
   }
@@ -660,8 +681,7 @@ export class CanopyDaemon implements AsyncDisposable {
     readAccountConfigGraphV2(nextSnapshot, account.configTree!);
     const configTree = this.get(account.configTree!)!;
     const staged = new Map(nextSnapshot.objects);
-    const mergeState = await this.semantic.checkpoint(configTree.id, this.update(expectedUpdate)!, nextSnapshot.root, `pairing:${id}`, staged);
-    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+    const entry = await this.internalEntry(configTree.id, this.update(expectedUpdate)!, nextSnapshot.root, `pairing:${id}`, staged);
     const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit({
@@ -672,7 +692,7 @@ export class CanopyDaemon implements AsyncDisposable {
       expectedUpdate,
       acceptedAt: now,
       subject: `pairing:${id}`,
-      mergeState,
+      entry,
     }, () => {
       if (!this.accounts.claimPairing(id, input.deviceID, now)) throw new Error("Pairing is invalid, expired, or already used");
       this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, tokenDigest, now);
@@ -771,8 +791,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const configID = generateArborID("tr");
       await this.validateGraph(snapshot.root, snapshot.objects);
       const staged = new Map(snapshot.objects);
-      const mergeState = await this.semantic.checkpoint(configID, null, snapshot.root, `initial:${configID}`, staged);
-      await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+      const entry = await this.internalEntry(configID, null, snapshot.root, `initial:${configID}`, staged);
       const changes = await this.entryChanges(null, snapshot.root);
       const now = Date.now();
       this.db.transaction(() => {
@@ -780,7 +799,7 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
-        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, acceptedAt: now, entryChanges: changes, mergeState });
+        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, acceptedAt: now, entryChanges: changes, entry });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
     }
@@ -1016,8 +1035,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
     const firstWriter = this.unclaimedFounderHandle() === input.handle;
     const staged = new Map(input.configurationSnapshot.objects);
-    const mergeState = await this.semantic.checkpoint(input.configurationTree, null, input.configurationSnapshot.root, `initial:${input.configurationTree}`, staged);
-    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+    const entry = await this.internalEntry(input.configurationTree, null, input.configurationSnapshot.root, `initial:${input.configurationTree}`, staged);
     const configurationChanges = await this.entryChanges(null, input.configurationSnapshot.root);
     const accountID = generateArborID("ac");
     const now = Date.now();
@@ -1046,7 +1064,7 @@ export class CanopyDaemon implements AsyncDisposable {
         acceptedAt: now,
         subject: `device:${input.deviceID}`,
         entryChanges: configurationChanges,
-        mergeState,
+        entry,
       });
       for (const [tree, declaration] of Object.entries(config.resources)) {
         this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
@@ -1161,7 +1179,10 @@ export class CanopyDaemon implements AsyncDisposable {
       }
     }
     markPhase("receipts");
-    const intents = new Map<number, { basis: StateRef; evaluated: Evaluated; guards: string[] }>();
+    // The author's basis for each element: an accepted entry, and the batch
+    // candidates authored on it that no entry records as the author wrote them.
+    let basis: AuthoredBasis | null = request.base ? { entry: (await this.history.entryFor(request.base)).hash, prefix: [] } : null;
+    let prepared: PreparedAnswer | undefined;
     if (
       request.base &&
       request.updates.some((update) => update.trace !== null)
@@ -1192,71 +1213,42 @@ export class CanopyDaemon implements AsyncDisposable {
             result: { results, observedThrough: this.observedThrough(treeID) },
           };
       }
+      // Check every traced element against the request's base before any is
+      // accepted: invalid or unsupported evidence must never accept a prefix.
       const objects = new Map<ObjectHash, Uint8Array>();
-      let basis = this.semantic.state(this.update(request.base)!);
+      const base = this.update(request.base)!;
+      const baseEntry = basis!.entry;
+      const open = (await this.history.decisions(base)).map((d) => d.decision);
+      const preflight: AuthoredBasis = { entry: baseEntry, prefix: [] };
+      let root = base.root;
+      // Plain elements chain: each is checked on the one before it.
+      let plainSoFar = true;
       markPhase("preflight-state");
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
-        if (index <= recordedThrough) {
-          const subject = this.subjectFor(this.get(treeID)!, account, linkDigest, credentialSubject);
-          const receipt = this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!);
-          const retained = receipt && this.semantic.store.get(receipt.result.update.id);
-          // A receipt binds this exact prefix to its credential. Continue from
-          // the author's candidate, not the possibly merged accepted projection.
-          // Unchanged receipts can point at another change's state; those
-          // still need normal evaluation.
-          if (retained?.request.change === update.change && retained.request.candidate === update.candidate) {
-            basis = { object: update.candidate, state: retained.authored };
-            continue;
-          }
-        }
-        for (const object of await this.objects.reconstructDeltas(
-          basis.object,
-          update.deltas,
-          objects
-        ))
-          objects.set(object.hash, object.bytes);
-        if (update.trace !== null) {
-          try {
-            const keys = update.resolves.flatMap(
-              (r) =>
-                this.semantic.store
-                  .get(r.state)
-                  ?.decisions.filter((d) => d.inspection.id === r.conflict)
-                  .map((d) => d.key) ?? []
-            );
-            const validated = await this.semantic.evaluate(
-              treeID,
-              basis,
-              basis,
-              update,
-              objects,
-              keys
-            );
-            markPhase("preflight-evaluate");
-            intents.set(index, { basis, evaluated: validated, guards: keys });
-            basis = validated.authored;
-          } catch (error) {
-            if (error instanceof IntentError && error.code === "unsupported")
-              throw new UpdateProtocolError("unsupported-operation", error.message);
-            throw error;
-          }
-        } else {
-          const checkpoint = await this.mergeTool.evaluate(
-            {
-              kind: "checkpoint",
-              tree: treeID,
-              current: basis,
-              projection: update.candidate,
-              change: update.change,
-              decisions: [],
-            },
-            objects
-          );
-          for (const [hash, bytes] of checkpoint.objects)
-            objects.set(hash, bytes);
-          basis = checkpoint.response.result;
-        }
+        if (index > recordedThrough) {
+          for (const object of await this.objects.reconstructDeltas(root, update.deltas, objects))
+            objects.set(object.hash, object.bytes);
+          if (update.trace !== null) {
+            const plain: boolean = plainSoFar && !update.resolves.length && await this.fastForward(root, update, open, objects);
+            plainSoFar &&= plain;
+            if (!plain) {
+              const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
+              const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
+              try {
+                const asked = await this.mergeTool.ask(question, objects);
+                markPhase("preflight-evaluate");
+                if (index === 0) prepared = { question, ...asked };
+              } catch (error) {
+                if (error instanceof MergeRefusal && error.code === "unsupported")
+                  throw new UpdateProtocolError("unsupported-operation", error.message);
+                throw error;
+              }
+            }
+          } else plainSoFar = false;
+        } else plainSoFar = false;
+        preflight.prefix.push(await this.candidate(treeID, update, []));
+        root = update.candidate;
       }
       // These are immutable preflight objects, not accepted state. The accepted
       // transaction below is their only authority; an aborted batch leaves no rows.
@@ -1274,6 +1266,7 @@ export class CanopyDaemon implements AsyncDisposable {
         completed.push(activation.result as UpdateResult);
         accepted ||= activation.result.outcome !== "unchanged";
         baseRoot = update.candidate;
+        basis = { entry: (await this.history.entryFor(activation.result.update)).hash, prefix: [] };
         continue;
       }
       // Credential-bound receipts already prove this prefix. Transport aids
@@ -1297,13 +1290,12 @@ export class CanopyDaemon implements AsyncDisposable {
         update,
         requestDigest,
         proposed,
-        // The request's accepted base, or the activation that preceded this update.
-        request.base ?? completed[0]!.update.id,
+        basis!,
         account,
         linkDigest,
         credentialSubject,
         index < recordedThrough,
-        intents.get(index),
+        index === 0 ? prepared : undefined,
       );
       if ("error" in result.result) {
         result.result.details.completed = completed;
@@ -1312,6 +1304,12 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       completed.push(result.result);
       accepted ||= result.result.outcome !== "unchanged";
+      // An element accepted exactly as authored on the basis entry is the
+      // next element's basis; any other is carried as authored.
+      const entry = result.result.outcome === "accepted" ? await this.history.entryFor(result.result.update) : null;
+      basis = entry && !basis!.prefix.length && entry.entry.previous === basis!.entry && entry.entry.root === update.candidate && entry.entry.asked?.base === undefined
+        ? { entry: entry.hash, prefix: [] }
+        : { entry: basis!.entry, prefix: [...basis!.prefix, await this.candidate(treeID, update, [])] };
       baseRoot = update.candidate;
     }
     return {
@@ -1323,18 +1321,66 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
+  /** The reference sidecar's rules as canopyd configures them. */
+  private rules(): MergeQuestion["rules"] {
+    return {
+      id: "tree-default",
+      revision: 1,
+      config: { contentChoices: this.mergeTool.contentChoices, conflictProjection: "current", maxMillis: this.mergeTool.evaluationMillis },
+    };
+  }
+
+  /** A client update as a question names it: its trace, the decision keys it
+   * resolves and the alternatives its operations name. */
+  private async candidate(tree: string, update: CandidateUpdate, resolves: string[]): Promise<Candidate> {
+    const alternatives = update.trace ? await this.history.bindings(tree, update.trace) : [];
+    return {
+      root: update.candidate,
+      change: update.change,
+      trace: update.trace,
+      resolves,
+      ...(alternatives.length ? { alternatives } : {}),
+    };
+  }
+
+  /** Whether canopyd can accept a traced update on `root` without a question:
+   * a plain trace it reproduces exactly, touching nothing an open decision
+   * concerns. A miss is logged with its reason and goes to the sidecar. */
+  private async fastForward(
+    root: ObjectHash,
+    update: CandidateUpdate,
+    open: readonly LogDecision[],
+    objects: ReadonlyMap<ObjectHash, Uint8Array>,
+  ): Promise<boolean> {
+    const miss = (reason: string) => {
+      phaseTimer()?.count("fast-forward-miss", 1);
+      console.info(`Fast-forward fell through: ${reason}`);
+      return false;
+    };
+    if (!update.trace?.length) return miss("no frames");
+    if (update.trace[0]!.before !== root) return miss("trace is not authored on the head");
+    const checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects));
+    if (!checked.plain) return miss(checked.reason);
+    const concerned = open.find((d) => !d.path || checked.touched.some((path) => {
+      const at = `/${d.path!.join("/")}`;
+      return path === at || path.startsWith(`${at}/`);
+    }));
+    if (concerned) return miss("an open decision concerns the update");
+    return true;
+  }
+
   private async submitCandidateLocked(
     treeID: string,
     baseRoot: ObjectHash,
     request: CandidateUpdate,
     requestDigest: ObjectHash,
     proposed: Map<ObjectHash, Uint8Array>,
-    since: string,
+    basis: AuthoredBasis,
     account: CanopyAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
     provenAcceptedPrefix = false,
-    preparedIntent?: { basis: StateRef; evaluated: Evaluated; guards: string[] },
+    prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
@@ -1370,7 +1416,7 @@ export class CanopyDaemon implements AsyncDisposable {
     markPhase("validate-graph");
     await policy.validateCandidate(request.candidate, proposed);
     markPhase("validate-candidate");
-    return this.submitSemanticCandidate(tree, baseRoot, request, requestDigest, proposed, policy, since, preparedIntent);
+    return this.submitSemanticCandidate(tree, baseRoot, request, requestDigest, proposed, policy, basis, prepared);
   }
 
   /** A 409 that leaves accepted state unchanged: an exact-state or resolution
@@ -1400,188 +1446,12 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
-  /** Attribution for the current side of a snapshot choice: each change
-   * accepted after `since` (the request's accepted base) through `current`
-   * that touched a path, or a path within or above it. A physical change is
-   * evidence of a change, never of an editor operation. */
-  private async concurrentChanges(
-    since: string,
-    current: AcceptedUpdate,
-    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
-  ): Promise<(path: string) => Array<{ change: string; operation: null }>> {
-    const touched: Array<{ change: string; paths: string[] }> = [];
-    for (const update of this.acceptedStore.ancestry(since, current.id, Infinity) ?? []) {
-      const change = this.acceptedStore.changeForAccepted(update.id);
-      if (change && update.previous)
-        touched.push({ change, paths: await changedEntryPaths(update.previous.root, update.root, (hash) => this.objects.load(hash, proposed)) });
-    }
-    const related = (a: string, b: string) => a === "/" || b === "/" || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-    return (path) => touched.filter((t) => t.paths.some((p) => related(p, path))).map((t) => ({ change: t.change, operation: null }));
-  }
-
-  /** Checkpoint decisions for a conflicting snapshot, and the projection that
-   * shows the current material for each. Each conflict is scoped to one entry
-   * and the rest of the merge is accepted: a file (a file against its deletion
-   * included) is a choice about that file; a conflict inside a folder the tree
-   * merge could not reconcile, or at an entry that is not a file on both
-   * sides, is a choice about the nearest folder that both sides hold. A choice
-   * inside another choice's folder is part of that choice. Only a conflict at
-   * the root, or one no folder below it contains, is a single whole-root
-   * choice that keeps the current tree. The current alternative names the
-   * concurrent changes that produced it; the candidate names this change. A
-   * folder choice depends on the open choices already inside that folder.
-   *
-   * A candidate whose basis showed a hidden alternative of an open choice
-   * about the same entry (a batch suffix after its prefix was withheld)
-   * continues that alternative: the choice keeps its identity, that
-   * alternative becomes the candidate's version, and `replaces` names the
-   * choice so the checkpoint retires its old form. */
-  private async snapshotDecisions(
-    change: string,
-    current: AcceptedUpdate,
-    since: string,
-    base: ObjectHash,
-    candidate: ObjectHash,
-    merged: ObjectHash,
-    conflicts: Array<{ path: string }>,
-    folders: string[],
-    proposed: Map<ObjectHash, Uint8Array>
-  ): Promise<{ projection: ObjectHash; decisions: CheckpointRequest["decisions"]; replaces: string[] }> {
-    const concurrent = await this.concurrentChanges(since, current, proposed);
-    const own = [{ change, operation: null }];
-    const roots = [...new Set([current.root, candidate, merged])];
-    const whole = {
-      projection: current.root,
-      replaces: [],
-      decisions: [{
-        key: `snapshot:${change}`,
-        selected: 0,
-        alternatives: roots.map((object) => ({
-          object,
-          contributions: object === current.root ? concurrent("/") : object === candidate ? own : [...concurrent("/"), ...own],
-        })),
-      }],
-    };
-    const load = async (hash: ObjectHash) => decodeWireDirectory(await this.objects.load(hash, proposed));
-    const entryAt = async (root: ObjectHash, names: string[]) => {
-      let directory = root;
-      for (const [index, name] of names.entries()) {
-        const entry = (await load(directory)).entries.find((e) => e.name === name);
-        if (!entry || index === names.length - 1) return entry ?? null;
-        if (!entry.directory) return null;
-        directory = entry.directory;
-      }
-      return null;
-    };
-    // Replace (or remove) one entry below `root`; null when a parent directory is absent.
-    const withEntry = async (root: ObjectHash, names: string[], entry: WireDirectoryEntry | null): Promise<ObjectHash | null> => {
-      const directory = await load(root);
-      const [name, ...rest] = names as [string, ...string[]];
-      const prior = directory.entries.find((e) => e.name === name);
-      let next: WireDirectoryEntry | null = entry;
-      if (rest.length) {
-        if (!prior?.directory) return null;
-        const child = await withEntry(prior.directory, rest, entry);
-        if (!child) return null;
-        next = { ...prior, directory: child };
-      }
-      directory.entries = [...directory.entries.filter((e) => e.name !== name), ...(next ? [next] : [])]
-        .sort((a, b) => compareWireNames(a.name, b.name));
-      const bytes = encodeWireDirectory(directory), hash = hashObject(bytes);
-      proposed.set(hash, bytes);
-      return hash;
-    };
-    if (!conflicts.length && !folders.length) return whole;
-    const within = (path: string, scope: string) => scope === "/" || path === scope || path.startsWith(`${scope}/`);
-    const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
-    const namesOf = (path: string) => path.slice(1).split("/");
-    // The entry each conflict is about.
-    const scopes = new Set<string>();
-    for (const conflict of [...folders, ...conflicts.map((c) => c.path)]) {
-      // The outermost unreconciled folder containing the conflict owns it.
-      let path = folders.filter((folder) => within(conflict, folder)).sort((a, b) => a.length - b.length)[0] ?? conflict;
-      for (;;) {
-        if (path === "/") return whole;
-        const [mine, theirs] = await Promise.all([current.root, candidate].map((root) => entryAt(root, namesOf(path))));
-        const file = (entry: WireDirectoryEntry | null | undefined) => !entry || !!entry.file;
-        if ((mine || theirs) && file(mine) && file(theirs)) break;
-        if (mine?.directory && theirs?.directory) break;
-        path = parentOf(path);
-      }
-      scopes.add(path);
-    }
-    const open = this.semantic.store.get(current.id)?.decisions ?? [];
-    // The path an open choice is about: its entry, or the file its range is in.
-    const placed = ({ inspection }: (typeof open)[number]) => {
-      const placement = inspection.alternatives.find((a) => a.placement)?.placement;
-      if (placement) return `/${[...(placement.parent.within ?? []), placement.name].join("/")}`;
-      const ref = inspection.affected[0];
-      return inspection.kind === "content" && ref?.material.kind === "basis" ? ref.material.path : null;
-    };
-    const entryPath = (d: (typeof open)[number]) => d.inspection.kind === "entry" ? placed(d) : null;
-    const valueOf = (entry: object | null | undefined) =>
-      entry && "file" in entry && typeof entry.file === "string" ? { file: entry.file }
-      : entry && "directory" in entry && typeof entry.directory === "string" ? { directory: entry.directory } : null;
-    let projection: ObjectHash = merged;
-    const decisions: CheckpointRequest["decisions"] = [], replaces: string[] = [];
-    for (const path of [...scopes].filter((p) => ![...scopes].some((q) => q !== p && within(p, q))).sort()) {
-      const names = namesOf(path);
-      const [mine, theirs, before] = await Promise.all([current.root, candidate, base].map((root) => entryAt(root, names)));
-      const shown = await withEntry(projection, names, mine ?? null);
-      if (!shown) return whole;
-      projection = shown;
-      const folder = !!(mine?.directory && theirs?.directory);
-      const dependencies = folder
-        ? open.filter((d) => { const at = placed(d); return !!at && at !== path && within(at, path); }).map((d) => d.key)
-        : [];
-      const basis = valueOf(before);
-      const prior = basis
-        ? open.find((d) => !d.inspection.dependencies.length && entryPath(d) === path)
-        : undefined;
-      const continued = prior?.inspection.alternatives.findIndex((a) =>
-        a.id !== prior.inspection.selected && stableJSONString(a.value) === stableJSONString(basis)) ?? -1;
-      if (prior && continued >= 0) {
-        const alternatives = [];
-        for (const [index, alternative] of prior.inspection.alternatives.entries()) {
-          const value = valueOf(alternative.value);
-          const object = index === continued ? candidate
-            : alternative.id === prior.inspection.selected ? current.root
-            : await withEntry(current.root, names, value ? { name: names.at(-1)!, ...value } as WireDirectoryEntry : null);
-          if (!object) break;
-          alternatives.push({ object, contributions: index === continued ? [...alternative.contributions, ...own] : alternative.contributions });
-        }
-        if (alternatives.length === prior.inspection.alternatives.length) {
-          replaces.push(prior.key);
-          decisions.push({
-            key: prior.key,
-            path: names,
-            selected: prior.inspection.alternatives.findIndex((a) => a.id === prior.inspection.selected),
-            alternatives,
-            ...(dependencies.length ? { dependencies } : {}),
-          });
-          continue;
-        }
-      }
-      decisions.push({
-        key: `snapshot:${change}:${path}`,
-        path: names,
-        selected: 0,
-        alternatives: [
-          { object: current.root, contributions: concurrent(path) },
-          { object: candidate, contributions: own },
-        ],
-        ...(dependencies.length ? { dependencies } : {}),
-      });
-    }
-    return { projection, decisions, replaces };
-  }
-
   /**
-   * Every candidate, traced or snapshot, on every tree policy: evaluate it
-   * against the current accepted merge state and record the result's merge
-   * state with the accepted row. A snapshot is merged as a tree, then
-   * checkpointed onto the current state together with the author's own
-   * candidate, in one worker request.
+   * Every candidate, traced or snapshot, on every tree policy, becomes one log
+   * entry after the tree's current one. A plain traced edit on the head that
+   * no open decision concerns is accepted as authored. Everything else is one
+   * question to the merge sidecar; governed account configuration is merged
+   * here first and the sidecar asked only to carry its decisions forward.
    */
   private async submitSemanticCandidate(
     tree: CanopyTree,
@@ -1590,8 +1460,8 @@ export class CanopyDaemon implements AsyncDisposable {
     requestDigest: ObjectHash,
     proposed: Map<ObjectHash, Uint8Array>,
     policy: UpdatePolicy,
-    since: string,
-    prepared?: { basis: StateRef; evaluated: Evaluated; guards: string[] }
+    basis: AuthoredBasis,
+    prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const governed = isAccountConfigPolicy(tree.policy);
     for (let race = 0; race < 3; race++) {
@@ -1601,154 +1471,142 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       if (request.ifCurrent !== undefined && request.ifCurrent !== current.id)
         return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, "Accepted state no longer matches ifCurrent", policy.rejection?.kind);
-      const open = this.semantic.openDecisions(current);
-      if (governed && (open || request.resolves.length)) {
+      const head = await this.history.entryFor(current);
+      const open = head.entry.decisions;
+      if (governed && (open.length || request.resolves.length)) {
         // Governed policy conflicts retain the conservative projection. Further
         // edits must explicitly resolve the complete current decision set; an
         // ordinary snapshot or stale device cannot silently restore authority.
-        const keys = this.semantic.guards(current, request);
+        const keys = await this.history.guards(current, request);
         if (!keys || request.ifCurrent !== current.id || baseRoot !== current.root ||
-            request.resolves.length !== open || new Set(keys).size !== open) {
+            request.resolves.length !== open.length || new Set(keys).size !== open.length) {
           throw new UpdateProtocolError("unsupported-operation", "Configuration policy conflicts require an exact guarded resolution of every current decision");
         }
       }
-      const guards = this.semantic.guards(current, request);
+      const guards = await this.history.guards(current, request);
       if (guards === null)
         return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, "Resolution guards no longer match the accepted decisions");
-      const currentState = this.semantic.state(current);
       markPhase("current-state");
-      let result: StateRef,
-        authored: StateRef,
-        reports: DecisionReport[],
-        evidence: Evaluated["evidence"] | null = null;
-      if (prepared) {
-        // Preflight already evaluated the exact no-concurrency case. Reuse only
-        // when both material states and resolution keys still match; authority,
-        // guards, candidate validation and commit checks remain above/below.
-        const exact = prepared.basis.object === currentState.object && prepared.basis.state === currentState.state
-          && stableJSONString(prepared.guards) === stableJSONString(guards);
-        const evaluated = exact ? prepared.evaluated : await this.semantic.evaluate(
-          tree.id,
-          prepared.basis,
-          currentState,
-          request,
-          proposed,
-          guards
-        );
-        result = evaluated.result;
-        authored = evaluated.authored;
-        reports = evaluated.decisions;
-        evidence = evaluated.evidence;
+      // Authored directly on the head: nothing concurrent to merge.
+      const direct = basis.entry === head.hash && !basis.prefix.length;
+      let root: ObjectHash, decisions: LogDecision[], evidence: unknown;
+      let question: MergeQuestion | null = null;
+      const carried = request.trace !== null && direct && !guards.length && await this.fastForward(current.root, request, open, proposed)
+        ? await this.history.carry(open, request.candidate, proposed) : null;
+      if (carried) {
+        root = request.candidate;
+        decisions = carried;
+        markPhase("fast-forward");
       } else {
-        // Resolving a governed policy conflict accepts the author's exact
-        // candidate; selecting the restrictive projection is still a resolution.
-        const merged = governed && guards.length
-          ? { outcome: "accepted" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>() }
-          : await reconcileUpdate(
-            baseRoot,
-            request.candidate,
-            current.root,
-            (hash) => this.objects.load(hash, proposed),
-            { merge: policy.merge ?? ((base, candidate, remote) => this.mergeTool.tree(base, candidate, remote, proposed)) }
-          );
-        markPhase("reconcile");
-        if (merged.outcome === "current" && !guards.length)
+        let candidate = await this.candidate(tree.id, request, guards);
+        let imposed: LogDecision | null = null;
+        if (request.trace === null) {
+          const identity = decideUpdate(baseRoot, request.candidate, current.root);
+          if (identity === "current" && !guards.length)
+            return {
+              status: 200,
+              result: await this.withReconciliation({ outcome: "unchanged", update: current, requestDigest }, request.candidate, proposed),
+            };
+          if (governed) {
+            // Resolving a governed policy conflict accepts the author's exact
+            // candidate; selecting the restrictive projection is still a resolution.
+            const merged = guards.length
+              ? { outcome: "accepted" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>() }
+              : await reconcileUpdate(baseRoot, request.candidate, current.root, (hash) => this.objects.load(hash, proposed), { merge: policy.merge! });
+            markPhase("reconcile");
+            if (merged.outcome === "current" && !guards.length)
+              return {
+                status: 200,
+                result: await this.withReconciliation({ outcome: "unchanged", update: current, requestDigest }, request.candidate, proposed),
+              };
+            if (merged.outcome !== "current")
+              for (const [hash, bytes] of merged.generated) proposed.set(hash, bytes);
+            const conflicts = "conflicts" in merged ? merged.conflicts : [];
+            const mergedRoot = merged.outcome === "current" ? current.root : merged.root;
+            // Only an access narrowing may stay open as a policy choice; any other
+            // governed conflict is refused, not accepted.
+            if (conflicts.some((c) => c.path !== "/trees.yaml/access"))
+              return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, policy.rejection!.message, policy.rejection!.kind, mergedRoot, conflicts);
+            // A governed access conflict keeps the merge's restrictive
+            // projection, as one whole-configuration choice.
+            if (conflicts.length)
+              imposed = {
+                key: `policy:${request.change}`,
+                dependencies: [],
+                selected: 0,
+                alternatives: [...new Set([mergedRoot, current.root, request.candidate])].map((object) => ({ object, contributions: [] })),
+              };
+            candidate = { ...candidate, root: mergedRoot };
+          }
+        }
+        question = {
+          base: governed ? head.hash : basis.entry,
+          head: head.hash,
+          ...(!governed && basis.prefix.length ? { prefix: basis.prefix } : {}),
+          candidate,
+          rules: this.rules(),
+        };
+        const reuse = prepared && stableJSONString(prepared.question) === stableJSONString(question);
+        const { answer, objects } = reuse ? prepared! : await this.mergeTool.ask(question, proposed);
+        for (const [hash, bytes] of objects) proposed.set(hash, bytes);
+        markPhase("evaluate");
+        root = answer.root;
+        decisions = imposed ? [...answer.decisions.filter((d) => d.key !== imposed!.key), imposed] : answer.decisions;
+        evidence = answer.evidence;
+        // A snapshot the sidecar leaves exactly as the head changed nothing.
+        if (request.trace === null && root === current.root && stableJSONString(decisions) === stableJSONString(open))
           return {
             status: 200,
             result: await this.withReconciliation({ outcome: "unchanged", update: current, requestDigest }, request.candidate, proposed),
           };
-        if (merged.outcome !== "current")
-          for (const [hash, bytes] of merged.generated)
-            proposed.set(hash, bytes);
-        const conflicts = "conflicts" in merged ? merged.conflicts : [];
-        const mergedRoot = merged.outcome === "current" ? current.root : merged.root;
-        // Only an access narrowing may stay open as a policy choice; any other
-        // governed conflict is refused, not accepted.
-        if (governed && conflicts.some((c) => c.path !== "/trees.yaml/access"))
-          return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, policy.rejection!.message, policy.rejection!.kind, mergedRoot, conflicts);
-        // A merge keeps the candidate's version of a conflict for the client's
-        // draft; acceptance shows the current material and retains the other.
-        // A governed access conflict instead keeps the merge's restrictive
-        // projection, as one whole-configuration choice.
-        const { projection, decisions, replaces } = !conflicts.length && merged.outcome !== "rejected"
-          ? { projection: mergedRoot, decisions: [], replaces: [] }
-          : governed
-          ? { projection: mergedRoot, replaces: [], decisions: [{
-              key: `policy:${request.change}`,
-              selected: 0,
-              alternatives: [...new Set([mergedRoot, current.root, request.candidate])].map((object) => ({ object, contributions: [] })),
-            }] }
-          : await this.snapshotDecisions(request.change, current, since, baseRoot, request.candidate, mergedRoot, conflicts,
-            "unresolvedDirectories" in merged ? merged.unresolvedDirectories ?? [] : [], proposed);
-        const checkpoint = await this.mergeTool.evaluate(
-          {
-            kind: "checkpoint",
-            tree: tree.id,
-            current: currentState,
-            projection,
-            candidate: request.candidate,
-            continueSelected: baseRoot === current.root,
-            conflictProjection: "current",
-            change: request.change,
-            resolves: [...guards, ...replaces],
-            decisions,
-            // The snapshot candidate is the author's basis for a later batch suffix.
-            authored: true,
-          },
-          proposed
-        );
-        for (const [hash, bytes] of checkpoint.objects)
-          proposed.set(hash, bytes);
-        result = checkpoint.response.result;
-        authored = checkpoint.response.authored!;
-        reports = checkpoint.response.decisions;
       }
-      markPhase("evaluate");
-      const mergeState = await this.semantic.record(
-        tree.id,
-        result,
-        authored,
-        reports,
-        request,
-        proposed,
-        evidence
-      );
-      markPhase("record");
       await policy.validateAccepted(
         this.get(tree.id)!,
-        result.object,
+        root,
         proposed
       );
       markPhase("validate-accepted");
       await this.objects.store(
         [...proposed].map(([hash, bytes]) => ({ hash, bytes }))
       );
+      const entry = await this.history.write({
+        format: LOG_ENTRY_FORMAT,
+        tree: tree.id,
+        previous: head.hash,
+        root,
+        change: request.change,
+        trace: request.trace,
+        resolves: guards,
+        decisions,
+        ...(question ? { asked: asked(question, root) } : {}),
+        ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
+      });
       markPhase("accepted-store");
       const now = Date.now(),
         commit = await policy.prepareCommit(
           this.get(tree.id)!,
-          result.object,
+          root,
           now
         );
-      const changes = await this.entryChanges(current.root, result.object);
-      const profile = await this.profileFacts(result.object, proposed);
+      const changes = await this.entryChanges(current.root, root);
+      const profile = await this.profileFacts(root, proposed);
       markPhase("entry-changes");
       const accepted = this.acceptedStore.commit(
         {
           entryChanges: changes,
           tree: tree.id,
-          root: result.object,
+          root,
           previousRoot: current.root,
           expectedUpdate: current.id,
           acceptedAt: now,
           subject: policy.subject,
           requestDigest,
           change: request.change,
-          mergeState,
+          entry,
         },
         () => {
           commit.withinTransaction?.();
-          recordProfileFacts(this.db, result.object, profile);
+          recordProfileFacts(this.db, root, profile);
         }
       );
       if (!accepted) continue;
@@ -1990,16 +1848,30 @@ export class CanopyDaemon implements AsyncDisposable {
     const roots = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
       .map(({ root }) => root);
     await this.objects.verifyReachable(roots);
-    const stateRoots = new Set<string>();
-    for (const { accepted, record } of this.semantic.store.entries()) {
-      const owner = this.update(accepted);
-      if (!owner || owner.conflicted !== (record.decisions.length > 0))
-        throw new Error("Invalid merge state ownership");
-      stateRoots.add(record.state); stateRoots.add(record.authored);
+    // Every row's entry, and every entry and alternative its chain reaches.
+    const rows = this.db.query("SELECT ordinal, tree_id, root, previous_ordinal, conflicted, entry FROM accepted_updates ORDER BY ordinal").all() as Array<{
+      ordinal: number; tree_id: string; root: ObjectHash; previous_ordinal: number | null; conflicted: number; entry: ObjectHash;
+    }>;
+    const byOrdinal = new Map(rows.map((row) => [row.ordinal, row]));
+    const checked = new Set<ObjectHash>();
+    for (const row of rows) {
+      const entry = await this.history.entry(row.entry);
+      if (entry.tree !== row.tree_id || entry.root !== row.root || (entry.decisions.length > 0) !== Boolean(row.conflicted))
+        throw new Error(`Accepted update ${row.ordinal} does not match its log entry`);
+      const previous = row.previous_ordinal === null ? null : byOrdinal.get(row.previous_ordinal);
+      if (previous && entry.previous !== previous.entry)
+        throw new Error(`Accepted update ${row.ordinal} does not follow its predecessor's log entry`);
+      for (let at: ObjectHash | null = row.entry; at && !checked.has(at);) {
+        checked.add(at);
+        const value = await this.history.entry(at);
+        if (value.tree !== row.tree_id) throw new Error("Log entry chain crosses trees");
+        await this.objects.verifyReachable(answerRoots(value.root, value.decisions));
+        for (const d of value.decisions)
+          if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) await this.objects.read(hash);
+        if (value.asked?.base) await this.history.entry(value.asked.base);
+        at = value.previous;
+      }
     }
-    if (this.db.query("SELECT 1 FROM accepted_updates u WHERE NOT EXISTS (SELECT 1 FROM accepted_merge_states m WHERE m.accepted_id = u.ordinal) LIMIT 1").get())
-      throw new Error("Accepted update without a merge state");
-    await this.mergeTool.auditRetention(stateRoots);
   }
 
   /** The object route is gated on tree read access only. Objects are
@@ -2039,9 +1911,8 @@ export class CanopyDaemon implements AsyncDisposable {
       ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parentTree, [], [{ path, tree: id }], { replaceEntries: true }))
       : null;
     const staged = new Map(snapshot.objects);
-    const mergeState = await this.semantic.checkpoint(id, null, snapshot.root, change ?? `initial:${id}`, staged);
     const profile = await this.profileFacts(snapshot.root, staged);
-    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+    const entry = await this.internalEntry(id, null, snapshot.root, change ?? `initial:${id}`, staged);
     const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
     this.db.transaction(() => {
@@ -2059,7 +1930,7 @@ export class CanopyDaemon implements AsyncDisposable {
         requestDigest,
         change,
         entryChanges: initialChanges,
-        mergeState,
+        entry,
       });
       recordProfileFacts(this.db, snapshot.root, profile);
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
@@ -2070,22 +1941,57 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.get(id)!;
   }
 
+  /** The log entry of an acceptance canopyd makes itself: a tree's first
+   * root, pairing, account configuration, a boundary rewrite. When decisions
+   * are open after `from`, the sidecar carries them onto the new root, which
+   * it shows as given; otherwise there is nothing to decide. Stores `staged`
+   * and the entry durably, before the caller's transaction. */
+  private async internalEntry(
+    tree: string,
+    from: AcceptedUpdate | null,
+    root: ObjectHash,
+    change: string,
+    staged: Map<ObjectHash, Uint8Array>,
+  ): Promise<{ hash: ObjectHash; conflicted: boolean }> {
+    let previous: ObjectHash | null = null, decisions: LogDecision[] = [], evidence: unknown;
+    if (from) {
+      const head = await this.history.entryFor(from);
+      previous = head.hash;
+      if (head.entry.decisions.length) {
+        const rules = this.rules();
+        const { answer, objects } = await this.mergeTool.ask({
+          base: head.hash, head: head.hash,
+          candidate: { root, change, trace: null, resolves: [] },
+          rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
+        }, staged);
+        if (answer.root !== root) throw new Error("The merge sidecar did not accept canopyd's own root");
+        for (const [hash, bytes] of objects) staged.set(hash, bytes);
+        decisions = answer.decisions;
+        evidence = answer.evidence;
+      }
+    }
+    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+    return this.history.write({
+      format: LOG_ENTRY_FORMAT, tree, previous, root, change, trace: null, resolves: [], decisions,
+      ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
+    });
+  }
+
   /** Everything a server-side rewrite of a canonical parent's boundaries needs
-   * before its transaction: the stored objects, the entry changes, and a merge
-   * state checkpointed onto the parent's current update. */
+   * before its transaction: the stored objects, the entry changes, and a log
+   * entry after the parent's current update. */
   private async prepareParentAdvance(rewrite: { parent: CanopyTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
     const staged = new Map(rewrite.generated);
-    const mergeState = await this.semantic.checkpoint(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
     const profile = await this.profileFacts(rewrite.nextRoot, staged);
-    await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
+    const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
     const changes = await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot);
-    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, entryChanges: changes, mergeState, profile };
+    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, entryChanges: changes, entry, profile };
   }
 
   /** Advance a canonical parent inside the caller's transaction, only from the
-   * update its merge state was checkpointed onto. */
+   * update its log entry follows. */
   private advanceParent(prepared: Awaited<ReturnType<CanopyDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
     const { expectedUpdate, profile, ...input } = prepared;
     const accepted = this.acceptedStore.current(input.tree)?.id === expectedUpdate

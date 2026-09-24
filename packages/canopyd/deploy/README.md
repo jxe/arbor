@@ -89,8 +89,9 @@ canopyd reads these variables at start; all are optional.
 |---|---|---|
 | `ARBOR_CANOPY_DATA` | `/data` in the image | Data directory: `canopy.sqlite3` plus `objects/`. |
 | `ARBOR_DOMAIN` | from `RAILWAY_PUBLIC_DOMAIN` | Public hostname used to derive the canonical URL; pass `--url` instead for plain HTTP or a nonstandard port. |
-| `ARBOR_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects; the merge worker reads through the same store. |
-| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker implementing `serve`; see [the merge tool](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
+| `ARBOR_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects, in canopyd and (passed through) in the merge sidecar. |
+| `ARBOR_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
+| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/canopyd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
 
 ### Health and readiness
 

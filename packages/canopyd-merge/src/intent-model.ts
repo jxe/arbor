@@ -14,7 +14,7 @@ import {
   type Frame,
   type IntentEvaluation,
   type IntentRequest,
-} from "@overstory/merge-protocol";
+} from "./engine-contract.ts";
 export { IntentError, isIntentRequest, traceOperations, type Frame, type IntentRequest };
 
 const hash = z.string().regex(OBJECT_HASH);

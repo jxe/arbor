@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
 import { WireClient, WireHTTPError, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate } from "@overstory/protocol";
-import type { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
+import { writeFile } from "node:fs/promises";
 
 async function scenario(run: (context: {
   start: (mergeTool?: { command: string[]; timeoutMs: number }) => Promise<void>;
@@ -43,17 +43,13 @@ function editor(objects: Map<string, Uint8Array>) {
 }
 
 test("a failed tree merge accepts preserved alternatives, survives restart and permits further publication", async () => {
-  await scenario(async ({ start, client, host }) => {
-    // The worker still records merge states; only its tree merge fails.
-    const failTreeMerges = () => {
-      const tool = (host().canopy as unknown as { mergeTool: MergeTool }).mergeTool;
-      const evaluate = tool.evaluate.bind(tool);
-      tool.evaluate = (async (request: any, inputs: ReadonlyMap<string, Uint8Array>) => {
-        if (request.kind === "tree" && !("change" in request.incoming)) throw new Error("injected merge failure");
-        return evaluate(request, inputs);
-      }) as typeof tool.evaluate;
-    };
-    await start(); failTreeMerges();
+  await scenario(async ({ start, client, host, dir }) => {
+    // The sidecar still answers; only its tree merge fails.
+    const script = join(dir, "failing-merge.ts");
+    const cli = new URL("../../../packages/canopyd-merge/src/cli.ts", import.meta.url).pathname;
+    await writeFile(script, `import {run} from ${JSON.stringify(cli)};
+      await run(process.argv.slice(2), { treeMerge: async () => { throw new Error("injected merge failure"); } });`);
+    await start({ command: [process.execPath, script], timeoutMs: 30_000 });
     const tree = (await client().account()).account.community.id;
     const head = (await client().descriptor(tree)).tree;
     const objects = new Map((await client().snapshot(tree, head.root)).objects);

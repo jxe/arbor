@@ -19,11 +19,11 @@ depends on it except tests and the deployment tooling.
   watch order), `watch-frames.ts`
   (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
   the per-update object reader), `entry-metadata.ts` (entry dates and
-  document versions), `graph-validation.ts`, `merge-state-store.ts` (each
-  accepted update's merge state, the only conflict record), `semantic-merge.ts`
-  (merge states from the sidecar's decision reports).
-- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, response
-  checks, and the worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
+  document versions), `graph-validation.ts`, `merge-history.ts` (each
+  accepted update's log entry in the object store, the only conflict record;
+  public decision ids, guards and bindings derived from it).
+- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter (one question,
+  staging, answer checks) and the process supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
 - `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
   accounts, governed configuration (including its three-way merge), and

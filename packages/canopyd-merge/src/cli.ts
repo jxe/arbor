@@ -1,34 +1,10 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
+import { holdsObject, ObjectStore } from "@overstory/object-store";
+import { MergeRefusal } from "@overstory/merge-protocol";
 import { IntentError } from "./intent-model.ts";
-import { ObjectStore } from "@overstory/object-store";
-import { merge, wireResponse } from "./index.ts";
-import { workerObjects } from "./worker-objects.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
-import type { MergeObjects } from "./index.ts";
-
-/** Time one request and count its object reads; the summary goes to stderr as
- * one JSON line for the host's diagnostics. No request content or hashes. */
-async function timed<T>(objects: MergeObjects, work: (objects: MergeObjects) => Promise<T>): Promise<T> {
-  const counts = { reads: 0, "read-bytes": 0, "read-ms": 0, stores: 0 };
-  const counted: MergeObjects = {
-    read: async (hash) => {
-      const started = performance.now();
-      const bytes = await objects.read(hash);
-      counts.reads++; counts["read-bytes"] += bytes.byteLength; counts["read-ms"] += performance.now() - started;
-      return bytes;
-    },
-    store: async (values) => { for (const _ of values) counts.stores++; return objects.store(values); },
-  };
-  for (const key of Object.keys(engineDiagnostics)) delete engineDiagnostics[key];
-  const started = performance.now();
-  try {
-    return await work(counted);
-  } finally {
-    const timings = { "total-ms": performance.now() - started, ...counts, ...engineDiagnostics };
-    process.stderr.write(JSON.stringify({ timings }) + "\n");
-  }
-}
+import { Sidecar } from "./sidecar.ts";
 
 const maxRequestBytes = 8 * 1024 * 1024;
 /** One request per stdin line. Chunks are kept as a list until a line ends. */
@@ -52,7 +28,7 @@ async function* requests(): AsyncGenerator<string> {
 }
 
 /** Storage paths are process configuration, never request-controlled capabilities. */
-export async function run(args = process.argv.slice(2)): Promise<void> {
+export async function run(args = process.argv.slice(2), testing: { treeMerge?: ConstructorParameters<typeof Sidecar>[2] } = {}): Promise<void> {
   const mode = args.shift();
   if (mode !== "serve")
     throw new Error("Usage: arbor-merge serve --objects DIR --staging DIR");
@@ -73,26 +49,26 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   const cacheMB = Number(process.env.ARBOR_OBJECT_CACHE_MB);
   const shared = new ObjectStore(options.get("--objects")!, { cacheBytes: (Number.isFinite(cacheMB) && cacheMB >= 0 ? cacheMB : 256) * 1024 * 1024 });
   const staging = new ObjectStore(options.get("--staging")!);
-  const objects = workerObjects(shared, staging);
-  // Sequential JSON-lines request/response. No IDs or multiplexing are needed.
+  const stateMB = Number(process.env.ARBOR_MERGE_CACHE_MB);
+  const sidecar = new Sidecar({
+    shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
+    staging: { find: (hash) => staging.find(hash), stage: (values) => staging.stage(values) },
+  }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge);
+  // One question per line, one response per line, in order.
   for await (const line of requests()) {
+    for (const key of Object.keys(engineDiagnostics)) delete engineDiagnostics[key];
+    const started = performance.now();
+    let response: unknown;
     try {
-      process.stdout.write(
-        JSON.stringify(wireResponse(await timed(objects, (counted) => merge(JSON.parse(line), counted)))) + "\n",
-      );
+      response = await sidecar.answer(JSON.parse(line));
     } catch (error) {
-      process.stdout.write(
-        JSON.stringify({
-          error: {
-            ...(error instanceof IntentError ? {code: error.code} : {}),
-            message:
-              error instanceof Error
-                ? error.message
-                : "Merge evaluation failed",
-          },
-        }) + "\n",
-      );
+      response = error instanceof MergeRefusal || error instanceof IntentError
+        ? { refusal: { code: error.code, message: error.message } }
+        : { error: { message: error instanceof Error ? error.message : "Merge evaluation failed" } };
     }
+    // Diagnostics only: no request content or hashes.
+    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, ...engineDiagnostics } }) + "\n");
+    process.stdout.write(JSON.stringify(response) + "\n");
   }
 }
 if (import.meta.main)

@@ -3,27 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hashObject, type ObjectHash } from "@overstory/protocol";
 import { absentFrom, ObjectStore } from "@overstory/object-store";
-import {
-  MAX_AUDIT_ROOTS,
-  parseResponse,
-  type CheckpointRequest,
-  type CheckpointResponse,
-  type IntentEvaluation,
-  type IntentRequest,
-  type MergeRequest,
-  type ProjectionRequest,
-  type ProjectionResponse,
-  type RetentionAuditRequest,
-  type RetentionAuditResponse,
-} from "@overstory/merge-protocol";
+import { parseAnswer, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
-import type { MergeResult } from "./updates/reconcile.ts";
-
-type EvaluatedResponse =
-  | CheckpointResponse
-  | ProjectionResponse
-  | IntentEvaluation
-  | RetentionAuditResponse;
 export interface MergeToolOptions {
   /** Executable and fixed arguments, run as `<command> serve --objects DIR
    * --staging DIR`: one sequential JSON-lines worker. No shell interpretation. */
@@ -41,7 +22,7 @@ export interface MergeToolOptions {
   contentChoices?: "source" | "file";
 }
 
-/** The merge worker evaluated the request and failed: a budget, an invalid
+/** The merge sidecar evaluated the question and failed: a budget, an invalid
  * state or an unsupported input. Its message is the worker's own. */
 export class MergeWorkerError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -56,10 +37,10 @@ export class MergeWorkerError extends Error {
   }
 }
 
-/** canopyd's side of the merge worker: one persistent process, a bounded
- * FIFO queue, staged inputs, and generic checks on each response (its shape,
- * its correspondence to the request, hash-checked generated objects). The
- * worker's retained state is opaque here; canopyd trusts the worker it runs. */
+/** canopyd's side of the merge sidecar: one persistent process, a bounded
+ * FIFO queue, staged inputs, and generic checks on each answer (its shape,
+ * hash-checked generated objects, complete accepted and alternative trees).
+ * canopyd trusts the sidecar it runs and keeps none of its state. */
 export class MergeTool {
   private worker?: PersistentMergeWorker;
   private readonly jobs = new Set<Promise<unknown>>();
@@ -75,17 +56,6 @@ export class MergeTool {
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? 30_000); }
 
-  /** Have the worker walk the complete retained closure of these states in
-   * the shared store; it owns their format. Used by the integrity audit. */
-  async auditRetention(roots: Iterable<string>): Promise<number> {
-    const all = [...new Set(roots)];
-    let checked = 0;
-    for (let i = 0; i < all.length; i += MAX_AUDIT_ROOTS) {
-      const { response } = await this.evaluate({ kind: "retention-audit", roots: all.slice(i, i + MAX_AUDIT_ROOTS) }, new Map());
-      checked += response.checked;
-    }
-    return checked;
-  }
   private readonly shared: ObjectStore;
   private active = 0;
   private readonly waiting: Array<() => void> = [];
@@ -103,42 +73,12 @@ export class MergeTool {
     this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));
   }
 
-  evaluate(request: RetentionAuditRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:RetentionAuditResponse;objects:Map<ObjectHash,Uint8Array>}>;
-  evaluate(
-    request: CheckpointRequest,
+  /** Ask the sidecar one question. `inputs` are objects the question needs
+   * that durable storage may lack; they are staged for it. */
+  async ask(
+    question: MergeQuestion,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: CheckpointResponse;
-    objects: Map<ObjectHash, Uint8Array>;
-  }>;
-  evaluate(
-    request: IntentRequest,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: IntentEvaluation;
-    objects: Map<ObjectHash, Uint8Array>;
-  }>;
-  evaluate(
-    request: ProjectionRequest,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: ProjectionResponse;
-    objects: Map<ObjectHash, Uint8Array>;
-  }>;
-  evaluate(
-    request: Exclude<MergeRequest, RetentionAuditRequest>,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: Exclude<EvaluatedResponse, RetentionAuditResponse>;
-    objects: Map<ObjectHash, Uint8Array>;
-  }>;
-  async evaluate(
-    request: MergeRequest,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: EvaluatedResponse;
-    objects: Map<ObjectHash, Uint8Array>;
-  }> {
+  ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     if (this.closing) throw new Error("Merge tool is closing");
     if (this.waiting.length >= 64)
       throw new Error("Merge worker queue is full");
@@ -149,7 +89,7 @@ export class MergeTool {
     try {
       if (this.closing) throw new Error("Merge tool is closing");
       try { this.options.onTiming?.("queue-wait", performance.now() - queuedAt); } catch { /* diagnostic only */ }
-      const job = this.evaluateJob(request, inputs);
+      const job = this.askJob(question, inputs);
       this.jobs.add(job);
       try { return await job; } finally { this.jobs.delete(job); }
     } finally {
@@ -170,13 +110,10 @@ export class MergeTool {
     }
   }
 
-  private async evaluateJob(
-    request: MergeRequest,
+  private async askJob(
+    question: MergeQuestion,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
-  ): Promise<{
-    response: EvaluatedResponse;
-    objects: Map<ObjectHash, Uint8Array>;
-  }> {
+  ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     let phaseStart = performance.now();
     const mark = (phase: string) => {
       const now = performance.now();
@@ -192,7 +129,7 @@ export class MergeTool {
       const staging = new ObjectStore(join(worker.directory, "objects"));
       await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000).catch((error) => { throw unavailable(error); });
+      const stdout = await worker.request(question, this.options.timeoutMs ?? 30_000).catch((error) => { throw unavailable(error); });
       mark("worker-process");
       try {
         for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
@@ -209,23 +146,20 @@ export class MergeTool {
           typeof raw.error?.code === "string" ? raw.error.code : undefined,
         );
       }
-      const response = parseResponse(raw, request);
+      const answer = parseAnswer(raw);
       const objects = new Map<ObjectHash, Uint8Array>();
       // Generated objects are hash-checked as they are read back.
-      for (const hash of "objects" in response ? response.objects : [])
+      for (const hash of answer.objects)
         objects.set(hash, (await staging.find(hash)) ?? await this.shared.read(hash));
-      if ("result" in response) {
-        const available = new Map([...inputs, ...objects]);
-        // A snapshot merge's result is an ordinary tree: check its closure. A
-        // stateful result's tree is the worker's own output over retained
-        // material; its root must at least be present.
-        if (!("state" in response.result))
-          await this.shared.verifyReachable([response.result.object], available);
-        else await this.shared.load(response.result.object, available);
-      }
+      // The accepted root and every alternative root must be complete trees;
+      // a range alternative is one object.
+      const available = new Map([...inputs, ...objects]);
+      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available);
+      for (const d of answer.decisions)
+        if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) await this.shared.load(hash, available);
       mark("output-objects");
       healthy = true;
-      return { response, objects };
+      return { answer, objects };
     } finally {
       if (worker) {
         if (!healthy || !worker.alive) {
@@ -278,53 +212,9 @@ export class MergeTool {
         throw new Error(`Object hash mismatch: ${value.hash}`);
     await staging.stage(missing);
   }
+}
 
-  async tree(
-    base: ObjectHash,
-    candidate: ObjectHash,
-    current: ObjectHash,
-    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
-  ): Promise<MergeResult> {
-    try {
-      const { response, objects } = await this.evaluate(
-        {
-          kind: "tree",
-          base: { object: base },
-          current: { object: current },
-          incoming: { object: candidate },
-          rules: { id: "tree-default", revision: 1 },
-        },
-        proposed
-      );
-      return {
-        root: response.result.object,
-        objects,
-        conflicts: response.decisions.flatMap((d) =>
-          d.kind === "conflict" && d.scope === "entry"
-            ? [{ path: d.path, reason: d.reason }]
-            : []
-        ),
-        unresolvedDirectories: response.decisions.flatMap((d) =>
-          d.kind === "conflict" && d.scope === "directory" ? [d.path] : []
-        ),
-        ...(response.evidence.summary
-          ? { summary: response.evidence.summary }
-          : {}),
-      };
-    } catch (error) {
-      console.warn(
-        "Merge tool unavailable; preserving ambiguity:",
-        error instanceof Error ? error.message.split("\n")[0] : "invalid result"
-      );
-      // Ordinary content becomes an accepted whole-root choice that keeps the
-      // current tree displayed.
-      return {
-        root: current,
-        objects: new Map(),
-        conflicts: [{ path: "/", reason: "node-conflict" }],
-        unresolvedDirectories: ["/"],
-      };
-    }
-  }
-
+/** Every root an answer names: the projection and each whole-root or entry alternative. */
+export function answerRoots(root: ObjectHash, decisions: readonly LogDecision[]): ObjectHash[] {
+  return [...new Set([root, ...decisions.flatMap((d) => (d.range ? [] : d.alternatives.map((a) => a.object)))])];
 }

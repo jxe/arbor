@@ -1,4 +1,4 @@
-import { IntentError } from "../../../packages/canopyd-merge/src/intent-model.ts";
+import { MergeRefusal } from "@overstory/merge-protocol";
 import { ObjectStore } from "@overstory/object-store";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -9,7 +9,7 @@ import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableK
 import { serveCanopy } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
-import { MergeStateStore } from "../../../packages/canopyd/src/updates/merge-state-store.ts";
+import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
   readAccountConfigGraphV2,
@@ -101,7 +101,7 @@ describe("governed account-configuration Canopy server", () => {
   test("evaluation time exhaustion is retryable, not an invalid request", async () => {
     const baseline = await currentConfig();
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
-    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new IntentError("limit", "Evaluation time budget exceeded"));
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new MergeRefusal("limit", "Evaluation time budget exceeded"));
     try {
       const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
         method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
@@ -404,7 +404,6 @@ describe("governed account-configuration Canopy server", () => {
 
     const database = new Database(join(dataRoot, "canopy.sqlite3"));
     database.run("PRAGMA foreign_keys = OFF");
-    database.run("DELETE FROM accepted_merge_states WHERE accepted_id = ?", [advanced.update.id]);
     database.run("DELETE FROM accepted_updates WHERE ordinal = ?", [advanced.update.id]);
     database.close();
     const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
@@ -765,10 +764,11 @@ describe("governed account-configuration Canopy server", () => {
     })).rejects.toThrow("Retired");
     const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
     try {
-      // Tree creation, pairing and configuration writes each record a merge state.
+      // Tree creation, pairing and configuration writes each record a log entry.
       expect(db.query("SELECT subject FROM accepted_updates WHERE tree_id = ? AND subject LIKE 'pairing:%'").all(peerConfiguration.tree.id)).toHaveLength(1);
-      expect(db.query(`SELECT u.ordinal FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.ordinal
-        WHERE m.accepted_id IS NULL`).all()).toEqual([]);
+      const entries = acceptedEntries(dataRoot, peerConfiguration.tree.id);
+      expect(entries[0]!.entry.previous).toBeNull();
+      expect(entries.slice(1).every((e) => e.entry.previous !== null)).toBe(true);
     } finally { db.close(); }
   });
 
@@ -789,7 +789,7 @@ describe("governed account-configuration Canopy server", () => {
     const store = new AcceptedUpdateStore(db);
     const ids: string[] = [];
     const append = () => {
-      const update=store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,acceptedAt:Date.now()});
+      const update=store.insert({entryChanges:NO_ENTRY_CHANGES,entry:{hash:store.entryOf(store.current(tree)!.id)!,conflicted:false},tree,root,previousRoot:root,acceptedAt:Date.now()});
       ids.push(update.id);
     };
     for(let i=0;i<130;i++) append();
@@ -840,12 +840,12 @@ describe("governed account-configuration Canopy server", () => {
   test("appends during net construction follow the captured destination", async () => {
     const baseline = await currentConfig(), tree = baseline.current.tree.id, root = baseline.current.tree.root;
     const db = new Database(join(dataRoot,"canopy.sqlite3")), store = new AcceptedUpdateStore(db);
-    for (let i=0;i<3;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,acceptedAt:Date.now()});
+    for (let i=0;i<3;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,entry:{hash:store.entryOf(store.current(tree)!.id)!,conflicted:false},tree,root,previousRoot:root,acceptedAt:Date.now()});
     const original = running.canopy.netAcceptedTransition.bind(running.canopy);
     let appended: string | undefined;
     running.canopy.netAcceptedTransition = async (...args) => {
       const net = await original(...args);
-      appended = store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,acceptedAt:Date.now()}).id;
+      appended = store.insert({entryChanges:NO_ENTRY_CHANGES,entry:{hash:store.entryOf(store.current(tree)!.id)!,conflicted:false},tree,root,previousRoot:root,acceptedAt:Date.now()}).id;
       return net;
     };
     try {
@@ -862,7 +862,7 @@ describe("governed account-configuration Canopy server", () => {
     const baseline=await currentConfig();
     const tree=baseline.current.tree.id, root=baseline.current.tree.root;
     const db=new Database(join(dataRoot,"canopy.sqlite3")), store=new AcceptedUpdateStore(db);
-    for(let i=0;i<513;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,acceptedAt:Date.now()});
+    for(let i=0;i<513;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,entry:{hash:store.entryOf(store.current(tree)!.id)!,conflicted:false},tree,root,previousRoot:root,acceptedAt:Date.now()});
     const original=running.canopy.acceptedTransition.bind(running.canopy);
     let loaded=0;
     running.canopy.acceptedTransition=(...args)=>{loaded++;return original(...args);};
