@@ -40,6 +40,7 @@ const pages: Record<string, string> = {
   "Table.md": "---\nid: pg_lab_table\n---\n\n# Table\n\n| Day | Plan |\n| --- | --- |\n| Mon | Swim |\n| Tue | Run |\n",
   "Two.md": "---\nid: pg_lab_two\n---\n\n# Two\n\nThe first paragraph talks about apples.\n\nA quiet middle paragraph.\n\nThe last paragraph talks about pears.\n",
   "Title.md": "---\nid: pg_lab_title\ntitle: Title\n---\n\n# Title\n\nFrontmatter clash.\n",
+  "Trip.md": "---\nid: pg_lab_trip\n---\n\n# Trip\n\nPack the tent.\n",
   "Notes.txt": "Plain notes, not a page.\nSecond line.\n",
   "Photo.bin": "original\0",
   "Assets": "Assets is a file for now.\n",
@@ -48,9 +49,14 @@ const pages: Record<string, string> = {
 /** A whole-entry writer: each named entry becomes this text, bytes, folder, or is deleted. */
 type EntryValue = { text: string } | { folder: Record<string, string> } | null;
 
-type Edit = [page: string, find: string, replace: string];
+/** A traced edit: replace `find` in `page`, or remove the page when `replace` is null. */
+type Edit = [page: string, find: string, replace: string | null];
 /** Each scenario is a set of concurrent writers; each writer's edits apply from the same base. */
 const scenarios: Record<string, { page: string; writers: (Edit[] | Record<string, EntryValue>)[]; after?: Edit[] }> = {
+  "delete-page": { page: "Trip.md", writers: [
+    [["Trip.md", "Pack the tent.", "Pack the tent and the stove."], ["Sentence.md", "Bring a bag.", "Bring a big bag."]],
+    [["Trip.md", "", null], ["Two.md", "A quiet middle paragraph.", "A calm middle paragraph."]],
+  ] },
   binary: { page: "Photo.bin", writers: [{ "Photo.bin": { text: "left\0" } }, { "Photo.bin": { text: "right\0" } }] },
   "delete-file": { page: "Notes.txt", writers: [
     { "Notes.txt": { text: "Plain notes, rewritten on the laptop.\nSecond line.\n" } },
@@ -146,6 +152,11 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
   const operations = [];
   for (const [index, [page, find, replace]] of edits.entries()) {
     const object = await fileHash(base.objects, base.root, page);
+    if (replace === null) {
+      operations.push({ key: `remove${index}`, kind: "removeEntry" as const,
+        source: { material: { kind: "basis" as const, path: `/${page}`, object } } });
+      continue;
+    }
     const source = Buffer.from(base.objects.get(object)!);
     const at = source.indexOf(Buffer.from(find));
     if (at < 0) throw new Error(`${page} does not contain ${JSON.stringify(find)}`);
@@ -155,11 +166,25 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
       text: replace,
     });
   }
-  const executed = await executeExactSourceEdits(base.root as never, operations, async (hash) => base.objects.get(hash)!);
+  const sourceEdits = operations.filter((operation) => operation.kind === "editSource");
+  const executed = await executeExactSourceEdits(base.root as never, sourceEdits as never, async (hash) => base.objects.get(hash)!);
+  let root: string = executed.root;
+  const generated = new Map<string, Uint8Array>(executed.generated);
+  const removed = new Set(operations.filter((operation) => operation.kind === "removeEntry")
+    .map((operation) => operation.source.material.path.slice(1)));
+  if (removed.size) {
+    // Root-level removals only; the lab's pages all live at the root.
+    const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@overstory/protocol");
+    const directory = decodeWireDirectory(generated.get(root) ?? base.objects.get(root)!);
+    directory.entries = directory.entries.filter((entry) => !removed.has(entry.name));
+    const bytes = encodeWireDirectory(directory);
+    root = hashObject(bytes);
+    generated.set(root, bytes);
+  }
   return {
-    change: crypto.randomUUID(), candidate: executed.root,
-    trace: [{ before: base.root, after: executed.root, operations }], resolves: [],
-    objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [],
+    change: crypto.randomUUID(), candidate: root,
+    trace: [{ before: base.root, after: root, operations }], resolves: [],
+    objects: [...generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [],
   };
 }
 

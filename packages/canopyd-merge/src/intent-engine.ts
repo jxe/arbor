@@ -2101,6 +2101,39 @@ class Engine {
             candidate: { object: string; state: string };
           }
         | undefined;
+      const existenceChoice = async (id: string, sides: [Node | undefined, Node | undefined]) => {
+        branchStates ??= {
+          old: await this.record(current),
+          candidate: await this.record(authored),
+        };
+        const selectedSide = request.rules.config?.conflictProjection === "current" ? 0 : 1;
+        const alternatives = await Promise.all(sides.map(async (node, side) => {
+          const branch = side === 0 ? branchStates!.old : branchStates!.candidate;
+          const contributions = side === 0
+            ? await this.contributions(current, base, id)
+            : operationsOf(request.incoming).map((op) => ({ change: request.incoming.change, operation: op.key }));
+          // The deleted side names its whole branch and no node of its own.
+          if (!node?.active || !node.pieces) return { ...branch, contributions };
+          const occurrence = clone(node);
+          occurrence.id = `existence:${request.incoming.change}:${id}:${side}`;
+          occurrence.parent = null;
+          merged.nodes[occurrence.id] = occurrence;
+          return { state: branch.state, object: await this.project(merged, occurrence.id), node: occurrence.id, contributions };
+        }));
+        const chosen = sides[selectedSide];
+        if (chosen) merged.nodes[id] = clone(chosen);
+        else delete merged.nodes[id];
+        contentDecisions.push({
+          key: `${request.incoming.change}:existence:${id}`,
+          kind: "existence",
+          affected: [id],
+          selected: selectedSide,
+          alternatives,
+          dependencies: current.decisions.filter((d) => d.affected.includes(id)).map((d) => d.key),
+          reason: "Deleted in one version and changed in another",
+          subject: { material: { kind: "basis", path: this.path(base, id), object: await this.project(base, id) } },
+        });
+      };
       for (const id of new Set([
         ...Object.keys(base.nodes),
         ...Object.keys(authored.nodes),
@@ -2115,18 +2148,18 @@ class Engine {
           else if (incoming) merged.nodes[id] = clone(incoming);
           continue;
         }
-        if (!incoming || !remote) {
-          affected.push(id);
-          continue;
-        }
-        if (
+        const existenceConflict = !incoming || !remote || (
           b.active &&
           incoming.active !== remote.active &&
           !same(incoming, remote) &&
           !same(incoming, b) &&
           !same(remote, b)
-        ) {
-          affected.push(id);
+        );
+        if (existenceConflict) {
+          // A file deleted on one side and changed on the other is a choice
+          // about that file alone; everything else still merges.
+          if (b.kind === "file" && b.active) await existenceChoice(id, [remote, incoming]);
+          else affected.push(id);
           continue;
         }
         for (const field of Object.keys(incoming) as Array<keyof Node>) {
