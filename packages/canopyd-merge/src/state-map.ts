@@ -244,20 +244,12 @@ export async function diffStateMap(
   return output;
 }
 
-/** A read-through view of one history map. Records load on demand and are kept;
- * `touched` is every object hash read through this view. */
+/** A read-through view of one history map. Records load on demand and are kept. */
 export class LazyStateMap {
   private readonly values = new Map<string, unknown>();
   /** Parsed nodes, so lookups share the path from the root. */
   private readonly nodes = new Map<string, Promise<Node>>();
-  readonly touched = new Set<string>();
-  private readonly read: Read;
-  constructor(readonly root: string, read: Read) {
-    this.read = async (hash) => {
-      this.touched.add(hash);
-      return read(hash);
-    };
-  }
+  constructor(readonly root: string, private readonly read: Read) {}
   async get(key: string): Promise<unknown> {
     if (this.values.has(key)) return this.values.get(key);
     const value = await getStateMap(this.root, key, this.read, this.nodes);
@@ -271,28 +263,4 @@ export class LazyStateMap {
   since(root: string): Promise<Record<string, unknown>> {
     return diffStateMap(this.root, root, this.read);
   }
-}
-
-/** One map node's direct edges for a retention walk: child nodes, or the
- * records a leaf names. Position checks belong to lookups, not retention. */
-export async function stateMapNodeEdges(
-  hash: string,
-  read: Read,
-): Promise<{ children: string[]; records: string[] }> {
-  const value = await node(hash, read, "");
-  return "entries" in value
-    ? { children: [], records: value.entries.map(([, record]) => record) }
-    : { children: value.children.filter((h): h is string => h !== null), records: [] };
-}
-/** A record's value and every object read to reconstruct it. */
-export async function stateMapRecord(
-  hash: string,
-  read: Read,
-): Promise<{ value: unknown; objects: Set<string> }> {
-  const objects = new Set<string>();
-  const value = await readRecord(hash, async (h) => {
-    objects.add(h);
-    return read(h);
-  });
-  return { value, objects };
 }

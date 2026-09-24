@@ -69,16 +69,6 @@ async function loadActive(
   return value;
 }
 
-/** The active state stored under a v2 root, as retention walks it. Every chunk
- * is hash checked, bounded and reported to `retained`. */
-export function loadActiveIntentState(
-  hash: string,
-  load: Load,
-  retained?: (hash: string) => void,
-): Promise<IntentState> {
-  return loadActive(hash, budgetedReads(load, retained));
-}
-
 /** Reads an indexed (v3) state. Every chunk is hash checked, bounded, and
  * reported to `retained`; references are never inferred from text. */
 export async function loadIntentState(
@@ -162,14 +152,6 @@ export function storeIntentState(
   return storeIndexedRoot(state, maps, editable, put);
 }
 
-/** The active root and history map roots of an indexed (v3) state, or
- * undefined for bytes that are not one. */
-export function indexedStateParts(bytes: Uint8Array) {
-  const raw = decode(bytes);
-  if (raw?.format !== "arbor-merge-intent-state-v3") return undefined;
-  const root = indexedRoot(raw);
-  return { active: root.active, maps: root.maps };
-}
 export { historyFields };
 
 /** An editable state was recorded by an evaluation that enforced every deletion

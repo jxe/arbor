@@ -6,7 +6,7 @@ import {
   type SourceOperation,
   type WireDirectoryEntry,
 } from "@overstory/protocol";
-import { merge as mergeIntent } from "@overstory/canopyd-merge";
+import { mergeIntent } from "@overstory/canopyd-merge";
 import type {
   Frame,
   IntentRequestInput,

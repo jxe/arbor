@@ -1,4 +1,4 @@
-import type { MergeSummary } from "./summary.ts";
+import type { MergeSummary } from "./engine-contract.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,

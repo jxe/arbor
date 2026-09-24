@@ -24,8 +24,6 @@ const HASH = OBJECT_HASH;
 /** Canonical JSON bytes: the exact encoding every stored merge format uses. */
 export const encodeJSON = (value: unknown): Uint8Array =>
   encoder.encode(stableJSONString(value));
-/** The object hash of a value's canonical JSON bytes. */
-export const jsonHash = (value: unknown): string => hashObject(encodeJSON(value));
 const encode = encodeJSON;
 
 /** Hex SHA-256 of a map key, which radix partitions consume one digit per

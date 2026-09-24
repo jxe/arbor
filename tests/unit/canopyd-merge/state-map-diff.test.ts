@@ -11,10 +11,12 @@ import {
 function store() {
   const objects = new Map<string, Uint8Array>();
   let reads = 0;
+  const touched = new Set<string>();
   return {
     objects,
+    touched,
     get reads() { return reads; },
-    reset() { reads = 0; },
+    reset() { reads = 0; touched.clear(); },
     put: (bytes: Uint8Array) => {
       const hash = hashObject(bytes);
       objects.set(hash, bytes);
@@ -22,6 +24,7 @@ function store() {
     },
     read: async (hash: string) => {
       reads++;
+      touched.add(hash);
       return objects.get(hash)!;
     },
   };
@@ -58,13 +61,14 @@ test("diff and lazy reads touch only changed buckets", async () => {
       s.put,
     );
     const after = await updateStateMap(before, { k7: "changed" }, s.read, s.put);
+    s.reset();
     const lazy = new LazyStateMap(after, s.read);
     expect(await lazy.since(before)).toEqual(
       Object.assign(Object.create(null), { k7: "changed" }),
     );
     expect(await lazy.get("k3")).toBe(3);
     expect(await lazy.has("missing")).toBe(false);
-    counts.push(lazy.touched.size);
+    counts.push(s.touched.size);
   }
   // Depth grows by one level per 16x; the read set does not grow with the map.
   expect(counts[1]! - counts[0]!).toBeLessThan(10);

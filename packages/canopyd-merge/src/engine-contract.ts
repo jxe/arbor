@@ -1,59 +1,18 @@
 /** The sidecar engine's own request and result shapes: an authored tree
- * evaluation, a checkpoint of an accepted projection, and a snapshot tree
- * merge. These are internal to the sidecar; canopyd asks the one question in
- * `@overstory/merge-protocol`. */
+ * evaluation and a checkpoint of an accepted projection. These are internal
+ * to the sidecar; canopyd asks the one question in `@overstory/merge-protocol`. */
 import { z } from "zod";
-import { decodeMaterialRef, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+import type { MaterialRef, SourceOperation } from "@overstory/protocol";
 
 export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
-const path = z.string().refine(
-  (value) =>
-    value === "/" ||
-    (value.startsWith("/") &&
-      value.slice(1).split("/").every((part) => part && part !== "." && part !== ".." && !/[\\\0]/.test(part)))
-);
 const contribution = z.object({ change: z.string(), operation: z.string().nullable() }).strict();
 
-/** Rule evidence the worker reports beside a snapshot merge. canopyd persists
- * it, so the schema accepts no arbitrary executable output. */
-export const mergeSummarySchema = z.discriminatedUnion("version", [
-  z.object({ version: z.literal("markdown-additive-v1"), approximatePlacements: z.number().int().nonnegative() }).strict(),
-  z.object({ version: z.literal("collection-file-rows-v1"), mergedRows: z.number().int().nonnegative() }).strict(),
-]);
-export type MergeSummary = z.infer<typeof mergeSummarySchema>;
-
-// ---- Snapshot tree merge -------------------------------------------------
-
-const projectionMaterial = z.object({ object: hash }).strict();
-const rule = z.object({ id: z.string().min(1), revision: z.literal(1) }).strict();
-export const projectionRequestSchema = z
-  .object({ base: projectionMaterial, current: projectionMaterial, rules: rule, kind: z.literal("tree"), incoming: projectionMaterial })
-  .strict();
-export type ProjectionRequest = z.infer<typeof projectionRequestSchema>;
-
-const conflictReason = z.enum([
-  "node-conflict",
-  "binary-conflict",
-  "path-kind-conflict",
-  "nested-boundary-conflict",
-  "page-id-move-conflict",
-  "collection-file-row-conflict",
-  "collection-file-schema-conflict",
-  "collection-file-constraint-conflict",
-  "frontmatter-conflict",
-  "invalid-markdown-fence",
-]);
-const projectionResponseSchema = z
-  .object({
-    result: projectionMaterial,
-    decisions: z.array(z.object({ kind: z.literal("conflict"), path, reason: conflictReason, scope: z.enum(["entry", "directory"]) }).strict()),
-    objects: z.array(hash),
-    evidence: z.object({ rule, summary: mergeSummarySchema.optional() }).strict(),
-  })
-  .strict();
-export type ProjectionResponse = z.infer<typeof projectionResponseSchema>;
+/** Rule evidence a snapshot tree merge reports beside its result. */
+export type MergeSummary =
+  | { version: "markdown-additive-v1"; approximatePlacements: number }
+  | { version: "collection-file-rows-v1"; mergedRows: number };
 
 // ---- Decision reports ----------------------------------------------------
 
@@ -62,35 +21,16 @@ export type ProjectionResponse = z.infer<typeof projectionResponseSchema>;
  * `placement` is present when the decision has a placement; its `path` names
  * the placed file when that node still exists, and `range` is its affected
  * byte range when the node is active and the decision has no context. */
-export const decisionReportSchema = z
-  .object({
-    key: z.string().min(1),
-    kind: z.enum(["content", "placement", "existence", "directory"]),
-    reason: z.string(),
-    selected: z.number().int().nonnegative(),
-    dependencies: z.array(z.string()),
-    alternatives: z
-      .array(z.object({ object: hash, state: hash, present: z.boolean(), contributions: z.array(contribution) }).strict())
-      .min(2),
-    subject: z.unknown().optional(),
-    placement: z
-      .object({
-        path: path.optional(),
-        range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-export type DecisionReport = Omit<z.infer<typeof decisionReportSchema>, "subject"> & { subject?: MaterialRef };
-const decisionReports = z.array(decisionReportSchema).superRefine((reports, context) => {
-  if (new Set(reports.map((d) => d.key)).size !== reports.length) context.addIssue({ code: "custom", message: "Duplicate decision key" });
-  for (const d of reports) {
-    if (d.selected >= d.alternatives.length) context.addIssue({ code: "custom", message: "Invalid selected alternative" });
-    if (d.subject !== undefined)
-      try { decodeMaterialRef(d.subject); } catch { context.addIssue({ code: "custom", message: "Invalid decision subject" }); }
-  }
-});
+export interface DecisionReport {
+  key: string;
+  kind: "content" | "placement" | "existence" | "directory";
+  reason: string;
+  selected: number;
+  dependencies: string[];
+  alternatives: Array<{ object: string; state: string; present: boolean; contributions: Array<{ change: string; operation: string | null }> }>;
+  subject?: MaterialRef;
+  placement?: { path?: string; range?: [number, number] };
+}
 
 // ---- Authored (intent) evaluation ---------------------------------------
 
@@ -185,12 +125,6 @@ export function traceOperations(incoming: { trace: Frame[] }): SourceOperation[]
   return incoming.trace.flatMap((frame) => frame.operations);
 }
 
-/** A frame trace, possibly empty, marks an authored request. */
-export function isIntentRequest(raw: unknown): raw is IntentRequest {
-  return !!raw && typeof raw === "object" && "kind" in raw && raw.kind === "tree" &&
-    "incoming" in raw && !!raw.incoming && typeof raw.incoming === "object" && "trace" in raw.incoming;
-}
-
 /** A typed inability to evaluate: neither a conflict resolution nor an
  * accepted receipt. canopyd decides admission and fallback. */
 export class IntentError extends Error {
@@ -199,29 +133,23 @@ export class IntentError extends Error {
   }
 }
 
-const formatEvidence = z
-  .object({ id: token, revision: z.literal(1), outcome: z.enum(["resolved", "unresolved"]), reason: z.string(), config: z.record(z.string(), z.unknown()) })
-  .strict();
-const intentResponseSchema = z
-  .object({
-    outcome: z.literal("evaluated"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict(),
-    objects: z.array(hash),
-    decisions: decisionReports,
-    evidence: z
-      .object({
-        rule: z.object({ id: z.literal("tree-default"), revision: z.literal(1) }).strict(),
-        inputs: z.object({ base: hash, current: hash, incoming: hash }).strict(),
-        change: token,
-        operations: z.array(token),
-        validation: z.literal("verified"),
-        formats: z.array(formatEvidence),
-      })
-      .strict(),
-  })
-  .strict();
-export type IntentEvaluation = Omit<z.infer<typeof intentResponseSchema>, "decisions"> & { decisions: DecisionReport[] };
+/** An authored evaluation's result: the merged state, the author's own
+ * state, the objects it generated and its decisions as reports. */
+export interface IntentEvaluation {
+  outcome: "evaluated";
+  result: { object: string; state: string };
+  authored: { object: string; state: string };
+  objects: string[];
+  decisions: DecisionReport[];
+  evidence: {
+    rule: { id: "tree-default"; revision: 1 };
+    inputs: { base: string; current: string; incoming: string };
+    change: string;
+    operations: string[];
+    validation: "verified";
+    formats: Array<{ id: string; revision: 1; outcome: "resolved" | "unresolved"; reason: string; config: Record<string, unknown> }>;
+  };
+}
 export type IntentResponse = IntentEvaluation | { outcome: IntentError["code"]; message: string };
 
 // ---- Checkpoints ---------------------------------------------------------
@@ -239,10 +167,6 @@ export const checkpointSchema = z
     conflictProjection: z.enum(["current", "incoming"]).optional(),
     change: z.string().min(1),
     resolves: z.array(z.string()).optional(),
-    /** Also checkpoint the author's own candidate (`candidate`, else
-     * `projection`) without decisions, returned as `authored`: the basis a
-     * later batch suffix continues from. One request instead of two. */
-    authored: z.literal(true).optional(),
     /** Replaying an accepted entry: `resolves` removes decisions without the
      * guard a client resolution needs. */
     align: z.literal(true).optional(),
@@ -267,63 +191,9 @@ export const checkpointSchema = z
   })
   .strict();
 export type CheckpointRequest = z.infer<typeof checkpointSchema>;
-const checkpointResponseSchema = z
-  .object({
-    kind: z.literal("checkpoint"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict().optional(),
-    objects: z.array(hash),
-    decisions: decisionReports,
-  })
-  .strict();
-export type CheckpointResponse = Omit<z.infer<typeof checkpointResponseSchema>, "decisions"> & { decisions: DecisionReport[] };
-
-// ---- In-process engine requests -------------------------------------------
-
-export type MergeRequest = ProjectionRequest | IntentRequest | CheckpointRequest;
-export type MergeResponse = ProjectionResponse | IntentResponse | CheckpointResponse;
-
-function parseIntentResponse(raw: unknown, request: IntentRequest): IntentEvaluation {
-  if (
-    raw && typeof raw === "object" && "outcome" in raw &&
-    ["invalid", "missing-context", "unsupported", "limit"].includes(String(raw.outcome)) &&
-    "message" in raw && typeof raw.message === "string"
-  )
-    throw new IntentError(raw.outcome as IntentError["code"], raw.message);
-  const value = intentResponseSchema.parse(raw);
-  if (
-    value.authored.object !== request.incoming.object ||
-    value.evidence.change !== request.incoming.change ||
-    JSON.stringify(value.evidence.operations) !== JSON.stringify(traceOperations(request.incoming).map((op) => op.key)) ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Intent response does not match request");
-  return value as IntentEvaluation;
-}
-
-/** Check an engine result's shape and its correspondence to the request. */
-export function parseResponse(raw: unknown, request: CheckpointRequest): CheckpointResponse;
-export function parseResponse(raw: unknown, request: ProjectionRequest): ProjectionResponse;
-export function parseResponse(raw: unknown, request: IntentRequest): IntentEvaluation;
-export function parseResponse(raw: unknown, request: MergeRequest): Exclude<MergeResponse, { outcome: IntentError["code"] }>;
-export function parseResponse(raw: unknown, request: MergeRequest): Exclude<MergeResponse, { outcome: IntentError["code"] }> {
-  if (request.kind === "checkpoint") {
-    const value = checkpointResponseSchema.parse(raw);
-    if (value.result.object !== request.projection && !(request.conflictProjection === "current" && value.result.object === request.current.object))
-      throw new Error("Checkpoint projection mismatch");
-    if (request.authored
-      ? value.authored?.object !== (request.candidate ?? request.projection)
-      : value.authored !== undefined)
-      throw new Error("Checkpoint authored state mismatch");
-    return value as CheckpointResponse;
-  }
-  if (isIntentRequest(request)) return parseIntentResponse(raw, request);
-  const value = projectionResponseSchema.parse(raw);
-  if (
-    value.evidence.rule.id !== request.rules.id ||
-    value.evidence.rule.revision !== request.rules.revision ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Merge response does not match request");
-  return value;
+export interface CheckpointResponse {
+  kind: "checkpoint";
+  result: { object: string; state: string };
+  objects: string[];
+  decisions: DecisionReport[];
 }

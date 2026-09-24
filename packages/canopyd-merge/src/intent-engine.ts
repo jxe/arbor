@@ -12,6 +12,7 @@ import {
   type WireDirectory,
 } from "@overstory/protocol";
 import type { MergeObjects } from "./index.ts";
+import type { CheckpointRequest, CheckpointResponse } from "./engine-contract.ts";
 import {
   IntentError,
   alternativeKey,
@@ -2835,9 +2836,9 @@ export async function mergeIntent(
  * Unchanged occurrences retain origins; changed bytes are an opaque barrier.
  * Existing decisions whose projection disappears are enclosed, never erased. */
 export async function checkpointIntent(
-  request: import("./checkpoint.ts").CheckpointRequest,
+  request: CheckpointRequest,
   objects: MergeObjects
-): Promise<import("./checkpoint.ts").CheckpointResponse> {
+): Promise<CheckpointResponse> {
   const engine = new Engine(
     {
       kind: "tree",
@@ -3325,20 +3326,5 @@ export async function checkpointIntent(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );
   const decisions = decisionReports(state);
-  if (!request.authored)
-    return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
-  // The author's checkpoint of the same projection differs from this one only
-  // where a decision is added or enclosed (the conflict projection, the
-  // candidate alternative): with neither, both requests yield the same state.
-  const own = request.candidate ?? request.projection;
-  if (!wrapped.length && !request.decisions.length && own === request.projection)
-    return { kind: "checkpoint", result, authored: result, objects: [...engine.generated.keys()], decisions };
-  const author = await checkpointIntent({
-    kind: "checkpoint", tree: request.tree, current: request.current, projection: own,
-    change: request.change, decisions: [], ...(request.resolves ? { resolves: request.resolves } : {}),
-  }, objects);
-  return {
-    kind: "checkpoint", result, authored: author.result,
-    objects: [...new Set([...engine.generated.keys(), ...author.objects])], decisions,
-  };
+  return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
 }
