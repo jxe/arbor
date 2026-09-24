@@ -7,6 +7,7 @@ import { serveCanopy } from "@overstory/canopyd";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
+import { expectReplayableHistory } from "../../support/replay-check.ts";
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
@@ -32,7 +33,10 @@ beforeEach(async () => {
   objects.set(file, bytes); objects.set(root, encoded);
   base = (await client.submitUpdate(tree, descriptor.tree.update, { root, objects })).update.id;
 });
-afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  try { await expectReplayableHistory(dir, tree); }
+  finally { await stop(); await rm(dir, { recursive: true, force: true }); }
+});
 async function edit(text: string, basis = root, range: [number, number] = [0, 3]): Promise<CandidateUpdate> {
   return editAt("/note.md", text, basis, range);
 }
@@ -999,5 +1003,54 @@ test.each([false,true])("Markdown source copy accepts an independent edit and su
   const snapshot=await client.snapshot(tree,result.root);
   const file=decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e=>e.name==="note.md")!.file!;
   expect(Buffer.from(snapshot.objects.get(file)!).toString()).toBe("ABC\r\nabc\r\n");
+  await running.canopy.verifyIntegrity();
+});
+
+test("plain edits fast-forward past open decisions they do not touch, and fall through at one they do", async () => {
+  const a = await edit("AAA"), b = await edit("BBB");
+  await client.submitUpdates(tree, { base, updates: [a] });
+  const conflicted = (await client.submitUpdates(tree, { base, updates: [b] })).results[0]!.update;
+  expect(conflicted.conflicted).toBe(true);
+  for (const [hash, bytes] of (await client.snapshot(tree, conflicted.root)).objects) objects.set(hash, bytes);
+  const page = await client.conflicts(tree, conflicted.id, conflicted.root);
+  await stop();
+  let workers = 0;
+  await start({ onTiming: (phase) => { if (phase === "worker-process") workers++; } });
+  // A new file beside the choice: accepted as authored, the choice carried unchanged.
+  const bytes = new TextEncoder().encode("added\n"), file = hashObject(bytes);
+  const directory = decodeWireDirectory(objects.get(conflicted.root)!);
+  directory.entries = [...directory.entries, { name: "added.md", file }].sort((x, y) => Buffer.compare(Buffer.from(x.name), Buffer.from(y.name)));
+  const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded);
+  objects.set(file, bytes); objects.set(candidate, encoded);
+  const addition: CandidateUpdate = { change: crypto.randomUUID(), candidate, resolves: [], deltas: [],
+    objects: [{ hash: file, bytes }, { hash: candidate, bytes: encoded }],
+    trace: [{ before: conflicted.root, after: candidate, operations: [{ key: "add", kind: "addEntry",
+      destination: { parent: { material: { kind: "basis", path: "/", object: conflicted.root } }, name: "added.md" }, value: { file } }] }] };
+  const added = (await client.submitUpdates(tree, { base: conflicted.id, updates: [addition] })).results[0]!.update;
+  expect(added.root).toBe(candidate);
+  expect(workers).toBe(0);
+  const carried = await client.conflicts(tree, added.id, added.root);
+  expect(carried.decisions.map((d) => d.id)).toEqual(page.decisions.map((d) => d.id));
+  // An edit of the file the choice is about is the sidecar's.
+  const touching = await edit("x", candidate, [0, 1]);
+  await client.submitUpdates(tree, { base: added.id, updates: [touching] });
+  expect(workers).toBeGreaterThan(0);
+  await running.canopy.verifyIntegrity();
+});
+
+test("the integrity audit reads every row's log entry and the chain behind it", async () => {
+  const accepted = (await client.submitUpdates(tree, { base, updates: [await edit("ABC")] })).results[0]!.update;
+  await running.canopy.verifyIntegrity();
+  const entries = new Map(acceptedEntries(dir, tree).map((e) => [e.id, e.hash]));
+  const point = (id: string, hash: string) => {
+    const db = new Database(`${dir}/canopy.sqlite3`);
+    try { db.run("UPDATE accepted_updates SET entry = ? WHERE ordinal = ?", [hash, Number(id)]); } finally { db.close(); }
+  };
+  // A row naming another update's entry.
+  point(accepted.id, entries.get(base)!);
+  await stop(); await start();
+  await expect(running.canopy.verifyIntegrity()).rejects.toThrow(/log entry/);
+  point(accepted.id, entries.get(accepted.id)!);
+  await stop(); await start();
   await running.canopy.verifyIntegrity();
 });

@@ -1,6 +1,9 @@
 import {
+  compareWireNames,
   decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
+  type WireDirectoryEntry,
   stableJSONString,
   type AcceptedUpdate,
   type CandidateUpdate,
@@ -100,10 +103,47 @@ export class MergeHistory {
     return open;
   }
 
-  private async at(root: ObjectHash, names: readonly string[]) {
+  /** Carry open decisions onto a root that changed nothing they concern: a
+   * choice about an entry keeps each alternative's version of that entry, now
+   * in `root`. Null when an entry's parent is gone. New directories join
+   * `objects`. */
+  async carry(decisions: readonly LogDecision[], root: ObjectHash, objects: Map<ObjectHash, Uint8Array>): Promise<LogDecision[] | null> {
+    const carried: LogDecision[] = [];
+    for (const d of decisions) {
+      if (!d.path || d.range) { carried.push(d); continue; }
+      const alternatives = [];
+      for (const a of d.alternatives) {
+        const object = await this.withEntry(root, d.path, await this.at(a.object, d.path, objects), objects);
+        if (!object) return null;
+        alternatives.push({ ...a, object });
+      }
+      carried.push({ ...d, alternatives });
+    }
+    return carried;
+  }
+
+  private async withEntry(root: ObjectHash, names: readonly string[], entry: WireDirectoryEntry | null, objects: Map<ObjectHash, Uint8Array>): Promise<ObjectHash | null> {
+    const directory = decodeWireDirectory(await this.objects.load(root, objects));
+    const [name, ...rest] = names as [string, ...string[]];
+    const prior = directory.entries.find((e) => e.name === name);
+    let next = entry;
+    if (rest.length) {
+      if (!prior?.directory) return null;
+      const child = await this.withEntry(prior.directory, rest, entry, objects);
+      if (!child) return null;
+      next = { ...prior, directory: child };
+    }
+    directory.entries = [...directory.entries.filter((e) => e.name !== name), ...(next ? [next] : [])]
+      .sort((a, b) => compareWireNames(a.name, b.name));
+    const bytes = encodeWireDirectory(directory), hash = hashObject(bytes);
+    objects.set(hash, bytes);
+    return hash;
+  }
+
+  private async at(root: ObjectHash, names: readonly string[], objects: ReadonlyMap<ObjectHash, Uint8Array> = new Map()) {
     let object = root;
     for (const [index, name] of names.entries()) {
-      const entry = decodeWireDirectory(await this.objects.read(object)).entries.find((e) => e.name === name);
+      const entry = decodeWireDirectory(await this.objects.load(object, objects)).entries.find((e) => e.name === name);
       if (!entry || index === names.length - 1) return entry ?? null;
       if (!entry.directory) return null;
       object = entry.directory;
@@ -116,9 +156,11 @@ export class MergeHistory {
   private async inspect(entry: LogEntry, d: LogDecision): Promise<InspectedDecision> {
     const decisionID = (key: string) => id([entry.tree, "decision", key]);
     const root: MaterialRef = { material: { kind: "basis", path: "/", object: entry.root } };
+    // A revision names what the alternative holds, so an edit elsewhere in the
+    // tree leaves it unchanged.
     const alternative = (index: number, value: InspectedDecision["alternatives"][number]["value"]) => ({
       id: id([entry.tree, "alternative", d.key, index]),
-      revision: id([d.alternatives[index]!.object, d.alternatives[index]!.contributions]),
+      revision: id([value, d.alternatives[index]!.contributions]),
       value,
       contributions: d.alternatives[index]!.contributions,
     });

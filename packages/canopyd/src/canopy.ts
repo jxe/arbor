@@ -1491,9 +1491,11 @@ export class CanopyDaemon implements AsyncDisposable {
       const direct = basis.entry === head.hash && !basis.prefix.length;
       let root: ObjectHash, decisions: LogDecision[], evidence: unknown;
       let question: MergeQuestion | null = null;
-      if (request.trace !== null && direct && !guards.length && await this.fastForward(current.root, request, open, proposed)) {
+      const carried = request.trace !== null && direct && !guards.length && await this.fastForward(current.root, request, open, proposed)
+        ? await this.history.carry(open, request.candidate, proposed) : null;
+      if (carried) {
         root = request.candidate;
-        decisions = open;
+        decisions = carried;
         markPhase("fast-forward");
       } else {
         let candidate = await this.candidate(tree.id, request, guards);

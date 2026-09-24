@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { serveCanopy } from "@overstory/canopyd";
 import { acceptedEntries } from "../../support/log-entries.ts";
+import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject,
   type CandidateUpdate, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
 
@@ -52,7 +53,10 @@ beforeEach(async () => {
   root = change(initial.root, { "asset.bin": { file: file("original\0") }, "note.md": { file: file("Base\n") } });
   base = (await submit(snapshot(root), descriptor.tree.update)).id;
 });
-afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  try { await expectReplayableHistory(dir, tree); }
+  finally { await stop(); await rm(dir, { recursive: true, force: true }); }
+});
 
 test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap creates accepted alternatives without prior decisions", async kind => {
   const nested = directory({ type: "directory", entries: [{ name: "child.bin", file: file("child") }] });
