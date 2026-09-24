@@ -3,7 +3,7 @@
 ## Status, intent and order
 
 **P1 · PLANNED · L effort · high migration risk.** Planned at `d55f4142`,
-2026-09-21. Execute before [Apps 005](005-source-resolution-and-sidecar.md).
+2026-09-21. Execute before [Apps 005](../apps/005-source-resolution-and-sidecar.md).
 Numbers are stable identifiers, not execution order. This plan replaces executable
 collection schemas with a bounded CDDL contract; Apps 005 subsequently extracts
 application execution. Neither plan authorizes live-data, installed-app or public-host

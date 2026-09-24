@@ -7,7 +7,7 @@ Source implementation status is distinct from installed/deployed behavior.
 
 ## Native release and hands-on review
 
-Owners: Native [008](../swift/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
+Owners: Native [008](../soon/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
 [010](../swift/010-inline-choice-context.md) for review behavior.
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and accepted-choice
@@ -24,7 +24,7 @@ Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
 
-Owner: canopyd [014](../canopyd/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
+Owner: canopyd [014](../soon/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the subsequent Markdown
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.

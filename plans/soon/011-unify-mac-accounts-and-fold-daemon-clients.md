@@ -103,7 +103,7 @@ are deleted rather than kept as adapters.
    results.
 4. **Accepted-choice review on the Mac.** Drive it through `CanopyWorkingTree`
    exactly as iOS does; held folders (refused folder changes,
-   [Native 012](012-show-held-folders.md)) stay the only daemon-fed surface. Gate: the same conflict fixture resolves
+   [Native 012](../swift/012-show-held-folders.md)) stay the only daemon-fed surface. Gate: the same conflict fixture resolves
    identically on both platforms, and `swift/CanopyAppTests` covers both.
 5. **Remove the unused routes and client methods** listed above, in one
    commit per side (daemon, Swift client, TypeScript client), each with the

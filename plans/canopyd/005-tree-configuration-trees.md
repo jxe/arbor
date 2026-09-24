@@ -1,4 +1,7 @@
-# Security 005: Configure each hosted tree in its own configuration tree
+# canopyd 005: Configure each hosted tree in its own configuration tree
+
+Historical identifier: **Security 005** (moved to canopyd 2026-09-24; not the
+earlier Security 005 that became Filesystem 005).
 
 ## Status
 

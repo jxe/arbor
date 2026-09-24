@@ -1,7 +1,8 @@
 # Detailed plan catalog
 
 Directories group plans by the component or product surface they change. This is an inventory,
-not an execution queue; use the [outcome menu](README.md) to choose work. Priorities remain open.
+not an execution queue; use the [outcome menu](README.md) to choose work. Plans chosen for
+near-term work live in `soon/` but are listed here under their owner, marked **SOON**. Priorities remain open.
 Historical identifiers are recorded in each moved plan. Number gaps do not imply missing work or ordering.
 Old P1/P2 labels are workstream assessments, not current global priorities.
 
@@ -14,8 +15,8 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 - [Native 003 — Project collection files into native offline replicas](swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
 - [Native 006 — Place trees sparsely on iOS](swift/006-sparse-ios-placement.md) — **PLANNED · M.** Place an iOS tree by walking its spine (directories and Markdown) object by object, as catch-up already does, instead of downloading one whole snapshot; resume by keeping what arrived, and state what an unfetched file does offline.
-- [Native 008 — Complete native move, copy, and undo capture](swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
-- [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
+- [Native 008 — Complete native move, copy, and undo capture](soon/008-complete-native-move-copy-undo-capture.md) — **SOON · FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
+- [Native 011 — Unify Mac account management and fold daemon clients into their callers](soon/011-unify-mac-accounts-and-fold-daemon-clients.md) — **SOON · NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
 - [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
 - [Native 010 — Show accepted choices in their editor context](swift/010-inline-choice-context.md) — **IMPLEMENTED, NOT INSTALLED.** The hands-on release gate, then alternatives shown in their sentence or block, tinted affected blocks (a Quagmire highlight), and placement of choices retained in their own context.
 - **Choice review extensions** — candidates split from Native 010 on 2026-09-24; promote one when a real review needs it. Safe binary previews and export, richer directory browsing and format-specific collection reconstruction; richer long-source comparison (beyond 4,000 lines it falls back to raw source) and visual checks of whitespace and line-ending differences; a compatible freshness policy so unrelated accepted updates need not force renewed review (host and client together); wider fault injection across review persistence, submission, installation, retirement, authorization changes and cancellation; explanations of verified moves, copies and deletions; rule-provided combination previews; bulk resolution and offline review.
@@ -30,21 +31,22 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
-- [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](filesystem/005-ignore-policy.md) — **P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
+- [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](soon/005-ignore-policy.md) — **SOON · P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
 - [Filesystem 011 — Keep independent filesystem writes moving after a rejection](filesystem/011-independent-writes-after-rejection.md) — **NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 - [Filesystem 025 — Heal links after folder moves, then remove the old editor write path](filesystem/025-folder-link-healing.md) — **P2 · PLANNED · M.** Moves made in a placed folder (Finder, `git mv`, agents) are never healed since the daemon editor path went; add a byte-preserving source-level healer shared with Swift, heal stable-key backlinks after a watcher move, then delete `scheduleLinkHealing`, `WorkspaceFS.writeMarkdown`/`mutate` and the unused mutation types.
 
 ## canopyd authority, storage and history
 
-`canopyd/` — Merge policy, retained state, accepted history and provenance.
+`canopyd/` — Merge policy, retained state, accepted history, provenance and hosted-tree configuration.
 
 - [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
+- [canopyd 005 — Configure each hosted tree in its own configuration tree](canopyd/005-tree-configuration-trees.md) — **P3 · PROPOSED, not decided.** Move a tree's address, access rules and administrators (person or group profiles) out of each account's `trees.yaml` into a private per-tree configuration tree, making ownership explicit and allowing co-administration and group-owned trees; eight open questions first.
 - [canopyd 006 — Record who submitted each update and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; after canopyd 007.** Record a safe actor on each accepted update, replace the public `subject` with it, and compute current-line blame over the `document_versions` rows; versions from before the migration 016 squash show an unknown actor.
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
-- [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
+- [canopyd 014 — Merge moved and copied text beyond paragraphs](soon/014-merge-moved-text.md) — **SOON · P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
 - [canopyd 017 — Run the object collector live](canopyd/017-collect-objects-live.md) — **P2 · READY; gated on Joe.** The collector is implemented and rehearsed; deploy it, back up, dry-run, delete, then schedule `railway ssh` runs. Open: a document-version retention bound, which holds most of what remains.
-- [canopyd 018 — Profile facts per tree](canopyd/018-profile-facts-per-tree.md) — **P3 · PLANNED.** Store profile facts once per profile, group or community tree instead of once per accepted root, and recompute them only when `_index.md` or the avatar changes; migration 020 moves the `meta` `profile:<root>` rows.
+- [canopyd 018 — Profile facts per tree](soon/018-profile-facts-per-tree.md) — **SOON · P3 · PLANNED.** Store profile facts once per profile, group or community tree instead of once per accepted root, and recompute them only when `_index.md` or the avatar changes; migration 020 moves the `meta` `profile:<root>` rows.
 - **Sidebar creations as `addEntry`** — candidate. Editor page creation and a directory's first body are traced (canopyd 011, [closeout](../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); the sidebar's `createMarkdown`/`createDirectory` actions still publish snapshots because their admission records carry no editor document. Emit `addEntry` from `retainStructure` for those actions too.
 
 ## CLI and external agents
@@ -62,7 +64,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after 007 and the implemented authority prerequisites of 004.** Extract the headless HTTP runtime, prove failure independence and a QuickJS-free daemon graph; browser hosting follows in 001/003.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
-- [Apps 007 — CDDL collection schemas](apps/007-cddl-collection-schemas.md) — **P1 · PLANNED; before 005.** Replace executable collection schemas with a bounded CDDL profile, versioned descriptors and a verified migration/history policy; remove QuickJS from collection acceptance, projection and merge.
+- [Apps 007 — CDDL collection schemas](soon/007-cddl-collection-schemas.md) — **SOON · P1 · PLANNED; before 005.** Replace executable collection schemas with a bounded CDDL profile, versioned descriptors and a verified migration/history policy; remove QuickJS from collection acceptance, projection and merge.
 
 ## Postgres
 
@@ -76,13 +78,12 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Security boundaries
 
-`security/` — Search rendering, URL decoding, host responses, access-link secrets and tree configuration.
+`security/` — Search rendering, URL decoding, host responses and access-link secrets.
 
 - [Security 001 — Render search excerpts without treating indexed content as HTML](security/001-search-excerpts.md) — **P1 · TODO; rescoped by Native 022.** The daemon's search route and FTS index were deleted in Phase 7; the requirement applies to the native search index now and to the Plan B client text index when the web editor returns.
 - [Security 002 — Decode URL paths once at the external boundary](security/002-path-decoding.md) — **P1 · TODO.**
 - [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
-- [Security 005 — Configure each hosted tree in its own configuration tree](security/005-tree-configuration-trees.md) — **P3 · PROPOSED, not decided.** Move a tree's address, access rules and administrators (person or group profiles) out of each account's `trees.yaml` into a private per-tree configuration tree, making ownership explicit and allowing co-administration and group-owned trees; eight open questions first.
 
 ## Testing and CI
 
@@ -103,7 +104,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
-- [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](cleanups/006-overstory-identifiers.md) — **READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
+- [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](soon/006-overstory-identifiers.md) — **SOON · READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
 
 ## Product Completion
 
