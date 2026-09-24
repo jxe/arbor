@@ -12,6 +12,7 @@
         "@overstory/canopyd-merge": "workspace:*",
         "@overstory/cli": "workspace:*",
         "@overstory/client": "workspace:*",
+        "@overstory/collection-schema": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
@@ -42,10 +43,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@overstory/protocol": "workspace:*",
-        "csv-parse": "6.1.0",
-        "quickjs-emscripten": "0.32.0",
         "yaml": "2.8.2",
-        "zod": "4.3.6",
       },
     },
     "packages/arborsync": {
@@ -54,12 +52,12 @@
       "dependencies": {
         "@overstory/apps-runtime": "workspace:*",
         "@overstory/client": "workspace:*",
+        "@overstory/collection-schema": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
         "@overstory/tree-merge": "workspace:*",
         "@overstory/working-tree": "workspace:*",
         "csv-parse": "6.1.0",
-        "zod": "4.3.6",
       },
     },
     "packages/canopy-web": {
@@ -87,6 +85,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@overstory/apps-runtime": "workspace:*",
+        "@overstory/collection-schema": "workspace:*",
         "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
@@ -129,6 +128,14 @@
         "@overstory/protocol": "workspace:*",
       },
     },
+    "packages/collection-schema": {
+      "name": "@overstory/collection-schema",
+      "version": "0.1.0",
+      "dependencies": {
+        "@overstory/protocol": "workspace:*",
+        "csv-parse": "6.1.0",
+      },
+    },
     "packages/fs": {
       "name": "@overstory/fs",
       "version": "0.1.0",
@@ -164,7 +171,7 @@
       "name": "@overstory/tree-merge",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/collection-schema": "workspace:*",
         "@overstory/protocol": "workspace:*",
       },
     },
@@ -289,16 +296,6 @@
 
     "@handlewithcare/prosemirror-inputrules": ["@handlewithcare/prosemirror-inputrules@0.1.4", "", { "dependencies": { "prosemirror-history": "^1.4.1", "prosemirror-transform": "^1.0.0" }, "peerDependencies": { "prosemirror-model": "^1.0.0", "prosemirror-state": "^1.0.0", "prosemirror-view": "^1.0.0" } }, "sha512-GMqlBeG2MKM+tXEFd2N+wIv5z4VvJTg8JtfJUrdjvFq2W6v+AW8oTgiWyFw8L3iEQwvtQcVJxU873iB0LXUNNw=="],
 
-    "@jitl/quickjs-ffi-types": ["@jitl/quickjs-ffi-types@0.32.0", "", {}, "sha512-v9T+GQpmk43VDJ7d72sf0Nexhk+ArvtUihW27dy7lqAl0zBObFKtSBBIm5RBjwIhE8VwsPPm9PNuvPvNqLWUEg=="],
-
-    "@jitl/quickjs-wasmfile-debug-asyncify": ["@jitl/quickjs-wasmfile-debug-asyncify@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-EX8zbXwGqCgAE764M+qvkHtyXDi/FUoMBea0JnES7vCM3P7a2+EOZOjGv85wtZ2sJhI1oJ+nekmqpOODFDY+hw=="],
-
-    "@jitl/quickjs-wasmfile-debug-sync": ["@jitl/quickjs-wasmfile-debug-sync@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-LeYWrPGC1uNCTBWvibo3ZLJj0CSVNYUXvJpXMCmuQ5Sap2cCACc3uvGvYV4homHHBAzfw5akoTqMMS4YFRtw+Q=="],
-
-    "@jitl/quickjs-wasmfile-release-asyncify": ["@jitl/quickjs-wasmfile-release-asyncify@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-3oSwPfja12ICz4aIblB58cuY8JlEq5Txt8Cut4VLo+LH47QN+mzCnSgnbB03hWzg1LBcc+VyyI9UOag7a1NF+Q=="],
-
-    "@jitl/quickjs-wasmfile-release-sync": ["@jitl/quickjs-wasmfile-release-sync@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-BKNDI/TPBfGlLNGYpLrhcDGXmIk4xHm4MRAisOBnOzpXVn9HZWsfmMAc9WMBrAHjvvds6HOikKeaOBKdPdpVrg=="],
-
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@jridgewell/remapping": ["@jridgewell/remapping@2.3.5", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ=="],
@@ -328,6 +325,8 @@
     "@overstory/cli": ["@overstory/cli@workspace:packages/cli"],
 
     "@overstory/client": ["@overstory/client@workspace:packages/client"],
+
+    "@overstory/collection-schema": ["@overstory/collection-schema@workspace:packages/collection-schema"],
 
     "@overstory/example-supplies": ["@overstory/example-supplies@workspace:examples/supplies"],
 
@@ -594,10 +593,6 @@
     "prosemirror-transform": ["prosemirror-transform@1.12.0", "", { "dependencies": { "prosemirror-model": "^1.21.0" } }, "sha512-GxboyN4AMIsoHNtz5uf2r2Ru551i5hWeCMD6E2Ib4Eogqoub0NflniaBPVQ4MrGE5yZ8JV9tUHg9qcZTTrcN4w=="],
 
     "prosemirror-view": ["prosemirror-view@1.42.1", "", { "dependencies": { "prosemirror-model": "^1.25.8", "prosemirror-state": "^1.0.0", "prosemirror-transform": "^1.1.0" } }, "sha512-rRqzZnRgkyh69XoOMrfFJHwauHscLBmHbq772kwbic1ymQAM8gXjzEbJse5j1ep2UO2HRIAQL0bY3kZ/RoqjVw=="],
-
-    "quickjs-emscripten": ["quickjs-emscripten@0.32.0", "", { "dependencies": { "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0", "@jitl/quickjs-wasmfile-debug-sync": "0.32.0", "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0", "@jitl/quickjs-wasmfile-release-sync": "0.32.0", "quickjs-emscripten-core": "0.32.0" } }, "sha512-So0Sqw869y/S2oE3Nuc0uT3Dhqgvsj8FSrwBdsuTosVsG8ME5/OcudU1GxsrIFdFABgy17GHnTVO9TYV/bLQcA=="],
-
-    "quickjs-emscripten-core": ["quickjs-emscripten-core@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-QFnPfjFey8EqknSrSxe1hZrf1/8z7/6s1QzGOmKo6++02r7QRRX7ZoyNaZh7JuVjWsVW87KnQrbZqnHkOAzUyg=="],
 
     "react": ["react@19.2.4", "", {}, "sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ=="],
 

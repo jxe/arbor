@@ -1,0 +1,2109 @@
+{
+  "version": 1,
+  "profile": 1,
+  "description": "Overstory collection schema profile (docs/overstory-spec/06-child-backings.md section 2.4). Locations are 1-based lines and columns counted in Unicode scalar values; a reject without a location binds only its code. Messages are not normative. Generated source parts repeat a template with {i} and {i+1} replaced by the zero-based index and its successor; a {\"$repeat\": v, \"count\": n} value expands to an array of n copies of v.",
+  "limits": {
+    "source-bytes": 1048576,
+    "tokens": 65536,
+    "rules": 1024,
+    "syntax-nodes": 32768,
+    "nesting-depth": 32,
+    "choice-alternatives": 256,
+    "map-members": 1024,
+    "expanded-nodes": 100000,
+    "row-steps": 1000000,
+    "collection-steps": 50000000,
+    "text-literal-bytes": 4096
+  },
+  "schemas": [
+    {
+      "name": "basic",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"id\"]\noverstory-child-name = \"slug\"\n\nrow = {\n  id: tstr,\n  slug: tstr,\n  title: tstr,\n  ? description: tstr,\n  quantity: 0..1000\n}\n",
+      "fingerprint": "sha256:120b639156ddf1f29966e6c87bf9440bb8f8b5bc2d33cad0f1647f498b1ca5e9",
+      "accept": {
+        "columns": [
+          "id",
+          "slug",
+          "title",
+          "description",
+          "quantity"
+        ],
+        "primaryKey": [
+          "id"
+        ],
+        "childName": "slug"
+      },
+      "values": [
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 5
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 5,
+            "description": "Long"
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 0
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 1000
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 1001
+          },
+          "diagnostics": [
+            {
+              "code": "out-of-range",
+              "path": "/quantity"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 2.5
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/quantity"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": "5"
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/quantity"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 5,
+            "extra": true
+          },
+          "diagnostics": [
+            {
+              "code": "unknown-member",
+              "path": "/extra"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "quantity": 5
+          },
+          "diagnostics": [
+            {
+              "code": "missing-member",
+              "path": "/title"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 5,
+            "description": null
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/description"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": 1,
+            "slug": "first",
+            "title": "First",
+            "quantity": 5
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/id"
+            }
+          ]
+        },
+        {
+          "value": {
+            "extra": true,
+            "slug": 1,
+            "quantity": -1
+          },
+          "diagnostics": [
+            {
+              "code": "missing-member",
+              "path": "/id"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/slug"
+            },
+            {
+              "code": "missing-member",
+              "path": "/title"
+            },
+            {
+              "code": "out-of-range",
+              "path": "/quantity"
+            },
+            {
+              "code": "unknown-member",
+              "path": "/extra"
+            }
+          ]
+        },
+        {
+          "value": [],
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": ""
+            }
+          ]
+        },
+        {
+          "value": null,
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": ""
+            }
+          ]
+        }
+      ],
+      "csv": {
+        "header": [
+          "id",
+          "slug",
+          "title",
+          "description",
+          "quantity"
+        ],
+        "rows": [
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              "7"
+            ],
+            "value": {
+              "id": "001",
+              "slug": "a",
+              "title": "T",
+              "quantity": 7
+            }
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "",
+              "D",
+              "7.0"
+            ],
+            "value": {
+              "id": "001",
+              "slug": "a",
+              "title": "",
+              "description": "D",
+              "quantity": 7
+            }
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              "1e2"
+            ],
+            "value": {
+              "id": "001",
+              "slug": "a",
+              "title": "T",
+              "quantity": 100
+            }
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              "07"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/quantity"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              " 7"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/quantity"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              ""
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/quantity"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T",
+              "",
+              "2000"
+            ],
+            "diagnostics": [
+              {
+                "code": "out-of-range",
+                "path": "/quantity"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "001",
+              "a",
+              "T"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/quantity"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "types",
+      "source": "overstory-schema-version = 1\n; No primary key: rows are read-only positional projections.\nstatus = \"draft\" / \"done\"\ntag = tstr\npoint = { x: number, y: number }\nrow = {\n  status: status,\n  tags: [* tag],\n  ? points: [+ point],\n  flag: bool,\n  maybe: tstr / null,\n  count: uint,\n  delta: nint / 0,\n  ratio: 0.0..1.0,\n  below: 0...10,\n  answer: 42,\n  big: int,\n  nothing: nil,\n  either: tstr / int,\n}\n",
+      "accept": {
+        "columns": [
+          "status",
+          "tags",
+          "points",
+          "flag",
+          "maybe",
+          "count",
+          "delta",
+          "ratio",
+          "below",
+          "answer",
+          "big",
+          "nothing",
+          "either"
+        ],
+        "primaryKey": null,
+        "childName": null
+      },
+      "values": [
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [],
+            "flag": false,
+            "maybe": "text",
+            "count": 0,
+            "delta": 0,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": -9007199254740991,
+            "nothing": null,
+            "either": "seven",
+            "points": [
+              {
+                "x": 1,
+                "y": 2.5
+              }
+            ]
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "status": "archived",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "no-matching-choice",
+              "path": "/status"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              1
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/tags/1"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "\ud800"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "invalid-text",
+              "path": "/tags/0"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7,
+            "points": []
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/points"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7,
+            "points": [
+              {
+                "x": 1,
+                "y": 2,
+                "z": 3
+              }
+            ]
+          },
+          "diagnostics": [
+            {
+              "code": "unknown-member",
+              "path": "/points/0/z"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": "true",
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/flag"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": -1,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "out-of-range",
+              "path": "/count"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": 1,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "no-matching-choice",
+              "path": "/delta"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 1.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "out-of-range",
+              "path": "/ratio"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 1,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 10,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "out-of-range",
+              "path": "/below"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9.5,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/below"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 41,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/answer"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740992,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/big"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 1.7976931348623157e+308,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/big"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": false,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/nothing"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "maybe": null,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": true
+          },
+          "diagnostics": [
+            {
+              "code": "no-matching-choice",
+              "path": "/either"
+            }
+          ]
+        },
+        {
+          "value": {
+            "status": "draft",
+            "tags": [
+              "a",
+              "b"
+            ],
+            "flag": false,
+            "count": 0,
+            "delta": -3,
+            "ratio": 0.5,
+            "below": 9,
+            "answer": 42,
+            "big": 9007199254740991,
+            "nothing": null,
+            "either": 7
+          },
+          "diagnostics": [
+            {
+              "code": "missing-member",
+              "path": "/maybe"
+            }
+          ]
+        }
+      ],
+      "csv": {
+        "unrepresentable": {
+          "code": "csv-unrepresentable-schema",
+          "path": "/tags"
+        }
+      }
+    },
+    {
+      "name": "csv-cell-policy",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"code\"]\nrow = {\n  code: tstr,\n  ? note: tstr,\n  score: number / null,\n  ? level: uint,\n  active: bool,\n  label: tstr,\n}\n",
+      "accept": {
+        "columns": [
+          "code",
+          "note",
+          "score",
+          "level",
+          "active",
+          "label"
+        ],
+        "primaryKey": [
+          "code"
+        ],
+        "childName": null
+      },
+      "csv": {
+        "header": [
+          "code",
+          "note",
+          "score",
+          "level",
+          "active",
+          "label"
+        ],
+        "rows": [
+          {
+            "cells": [
+              "001",
+              "",
+              "",
+              "",
+              "true",
+              ""
+            ],
+            "value": {
+              "code": "001",
+              "score": null,
+              "active": true,
+              "label": ""
+            }
+          },
+          {
+            "cells": [
+              "002",
+              "x",
+              "-3.5e-1",
+              "2",
+              "false",
+              "L"
+            ],
+            "value": {
+              "code": "002",
+              "note": "x",
+              "score": -0.35,
+              "level": 2,
+              "active": false,
+              "label": "L"
+            }
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "1",
+              "",
+              "TRUE",
+              "x"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/active"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "1",
+              "",
+              "",
+              "x"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/active"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "1",
+              "-1",
+              "true",
+              "x"
+            ],
+            "diagnostics": [
+              {
+                "code": "out-of-range",
+                "path": "/level"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "NaN",
+              "",
+              "true",
+              "x"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/score"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "+1",
+              "",
+              "true",
+              "x"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/score"
+              }
+            ]
+          },
+          {
+            "cells": [
+              "003",
+              "",
+              "1",
+              "",
+              "true",
+              "x",
+              "extra"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-row",
+                "path": ""
+              }
+            ]
+          }
+        ],
+        "headers": [
+          {
+            "header": [
+              "code",
+              "score",
+              "active",
+              "label",
+              "extra"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-unknown-column",
+                "path": "/extra"
+              }
+            ]
+          },
+          {
+            "header": [
+              "code",
+              "code",
+              "active",
+              "label"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-duplicate-column",
+                "path": "/code"
+              }
+            ]
+          },
+          {
+            "header": [
+              "code",
+              "active"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "encode": [
+          {
+            "rows": [
+              {
+                "code": "001",
+                "score": null,
+                "active": true,
+                "label": ""
+              },
+              {
+                "code": "002",
+                "note": "x",
+                "score": 1e+21,
+                "level": 2,
+                "active": false,
+                "label": "a,\"b\""
+              }
+            ],
+            "text": "code,note,score,level,active,label\n001,,,,true,\n002,x,1e+21,2,false,\"a,\"\"b\"\"\"\n"
+          },
+          {
+            "rows": [
+              {
+                "code": "001",
+                "note": "",
+                "score": null,
+                "active": true,
+                "label": "x"
+              }
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-unrepresentable-value",
+                "path": "/note"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "composite-key",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"rank\", \"id\"]\nrow = { rank: int, id: tstr, title: tstr }\n",
+      "accept": {
+        "columns": [
+          "rank",
+          "id",
+          "title"
+        ],
+        "primaryKey": [
+          "rank",
+          "id"
+        ],
+        "childName": null
+      },
+      "values": [
+        {
+          "value": {
+            "rank": 1,
+            "id": "a",
+            "title": "A"
+          },
+          "diagnostics": []
+        }
+      ]
+    },
+    {
+      "name": "layout-and-comments",
+      "source": "; Comments, metadata, and formatting are part of the fingerprint.\nrow = {\n  \"display name\": label,   ; a text-literal member key\n  id: tstr,                ; declared after its use\n  ? notes: [* label],\n}\nlabel = tstr\noverstory-schema-version = 1\n",
+      "fingerprint": "sha256:d591b14de21dfa6eeae4837c4ec69f28d1f50f1af9798536cb6d38f477ea4a28",
+      "accept": {
+        "columns": [
+          "display name",
+          "id",
+          "notes"
+        ],
+        "primaryKey": null,
+        "childName": null
+      },
+      "values": [
+        {
+          "value": {
+            "display name": "X",
+            "id": "1"
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "display name": "X",
+            "id": "1",
+            "notes": [
+              "a"
+            ]
+          },
+          "diagnostics": []
+        }
+      ]
+    },
+    {
+      "name": "comment-only-change",
+      "source": ";  Comments, metadata, and formatting are part of the fingerprint.\nrow = {\n  \"display name\": label,   ; a text-literal member key\n  id: tstr,                ; declared after its use\n  ? notes: [* label],\n}\nlabel = tstr\noverstory-schema-version = 1\n",
+      "fingerprint": "sha256:2c71a555dd2d8f8f9d201a41e0ef3b857537f01c531a6ef27e3b923d9737ec7a",
+      "accept": {
+        "columns": [
+          "display name",
+          "id",
+          "notes"
+        ],
+        "primaryKey": null,
+        "childName": null
+      }
+    },
+    {
+      "name": "markdown-without-key",
+      "source": "overstory-schema-version = 1\nrow = { id: tstr, title: tstr, status: \"draft\" / \"done\" }\n",
+      "accept": {
+        "columns": [
+          "id",
+          "title",
+          "status"
+        ],
+        "primaryKey": null,
+        "childName": null
+      }
+    },
+    {
+      "name": "missing-profile-version",
+      "source": "row = { a: tstr }\n",
+      "reject": {
+        "code": "missing-profile-version"
+      }
+    },
+    {
+      "name": "unsupported-profile-version",
+      "source": "overstory-schema-version = 2\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "unsupported-profile-version",
+        "line": 1,
+        "column": 28
+      }
+    },
+    {
+      "name": "nonliteral-profile-version",
+      "source": "overstory-schema-version = \"1\"\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "invalid-metadata",
+        "line": 1,
+        "column": 28
+      }
+    },
+    {
+      "name": "missing-row",
+      "source": "overstory-schema-version = 1\nitem = { a: tstr }\n",
+      "reject": {
+        "code": "missing-row"
+      }
+    },
+    {
+      "name": "row-not-map",
+      "source": "overstory-schema-version = 1\nrow = tstr\n",
+      "reject": {
+        "code": "invalid-row",
+        "line": 2,
+        "column": 7
+      }
+    },
+    {
+      "name": "row-reference",
+      "source": "overstory-schema-version = 1\nitem = { a: tstr }\nrow = item\n",
+      "reject": {
+        "code": "invalid-row",
+        "line": 3,
+        "column": 7
+      }
+    },
+    {
+      "name": "row-choice",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr } / { b: tstr }\n",
+      "reject": {
+        "code": "invalid-row",
+        "line": 2,
+        "column": 7
+      }
+    },
+    {
+      "name": "duplicate-rule",
+      "source": "overstory-schema-version = 1\na = tstr\na = int\nrow = { x: a }\n",
+      "reject": {
+        "code": "duplicate-rule",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "name": "unknown-rule",
+      "source": "overstory-schema-version = 1\nrow = { x: missing }\n",
+      "reject": {
+        "code": "unknown-rule",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "direct-cycle",
+      "source": "overstory-schema-version = 1\na = { x: a }\nrow = { y: tstr }\n",
+      "reject": {
+        "code": "rule-cycle",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "name": "indirect-cycle",
+      "source": "overstory-schema-version = 1\nrow = { x: a }\na = { y: b }\nb = [* a]\n",
+      "reject": {
+        "code": "rule-cycle",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "name": "prelude-shadow",
+      "source": "overstory-schema-version = 1\ntstr = int\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "reserved-rule",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "name": "unknown-reserved-rule",
+      "source": "overstory-schema-version = 1\noverstory-table = \"x\"\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "reserved-rule",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "name": "metadata-reference",
+      "source": "overstory-schema-version = 1\noverstory-child-name = \"a\"\nrow = { a: overstory-child-name }\n",
+      "reject": {
+        "code": "reserved-rule",
+        "line": 3,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsupported-type-any",
+      "source": "overstory-schema-version = 1\nrow = { a: any }\n",
+      "reject": {
+        "code": "unsupported-type",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsupported-type-bstr",
+      "source": "overstory-schema-version = 1\nrow = { a: bstr }\n",
+      "reject": {
+        "code": "unsupported-type",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsupported-type-float",
+      "source": "overstory-schema-version = 1\nrow = { a: float }\n",
+      "reject": {
+        "code": "unsupported-type",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsupported-type-float64",
+      "source": "overstory-schema-version = 1\nrow = { a: float64 }\n",
+      "reject": {
+        "code": "unsupported-type",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsupported-type-undefined",
+      "source": "overstory-schema-version = 1\nrow = { a: undefined }\n",
+      "reject": {
+        "code": "unsupported-type",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "control-operator",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr .size 3 }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 17
+      }
+    },
+    {
+      "name": "regexp",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr .regexp \"x\" }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 17
+      }
+    },
+    {
+      "name": "generic",
+      "source": "overstory-schema-version = 1\npair<T> = [* T]\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "name": "type-choice-extension",
+      "source": "overstory-schema-version = 1\na = tstr\na /= int\nrow = { x: a }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 3,
+        "column": 3
+      }
+    },
+    {
+      "name": "group-choice",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr // b: int }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 17
+      }
+    },
+    {
+      "name": "arrow-key",
+      "source": "overstory-schema-version = 1\nrow = { \"a\" => tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "name": "dynamic-keys",
+      "source": "overstory-schema-version = 1\nrow = { * tstr => int }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "name": "tuple-array",
+      "source": "overstory-schema-version = 1\nrow = { a: [tstr, int] }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "name": "single-element-array",
+      "source": "overstory-schema-version = 1\nrow = { a: [tstr] }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "name": "optional-array",
+      "source": "overstory-schema-version = 1\nrow = { a: [? tstr] }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "name": "bounded-array",
+      "source": "overstory-schema-version = 1\nrow = { a: [1*3 tstr] }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "name": "parenthesized",
+      "source": "overstory-schema-version = 1\nrow = { a: (tstr / int) }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "group-rule",
+      "source": "overstory-schema-version = 1\ng = ( a: int )\nrow = { b: tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "name": "tag",
+      "source": "overstory-schema-version = 1\nrow = { a: #6.32(tstr) }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "byte-string",
+      "source": "overstory-schema-version = 1\nrow = { a: 'abc' }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "prefixed-byte-string",
+      "source": "overstory-schema-version = 1\nrow = { a: h'00' }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "hex-number",
+      "source": "overstory-schema-version = 1\nrow = { a: 0x10 }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "binary-number",
+      "source": "overstory-schema-version = 1\nrow = { a: 0b10 }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unwrap",
+      "source": "overstory-schema-version = 1\ng = { b: int }\nrow = { a: ~g }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 3,
+        "column": 12
+      }
+    },
+    {
+      "name": "enumeration",
+      "source": "overstory-schema-version = 1\ng = { b: int }\nrow = { a: &g }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 3,
+        "column": 12
+      }
+    },
+    {
+      "name": "socket",
+      "source": "overstory-schema-version = 1\nrow = { a: $ext }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "group-entry",
+      "source": "overstory-schema-version = 1\nrow = { a b }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "name": "numeric-key",
+      "source": "overstory-schema-version = 1\nrow = { 1: tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "name": "invalid-escape",
+      "source": "overstory-schema-version = 1\nrow = { a: \"\\q\" }\n",
+      "reject": {
+        "code": "invalid-literal",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "lone-surrogate-literal",
+      "source": "overstory-schema-version = 1\nrow = { a: \"\\ud800\" }\n",
+      "reject": {
+        "code": "invalid-literal",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unsafe-integer-literal",
+      "source": "overstory-schema-version = 1\nrow = { a: 9007199254740992 }\n",
+      "reject": {
+        "code": "invalid-literal",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "infinite-literal",
+      "source": "overstory-schema-version = 1\nrow = { a: 1e400 }\n",
+      "reject": {
+        "code": "invalid-literal",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "mixed-range",
+      "source": "overstory-schema-version = 1\nrow = { a: 1..2.5 }\n",
+      "reject": {
+        "code": "invalid-range",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "reversed-range",
+      "source": "overstory-schema-version = 1\nrow = { a: 5..1 }\n",
+      "reject": {
+        "code": "invalid-range",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "open-range",
+      "source": "overstory-schema-version = 1\nrow = { a: 0.. }\n",
+      "reject": {
+        "code": "syntax-error",
+        "line": 2,
+        "column": 16
+      }
+    },
+    {
+      "name": "named-range-bound",
+      "source": "overstory-schema-version = 1\nlow = 0\nrow = { a: low..5 }\n",
+      "reject": {
+        "code": "unknown-rule",
+        "line": 3,
+        "column": 12
+      }
+    },
+    {
+      "name": "duplicate-member",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr, a: int }\n",
+      "reject": {
+        "code": "duplicate-member",
+        "line": 2,
+        "column": 18
+      }
+    },
+    {
+      "name": "missing-type",
+      "source": "overstory-schema-version = 1\nrow = { a: }\n",
+      "reject": {
+        "code": "syntax-error",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "unterminated-map",
+      "source": "overstory-schema-version = 1\nrow = {\n",
+      "reject": {
+        "code": "syntax-error"
+      }
+    },
+    {
+      "name": "double-equals",
+      "source": "overstory-schema-version = 1\nrow == { a: tstr }\n",
+      "reject": {
+        "code": "syntax-error",
+        "line": 2,
+        "column": 6
+      }
+    },
+    {
+      "name": "missing-rule-name",
+      "source": "overstory-schema-version = 1\n= tstr\n",
+      "reject": {
+        "code": "syntax-error",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "name": "unterminated-text",
+      "source": "overstory-schema-version = 1\nrow = { a: \"unterminated }\n",
+      "reject": {
+        "code": "syntax-error",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "name": "control-character",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr }\u0001\n",
+      "reject": {
+        "code": "invalid-character",
+        "line": 2,
+        "column": 18
+      }
+    },
+    {
+      "name": "byte-order-mark",
+      "source": "\ufeffoverstory-schema-version = 1\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "invalid-character",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "name": "primary-key-missing-member",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"nope\"]\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-optional",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"opt\"]\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-nullable",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"nul\"]\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-composite-type",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"obj\"]\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-duplicate",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"id\", \"id\"]\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-empty",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = []\nrow = { id: tstr, ? opt: tstr, nul: tstr / null, obj: { a: int }, count: int }\n",
+      "reject": {
+        "code": "invalid-primary-key",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-nonliteral",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [tstr]\nrow = { id: tstr }\n",
+      "reject": {
+        "code": "invalid-metadata",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "primary-key-not-array",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = \"id\"\nrow = { id: tstr }\n",
+      "reject": {
+        "code": "invalid-metadata",
+        "line": 2,
+        "column": 25
+      }
+    },
+    {
+      "name": "child-name-missing-member",
+      "source": "overstory-schema-version = 1\noverstory-child-name = \"nope\"\nrow = { id: tstr, ? opt: tstr, count: int, mixed: tstr / int }\n",
+      "reject": {
+        "code": "invalid-child-name",
+        "line": 2,
+        "column": 24
+      }
+    },
+    {
+      "name": "child-name-optional",
+      "source": "overstory-schema-version = 1\noverstory-child-name = \"opt\"\nrow = { id: tstr, ? opt: tstr, count: int, mixed: tstr / int }\n",
+      "reject": {
+        "code": "invalid-child-name",
+        "line": 2,
+        "column": 24
+      }
+    },
+    {
+      "name": "child-name-not-text",
+      "source": "overstory-schema-version = 1\noverstory-child-name = \"count\"\nrow = { id: tstr, ? opt: tstr, count: int, mixed: tstr / int }\n",
+      "reject": {
+        "code": "invalid-child-name",
+        "line": 2,
+        "column": 24
+      }
+    },
+    {
+      "name": "child-name-mixed",
+      "source": "overstory-schema-version = 1\noverstory-child-name = \"mixed\"\nrow = { id: tstr, ? opt: tstr, count: int, mixed: tstr / int }\n",
+      "reject": {
+        "code": "invalid-child-name",
+        "line": 2,
+        "column": 24
+      }
+    },
+    {
+      "name": "child-name-nonliteral",
+      "source": "overstory-schema-version = 1\noverstory-child-name = id\nrow = { id: tstr, ? opt: tstr, count: int, mixed: tstr / int }\n",
+      "reject": {
+        "code": "invalid-metadata",
+        "line": 2,
+        "column": 24
+      }
+    },
+    {
+      "name": "duplicate-metadata",
+      "source": "overstory-schema-version = 1\noverstory-schema-version = 1\nrow = { a: tstr }\n",
+      "reject": {
+        "code": "duplicate-rule",
+        "line": 2,
+        "column": 1
+      }
+    }
+  ],
+  "sourceBytes": [
+    {
+      "name": "malformed-utf8",
+      "sourceBase64": "b3ZlcnN0b3J5LXNjaGVtYS12ZXJzaW9uID0gMQpyb3cgPSB7IGE6ICL/IiB9Cg==",
+      "reject": {
+        "code": "invalid-utf8"
+      }
+    },
+    {
+      "name": "overlong-utf8",
+      "sourceBase64": "b3ZlcnN0b3J5LXNjaGVtYS12ZXJzaW9uID0gMQpyb3cgPSB7IGE6ICLAryIgfQo=",
+      "reject": {
+        "code": "invalid-utf8"
+      }
+    },
+    {
+      "name": "encoded-surrogate",
+      "sourceBase64": "b3ZlcnN0b3J5LXNjaGVtYS12ZXJzaW9uID0gMQpyb3cgPSB7IGE6ICLtoIAiIH0K",
+      "reject": {
+        "code": "invalid-utf8"
+      }
+    }
+  ],
+  "generated": [
+    {
+      "name": "choice-256-accepted",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { a: ",
+        {
+          "repeat": "\"v{i}\"",
+          "count": 256,
+          "separator": " / "
+        },
+        " }\n"
+      ],
+      "accept": true
+    },
+    {
+      "name": "choice-257",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { a: ",
+        {
+          "repeat": "\"v{i}\"",
+          "count": 257,
+          "separator": " / "
+        },
+        " }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "choice-alternatives"
+      }
+    },
+    {
+      "name": "members-1024-accepted",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { ",
+        {
+          "repeat": "m{i}: tstr",
+          "count": 1024,
+          "separator": ", "
+        },
+        " }\n"
+      ],
+      "accept": true
+    },
+    {
+      "name": "members-1025",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { ",
+        {
+          "repeat": "m{i}: tstr",
+          "count": 1025,
+          "separator": ", "
+        },
+        " }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "map-members"
+      }
+    },
+    {
+      "name": "depth-32-accepted",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { a: ",
+        {
+          "repeat": "[* ",
+          "count": 31,
+          "separator": ""
+        },
+        "tstr",
+        {
+          "repeat": "]",
+          "count": 31,
+          "separator": ""
+        },
+        " }\n"
+      ],
+      "accept": true
+    },
+    {
+      "name": "depth-33",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { a: ",
+        {
+          "repeat": "[* ",
+          "count": 32,
+          "separator": ""
+        },
+        "tstr",
+        {
+          "repeat": "]",
+          "count": 32,
+          "separator": ""
+        },
+        " }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "nesting-depth"
+      }
+    },
+    {
+      "name": "depth-through-references",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "r0 = [* tstr]\n",
+        {
+          "repeat": "r{i+1} = [* r{i}]\n",
+          "count": 40,
+          "separator": ""
+        },
+        "row = { a: r40 }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "nesting-depth"
+      }
+    },
+    {
+      "name": "expanded-nodes",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "t0 = { a: tstr, b: tstr }\n",
+        {
+          "repeat": "t{i+1} = { a: t{i}, b: t{i} }\n",
+          "count": 16,
+          "separator": ""
+        },
+        "row = { x: t16 }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "expanded-nodes"
+      }
+    },
+    {
+      "name": "rules-1025",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        {
+          "repeat": "r{i} = tstr\n",
+          "count": 1023,
+          "separator": ""
+        },
+        "row = { a: tstr }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "rules"
+      }
+    },
+    {
+      "name": "tokens",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { ",
+        {
+          "repeat": "m{i}: \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\" / \"a\"",
+          "count": 300,
+          "separator": ", "
+        },
+        " }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "tokens"
+      }
+    },
+    {
+      "name": "syntax-nodes",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        {
+          "repeat": "r{i} = { m0: tstr m1: tstr m2: tstr m3: tstr m4: tstr m5: tstr m6: tstr m7: tstr m8: tstr m9: tstr m10: tstr m11: tstr m12: tstr m13: tstr m14: tstr m15: tstr m16: tstr m17: tstr m18: tstr m19: tstr m20: tstr m21: tstr m22: tstr m23: tstr m24: tstr }\n",
+          "count": 800,
+          "separator": ""
+        },
+        "row = { a: tstr }\n"
+      ],
+      "reject": {
+        "code": "budget-exceeded",
+        "limit": "syntax-nodes"
+      }
+    },
+    {
+      "name": "source-bytes",
+      "parts": [
+        "overstory-schema-version = 1\n",
+        "row = { a: tstr }\n",
+        {
+          "repeat": ";xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+          "count": 1024,
+          "separator": ""
+        }
+      ],
+      "reject": {
+        "code": "schema-too-large"
+      }
+    }
+  ],
+  "budgetValues": [
+    {
+      "name": "row-steps",
+      "source": "overstory-schema-version = 1\nrow = { items: [* int] }\n",
+      "value": {
+        "items": {
+          "$repeat": 0,
+          "count": 1000000
+        }
+      },
+      "diagnostics": [
+        {
+          "code": "budget-exceeded",
+          "path": "",
+          "limit": "row-steps"
+        }
+      ]
+    },
+    {
+      "name": "row-steps-accepted",
+      "source": "overstory-schema-version = 1\nrow = { items: [* int] }\n",
+      "value": {
+        "items": {
+          "$repeat": 0,
+          "count": 999990
+        }
+      },
+      "diagnostics": []
+    },
+    {
+      "name": "large-literal-choice",
+      "source": "overstory-schema-version = 1\nrow = { a: \"v0\" / \"v1\" / \"v2\" / \"v3\" / \"v4\" / \"v5\" / \"v6\" / \"v7\" / \"v8\" / \"v9\" / \"v10\" / \"v11\" / \"v12\" / \"v13\" / \"v14\" / \"v15\" / \"v16\" / \"v17\" / \"v18\" / \"v19\" / \"v20\" / \"v21\" / \"v22\" / \"v23\" / \"v24\" / \"v25\" / \"v26\" / \"v27\" / \"v28\" / \"v29\" / \"v30\" / \"v31\" / \"v32\" / \"v33\" / \"v34\" / \"v35\" / \"v36\" / \"v37\" / \"v38\" / \"v39\" / \"v40\" / \"v41\" / \"v42\" / \"v43\" / \"v44\" / \"v45\" / \"v46\" / \"v47\" / \"v48\" / \"v49\" / \"v50\" / \"v51\" / \"v52\" / \"v53\" / \"v54\" / \"v55\" / \"v56\" / \"v57\" / \"v58\" / \"v59\" / \"v60\" / \"v61\" / \"v62\" / \"v63\" / \"v64\" / \"v65\" / \"v66\" / \"v67\" / \"v68\" / \"v69\" / \"v70\" / \"v71\" / \"v72\" / \"v73\" / \"v74\" / \"v75\" / \"v76\" / \"v77\" / \"v78\" / \"v79\" / \"v80\" / \"v81\" / \"v82\" / \"v83\" / \"v84\" / \"v85\" / \"v86\" / \"v87\" / \"v88\" / \"v89\" / \"v90\" / \"v91\" / \"v92\" / \"v93\" / \"v94\" / \"v95\" / \"v96\" / \"v97\" / \"v98\" / \"v99\" / \"v100\" / \"v101\" / \"v102\" / \"v103\" / \"v104\" / \"v105\" / \"v106\" / \"v107\" / \"v108\" / \"v109\" / \"v110\" / \"v111\" / \"v112\" / \"v113\" / \"v114\" / \"v115\" / \"v116\" / \"v117\" / \"v118\" / \"v119\" / \"v120\" / \"v121\" / \"v122\" / \"v123\" / \"v124\" / \"v125\" / \"v126\" / \"v127\" / \"v128\" / \"v129\" / \"v130\" / \"v131\" / \"v132\" / \"v133\" / \"v134\" / \"v135\" / \"v136\" / \"v137\" / \"v138\" / \"v139\" / \"v140\" / \"v141\" / \"v142\" / \"v143\" / \"v144\" / \"v145\" / \"v146\" / \"v147\" / \"v148\" / \"v149\" / \"v150\" / \"v151\" / \"v152\" / \"v153\" / \"v154\" / \"v155\" / \"v156\" / \"v157\" / \"v158\" / \"v159\" / \"v160\" / \"v161\" / \"v162\" / \"v163\" / \"v164\" / \"v165\" / \"v166\" / \"v167\" / \"v168\" / \"v169\" / \"v170\" / \"v171\" / \"v172\" / \"v173\" / \"v174\" / \"v175\" / \"v176\" / \"v177\" / \"v178\" / \"v179\" / \"v180\" / \"v181\" / \"v182\" / \"v183\" / \"v184\" / \"v185\" / \"v186\" / \"v187\" / \"v188\" / \"v189\" / \"v190\" / \"v191\" / \"v192\" / \"v193\" / \"v194\" / \"v195\" / \"v196\" / \"v197\" / \"v198\" / \"v199\" / \"v200\" / \"v201\" / \"v202\" / \"v203\" / \"v204\" / \"v205\" / \"v206\" / \"v207\" / \"v208\" / \"v209\" / \"v210\" / \"v211\" / \"v212\" / \"v213\" / \"v214\" / \"v215\" / \"v216\" / \"v217\" / \"v218\" / \"v219\" / \"v220\" / \"v221\" / \"v222\" / \"v223\" / \"v224\" / \"v225\" / \"v226\" / \"v227\" / \"v228\" / \"v229\" / \"v230\" / \"v231\" / \"v232\" / \"v233\" / \"v234\" / \"v235\" / \"v236\" / \"v237\" / \"v238\" / \"v239\" / \"v240\" / \"v241\" / \"v242\" / \"v243\" / \"v244\" / \"v245\" / \"v246\" / \"v247\" / \"v248\" / \"v249\" / \"v250\" / \"v251\" / \"v252\" / \"v253\" / \"v254\" / \"v255\" }\n",
+      "value": {
+        "a": "v255"
+      },
+      "diagnostics": []
+    }
+  ]
+}

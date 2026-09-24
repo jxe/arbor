@@ -236,7 +236,7 @@ does not publish or resolve the account-configuration tree.
 
 Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.
-The parent page lists those logical rows rather than `_store.*` or `schema.ts`.
+The parent page lists those logical rows rather than `_store.*` or `schema.cddl`.
 A path lookup or stable-key lookup may render a row as an HTML property page or
 a Markdown data projection; a stale readable path redirects permanently to the
 current row path while preserving the key, application query, and content

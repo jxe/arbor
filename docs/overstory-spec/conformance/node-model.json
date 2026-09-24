@@ -158,14 +158,34 @@
   ],
   "collectionFiles": [
     {
-      "version": 1,
+      "version": 2,
       "type": "collection-file",
       "format": "csv",
       "source": "_store.csv",
-      "schemaSource": "schema.ts",
+      "schemaSource": "schema.cddl",
       "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
+    {
+      "version": 2,
+      "type": "collection-file",
+      "format": "json",
+      "source": "_store.json",
+      "schemaSource": "schema.cddl",
+      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "version": 2,
+      "type": "collection-file",
+      "format": "jsonl",
+      "source": "_store.jsonl",
+      "schemaSource": "schema.cddl",
+      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "retiredCollectionFiles": [
     {
       "version": 1,
       "type": "collection-file",
@@ -174,16 +194,39 @@
       "schemaSource": "schema.ts",
       "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    },
-    {
-      "version": 1,
-      "type": "collection-file",
-      "format": "jsonl",
-      "source": "_store.jsonl",
-      "schemaSource": "schema.ts",
-      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
+  ],
+  "invalidCollectionFiles": [
+    { "name": "version-2-schema-ts", "value":
+      {
+        "version": 2,
+        "type": "collection-file",
+        "format": "json",
+        "source": "_store.json",
+        "schemaSource": "schema.ts",
+        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      } },
+    { "name": "version-1-schema-cddl", "value":
+      {
+        "version": 1,
+        "type": "collection-file",
+        "format": "json",
+        "source": "_store.json",
+        "schemaSource": "schema.cddl",
+        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      } },
+    { "name": "unknown-version", "value":
+      {
+        "version": 3,
+        "type": "collection-file",
+        "format": "json",
+        "source": "_store.json",
+        "schemaSource": "schema.cddl",
+        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      } }
   ],
   "forwardCompatibleSnapshot": {
     "ref": { "tree": "tr_supplies", "path": "/future", "stableKey": null },

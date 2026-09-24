@@ -26,6 +26,17 @@ identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query o
 hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
+`collection-schemas.json` binds the collection schema profile of
+[child backings §2.4](../06-child-backings.md#24-collection-schema-profile):
+accepted schemas with their columns, key, child name and fingerprint; rejected
+schemas with the first diagnostic's code and location; value and CSV-cell
+diagnostics as JSON Pointers; exact CSV encodings; malformed-UTF-8 sources; and
+generated sources and values at each limit. Generated parts repeat a template,
+replacing `{i}` and `{i+1}`; a `{"$repeat": v, "count": n}` value is an
+array of n copies. `node-model.json` and `protocol-objects.json` carry
+version-2 descriptors plus the retired version-1 form, which still decodes, and
+invalid version/schema-file pairings.
+
 `client-state-machines.json` freezes the transition scenarios of the one
 client synchronization machine, `working-tree-updates` (`UpdateMachine` in
 `CanopyWorkingTree`, `reduceUpdate` in `@overstory/working-tree`): a working tree
@@ -81,6 +92,7 @@ authority for the implemented subset; the request grammar itself is in
 | `accepted-ambiguity.json` | Planned semantic conflict scenarios (not executable claims) |
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
+| `collection-schemas.json` | The declarative collection schema profile: syntax, metadata, values, CSV cells, limits |
 | `configuration-yaml.json` | `account.yaml`, `trees.yaml`, `devices.yaml` parsing and validation |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `directory-documents.json` | Directory document projection (spec 02) |

@@ -79,7 +79,7 @@ The tokens this section introduces, and what each survives:
 |---|---|---|---|
 | handle | one exported query or mutation, as `(TreeID, module path, export name)` | the author | code changes; not a move or a rename of the export |
 | code version | one compiled handle or document | the compiler | moving the source tree; not a code change |
-| schema fingerprint | one compiled schema | executing `schema.ts` or introspecting a database | nothing that changes the compiled schema |
+| schema fingerprint | one collection or database schema | hashing the exact `schema.cddl` bytes or introspecting a database | nothing that changes the schema source or introspected schema |
 
 ## 4. Queries
 

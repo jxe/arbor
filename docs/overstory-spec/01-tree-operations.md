@@ -260,15 +260,22 @@ type WireDirectory = {
 };
 
 type CollectionFileDescriptor = {
-  version: 1;
+  version: 2; // version 1, with schemaSource "schema.ts", is retired
   type: "collection-file";
   format: "csv" | "json" | "jsonl";
   source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.ts";
+  schemaSource: "schema.cddl";
   schemaFingerprint: Hash;
   childSetHash: Hash;
 };
 ```
+
+In a directory object the descriptor has exactly these seven fields. Version 2 requires
+`schemaSource: "schema.cddl"`. A version-1 descriptor, identical except for
+`version: 1` and `schemaSource: "schema.ts"`, still decodes so that retained
+objects keep their exact bytes and hashes, but it is not interpreted
+([retired version-1 collections](06-child-backings.md#25-retired-version-1-schemats-collections)).
+Any other version is invalid.
 
 A directory entry either addresses another Overstory object by hash or marks a
 nested Overstory tree boundary by TreeID. A snapshot walk stops at such a boundary:
@@ -1127,8 +1134,8 @@ nothing in Overstory is identified by canonical JSON text.
 
 When the value being identified is already an exact byte sequence, Overstory
 hashes those bytes directly instead. In particular, `schemaFingerprint` is
-the SHA-256 of the exact UTF-8 bytes of `schema.ts`, and therefore equals
-that file's object hash. The
+the SHA-256 of the exact UTF-8 bytes of the descriptor's `schemaSource`
+(`schema.cddl`), and therefore equals that file's object hash. The
 [`canonical-cbor-values`](conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 

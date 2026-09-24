@@ -60,7 +60,19 @@ objectVectors.invalid = [
   { name: "dual-target", entries: [{ name: "a", file: invalidHash, tree: "tr_child" }] },
   { name: "entry-with-hash-key", entries: [{ name: "a", hash: invalidHash }] },
   { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
-].map(({ name, entries }) => ({ name, canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries })) }));
+  ...([
+    ["collection-file-version-2-schema-ts", 2, "schema.ts"],
+    ["collection-file-version-1-schema-cddl", 1, "schema.cddl"],
+    ["collection-file-unknown-version", 3, "schema.cddl"],
+  ] as const).map(([name, version, schemaSource]) => ({
+    name,
+    entries: [{ name: "_store.json", file: invalidHash }, { name: schemaSource, file: invalidHash }].sort((a, b) => a.name < b.name ? -1 : 1),
+    childrenSource: { version, type: "collection-file", format: "json", source: "_store.json", schemaSource, schemaFingerprint: invalidHash, childSetHash: invalidHash },
+  })),
+].map(({ name, entries, childrenSource }: { name: string; entries: unknown[]; childrenSource?: unknown }) => ({
+  name,
+  canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) })),
+}));
 objectVectors.invalid.push({ name: "noncanonical-cbor", canonicalCborBase64: b64(Buffer.concat([Buffer.from([0xa2]), encodeCanonicalCBOR("entries"), encodeCanonicalCBOR([]), encodeCanonicalCBOR("type"), encodeCanonicalCBOR("directory")])) });
 await writeFile(objectPath, JSON.stringify(objectVectors, null, 2) + "\n");
 

@@ -97,13 +97,13 @@ failed guards or exceeded bounds can instead produce an explicit rejection
 
 ## 6. Add a collection
 
-Joe creates `practices/schema.ts` exporting a Zod object schema and
-`primaryKey = ["id"]`, and `practices/_store.csv` with a header row. The
+Joe creates `practices/schema.cddl` declaring a `row` map and
+`overstory-primary-key = ["id"]`, and `practices/_store.csv` with a header row. The
 folder is now a file-backed collection: each CSV row is a child node of
 `/practices`, its columns are the child's properties, and its stable key is
 the canonical key JSON of its `id` ([file-backed collections](06-child-backings.md#2-file-backed-collections),
 [row identity](06-child-backings.md#12-member-identity-order-and-pagination)). In the protocol encoding,
-the exact CSV and `schema.ts` remain ordinary physical entries while the
+the exact CSV and `schema.cddl` remain ordinary physical entries while the
 directory's collection-file descriptor identifies them as the source of its
 logical children. The authority recomputes both the schema fingerprint and the
 child-set hash
