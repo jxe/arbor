@@ -24,8 +24,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Accepted-state contract: simplified receipts, predecessor identity and root chains, required unresolved signals, paged conflict inspection without a decision-count cap | deployed, installed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Merge sidecar: canopyd forwards all eight operation kinds to `arbor-merge`, which executes exact authored operations, retains source choices, applies the conservative format rules, and returns retained state; canopyd owns acceptance, authorization, retention, and identities (schema 12) | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md) |
 | Incremental merge state and lazy history: shared history pages, editable-state reuse, one persistent FIFO worker, accepted-prefix preflight reuse; per-request phase logging and `Server-Timing` | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state-and-lazy-history), [deployment](packages/canopyd/deploy/README.md#canopyd-runtime-environment) |
-| Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and keeps none of its state; canopyd merges account configuration itself; `trees.yaml` is resource-rule grammar only | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#answer-checks), [check 017](packages/canopyd/migrations/017-resource-policy-only/README.md) |
-| Accepted history as log entries and one merge question (canopyd 016): each accepted update is an immutable log entry in the object store naming its predecessor's; rows keep the entry hash and `conflicted` (schema 19); canopyd asks the sidecar one question, accepts plain `editSource`/`addEntry` edits on the head without it, and the sidecar keeps an in-memory cache it rebuilds by replaying entries | implemented, not deployed; needs migration 018 (rehearsed green 2026-09-24, not run) | [writing a sidecar](docs/architecture/canopyd/writing-a-sidecar.md), [merge sidecar](docs/architecture/canopyd/merge-tool.md), [migration 018](packages/canopyd/migrations/018-log-entries/README.md) |
+| Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and keeps none of its state; canopyd merges account configuration itself; `trees.yaml` is resource-rule grammar only | deployed 2026-09-24 (build `dd5313c8`) | [merge sidecar](docs/architecture/canopyd/merge-tool.md#answer-checks), [check 017](packages/canopyd/migrations/017-resource-policy-only/README.md) |
+| Accepted history as log entries and one merge question (canopyd 016): each accepted update is an immutable log entry in the object store naming its predecessor's; rows keep the entry hash and `conflicted` (schema 19); canopyd asks the sidecar one question, accepts plain `editSource`/`addEntry` edits on the head without it, and the sidecar keeps an in-memory cache it rebuilds by replaying entries | deployed 2026-09-24 at schema 19 by migration 018 (build `dd5313c8`) | [writing a sidecar](docs/architecture/canopyd/writing-a-sidecar.md), [merge sidecar](docs/architecture/canopyd/merge-tool.md), [migration 018](packages/canopyd/migrations/018-log-entries/README.md) |
 | Accepted whole-entry and source-range conflicts: competing edits retained as alternatives with attribution, root decisions, guarded partial resolution, authorized historical inspection (schema 10 and 11) | deployed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Resource policy and execution authority: shared `who` / `via` / `allow` / `within` grammar, governed policy index, host-private execution tokens, guarded scoped snapshot effects, revocation stream, restrictive-intersection conflict acceptance, Canopy consent review (schema 13) | deployed, installed | [access control](docs/overstory-spec/05-access-control.md), [reference implementation](docs/architecture/protocol/README.md#resource-policy) |
 | Client synchronization machine: one working-tree update machine (Swift `UpdateMachine`, TypeScript `reduceUpdate`) executing one shared fixture, with held rejections, polling, explicit synchronization and an effect-driven Swift runner over a change log pinned by shared runner vectors; editors append each generation straight to the change log with no admission machine or recovery store (Clients 001 phases 1–3). Arbor Sync runs the TypeScript runner per placed folder (phase 4) | installed, verified (Mac, iPhone, daemon) | [working-tree updates](docs/overstory-spec/09-client-synchronization.md), [the update machine](docs/implementing-sync-services/update-machine.md), [editor sources](docs/implementing-editors/editor-source.md) |
@@ -137,9 +137,24 @@ conflict.
 
 ## Log entries and one merge question — 2026-09-24
 
-Implemented on `claude/dazzling-keller-29kiss` (canopyd 016, steps 1 to 7 and the
-documentation); not deployed. It builds on the merge boundary below, which is not
-deployed either, so check 017 still runs before this deploy.
+Deployed 2026-09-24 at schema 19 by migration 018, from schema 18 (build `dd5313c8`),
+together with the merge boundary below (canopyd 016 steps 1 to 7 and the documentation).
+
+- **Cutover.** Backup `.backups/railway/20260924T131328Z/` (sha256 `7468b0d3…`; 5 trees,
+  22 accepted updates). Check 017 found no legacy `trees.yaml`. The live run reported
+  exactly the rehearsal's heads (roots, update ids and entries), 22 entries,
+  `unmappedResolutions` 0, `nextOrdinal` 4346, 147 ms. `verify.ts --sync` passed; the
+  Mac's authored-file manifest was unchanged; placements resumed without re-place. A
+  round-trip edit was accepted as 4346, whose entry names the migrated head's entry,
+  and its deletion as 4347. The cold rebuild of the longest chain (18 entries) took
+  120 ms on the rehearsal copy.
+- **Conflict lab** (`swift/scripts/conflict-lab.ts`, local canopyd on this build): every
+  scenario merges or records its decisions on a fresh tree, and `keep-editing`
+  fast-forwards three plain edits over an open decision. A traced edit after
+  `delete-edit` on a tree already holding the earlier scenarios' open decisions is
+  refused with "Operations do not reproduce the complete candidate"; the pre-cutover
+  build `0fa5c565` refuses the same sequence identically, so it predates this release.
+- Not deployed with it: the iPhone app (no wire change was required).
 
 - **Log entries.** Every acceptance path (client updates, tree creation, pairing,
   account configuration, boundary rewrites) writes an `overstory-log-entry-v1` object
@@ -222,7 +237,7 @@ now serves every working tree; editors append local changes to a change log.
 ## Merge boundary — 2026-09-24
 
 Implemented on `claude/merge-tool-canopyd-api-dcic82` on top of the one merge-state
-model; not deployed. canopyd no longer imports `@overstory/canopyd-merge`: the two
+model; deployed 2026-09-24 with migration 018 (build `dd5313c8`). canopyd no longer imports `@overstory/canopyd-merge`: the two
 share `@overstory/object-store` and the new `@overstory/merge-protocol` (request and
 response schemas, decision reports, rule summaries, error codes). canopyd dropped its
 copy of the sidecar's state validator (proofs, history caches, typed retention and
@@ -241,8 +256,8 @@ passes all but 4, which also fail on `main` in this container (missing
 unreadable-directory case as root); the merge suites pass all but the same
 byte-offset case. The Swift half of `bun run test:protocol`, `swift test` and the
 `Canopy` build were not run (no Swift toolchain in the Linux container), so the
-Swift reader change is not yet compiled. Before deploying, run check 017 against
-a restored backup.
+Swift reader change was not compiled there; it compiled and `bun run test:protocol`
+passed on macOS before the deploy, and check 017 ran clean against the cutover backup.
 
 ## One merge-state model and history squash — 2026-09-24
 
