@@ -1201,7 +1201,7 @@ struct CanopyAppTests {
     }
 
 #if os(macOS)
-    /// Hosted smoke: `native/scripts/hosted-smoke.ts` starts a local Canopy,
+    /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local Canopy,
     /// claims an account into the test data home, places a disposable folder,
     /// and runs this suite with `ARBOR_TEST_TREE` naming that tree. The signed
     /// app supervises its bundled control-mode helper on the test port, opens
@@ -1215,7 +1215,8 @@ struct CanopyAppTests {
         let workspace = ArborWorkspaceState()
         try await workspace.openPlacedTree(tree)
         #expect(workspace.openPlacedTreeID == tree)
-        #expect(workspace.capabilities == .full)
+        // A Canopy working tree keeps history on Canopy, not device-locally.
+        #expect(workspace.capabilities == .init(structuralActions: true, assets: true, localHistory: false))
         let created = try #require(try await workspace.provider.perform(.createMarkdown(
             parent: workspace.home,
             name: "hosted-smoke",

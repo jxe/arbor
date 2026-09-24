@@ -2,7 +2,8 @@
 /**
  * Hosted smoke harness for the Mac app's working-tree client.
  *
- * Starts a local Canopy, claims an account into the test data home the Arbor
+ * Starts a local Canopy, claims an account through a throwaway Arbor Sync
+ * control daemon's `/v1/bootstrap/accounts` into the test data home the Arbor
  * scheme uses (`ARBOR_DATA_HOME=/tmp/ArborNativeAppTests`), places a
  * disposable folder as a tree, then runs `CanopyAppTests` with
  * `ARBOR_TEST_TREE` naming that tree. The signed test app supervises its own
@@ -14,24 +15,45 @@
  *   bun swift/scripts/hosted-smoke.ts [extra xcodebuild arguments]
  *
  * The Xcode project must already be generated (`cd swift && xcodegen
- * generate`). Nothing here touches the user's real `~/.arbor` or Application
+ * generate`). When the ignored `swift/Canopy.local.xcworkspace` exists, the
+ * build uses it so an editable Quagmire checkout overrides the pinned
+ * release. Nothing here touches the user's real `~/.arbor` or Application
  * Support: the data home is the scheme's disposable one and the app's support
  * state for the test tree lives under the test host's own container.
  */
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon } from "@overstory/arborsync";
+import { serveArborSyncControl } from "@overstory/arborsync";
+import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { serveCanopy } from "@overstory/canopyd";
+import { arborPrivateRoot, sha256 } from "@overstory/protocol";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 
 const repository = join(import.meta.dir, "../..");
 const dataHome = "/tmp/ArborNativeAppTests";
+// The test app supervises its bundled helper on this port and reuses any
+// daemon already listening there, which would put the test on a foreign data
+// home. The helper also outlives the test, so the harness stops it afterwards.
+const helperPort = 45190;
 
 async function run(command: string[], environment: Record<string, string> = {}, cwd = repository): Promise<void> {
   const child = Bun.spawn(command, { cwd, env: { ...Bun.env, ...environment }, stdout: "inherit", stderr: "inherit" });
   const status = await child.exited;
   if (status !== 0) throw new Error(`${command.join(" ")} exited with ${status}`);
+}
+
+async function listeners(port: number): Promise<number[]> {
+  const lsof = Bun.spawn(["lsof", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"], { stdout: "pipe", stderr: "ignore" });
+  const output = await new Response(lsof.stdout).text();
+  await lsof.exited;
+  return output.split("\n").filter(Boolean).map(Number);
+}
+
+const occupants = await listeners(helperPort);
+if (occupants.length) {
+  throw new Error(`Port ${helperPort} is in use by pid ${occupants.join(", ")}; stop it before running the hosted smoke test`);
 }
 
 // Placements record real paths; on macOS the temp dir is a symlink under /var.
@@ -40,6 +62,10 @@ const previousDataHome = process.env.ARBOR_DATA_HOME;
 await rm(dataHome, { recursive: true, force: true });
 await mkdir(dataHome, { recursive: true });
 process.env.ARBOR_DATA_HOME = dataHome;
+// An isolated data home keeps its identity in the Keychain under a slot named
+// for the data home path (`ProfileIdentityStore`), so wiping the folder leaves
+// a previous run's identity bound to that run's deleted sandbox.
+await Bun.secrets.delete({ service: "org.arbor.person-profile", name: `home-v2-${sha256(arborPrivateRoot()).slice(0, 24)}` });
 const profile = join(sandbox, "profile");
 const folder = join(sandbox, "smoke-tree");
 await mkdir(profile, { recursive: true });
@@ -55,18 +81,13 @@ const canopy = await serveCanopy({
   community: { handle: "smoke", name: "Smoke", firstWriter: { handle: "joe", profileTree: identity.profileTree } },
 });
 try {
-  const daemon = await ArborSyncDaemon.open(profile);
-  try {
-    await daemon.claimCanopyAccount(`${canopy.url}/~joe`, profile, "Hosted smoke Mac");
-  } finally {
-    await daemon[Symbol.asyncDispose]();
-  }
-  // `arbor place` runs against a throwaway control daemon of its own; the app
-  // under test launches the bundled helper afterwards against the same data
-  // home and finds the placement there.
-  const { serveArborSyncControl } = await import("@overstory/arborsync");
+  // Claiming and `arbor place` both go through a throwaway control daemon;
+  // the app under test launches the bundled helper afterwards against the
+  // same data home and finds the account and placement there.
   const control = await serveArborSyncControl({ port: 0 });
   try {
+    await new ArborSyncRESTClient({ baseURL: control.url })
+      .claimAccount({ account: `${canopy.url}/~joe`, path: profile, displayName: "Hosted smoke Mac" });
     await run(
       ["bun", "packages/cli/src/index.ts", "place", folder, `${canopy.url}/~joe/smoke-tree`],
       { ARBOR_DATA_HOME: dataHome, ARBOR_SYNC_URL: control.url },
@@ -80,9 +101,14 @@ try {
   if (!placement) throw new Error(`arbor place did not record ${folder}`);
   console.log(`Placed ${folder} as ${placement.tree} at ${canopy.url}`);
 
+  // Build against a local Quagmire checkout when the ignored editable-mode
+  // workspace exists (DEVELOPMENT.md, "Developing Overstory with Quagmire").
+  const container = existsSync(join(repository, "swift/Canopy.local.xcworkspace"))
+    ? ["-workspace", "Canopy.local.xcworkspace"]
+    : ["-project", "Canopy.xcodeproj"];
   await run(
     [
-      "xcodebuild", "-project", "Canopy.xcodeproj", "-scheme", "Canopy",
+      "xcodebuild", ...container, "-scheme", "Canopy",
       "-destination", "platform=macOS", "test",
       "-only-testing:CanopyAppTests",
       ...process.argv.slice(2),
@@ -96,6 +122,8 @@ try {
     join(repository, "swift"),
   );
 } finally {
+  // The port was free at start, so whatever listens now is the test app's helper.
+  for (const pid of await listeners(helperPort)) process.kill(pid);
   canopy.server.stop(true);
   await canopy.canopy[Symbol.asyncDispose]();
   if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
