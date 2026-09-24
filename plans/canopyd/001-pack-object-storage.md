@@ -78,7 +78,9 @@ another, so there are no base chains to protect when pruning.
   first pin every accepted and authored semantic root, all transitive hidden
   and undo dependencies, staged inputs, and results awaiting commit. The
   retention audit's closure is the pin set; an object outside it is the only
-  candidate. Coordinate with [fragment storage](002-composable-conflict-fragments.md).
+  candidate. That closure is `packages/canopyd/src/retention.ts`, which the
+  loose-object collector already uses; a group rewrite deletes by the same
+  definition and honors the same freshening grace period. Coordinate with [fragment storage](002-composable-conflict-fragments.md).
 - **Audit.** `verifyIntegrity` reads through the same `ObjectStore`, so it walks
   groups sequentially instead of 35k files.
 

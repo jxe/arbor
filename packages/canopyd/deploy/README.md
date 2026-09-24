@@ -110,6 +110,31 @@ that names them, so a lost commit leaves only unreferenced objects, never a
 reference to missing bytes. Back up with an application-consistent copy
 (`VACUUM INTO`) plus a tar of `objects/`, as the [migration procedure](../migrations/README.md) does.
 
+### Collecting unreferenced objects
+
+Accepted updates only ever add objects. `collect-objects.ts` deletes the
+objects nothing retained names (the [retention definition](../../../docs/architecture/canopyd/README.md#retention-and-object-collection))
+once they have gone unused for a grace period. It runs as a separate process
+beside the serving canopyd, which keeps serving; it never writes the database.
+It prints one JSON report line on stdout (objects and bytes scanned, live,
+young, deleted; objects put back because a writer used them mid-run; absent
+optional pins; non-object files; milliseconds) and progress on stderr. Without
+`--delete` it is a dry run that reports what it would delete.
+
+On Railway, from the linked repository directory:
+
+```sh
+railway ssh --service canopy-arb-nxhx-org -- bun run packages/canopyd/src/collect-objects.ts /data | tee collect-dry.json
+railway ssh --service canopy-arb-nxhx-org -- bun run packages/canopyd/src/collect-objects.ts /data --delete | tee collect.json
+```
+
+Keep the default `--grace-hours 24` against a serving host: an acceptance in
+flight longer than the grace period is the one case the collector does not
+cover. `--grace-hours 0` is for an offline copy only. Take a backup before the
+first live deletion. A cron elsewhere can run the same `railway ssh` command;
+the collector reads the whole retained closure, so run it at most daily and
+not while an integrity audit is running.
+
 Old binaries cannot read retained-state objects written by newer ones. After
 a newer canopyd has accepted writes, rolling back needs either a compatible
 reader or a coordinated restoration of the backup taken before the upgrade.
