@@ -22,7 +22,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `clients/` — The portable update machine, the change log, and the runners and sources that use them.
 
-- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 DONE (Mac verified); phase 4 in progress.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are on `main`; remaining: the iPhone update (Joe's go-ahead), the TypeScript runner with a `FolderSource` for the daemon, and the Web 025 handoff.
+- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 DONE (Mac verified); phase 4 implemented on its branch, soak and install need Joe's go-ahead.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are on `main`; the TypeScript runner and Arbor Sync on `FolderSync` are on the branch. Remaining: the daemon soak and install and the iPhone update (Joe's go-ahead), held folders in the app, and the Web 025 handoff.
 
 ## Web client
 

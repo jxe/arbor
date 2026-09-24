@@ -129,15 +129,15 @@ Relevant files and responsibilities:
 - `packages/arborsync/src/state/indexer.ts` calls `discoverWorkspace()` and indexes the
   resulting files. It should consume the filtered discovery result rather than
   implementing pattern matching.
-- `packages/arborsync/src/service.ts:snapshotWorkspace()` and
-  `packages/client/src/tree-sync.ts` repeatedly compare physical snapshots
-  with accepted Overstory roots, freeze pending candidates, and materialize accepted
-  snapshots. Ignore policy and tracked membership must be part of these same
-  comparisons or clean placements will appear permanently dirty.
-- `packages/client/src/sync-state.ts` currently retains an accepted root and
-  object hashes, but no accepted path-membership view. Extend private sync
-  state only as much as needed to recover the tracked-membership invariant
-  offline; do not put ignore metadata in Overstory objects or canopyd APIs.
+- `packages/arborsync/src/service.ts:scanWorkspace()` and
+  `packages/arborsync/src/folder-sync.ts` compare the scanned folder with the
+  root it last held, append local changes, and materialize accepted states.
+  Ignore policy and tracked membership must be part of these same comparisons
+  or clean placements will appear permanently dirty.
+- `FolderSync` retains the root the folder last held and its change log, but
+  no accepted path-membership view. Extend private sync state only as much as
+  needed to recover the tracked-membership invariant offline; do not put
+  ignore metadata in Overstory objects or canopyd APIs.
 - `packages/arborsync/src/state/placements.ts` deliberately accepts only scalar
   `path: TreeID` entries. Do not widen that schema in this plan.
 - `packages/fs/README.md` says all hidden directories other than the fixed set

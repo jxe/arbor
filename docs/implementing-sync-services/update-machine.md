@@ -8,11 +8,10 @@ sources append **local changes** to a durable **change log**; the machine
 decides when and how the log is published; the **runner** performs what the
 machine decides. An editor generation, a structural action, a review
 resolution, and (after [Clients 001](../../plans/clients/001-reconcile-client-state-machines.md)
-phase 4) a folder scan are all local changes. Today the Canopy app's
-`CanopyWorkingTree` runs the machine; the TypeScript runner in
-`@overstory/working-tree` passes the same runner vectors, and the daemon's
-folder synchronizer (`TreeSynchronizer` in `@overstory/client`) still runs its
-own loop until it is rebuilt on that runner.
+phase 4) a folder scan are all local changes. The Canopy app's
+`CanopyWorkingTree` runs the Swift runner; Arbor Sync runs the TypeScript
+runner in `@overstory/working-tree` once per placed folder (`FolderSync`).
+Both pass the same runner vectors.
 
 The machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`) and
 `reduceUpdate` (`@overstory/working-tree`). Both execute the
@@ -38,9 +37,11 @@ the runner performs**:
   its own task so that a hanging request never blocks its own ambiguous
   extension or a catch-up. `schedule` and `cancelTimers` take effect at once.
 - Failures are classified into the machine's events: HTTP 401 or 403 is
-  `authenticationFailed`; a definitive 409 rejection is `rejected`; an
-  `unsupported-operation` response is `unsupported`; a response that fails
-  validation is `validationFailed`; anything else is `transportFailed`.
+  `authenticationFailed`; an `unsupported-operation` response is
+  `unsupported`; a 409 conflict or any other 4xx refusal of the request
+  except 408 and 429 is `rejected`; a response that fails validation is
+  `validationFailed`; anything else (no response, 408, 429, 5xx) is
+  `transportFailed`.
 - Presentation is derived from the machine's phase and the change log, never
   stored.
 
@@ -81,6 +82,16 @@ remain pending. An editor's tree installs the accepted base and derives its
 view from the log; a folder writes accepted bytes to disk only when nothing is
 pending and the folder still holds what it last wrote or scanned (spec 09 rule
 13). A source appends to the log and then calls `noteLocalChange()`.
+
+**The folder as a source.** `FolderSync` (`packages/arborsync`) is the folder's
+accepted tree and its only source. A watcher event schedules a scan through the
+stat index; a scan whose root differs from what the folder last held appends a
+`trace: null` change whose basis is what the folder held (the accepted state it
+was last written with, or its previous change). Folder records are sparse:
+directories plus the candidate's new files, and the element carries exactly
+the objects its basis lacks. `sync/folder.json` records the root the folder
+last held and that basis. A clean earlier `sync/<tree>.json` is removed on
+first open; one with pending work or a conflict is refused.
 
 ## Durable state
 

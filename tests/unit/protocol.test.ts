@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ArborError,
-  SyncConflictWorkspace,
   WorkspaceEvent,
 } from "@overstory/protocol";
 import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
@@ -59,13 +58,10 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
 describe("REST v1 protocol fixtures", () => {
-  test("decode the shared status, conflict-workspace, and unknown error values", async () => {
+  test("decode the shared status and unknown error values", async () => {
     const status = await json<ArborSyncStatus>("status.json");
     const error = await json<ArborError>("error.json");
-    const conflict = await json<SyncConflictWorkspace>("conflict-workspace.json");
     expect(error.error).toBe("future-error-code");
-    expect(conflict.items[0]?.draft).toEqual({ kind: "text", text: "both\n" });
-    expect(conflict.tree).toStartWith("tr_");
     expect(status).toEqual({
       service: "arborsync",
       version: "0.1.0",

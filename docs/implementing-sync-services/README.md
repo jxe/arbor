@@ -18,7 +18,7 @@ filesystem synchronizer, with a separate loopback API for local clients.
 
 ## Reference services
 
-- [Arbor Sync REST API](arborsync-api.md): loopback status, trees, bootstrap, objects, accounts, conflict review, and observation; includes reference fixture pointers.
+- [Arbor Sync REST API](arborsync-api.md): loopback status, trees, bootstrap, objects, accounts, held changes, and observation; includes reference fixture pointers.
 - [Arbor Sync architecture](../architecture/arborsync/README.md): placed-folder ownership, daemon services, and private state.
 - [Client stack](../architecture/client-stack/README.md): retained requests and conflict recovery.
 - [canopyd architecture](../architecture/canopyd/README.md): authoritative acceptance, merge and execution sidecars, and durability.

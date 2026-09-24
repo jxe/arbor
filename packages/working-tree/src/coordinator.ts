@@ -46,7 +46,7 @@ export interface AcceptedTree {
   accepted(): Promise<AcceptedBase | undefined>;
   /** An object this tree holds locally. */
   object(hash: string): Promise<Uint8Array | undefined>;
-  /** Durably install `base` as the accepted state. */
+  /** Durably install `base` as the accepted state. When its root is already installed, only its identity and cursor are new. */
   install(base: AcceptedBase, source: AcceptedSource, local: { pending: boolean }): Promise<void>;
   /** Durably record new identity or observation progress for the installed root. */
   recordAccepted(base: AcceptedBase): Promise<void>;
@@ -56,6 +56,8 @@ export interface AcceptedTree {
 
 export interface UpdateCoordinatorOptions extends UpdateOptions {
   transportAvailable?: boolean;
+  /** Called after every transition, for a host that mirrors the state elsewhere. */
+  onState?: (state: UpdateState) => void;
 }
 
 /** What a tree's synchronization status shows, derived from the machine and the change log. */
@@ -71,6 +73,11 @@ export interface UpdatePresentation {
 
 type Work = { kind: "effect"; effect: UpdateEffect } | { kind: "recordCursor"; base: AcceptedBase };
 interface Current { update: string; root: string; conflicted: boolean; cursor: string }
+
+/** A 4xx answer other than timeouts and rate limits: the host refused this request. */
+function refusal(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
 
 function phaseTip(state: UpdateState): LocalTip | undefined {
   return "tip" in state ? state.tip : undefined;
@@ -193,6 +200,7 @@ export class UpdateCoordinator {
     const before = this.machine;
     const { state, effects } = reduceUpdate(before, event, this.options);
     this.machine = state;
+    if (state !== before) this.options.onState?.(state);
     if (before.kind === "current" && state.kind === "current" && state.base.cursor !== before.base.cursor
         && state.base.root === before.base.root && state.base.update === before.base.update) {
       this.queue.push({ kind: "recordCursor", base: state.base });
@@ -404,14 +412,9 @@ export class UpdateCoordinator {
     }
   }
 
-  /** Install the host's current state, or only record identity and observation progress when its root is already installed. */
+  /** Install the host's current state. The tree decides what that costs: an already installed root only records identity and observation progress. */
   private async install(current: Current, objects: ReadonlyMap<string, Uint8Array>, local: { pending: boolean }): Promise<AcceptedBase> {
     const base: AcceptedBase = { root: current.root, update: current.update, cursor: current.cursor, conflicted: current.conflicted };
-    const installed = await this.working.accepted();
-    if (installed?.root === current.root) {
-      if (installed.update !== current.update || installed.cursor !== current.cursor) await this.working.recordAccepted(base);
-      return base;
-    }
     await this.working.install(base, this.source(current.root, objects), local);
     return base;
   }
@@ -513,10 +516,13 @@ export class UpdateCoordinator {
     this.failure = error instanceof Error ? error.message : String(error);
     if (error instanceof WireHTTPError && (error.status === 401 || error.status === 403)) {
       this.dispatch({ type: "authenticationFailed", reason: error.message });
-    } else if (error instanceof WireUpdateConflict && id) {
-      await this.hold("rejected", "the change conflicts with a newer decision", id);
     } else if (error instanceof WireUnsupportedOperation && id) {
       await this.hold("unsupported", error.message, id);
+    } else if (error instanceof WireUpdateConflict && id) {
+      await this.hold("rejected", "the change conflicts with a newer decision", id);
+    } else if (error instanceof WireHTTPError && refusal(error.status) && id) {
+      // Repeating a request the host refused cannot change the answer.
+      await this.hold("rejected", error.message, id);
     } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError) {
       this.dispatch({ type: "validationFailed", reason: this.failure });
     } else {

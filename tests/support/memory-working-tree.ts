@@ -25,6 +25,7 @@ export class MemoryWorkingTree implements AcceptedTree {
   async recordAccepted(base: AcceptedBase): Promise<void> { this.base = { ...base }; }
 
   async install(base: AcceptedBase, source: AcceptedSource): Promise<void> {
+    if (base.root === this.base?.root) { this.base = { ...base }; return; }
     const pending: Array<{ hash: string; kind: "file" | "directory" }> = [{ hash: base.root, kind: "directory" }];
     const fetched = new Map<string, Uint8Array>();
     for (let next = pending.pop(); next; next = pending.pop()) {

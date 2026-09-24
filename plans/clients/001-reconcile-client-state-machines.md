@@ -2,8 +2,9 @@
 
 Status: phases 0–3 DONE and on `main`; the Mac runs them (evidence in
 [status](../../status.md#clients-001-phases-03--2026-09-24)). Remaining: the
-iPhone update, which needs Joe's go-ahead; the daemon on the TypeScript runner
-(phase 4, runner done); and the Web 025 handoff (phase 5). No priority assigned.
+iPhone update and the daemon's soak and install, which need Joe's go-ahead
+(phase 4 is otherwise implemented on branch `one-update-machine`); and the Web
+025 handoff (phase 5). No priority assigned.
 
 ## Outcome
 
@@ -30,7 +31,7 @@ What exists, and where it is described:
    recovery journal, admission debounce or second flush step.
 3. **Rejection is held.** A definitive rejection keeps the rejected chain and
    stops publishing it until it is discarded. The daemon's conflict workspace
-   and `/v1/conflicts*` routes are retired in phase 4.
+   and `/v1/conflicts*` routes are retired (phase 4).
    [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md)
    becomes a later rule of the held state.
 4. **Swift first**, then the TypeScript runner and daemon, then Web 025.
@@ -49,30 +50,22 @@ shows an empty state where the recovery store's local copies used to be.
 
 ### Phase 4: TypeScript runner and daemon
 
-The package `@overstory/working-tree` (browser-safe core, `./node` for the
-file-backed `ChangeLog` and `FileControlStore`), the TypeScript
-`UpdateCoordinator`, and its execution of the shared runner vectors are done
-([status](../../status.md#clients-001-phase-4-typescript-runner--2026-09-24)).
+The package, the TypeScript runner, `FolderSync`, and the daemon rebuilt on
+them are implemented on branch `one-update-machine`
+([status](../../status.md#clients-001-phase-4-typescript-runner-and-daemon--2026-09-24)).
 What remains:
 
-- **`FolderSource`.** A watcher event triggers a debounced scan through the
-  stat index (`ObjectIndex`); a root that differs from the change log's tip
-  appends a `trace: null` change. The runner's `apply` and `catchUp` write
-  accepted bytes to the folder only when the log is settled and the folder
-  still equals the tip; otherwise the folder is scanned first (spec 09 rule
-  13). The revalidation walk and the bootstrap, credential and object-cache
-  loopback services are unchanged.
-- **Daemon.** Rebuild Arbor Sync's synchronization as `FolderSource` plus the
-  runner, with `pollInterval` replacing the 30 s tick.
-- **Delete** the `TreeSynchronizer` loop in `packages/client/src/tree-sync.ts`,
-  the pending and conflict formats in `sync-state.ts`, and the conflict
-  workspace and `/v1/conflicts*`. An earlier `sync/<tree>.json` with pending
-  work or conflict material is refused, not rewritten. The web's
-  `packages/canopy-web/src/editor-coordinator.ts` is not dead code
-  (`PageEditor.tsx` runs it over the daemon's HTTP API); it goes in phase 5.
-- **Gate:** the runner vectors, `tests/integration/self-sync.test.ts`
-  (rewritten for held instead of paused), the Arbor Sync integration suites,
-  and a daemon soak. Installing the daemon needs Joe's go-ahead.
+- **Soak and install**, on Joe's go-ahead. Let the installed daemon publish
+  every folder first: the new daemon refuses a `sync/<tree>.json` that still
+  holds pending work or a conflict and rewrites nothing. Then run it on the
+  live placements: offline edits, a refusal and its discard, a peer's
+  concurrent edit, restart during a publication.
+- **Surface held folders in the app.** The Mac shows a daemon tree's
+  `sync: "conflict"` but offers no discard; `ArborSyncClient.discardHeld(tree:)`
+  exists for it.
+- **Run the Hetzner sync lab** (`packages/canopyd/deploy/hcloud-sync-lab`),
+  whose binary scenario was rewritten for accepted alternatives and has not
+  run since.
 
 ### Phase 5: hand off to Web 025
 

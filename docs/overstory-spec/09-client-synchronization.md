@@ -172,7 +172,9 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    continue ordinary publication. Equal-root transitions still advance
    accepted identity and observation progress. Inspect and resolve accepted
    decisions through the [source operation contract](10-source-intent.md).
-   A definitively rejected request enters `held`: it remains durable with its
+   A definitively rejected request (a conflict the host will not reconcile,
+   or any other refusal that repeating the request cannot change) enters
+   `held`: it remains durable with its
    original basis, exact elements and any completed-prefix evidence, and
    later changes authored on it wait with it. Rejection does not implicitly
    rebase, resolve, discard or turn unattempted work into a private merge

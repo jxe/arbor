@@ -48,6 +48,7 @@
         "@overstory/client": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "@overstory/working-tree": "workspace:*",
         "csv-parse": "6.1.0",
         "zod": "4.3.6",
       },

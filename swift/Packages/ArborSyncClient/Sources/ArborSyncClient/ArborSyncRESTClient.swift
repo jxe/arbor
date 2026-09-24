@@ -73,37 +73,14 @@ public actor ArborSyncRESTClient {
         try await get(path: "/v1/trees", items: [])
     }
 
-    public func conflict(tree: String) async throws -> ArborSyncConflictWorkspace {
-        try await get(path: "/v1/conflicts", items: [URLQueryItem(name: "tree", value: tree)])
-    }
-
-    public func resolveConflict(
-        tree: String,
-        identity: String,
-        resolutions: [String: ArborSyncConflictResolution]
-    ) async throws {
-        struct Resolution: Encodable {
-            var choice: String
-            var text: String?
-        }
-        struct Request: Encodable {
-            var tree: String
-            var identity: String
-            var resolutions: [String: Resolution]
-        }
-        struct Response: Decodable { var effects: [MutationEffect] }
-        let encoded = resolutions.mapValues { resolution in
-            switch resolution {
-            case .current: Resolution(choice: "current")
-            case .mine: Resolution(choice: "mine")
-            case .both: Resolution(choice: "both")
-            case let .edit(text): Resolution(choice: "edit", text: text)
-            }
-        }
-        var request = URLRequest(url: url("/v1/conflicts/resolve"))
+    /// Discard a tree's held request and every change authored on it; the folder returns to the accepted state.
+    public func discardHeld(tree: String) async throws {
+        struct Request: Encodable { var tree: String }
+        struct Response: Decodable { var tree: String }
+        var request = URLRequest(url: url("/v1/held/discard"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(Request(tree: tree, identity: identity, resolutions: encoded))
+        request.httpBody = try encoder.encode(Request(tree: tree))
         let _: Response = try await perform(request)
     }
 

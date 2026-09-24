@@ -8,16 +8,12 @@ import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveCanopy } from "@overstory/canopyd";
-import { CanopyAccountStore, generateArborID, sha256, type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
+import { CanopyAccountStore, generateArborID, sha256, type CandidateUpdate, compareWireNames, decodeUpdateRequestJSON, decodeWireDirectory, encodeCandidateUpdateJSON, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
 import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
-import {
-  appendPendingTreeSuccessor,
-  pendingFromSnapshot,
-  pendingTreeUpdate,
-  savePendingTreeUpdate,
-  treeConflict,
-  updatesFromPending,
-} from "@overstory/client";
+import { retireEarlierSyncState } from "@overstory/client";
+import { snapshotJSON } from "@overstory/working-tree";
+import { ChangeLog } from "@overstory/working-tree/node";
+import { folderStateRoot } from "../../packages/arborsync/src/folder-sync.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 const token = "self-sync-owner";
@@ -144,38 +140,21 @@ afterAll(async () => {
 });
 
 
-test("pending semantic identity survives persistence and appending a snapshot successor", async () => {
-  process.env.ARBOR_DATA_HOME = stateA;
-  const snapshot = await resolveSnapshot(await snapshotDirectory(treeA));
-  const pending = pendingFromSnapshot("up_basis", snapshot);
-  pending.trace = [{ before: snapshot.root, after: pending.candidate, operations: [
-    { kind: "editSource", key: "edit", source: { material: { kind: "basis", path: "/note.md", object: snapshot.root } }, text: "x" },
-  ] }];
-  const id = generateArborID("tr");
-  await savePendingTreeUpdate(id, appendPendingTreeSuccessor(pending, snapshot));
-  const restored = (await pendingTreeUpdate(id))!;
-  expect(restored.change).toBe(pending.change);
-  expect(restored.trace).toEqual(pending.trace);
-  const updates = updatesFromPending(restored);
-  expect(updates).toHaveLength(2);
-  expect(updates[1]!.change).not.toBe(pending.change);
-  expect(updates[1]!.trace).toBeNull();
-  expect(decodeCandidateUpdateJSON(updates[0]).trace).toEqual(pending.trace);
-});
-
-test("old pending requests fail closed and remain byte-for-byte recoverable", async () => {
+test("an earlier sync state with pending work is refused and never rewritten; a clean one is retired", async () => {
   process.env.ARBOR_DATA_HOME = stateA;
   const id = generateArborID("tr");
-  const snapshot = await resolveSnapshot(await snapshotDirectory(treeA));
-  const {resolves: _resolves,...candidate} = pendingFromSnapshot("up_old",snapshot);
-  const original = JSON.stringify({pending:{...candidate,ifMatch:"modelHash"}});
-  const path = join(stateA,".state","sync",`${Buffer.from(id).toString("base64url")}.json`);
-  await mkdir(join(stateA,".state","sync"),{recursive:true});
-  await writeFile(path,original);
+  const directory = join(stateA, ".state", "sync");
+  const path = join(directory, `${Buffer.from(id).toString("base64url")}.json`);
+  await mkdir(directory, { recursive: true });
+  const original = JSON.stringify({ pending: { base: "up_old", change: "c", candidate: "sha256:0", trace: null, objects: [], deltas: [] } });
+  await writeFile(path, original);
   try {
-    await expect(pendingTreeUpdate(id)).rejects.toThrow();
-    expect(await readFile(path,"utf8")).toBe(original);
+    await expect(retireEarlierSyncState(id)).rejects.toThrow("earlier Arbor Sync");
+    expect(await readFile(path, "utf8")).toBe(original);
   } finally { await rm(path); }
+  await writeFile(path, JSON.stringify({ accepted: { root: "sha256:0", hashes: [] } }));
+  await retireEarlierSyncState(id);
+  await expect(readFile(path, "utf8")).rejects.toThrow();
 });
 
 describe("private self-sync", () => {
@@ -305,8 +284,7 @@ describe("private self-sync", () => {
       });
       expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-a");
       expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
-      expect(await pendingTreeUpdate(tree)).toBeUndefined();
-      expect(await treeConflict(tree)).toBeUndefined();
+      expect(await conflicted.running.service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
     } finally { await conflicted.close(); }
 
     const restarted = await launch(stateB, treeB);
@@ -401,49 +379,12 @@ describe("private self-sync", () => {
   });
 
   test("A same-credential peer that resubmits and extends the daemon's pending chain is replayed, not merged", async () => {
-    // Establish the local accepted base, then leave a durable two-element
-    // pending chain whose final root is exactly what is on disk, as if two
-    // filesystem generations were authored while Canopy was unreachable.
-    const warm = await launch(stateA, treeA);
-    await waitFor(async () => (await warm.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const base = warm.running.service.trees.placementFor(tree)?.update;
-    await warm.close();
-    if (!base) throw new Error("Expected an accepted placement update for the author");
-    process.env.ARBOR_DATA_HOME = stateA;
-    await writeFile(join(treeA, "chain-one.txt"), "chain one\n");
-    let pending = pendingFromSnapshot(base, await resolveSnapshot(await snapshotDirectory(treeA)));
-    await writeFile(join(treeA, "chain-two.txt"), "chain two\n");
-    const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
-    pending = appendPendingTreeSuccessor(pending, chainEnd);
-    await savePendingTreeUpdate(tree, pending);
-    const chain = updatesFromPending(pending);
-    const chainLength = chain.length;
-    expect(chainLength).toBe(2);
-
-    // The peer's successor adds one file on top of the chain's final root.
-    const chainRoot = decodeWireDirectory(chainEnd.objects.get(chainEnd.root)!);
-    if (chainRoot.type !== "directory") throw new Error("Expected a directory root");
-    const extraFile = new TextEncoder().encode("peer successor\n");
-    const successorRoot = encodeWireDirectory({
-      type: "directory",
-      entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile) }]
-        .sort((left, right) => compareWireNames(left.name, right.name)),
-    });
-    const successorObjects = new Map(chainEnd.objects);
-    successorObjects.set(hashObject(extraFile), extraFile);
-    successorObjects.set(hashObject(successorRoot), successorRoot);
-    const successor: CandidateUpdate = { change: crypto.randomUUID(), trace: null,
-      candidate: hashObject(successorRoot),
-      resolves: [],
-      objects: [...successorObjects].map(([hash, bytes]) => ({ hash, bytes })),
-      deltas: [],
-    };
-
-    // Hold the daemon's own resubmission of the chain (recognizable by its
-    // length) until the peer has extended it, so the replay order is fixed.
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    // Two folder changes are published as one chain: the first attempt fails
+    // in transit, so reconnection repeats it and appends the second (spec 09
+    // rule 10). That exact request is held until a peer with the same
+    // credential has submitted it and extended it.
     const systemFetch = globalThis.fetch;
+    let failing = false;
     const daemonBodies: any[] = [];
     const daemonResponses: any[] = [];
     let releaseDaemon!: () => void;
@@ -451,8 +392,10 @@ describe("private self-sync", () => {
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        if (failing) throw new TypeError("connection lost");
         const body = JSON.parse(init.body);
-        if (body.base === pending.base && body.updates?.length === chainLength) {
+        // Only the daemon's first chain is held; the peer's own request passes.
+        if (body.updates?.length >= 2 && !daemonBodies.length) {
           daemonBodies.push(body);
           await daemonReleased;
           const response = await systemFetch(input, init);
@@ -467,43 +410,60 @@ describe("private self-sync", () => {
     const idle = async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle";
     try {
+      await waitFor(idle);
+      const historyBefore = host.canopy.acceptedUpdates(tree).length;
+      failing = true;
+      await writeFile(join(treeA, "chain-one.txt"), "chain one\n");
+      await author.running.service.synchronizeNow().catch(() => {});
+      expect((await author.running.service.trees.descriptors()).find(({ id }) => id === tree)?.sync).toBe("offline");
+      await writeFile(join(treeA, "chain-two.txt"), "chain two\n");
+      failing = false;
+      const syncing = author.running.service.synchronizeNow();
       await waitFor(async () => daemonBodies.length === 1, 10_000);
+      const chain = decodeUpdateRequestJSON(daemonBodies[0]);
 
-      const peer = new WireClient(host.url, token);
-      const peerResponse = await peer.submitUpdates(tree, {
-        base: pending.base,
-        updates: [...chain.map((update) => decodeCandidateUpdateJSON(update)), successor],
+      // The peer's successor adds one file on top of the chain's final root.
+      const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
+      expect(chainEnd.root).toBe(chain.updates.at(-1)!.candidate);
+      const chainRoot = decodeWireDirectory(chainEnd.objects.get(chainEnd.root)!);
+      const extraFile = new TextEncoder().encode("peer successor\n");
+      const successorRoot = encodeWireDirectory({
+        type: "directory",
+        entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile) }]
+          .sort((left, right) => compareWireNames(left.name, right.name)),
       });
-      expect(peerResponse.results).toHaveLength(chainLength + 1);
+      const successor: CandidateUpdate = { change: crypto.randomUUID(), trace: null,
+        candidate: hashObject(successorRoot), resolves: [], deltas: [],
+        objects: [{ hash: hashObject(extraFile), bytes: extraFile }, { hash: hashObject(successorRoot), bytes: successorRoot }],
+      };
+      const peer = new WireClient(host.url, token);
+      const peerResponse = await peer.submitUpdates(tree, { base: chain.base, updates: [...chain.updates, successor] });
+      expect(peerResponse.results).toHaveLength(chain.updates.length + 1);
       const successorAccepted = peerResponse.results.at(-1)!;
       expect(successorAccepted.outcome).toBe("accepted");
       expect(successorAccepted.update.root).toBe(successor.candidate);
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chainLength + 1);
 
       releaseDaemon();
-      await author.running.service.synchronizeNow();
+      await syncing;
       await waitFor(() => readFile(join(treeA, "peer-successor.txt"), "utf8")
         .then((value) => value === "peer successor\n")
-        .catch(() => false), 2_000);
+        .catch(() => false), 5_000);
       await waitFor(idle);
 
-      // Canopy replayed the daemon's prefix by digest: no merge, no new update.
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chainLength + 1);
-      expect(await pendingTreeUpdate(tree)).toBeUndefined();
-      expect(await treeConflict(tree)).toBeUndefined();
-      expect((await author.running.service.trees.descriptors()).find(({ id }) => id === tree)?.sync).toBe("idle");
+      // Canopy replayed the daemon's chain by digest: no merge, no new update.
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chain.updates.length + 1);
+      expect(await author.running.service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(author.running.service.trees.placementFor(tree)?.update).toBe(successorAccepted.update.id);
-      expect(daemonBodies).toHaveLength(1);
       expect(daemonResponses).toHaveLength(1);
       expect(daemonResponses[0].results.map((result: any) => result.requestDigest))
-        .toEqual(peerResponse.results.slice(0, chainLength).map((result) => result.requestDigest));
+        .toEqual(peerResponse.results.slice(0, chain.updates.length).map((result) => result.requestDigest));
       expect(daemonResponses[0].results.every((result: any) => !result.reconciliation)).toBe(true);
     } finally {
       releaseDaemon();
       globalThis.fetch = systemFetch;
       await author.close();
     }
-  }, 20_000);
+  }, 30_000);
 
   test("filesystem sync persists unresolved metadata and an independent cursor without holding edits", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
@@ -532,8 +492,7 @@ describe("private self-sync", () => {
       expect((await daemon.trees.descriptors()).find(d => d.id === tree)).toMatchObject({ conflicted: true, sync: "idle" });
       await writeFile(join(treeA, "unresolved-sync.txt"), "An ordinary edit while review is unavailable.\n");
       await daemon.synchronizeNow();
-      expect(await pendingTreeUpdate(tree)).toBeUndefined();
-      expect(await treeConflict(tree)).toBeUndefined();
+      expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(store.current(tree)!.conflicted).toBe(true);
       expect(store.current(tree)!.previous!.id).toBe(metadata.id);
     } finally { await daemon[Symbol.asyncDispose](); db.close(); }
@@ -545,38 +504,47 @@ describe("private self-sync", () => {
     } finally { await restarted[Symbol.asyncDispose](); }
   });
 
-  test("preserves rejected pending intent even when local projection already matches Canopy", async () => {
+  test("a refused change is held across restart until discarded, and the folder returns to the accepted state", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
     const owner = new WireClient(host.url, token);
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
-    const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
-    const emptyDirectoryHash = hashObject(emptyDirectory);
-    const staleRoot = encodeWireDirectory({
-      type: "directory",
-      entries: [{ name: "LinkPreviews", file: emptyDirectoryHash }],
-    });
+    const accepted = await owner.snapshot(configurationTree, remote.tree.root);
+    // A change the host refuses: an account configuration path it does not allow.
+    const extra = encodeWireDirectory({ type: "directory", entries: [] }), extraHash = hashObject(extra);
+    const rootDirectory = decodeWireDirectory(accepted.objects.get(accepted.root)!);
+    const staleRoot = encodeWireDirectory({ type: "directory", entries: [...rootDirectory.entries, { name: "LinkPreviews", directory: extraHash }]
+      .sort((left, right) => compareWireNames(left.name, right.name)) });
     const staleRootHash = hashObject(staleRoot);
-    await savePendingTreeUpdate(configurationTree, { change: crypto.randomUUID(), trace: null,
-      base: remote.tree.update!,
-      candidate: staleRootHash,
-      resolves: [],
-      objects: [
-        { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },
-        { hash: staleRootHash, bytes: Buffer.from(staleRoot).toString("base64") },
-      ],
-      deltas: [],
-    });
+    const spine = new Map([...accepted.objects].filter(([, bytes]) => { try { decodeWireDirectory(bytes); return true; } catch { return false; } }));
+    const change = `folder-refused-${crypto.randomUUID()}`;
+    const log = new ChangeLog(configurationTree, folderStateRoot(configurationTree));
+    await log.retain({ change, tree: configurationTree, basis: { kind: "accepted", root: remote.tree.root, update: remote.tree.update },
+      graph: snapshotJSON({ root: accepted.root, objects: spine }), sourcePath: null, document: null,
+      candidate: snapshotJSON({ root: staleRootHash, objects: new Map([...spine].filter(([hash]) => hash !== accepted.root).concat([[staleRootHash, staleRoot], [extraHash, extra]])) }),
+      update: encodeCandidateUpdateJSON({ change, candidate: staleRootHash, trace: null, resolves: [], deltas: [],
+        objects: [{ hash: staleRootHash, bytes: staleRoot }, { hash: extraHash, bytes: extra }].sort((left, right) => left.hash.localeCompare(right.hash)) }) });
 
     const service = await ArborSyncDaemon.openControl({ autoSync: false });
     try {
-      const pendingBefore = await pendingTreeUpdate(configurationTree);
-      await expect(service.synchronizeNow()).rejects.toThrow("Unsupported account configuration path");
-      expect(await pendingTreeUpdate(configurationTree)).toEqual(pendingBefore);
+      await service.synchronizeNow();
+      expect(await service.syncPresentation(configurationTree)).toMatchObject({ state: "held", pending: 1 });
+      expect((await service.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("conflict");
       expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
     } finally {
       await service[Symbol.asyncDispose]();
+    }
+    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await restarted.synchronizeNow();
+      expect(await restarted.syncPresentation(configurationTree)).toMatchObject({ state: "held", pending: 1 });
+      await restarted.discardHeldChanges(configurationTree);
+      expect(await restarted.syncPresentation(configurationTree)).toMatchObject({ state: "current", pending: 0 });
+      expect((await restarted.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("idle");
+      expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
+    } finally {
+      await restarted[Symbol.asyncDispose]();
     }
   });
 });

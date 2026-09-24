@@ -68,7 +68,6 @@ struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let placement: String
     let access: String?
     let sync: String?
-    let reviewableConflict: Bool
     let missing: Bool
 }
 
@@ -1401,7 +1400,6 @@ final class ArborWorkspaceState {
                 placement: $0.placement,
                 access: $0.access,
                 sync: $0.sync,
-                reviewableConflict: $0.reviewableConflict == true,
                 missing: $0.missing == true
             )
         }

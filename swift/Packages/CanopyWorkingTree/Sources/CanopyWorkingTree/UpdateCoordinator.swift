@@ -507,10 +507,13 @@ public actor UpdateCoordinator {
         failure = String(describing: error)
         if let http = error as? WireHTTPError, http.status == 401 || http.status == 403 {
             dispatch(.authenticationFailed(reason: http.code))
-        } else if error is WireUpdateConflictError, let id {
-            hold(.rejected, detail: "the change conflicts with a newer decision", id: id)
         } else if let http = error as? WireHTTPError, http.code == "unsupported-operation", let id {
             hold(.unsupported, detail: http.message ?? http.code, id: id)
+        } else if error is WireUpdateConflictError, let id {
+            hold(.rejected, detail: "the change conflicts with a newer decision", id: id)
+        } else if let http = error as? WireHTTPError, (400..<500).contains(http.status), http.status != 408, http.status != 429, let id {
+            // Repeating a request the host refused cannot change the answer.
+            hold(.rejected, detail: http.message ?? http.code, id: id)
         } else if error is UpdateError || error is ArborWireValidationError {
             dispatch(.validationFailed(reason: String(describing: error)))
         } else {

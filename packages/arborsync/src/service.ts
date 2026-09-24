@@ -1,35 +1,22 @@
 import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
-import { conflictContent, replaceConflictTarget } from "./conflict-tree.ts";
+import { FolderSync, folderStateRoot, pendingBytes } from "./folder-sync.ts";
+import { ChangeLog } from "@overstory/working-tree/node";
 import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   Hash,
-  MutationReceipt,
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
-  SyncConflictResolution,
-  SyncConflictWorkspace,
 } from "@overstory/protocol";
-import { SYSTEM_TREE, canonicalNodePath, WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
-import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { canonicalNodePath, WireClient, hashObject, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
-import { resolveUserPath } from "@overstory/client";
+import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
-import {
-  clearTreeConflict,
-  pendingFromSnapshot,
-  savePendingTreeUpdate,
-  saveAcceptedTreeObjects,
-  snapshotFromConflictDraft,
-  saveTreeConflictMaterial,
-  treeConflict,
-  treeConflictMaterial,
-} from "@overstory/client";
 import { TreeManager } from "./tree-manager.ts";
-import { TreeSynchronizer } from "@overstory/client";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@overstory/client";
@@ -54,13 +41,21 @@ export interface ArborSyncDaemonOptions {
   connections?: SyncConnections;
   autoSync?: boolean;
   /**
-   * Fallback reconciliation interval. Live Wire watches drive synchronization;
-   * this pass only covers a placement whose watch is disconnected.
+   * The update machine's poll interval: a freshness check for a clean tree
+   * and a retry for a transport failure. Live Wire watches and folder scans
+   * drive synchronization; polling only covers a disconnected watch.
    */
   syncIntervalMs?: number;
 }
 
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
+
+/** A tree that an explicit synchronization could not bring current: offline, stopped, or without credentials. */
+class UnsynchronizedTreeError extends ProtocolError {
+  constructor(tree: string, detail?: string) {
+    super("unavailable", detail ?? `Tree could not synchronize: ${tree}`, 503, { tree });
+  }
+}
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
 async function sparseSpine(
@@ -90,25 +85,29 @@ async function sparseSpine(
 
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
- * manager owning N per-root Workspaces, the per-tree Canopy synchronizer,
+ * manager owning N per-root Workspaces, one `FolderSync` per placed tree (the
+ * update machine's runner with the folder as its source and accepted tree),
  * and the loopback services a working-tree client uses (bootstrap,
- * credential, objects, conflicts). The editor path (node reads, mutations,
- * admission) was deleted in Native 022 Phase 7; editors run the update
- * machine against their own working tree.
+ * credential, objects). Editors run the same machine against their own
+ * working tree.
  */
 export class ArborSyncDaemon implements AsyncDisposable {
   readonly events: EventBus;
   readonly trees: TreeManager;
   private readonly connections: SyncConnections;
-  private syncTimer?: ReturnType<typeof setInterval>;
   private syncStartupTimer?: ReturnType<typeof setTimeout>;
+  private syncIntervalMs = DEFAULT_SYNC_INTERVAL_MS;
+  private autoSync = false;
   private placementMoving = false;
   private placementMoveWaiters: Array<() => void> = [];
   private syncing = false;
   private syncRequested = false;
   private syncWaiters: Array<() => void> = [];
   private workspaceIOTails = new Map<string, Promise<void>>();
-  private readonly treeSync: TreeSynchronizer<Workspace>;
+  private readonly folders = new Map<string, { root: string; sync: FolderSync }>();
+  /** The last tree listing per account, for nested canonical boundaries. */
+  private readonly listings = new Map<string, RemoteTreeDescriptor[]>();
+  private readonly unsubscribeEvents: () => void;
   private readonly files: LocalFileService;
   private readonly objectCache: TreeObjectCache;
 
@@ -117,15 +116,13 @@ export class ArborSyncDaemon implements AsyncDisposable {
     this.files = new LocalFileService(trees);
     this.events = events;
     this.trees = trees;
-    this.treeSync = new TreeSynchronizer<Workspace>({
-      trees,
-      events,
-      accountToken: (placement) => this.connections.tokenFor(placement),
-      withWorkspaceIO: (workspace, run) => this.withWorkspaceIO(workspace, run),
-      snapshotWorkspace: (workspace, client, remoteTrees) => this.snapshotWorkspace(workspace, client, remoteTrees),
-      requestSync: () => this.syncAll(),
+    // A folder edit schedules that folder's scan; the scan decides whether it is a change.
+    this.unsubscribeEvents = events.subscribe((event) => {
+      if (event.kind === "diagnostic" || event.change.origin === "sync") return;
+      this.folders.get(event.tree)?.sync.scheduleScan();
     });
     this.objectCache = new TreeObjectCache({
+      pendingBytes: (tree, hash) => pendingBytes(this.folders.get(tree)?.sync.log ?? new ChangeLog(tree, folderStateRoot(tree)), hash),
       workspaceFor: (tree) => trees.workspaceByTree(tree),
       boundariesFor: (workspace) => trees.sharedBoundariesWithin(workspace.root),
       exclusionsFor: (workspace) => trees.excludedMountsWithin(workspace.root),
@@ -138,15 +135,15 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
-  /** Verified object bytes for a tree from the index, the pending body, or Canopy. */
+  /** Verified object bytes for a tree from the index, its pending changes, or Canopy. */
   objectBytes(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
     return this.objectCache.bytes(tree, hash, origin);
   }
 
   /**
-   * Bootstrap the daemon's recorded accepted Canopy root. The mutable folder
-   * head and the daemon's pending/conflict state belong only to that folder
-   * client and never gate or seed another client.
+   * Bootstrap the daemon's recorded accepted Canopy root. The folder's own
+   * changes and held work belong only to the folder's client and never gate
+   * or seed another client.
    */
   async bootstrapTree(tree: string): Promise<TreeBootstrap> {
     const placement = this.trees.placementFor(tree);
@@ -180,15 +177,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
     };
   }
 
+  /** Start every placed folder once; from then on its machine polls, and watches and scans drive it. */
   private startAutoSync(syncIntervalMs?: number): void {
-    if (this.syncTimer) return;
-    this.syncTimer = setInterval(() => {
-      // A periodic tick is only a freshness hint. Do not turn a slow or failed
-      // request into an unbounded immediate retry loop that masks its error
-      // state as permanently syncing.
-      if (!this.syncing) void this.syncAll();
-    }, syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS);
-    this.syncTimer.unref?.();
+    if (this.autoSync) return;
+    this.autoSync = true;
+    this.syncIntervalMs = syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
     this.syncStartupTimer = setTimeout(() => {
       this.syncStartupTimer = undefined;
       void this.syncAll();
@@ -244,13 +237,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
    */
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     const descriptors = await this.trees.descriptors();
-    return {
-      snapshot: await Promise.all(descriptors.map(async (descriptor) => ({
-        ...descriptor,
-        ...(descriptor.sync === "conflict" ? { reviewableConflict: Boolean(await treeConflict(descriptor.id)) } : {}),
-      }))),
-      observedThrough: this.events.currentCursor(),
-    };
+    return { snapshot: descriptors, observedThrough: this.events.currentCursor() };
   }
 
   async resolveLocator(locator: string): Promise<LocatorResolution> {
@@ -417,134 +404,43 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return result;
   }
 
-  /** The claimed accounts of this data home; the projection lives in `@overstory/arborsync/state` so the CLI can read it directly. */
-  private async conflictReviewMaterial(tree: string) {
-    const conflict = await treeConflict(tree);
-    if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);
-    const identity = conflict.details.candidate;
-    const retained = await treeConflictMaterial(tree);
-    if (retained?.identity === identity) return { conflict, identity, material: retained.material };
-    const placement = this.trees.placementFor(tree);
-    const workspace = await this.trees.workspaceByTree(tree);
-    if (!placement || !workspace) throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
-    const client = await this.accountClient(placement);
-    const mine = await this.snapshotWorkspace(workspace, client);
-    if (mine.root !== conflict.details.candidate) {
-      throw new ProtocolError(
-        "conflict",
-        "Conflict evidence is unavailable because the local tree advanced before its candidate graph was retained",
-        409,
-        { tree, details: { kind: "conflict-evidence-unavailable" } },
-      );
-    }
-    const [base, current] = await Promise.all([
-      client.snapshot(tree, conflict.details.base),
-      client.snapshot(tree, conflict.details.current.root),
-    ]);
-    if (base.root !== conflict.details.base || current.root !== conflict.details.current.root) {
-      throw new Error("Canopy returned conflict snapshots with unexpected roots");
-    }
-    const draft = snapshotFromConflictDraft(conflict, mine);
-    const material = {
-      base: verifyTreeSnapshotGraph(base),
-      current: verifyTreeSnapshotGraph(current),
-      mine: verifyTreeSnapshotGraph(mine),
-      draft: verifyTreeSnapshotGraph(draft),
-    };
-    await saveTreeConflictMaterial(tree, identity, material);
-    return { conflict, identity, material };
+  /** A placed tree's synchronization as its update machine presents it, with its unsettled local changes. */
+  async syncPresentation(tree: string) {
+    const folder = this.folders.get(tree);
+    if (!folder) throw new ProtocolError("not-found", `Tree has no synchronizing placement: ${tree}`, 404, { tree });
+    return folder.sync.coordinator.presentation();
   }
 
-  async treeConflictWorkspace(tree: string): Promise<SyncConflictWorkspace> {
-    const { conflict, identity, material } = await this.conflictReviewMaterial(tree);
-    const grouped = new Map<string, string[]>();
-    for (const item of conflict.details.conflicts) {
-      grouped.set(item.path, [...(grouped.get(item.path) ?? []), item.reason]);
-    }
-    return {
-      identity,
-      tree,
-      // The daemon submits one filesystem head per request; there is no
-      // retained suffix behind the failed element.
-      unattemptedCount: 0,
-      items: [...grouped].sort(([left], [right]) => compareWireNames(left, right)).map(([path, reasons]) => {
-        const current = conflictContent(material.current, path);
-        const mine = conflictContent(material.mine, path);
-        const draft = conflictContent(material.draft, path);
-        return {
-          path,
-          reasons,
-          base: conflictContent(material.base, path),
-          current,
-          mine,
-          draft,
-          offersBoth: JSON.stringify(draft) !== JSON.stringify(current) && JSON.stringify(draft) !== JSON.stringify(mine),
-        };
-      }),
-    };
+  /** Discard a tree's held request and every change authored on it; the folder returns to the accepted state. */
+  async discardHeldChanges(tree: string): Promise<void> {
+    const folder = this.folders.get(tree);
+    if (!folder) throw new ProtocolError("not-found", `Tree has no synchronizing placement: ${tree}`, 404, { tree });
+    await folder.sync.discardHeldChanges();
   }
 
-  async resolveReviewedTreeConflict(
-    tree: string,
-    identity: string,
-    resolutions: Record<string, SyncConflictResolution>,
-  ): Promise<MutationReceipt["effects"]> {
-    const review = await this.treeConflictWorkspace(tree);
-    if (review.identity !== identity) throw new ProtocolError("conflict", "Conflict review is stale; reopen it before submitting", 409);
-    if (review.unattemptedCount > 0) {
-      throw new ProtocolError("unsupported-operation", "Later queued changes require ordered replay before this conflict can be resolved", 422);
-    }
-    const paths = review.items.map((item) => item.path);
-    if (Object.keys(resolutions).length !== paths.length || paths.some((path) => !resolutions[path])) {
-      throw new ProtocolError("invalid-request", "Choose a resolution for every conflicting path", 400);
-    }
-    for (const left of paths) for (const right of paths) {
-      if (left !== right && right.startsWith(left === "/" ? "/" : `${left}/`)) {
-        throw new ProtocolError("unsupported-operation", "Overlapping conflict paths cannot be resolved independently", 422);
-      }
-    }
-    const { conflict, material } = await this.conflictReviewMaterial(tree);
-    let candidate = material.draft;
-    for (const item of review.items) {
-      const resolution = resolutions[item.path]!;
-      if (resolution.choice === "both") {
-        if (!item.offersBoth) throw new ProtocolError("invalid-request", `Both is unavailable for ${item.path}`, 400);
-      } else if (resolution.choice === "current") {
-        candidate = replaceConflictTarget(candidate, item.path, material.current);
-      } else if (resolution.choice === "mine") {
-        candidate = replaceConflictTarget(candidate, item.path, material.mine);
-      } else {
-        if (resolution.choice !== "edit") throw new ProtocolError("invalid-request", `Invalid resolution for ${item.path}`, 400);
-        const editable = [item.current, item.mine, item.draft].some((content) => content.kind === "text");
-        if (!editable) throw new ProtocolError("invalid-request", `${item.path} is not editable text`, 400);
-        candidate = replaceConflictTarget(candidate, item.path, material.draft, resolution.text);
-      }
-    }
-    const placement = this.trees.placementFor(tree);
-    const workspace = await this.trees.workspaceByTree(tree);
-    if (!placement || !workspace) throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
-    const client = await this.accountClient(placement);
-    const descriptor = (await client.descriptor(tree)).tree;
-    const local = await this.snapshotWorkspace(workspace, client);
-    if (descriptor.root !== conflict.details.current.root || descriptor.update !== conflict.details.current.id || local.root !== material.mine.root) {
-      throw new ProtocolError("conflict", "The tree changed while conflict review was open; reopen it before submitting", 409);
-    }
-    await materializeTree(
-      workspace.root,
-      candidate.root,
-      (hash) => {
-        const bytes = candidate.objects.get(hash);
-        if (!bytes) throw new Error(`Reviewed conflict candidate is missing object: ${hash}`);
-        return Promise.resolve(bytes);
-      },
-      undefined,
-      this.trees.excludedMountsWithin(workspace.root),
-    );
-    await savePendingTreeUpdate(tree, pendingFromSnapshot(conflict.details.current.id, candidate));
-    await clearTreeConflict(tree);
-    this.treeSync.conflicts.delete(tree);
-    await this.treeSync.updateWorkspace(workspace, placement, client, (await client.list()).snapshot);
-    return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
+  /** The runner for one placed folder, created on first use and again after the folder moves. */
+  private async folderFor(placement: SharedTreePlacement, workspace: Workspace): Promise<FolderSync> {
+    const existing = this.folders.get(placement.tree);
+    if (existing?.root === workspace.root) return existing.sync;
+    await existing?.sync.close();
+    // Pending work or conflict material from the earlier synchronizer is refused, never rewritten.
+    await retireEarlierSyncState(placement.tree);
+    const tree = placement.tree;
+    const accountKey = placement.configurationTree ?? `legacy:${placement.endpoint}`;
+    const sync = new FolderSync(tree, folderStateRoot(tree), {
+      placement: () => this.trees.placementFor(tree),
+      client: (current) => this.accountClient(current),
+      updateSyncMetadata: (current) => this.trees.updateSyncMetadata(current),
+      setSyncState: (state) => this.trees.setSyncState(tree, state),
+      withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
+      scan: () => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? []),
+      root: workspace.root,
+      excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
+      objectBytes: (hash) => this.objectCache.bytes(tree, hash),
+      materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
+    }, { pollIntervalMs: this.syncIntervalMs });
+    this.folders.set(tree, { root: workspace.root, sync });
+    return sync;
   }
 
   private canonicalBoundariesFor(
@@ -566,22 +462,15 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return boundaries;
   }
 
-  private async snapshotWorkspace(
-    workspace: Workspace,
-    client: WireClient,
-    remoteTrees?: readonly RemoteTreeDescriptor[],
-  ) {
-    const listed = remoteTrees ?? (await client.list()).snapshot;
-    // The synchronizer builds requests and conflict material from the complete
-    // graph, so the lazy walk is resolved here; index hits still skip no reads
-    // for files the request needs, but the walk itself writes fresh rows.
-    return resolveSnapshot(await snapshotDirectory(
+  /** Walk a folder into a lazy graph; index hits read no file bytes until a change needs them. */
+  private scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[]) {
+    return snapshotDirectory(
       workspace.root,
-      this.canonicalBoundariesFor(workspace, listed),
+      this.canonicalBoundariesFor(workspace, remoteTrees),
       this.trees.excludedMountsWithin(workspace.root),
       (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
       workspace.objectIndex(),
-    ));
+    );
   }
 
   private async syncAll(throwErrors = false, configurationTree?: string): Promise<void> {
@@ -621,10 +510,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
               remoteTreesByAccount.set(accountKey, listed);
             }
             const remoteTrees = await listed;
-            if (!remoteTrees.some((tree) => tree.id === placement.tree)) {
+            this.listings.set(accountKey, remoteTrees);
+            const folder = await this.folderFor(placement, workspace);
+            const remote = remoteTrees.find((tree) => tree.id === placement.tree);
+            if (!remote) {
+              // A reserved tree is activated with the folder's whole content.
               const initial = await this.withWorkspaceIO(
                 workspace,
-                () => this.snapshotWorkspace(workspace, client, remoteTrees),
+                async () => resolveSnapshot(await this.scanWorkspace(workspace, remoteTrees)),
               );
               const activated = await client.submitUpdate(placement.tree, null, initial);
               await this.trees.updateSyncMetadata({
@@ -633,14 +526,22 @@ export class ArborSyncDaemon implements AsyncDisposable {
                 update: activated.update.id,
                 access: "write",
               });
-              await saveAcceptedTreeObjects(placement.tree, initial);
+              await folder.placed({ root: activated.update.root, update: activated.update.id });
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
-            this.treeSync.ensureWatch(placement);
-            await this.treeSync.updateWorkspace(workspace, placement, client, remoteTrees);
+            const access = remote.access === "none" ? "read" : remote.access;
+            if (placement.access !== access) await this.trees.updateSyncMetadata({ ...placement, access });
+            if (!placement.ref || !placement.update) await folder.placeFromHost();
+            folder.ensureWatch();
+            const presentation = await folder.syncOnce();
+            if (throwErrors && (presentation.state === "offline" || presentation.state === "stopped"
+                || presentation.state === "authentication-failure" || presentation.state === "revoked")) {
+              // The machine already reports this state; only the caller needs the error.
+              throw new UnsynchronizedTreeError(placement.tree, presentation.detail);
+            }
           } catch (error) {
-            this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
+            if (!(error instanceof UnsynchronizedTreeError)) this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
             if (throwErrors) throw error;
           }
         }
@@ -652,10 +553,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    if (this.syncTimer) clearInterval(this.syncTimer);
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
-    await this.treeSync.close();
+    this.unsubscribeEvents();
+    await Promise.all([...this.folders.values()].map((folder) => folder.sync.close()));
+    this.folders.clear();
     await this.trees[Symbol.asyncDispose]();
   }
 }

@@ -27,7 +27,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and treats its retained state as opaque (decision reports, a `retention-audit` request, no host re-validation); canopyd merges account configuration itself; `trees.yaml` is resource-rule grammar only | implemented, not deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#response-checks), [check 017](packages/canopyd/migrations/017-resource-policy-only/README.md) |
 | Accepted whole-entry and source-range conflicts: competing edits retained as alternatives with attribution, root decisions, guarded partial resolution, authorized historical inspection (schema 10 and 11) | deployed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Resource policy and execution authority: shared `who` / `via` / `allow` / `within` grammar, governed policy index, host-private execution tokens, guarded scoped snapshot effects, revocation stream, restrictive-intersection conflict acceptance, Canopy consent review (schema 13) | deployed, installed | [access control](docs/overstory-spec/05-access-control.md), [reference implementation](docs/architecture/protocol/README.md#resource-policy) |
-| Client synchronization machine: one working-tree update machine (Swift `UpdateMachine`, TypeScript `reduceUpdate`) executing one shared fixture, with held rejections, polling, explicit synchronization and an effect-driven Swift runner over a change log pinned by shared runner vectors; editors append each generation straight to the change log with no admission machine or recovery store ([Clients 001](plans/clients/001-reconcile-client-state-machines.md) phases 1–3). The daemon still runs its own loop | Mac user-verified; iPhone not updated | [working-tree updates](docs/overstory-spec/09-client-synchronization.md), [the update machine](docs/implementing-sync-services/update-machine.md), [editor sources](docs/implementing-editors/editor-source.md) |
+| Client synchronization machine: one working-tree update machine (Swift `UpdateMachine`, TypeScript `reduceUpdate`) executing one shared fixture, with held rejections, polling, explicit synchronization and an effect-driven Swift runner over a change log pinned by shared runner vectors; editors append each generation straight to the change log with no admission machine or recovery store ([Clients 001](plans/clients/001-reconcile-client-state-machines.md) phases 1–3). Arbor Sync runs the TypeScript runner per placed folder on branch `one-update-machine` (phase 4) | Mac user-verified; iPhone not updated; daemon implemented, not installed | [working-tree updates](docs/overstory-spec/09-client-synchronization.md), [the update machine](docs/implementing-sync-services/update-machine.md), [editor sources](docs/implementing-editors/editor-source.md) |
 | Durable change log (`sync/change-log.json`, formerly the source admission queue): exact source, basis, and candidate records with explicit predecessors, fsynced journals (schema 4, one frame per record), trace compaction, read-your-writes sessions, publication and settlement, recovery after restart; installed Canopy emits the supported operations and explicit structural snapshots | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#change-logs), [editor sources](docs/implementing-editors/editor-source.md#6-change-invariants-and-trace-compaction) |
 | Canopy working-tree editors: the Mac and iOS apps edit placed trees directly as working trees over the object store; the daemon is the folder's client plus loopback bootstrap, credential, and object services and has no editor path | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#native-working-trees), [client design](docs/implementing-editors/design.md) |
 | Canopy navigation: observable Back availability, editor-link pushes, exact cross-tree destinations, and Back/Forward/native-pop provider reopening without resetting tab history | implemented; Mac user-verified | [client design](docs/implementing-editors/design.md) |
@@ -85,9 +85,10 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
-## Clients 001 phase 4: TypeScript runner — 2026-09-24
+## Clients 001 phase 4: TypeScript runner and daemon — 2026-09-24
 
-On branch `one-update-machine`, not yet on `main`. `@overstory/working-tree`
+On branch `one-update-machine`, not yet on `main` or installed.
+**Runner.** `@overstory/working-tree`
 holds `reduceUpdate`, `LocalChange` preparation, entry transfer, the
 `UpdateControl` codec (Swift's schema 4) and `UpdateCoordinator`, a port of the
 Swift runner over a change log, a control store, a transport, and an accepted
@@ -99,8 +100,29 @@ tree; `./node` holds the file-backed `ChangeLog` (moved from
 `tests/fixtures/update-runner.json`; the canopyd source-acceptance test
 publishes a stale change through the runner against a real canopyd, restarts,
 continues it and follows a resolution; `tests/unit/change-log.test.ts` covers
-adoption and discard. Nothing in production runs the TypeScript runner yet;
-the daemon still runs `TreeSynchronizer`.
+adoption and discard.
+
+**Daemon.** Arbor Sync runs one `FolderSync` per placed folder
+(`packages/arborsync/src/folder-sync.ts`): the folder is the runner's accepted
+tree and its only source. Watcher events schedule a scan; a changed root
+appends a sparse `trace: null` change against what the folder last held;
+accepted bytes are written only when nothing is pending and the folder still
+holds what it last wrote or scanned; the machine polls at the old sync
+interval. A refusal is held (`sync: "conflict"`) until `POST /v1/held/discard`,
+which rewrites the folder to the host's state. Both runners now hold any 4xx
+refusal except 408 and 429, not only a 409. Deleted: `TreeSynchronizer`, the
+pending and conflict formats of `sync/<tree>.json` (a clean one is retired, one
+with work is refused), the conflict workspace, `/v1/conflicts*`,
+`reviewableConflict`, and the Swift `ArborSyncClient` conflict API. Evidence:
+`tests/integration/self-sync.test.ts` (8 scenarios, including a held refusal
+across restart and its discard, and a transmitted chain a same-credential peer
+extends, replayed by digest without a merge); the server, CLI, placement-move
+and community-hosting integration suites; `bun run test` (1182 passing);
+`CanopyWorkingTree` 105 and `ArborSyncClient` tests; the hosted smoke (50,
+including the signed app editing a placed tree through its bundled daemon).
+Not run: a soak with Joe's live placements, and the Hetzner sync lab, whose
+binary scenario now expects an accepted alternative instead of a daemon
+conflict.
 
 ## Clients 001 phases 0–3 — 2026-09-24
 

@@ -7,8 +7,6 @@ import type {
   PairingOffer,
   ProfileIdentity,
   SnapshotEnvelope,
-  SyncConflictResolution,
-  SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
 } from "@overstory/protocol";
@@ -21,8 +19,6 @@ export type {
   LocalTreeDescriptor,
   LocatorResolution,
   TreeDescriptor,
-  SyncConflictResolution,
-  SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
 } from "@overstory/protocol";
@@ -138,19 +134,12 @@ export class ArborSyncRESTClient {
     return this.request(`/v1/credential${query}`);
   }
 
-  conflict(tree: string): Promise<SyncConflictWorkspace> {
-    return this.request(`/v1/conflicts?tree=${encodeURIComponent(tree)}`);
-  }
-
-  resolveConflict(
-    tree: string,
-    identity: string,
-    resolutions: Record<string, SyncConflictResolution>,
-  ): Promise<{ effects: MutationReceipt["effects"] }> {
-    return this.request("/v1/conflicts/resolve", {
+  /** Discard a tree's held request and every change authored on it; the folder returns to the accepted state. */
+  discardHeld(tree: string): Promise<{ tree: string }> {
+    return this.request("/v1/held/discard", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tree, identity, resolutions }),
+      body: JSON.stringify({ tree }),
     });
   }
 
