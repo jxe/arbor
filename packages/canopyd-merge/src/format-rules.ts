@@ -5,18 +5,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
 import { parseDocument } from "yaml";
 import { overlap, pieceLength, type PieceEdit } from "./pieces.ts";
+import type { Format } from "./format-names.ts";
+export type { Format };
 
 export interface FormatConfig {
   format?: Format;
   recordKey?: string;
   proseInsertions?: "review" | "preserve-both";
 }
-/** Every format a rule names. */
-export const FORMATS = [
-  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
-  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
-] as const;
-export type Format = (typeof FORMATS)[number];
 export interface FormatEvidence {
   id: string;
   revision: 1;

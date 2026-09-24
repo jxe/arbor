@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { SourceOperation } from "@overstory/protocol";
 import type { ObjectStore } from "@overstory/object-store";
 import { OBJECT_HASH, type AlternativeBinding, type Frame, type LogDecision } from "@overstory/merge-protocol";
-import { FORMATS } from "./format-rules.ts";
+import { FORMATS } from "./format-names.ts";
 import type { IntentDecision } from "./intent-model.ts";
 import type { RetainedStates } from "./retained-state.ts";
 
