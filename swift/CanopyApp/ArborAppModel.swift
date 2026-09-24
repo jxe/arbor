@@ -587,7 +587,7 @@ final class ArborWorkspaceState {
     ) async throws {
         if localArborSyncOverview?.trees.contains(where: { $0.id == configurationTree && $0.sync == "conflict" }) == true {
             throw ArborWireValidationError.invalidValue(
-                "The account configuration has a conflict; review it in Sync Status before changing it"
+                "The host refused the account configuration's last changes; discard them in Sync Status before changing it"
             )
         }
         try ArborAccountConfigurationYAML.editFile(

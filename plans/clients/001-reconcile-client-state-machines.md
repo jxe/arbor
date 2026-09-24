@@ -1,10 +1,11 @@
 # Clients 001: One update machine for every working tree
 
-Status: phases 0–3 DONE and on `main`; the Mac runs them (evidence in
-[status](../../status.md#clients-001-phases-03--2026-09-24)). Remaining: the
-iPhone update and the daemon's soak and install, which need Joe's go-ahead
-(phase 4 is otherwise implemented on branch `one-update-machine`); and the Web
-025 handoff (phase 5). No priority assigned.
+Status: phases 0–4 DONE, on `main`, and running on Joe's Mac (evidence in
+[status](../../status.md#clients-001-phase-4-typescript-runner-and-daemon--2026-09-24)).
+Remaining: the iPhone update, which needs Joe's go-ahead, and a run of the
+Hetzner sync lab. Showing held folders in the Mac app is
+[Native 012](../swift/012-show-held-folders.md); the browser client is
+[Web 025](../canopy-web/025-arbor-web.md). No priority assigned.
 
 ## Outcome
 
@@ -23,6 +24,8 @@ What exists, and where it is described:
 - The Swift runner and change log: [the update machine](../../docs/implementing-sync-services/update-machine.md),
   pinned by the shared runner vectors in `tests/fixtures/update-runner.json`.
 - The Swift editor source: [editor sources](../../docs/implementing-editors/editor-source.md).
+- The TypeScript runner in `@overstory/working-tree`, which Arbor Sync runs
+  once per placed folder (`FolderSync`), described in the same guide.
 
 ## Decisions (Joe, 2026-09-24)
 
@@ -48,37 +51,18 @@ the earlier form, and rewrite nothing. Then install and run the recipes in
 Open question: working-tree sessions serve no history, so the History sheet
 shows an empty state where the recovery store's local copies used to be.
 
-### Phase 4: TypeScript runner and daemon
+### Run the Hetzner sync lab
 
-The package, the TypeScript runner, `FolderSync`, and the daemon rebuilt on
-them are implemented on branch `one-update-machine`
-([status](../../status.md#clients-001-phase-4-typescript-runner-and-daemon--2026-09-24)).
-What remains:
-
-- **Soak and install**, on Joe's go-ahead. Let the installed daemon publish
-  every folder first: the new daemon refuses a `sync/<tree>.json` that still
-  holds pending work or a conflict and rewrites nothing. Then run it on the
-  live placements: offline edits, a refusal and its discard, a peer's
-  concurrent edit, restart during a publication.
-- **Surface held folders in the app.** The Mac shows a daemon tree's
-  `sync: "conflict"` but offers no discard; `ArborSyncClient.discardHeld(tree:)`
-  exists for it.
-- **Run the Hetzner sync lab** (`packages/canopyd/deploy/hcloud-sync-lab`),
-  whose binary scenario was rewritten for accepted alternatives and has not
-  run since.
-
-### Phase 5: hand off to Web 025
-
-The browser uses the TypeScript runner with an IndexedDB `ChangeLog` and a
-TypeScript `EditorSource` that follows [editor sources](../../docs/implementing-editors/editor-source.md).
-The disabled web editor's own coordinator is deleted; `PageEditor.tsx`
-(outside the build) still imports it until Web 025 rewrites that editor.
-Web 025's own phases own the rest.
+`packages/canopyd/deploy/hcloud-sync-lab` has not run since the daemon moved to
+the update machine. Its binary scenario now expects Canopy to accept both
+versions as an unresolved alternative instead of a daemon conflict.
 
 ## Relationships
 
-- [Web 025](../canopy-web/025-arbor-web.md) is the first new client. It should
-  not start its editor phase before phase 4.
+- [Web 025](../canopy-web/025-arbor-web.md) is the first new client, on the
+  TypeScript runner.
+- [Native 012](../swift/012-show-held-folders.md) shows held folders in the
+  Mac app.
 - [Native 010](../swift/010-client-conflict-review.md) owns review UI and
   drafts; submitting a draft is an ordinary change-log record.
 - [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md)
