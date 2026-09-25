@@ -345,7 +345,7 @@ describe("profile invariants derived from root frontmatter", () => {
     const source = await profileFolder("owner-with-members", "person");
     await writeFile(join(source, "_index.md"), ["---", "type: person", "members:", `  - ${JSON.stringify(aliceLocator)}`, "---", "", "# Owner", ""].join("\n"));
     await submitRoot(ownerAccount.profileTree!, source);
-    expect(running.canopy.rootProfileType(running.canopy.get(ownerAccount.profileTree!)!.ref)).toBe("person");
+    expect(running.canopy.rootProfileType(ownerAccount.profileTree!)).toBe("person");
     expect(running.canopy.canWrite(alice, community.id)).toBe(false);
     expect(running.canopy.canRead(alice, community.id)).toBe(true);
   });

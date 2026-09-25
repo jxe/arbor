@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { rootProfileFacts } from "@overstory/canopyd";
+import { profileChanged, readRootProfile, rootIndexHash, rootProfileFacts, storedProfileOf } from "@overstory/canopyd";
 
 function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, title = "Profile") {
   const objects = new Map<ObjectHash, Uint8Array>();
@@ -60,5 +60,36 @@ describe("profile presentation facts", () => {
       headingTitle: "Garden Club",
     });
     expect((await rootProfileFacts(source.root, source.load)).displayName).toBeUndefined();
+  });
+});
+
+describe("stored profile rows", () => {
+  test("a read records the _index.md object and the declared avatar path, even when its file is missing", async () => {
+    const source = fixture("type: person\navatar: missing.png");
+    const read = await readRootProfile(source.root, source.load);
+    expect(read.facts.avatar).toBeUndefined();
+    expect(read.avatarPath).toBe("missing.png");
+    expect(read.indexHash).toBe(await rootIndexHash(source.root, source.load));
+    expect(storedProfileOf(read)).toEqual({ indexHash: read.indexHash!, avatarPath: "missing.png", facts: read.facts });
+  });
+
+  test("a root that declares no type stores no row", async () => {
+    const source = fixture("title: Notes");
+    expect(storedProfileOf(await readRootProfile(source.root, source.load))).toBeNull();
+  });
+
+  test("only _index.md and the row's declared avatar path decide a recompute", () => {
+    const sha = `sha256:${"0".repeat(64)}` as ObjectHash;
+    const row = { indexHash: sha, avatarPath: "images/me.png", facts: { version: 3 as const, type: "person" as const, members: [] } };
+    const set = (path: string) => ({ set: [{ path, hash: sha }], removed: [] });
+    const removed = (path: string) => ({ set: [], removed: [path] });
+    expect(profileChanged(row, set("/_index.md"))).toBe(true);
+    expect(profileChanged(row, removed("/_index.md"))).toBe(true);
+    expect(profileChanged(row, set("/images/me.png"))).toBe(true);
+    expect(profileChanged(row, removed("/images/me.png"))).toBe(true);
+    expect(profileChanged(row, set("/notes.md"))).toBe(false);
+    expect(profileChanged(row, set("/sub/_index.md"))).toBe(false);
+    expect(profileChanged(null, set("/_index.md"))).toBe(true);
+    expect(profileChanged(null, set("/images/me.png"))).toBe(false);
   });
 });

@@ -175,6 +175,7 @@ than it understands. The stamps that have shipped:
 | 18 | History squashed to each tree's head (migration 016): one accepted update per tree survives under its old ordinal, which is the wire id (`accepted_updates.id` is dropped; `previous_id` becomes `previous_ordinal`, and `previous_root`, `kind`, `base_root`, `candidate_root`, `remote_root`, `merge_summary` and `transition_json` are dropped: the watch derives a transition from two roots). Each head gets a fresh editable merge state keyed by ordinal; `accepted_conflicts` and `authored_changes` are dropped; `entry_metadata` keeps only `modified_at`; `document_versions` keeps every row with an opaque `update_id`; `access.claimed_profile` is dropped; profile facts are rebuilt for current heads. No wire change; placements at a head only resume. |
 | 19 | Accepted history as log entries (migration 018, canopyd 016): each accepted update is an immutable canonical-JSON entry in `objects/` naming its predecessor's; `accepted_updates.entry` names it, and `accepted_merge_states` is dropped. Decisions live only in entries, under their old keys, so public decision and alternative ids are unchanged; an alternative's `revision` now names its value. No wire change. |
 | 20 | One access store (migration 019): a tree an account hosts in its `trees.yaml` and no account owned becomes that account's (`trees.account_id`); an owned tree is governed by its owner's `resource_policy` rules alone, which the migration rederives from every accepted configuration, and its `access` rows are deleted; `access` keeps only trees no account owns. `trees.updated_at`, `tree_reservations.status` and `.error`, `account_challenges.claim_digest` and the `community_name` meta row are dropped. `GET /access` serves an owned tree's `snapshot` from its rules, so no wire change. |
+| 21 | Profile facts per tree (migration 020, canopyd 018): `profile_facts` holds one row per tree whose head declares `type: person` or `type: group` (`tree_id`, the head's `index_hash`, the declared `avatar_path`, the `facts` JSON), rewritten only when an update touches `_index.md` or that avatar; every `meta` `profile:<root>` row is deleted, so `meta` holds only configuration keys. No wire change. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local
@@ -182,7 +183,7 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent migration directory (today `019-one-access-store/`) as the template: a `README.md` with the
+Copy the most recent migration directory (today `020-profile-facts-per-tree/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice)
 and ends by checking the result with both `assertCurrentHostSchema` and

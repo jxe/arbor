@@ -21,7 +21,7 @@ function treeLocator(origin: string, tree: HostTree): string | undefined {
   return canonicalArborLocator({ path: tree.canonicalPath as `/${string}`, endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}` });
 }
 
-export async function buildDirectory(canopy: HostDaemon, account: HostAccount, origin: string): Promise<DirectoryEntry[]> {
+export function buildDirectory(canopy: HostDaemon, account: HostAccount, origin: string): DirectoryEntry[] {
   const entries = new Map<string, DirectoryEntry>();
   const include = (profile: string, source: DirectorySource, handle?: string) => {
     const existing = entries.get(profile);
@@ -38,9 +38,12 @@ export async function buildDirectory(canopy: HostDaemon, account: HostAccount, o
     const profile = profileLocatorTree(member.profile);
     if (profile) include(profile, "community", member.handle);
   }
-  for (const group of active.filter((tree) => canopy.rootProfileType(tree.ref) === "group" && canopy.canRead(account, tree))) {
+  // Every active group in one query, visited in tree order.
+  const groups = new Map(canopy.groupProfiles().map(({ tree, facts }) => [tree, facts]));
+  for (const group of active) {
+    const facts = groups.get(group.id);
+    if (!facts || !canopy.canRead(account, group)) continue;
     include(group.id, `group:${group.id}`);
-    const facts = await canopy.profileCard(group.ref);
     for (const member of facts.members) {
       const profile = profileLocatorTree(member.profile);
       if (profile) include(profile, `group:${group.id}`, member.handle);
@@ -50,12 +53,12 @@ export async function buildDirectory(canopy: HostDaemon, account: HostAccount, o
     for (const rule of canopy.accessEntries(tree.id)) if (rule.subjectKind === "profile") include(rule.subject, "access");
   }
 
-  await Promise.all([...entries.values()].map(async (entry) => {
+  for (const entry of entries.values()) {
     const tree = trees.get(entry.profile);
     const handle = canopy.handleForProfile(entry.profile);
     if (handle) entry.handle = handle;
-    if (!tree || !canopy.canRead(account, tree)) return;
-    const card = await canopy.profileCard(tree.ref);
+    if (!tree || !canopy.canRead(account, tree)) continue;
+    const card = canopy.profileCard(tree);
     entry.kind = card.type ?? "unknown";
     const locator = treeLocator(origin, tree);
     if (locator) entry.locator = locator;
@@ -63,7 +66,7 @@ export async function buildDirectory(canopy: HostDaemon, account: HostAccount, o
     else if (card.type === "group" && card.headingTitle) entry.displayName = card.headingTitle;
     if (card.description !== undefined) entry.description = card.description;
     if (card.avatar) entry.avatar = { tree: tree.id, ...card.avatar };
-  }));
+  }
 
   const key = (entry: DirectoryEntry) => entry.displayName ?? entry.handle ?? entry.locator ?? entry.profile;
   return [...entries.values()].sort((a, b) => key(a).localeCompare(key(b), undefined, { sensitivity: "base" }));

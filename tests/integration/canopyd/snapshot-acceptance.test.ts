@@ -365,7 +365,7 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   } finally { db.close(); }
 });
 
-test("every acceptance records a log entry after its predecessor's, and only accepted profile roots have profile facts", async () => {
+test("every acceptance records a log entry after its predecessor's, and only profile trees have profile facts, for their heads", async () => {
   const left = snapshot(change(root, { "asset.bin": { file: file("left") } }));
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   await submit(left); const accepted = await submit(right);
@@ -379,12 +379,13 @@ test("every acceptance records a log entry after its predecessor's, and only acc
     for (const row of db.query("SELECT ordinal, previous_ordinal FROM accepted_updates").all() as Array<{ ordinal: number; previous_ordinal: number | null }>)
       expect(byID.get(String(row.ordinal))!.entry.previous).toBe(row.previous_ordinal === null ? null : byID.get(String(row.previous_ordinal))!.hash);
     expect(byID.get(accepted.id)!.entry.decisions).toHaveLength(1);
-    const profiles = db.query("SELECT key, value FROM meta WHERE key LIKE 'profile:%'").all() as Array<{ key: string; value: string }>;
-    expect(profiles.map(p => JSON.parse(p.value).type).every(type => type === "person" || type === "group")).toBe(true);
-    const keys = new Set(profiles.map(p => p.key));
-    expect(keys.has(`profile:${accepted.root}`)).toBe(true);
-    expect(keys.has(`profile:${refused.candidate}`)).toBe(false);
-    expect(keys.has(`profile:${right.candidate}`)).toBe(false);
+    expect(db.query("SELECT key FROM meta WHERE key LIKE 'profile:%'").all()).toEqual([]);
+    const profiles = db.query("SELECT tree_id, index_hash, facts FROM profile_facts").all() as Array<{ tree_id: string; index_hash: string; facts: string }>;
+    // The community and the owner's profile; the configuration tree has none.
+    expect(profiles).toHaveLength(2);
+    expect(profiles.map(p => JSON.parse(p.facts).type).sort()).toEqual(["group", "person"]);
+    const community = profiles.find(p => p.tree_id === tree)!;
+    expect(community.index_hash).toBe(at(accepted.root, "_index.md")!.file!);
   } finally { db.close(); }
 });
 

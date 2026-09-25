@@ -43,6 +43,17 @@ The spec leaves placement to each host; this is canopyd's policy.
 - **Group membership.** A profile subject that is a `type: group` tree grants
   its access to every member whose Profile TreeID its `members` list names;
   a legacy scalar `/~handle` member still matches by handle.
+- **Profile facts.** Authorization and the directory read a tree's `type`,
+  `members` and card fields (display name, description, avatar) from one
+  `profile_facts` row per tree whose head declares `type: person` or
+  `type: group`, never from objects. The row records the head's `_index.md`
+  object and the avatar path its frontmatter declares. An accepted update
+  recomputes it, inside its transaction, only when its entry changes set or
+  remove the root `_index.md` or that avatar path, parsing `_index.md` once
+  for the whole accept (validation shares the result); it deletes the row
+  when the head no longer declares a type. The community's accounts are
+  reconciled only when its `members` change. A tree without a row is not a
+  profile (`packages/canopyd/src/profile.ts`).
 - **Tree ownership.** A tree an account activated, or hosts in its
   `trees.yaml` while no account owns it, is that account's (`trees.account_id`):
   only the owner administers it, and the owner's resource rules alone decide

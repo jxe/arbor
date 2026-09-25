@@ -55,7 +55,11 @@ import { TreeReader } from "./updates/tree-diff.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl, accessRule } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
-import { HANDLE, handleOfPath, leadingHandle, legacyMemberHandle, memberReservations, profileLocatorTree, recordProfileFacts, rootProfileFacts, storedProfileFacts, type RootProfileFacts } from "./profile.ts";
+import {
+  HANDLE, handleOfPath, leadingHandle, legacyMemberHandle, memberReservations, profileChanged, profileLocatorTree,
+  readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
+  type RootProfileFacts, type RootProfileRead, type StoredProfile,
+} from "./profile.ts";
 import { isAccountConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
@@ -86,7 +90,7 @@ export interface HostBootstrap {
   };
 }
 
-/** The authorization-relevant profile facts of one immutable root. */
+/** The authorization-relevant profile facts of one tree's head. */
 interface RootProfile {
   type: "person" | "group" | null;
   members: RootProfileFacts["members"];
@@ -97,7 +101,18 @@ interface RootProfile {
   /** Group membership for access by a legacy `/~handle` locator alone. */
   legacyHandles: ReadonlySet<string>;
 }
-const ROOT_PROFILE_LIMIT = 1024;
+/** A tree's stored profile row and the facts authorization derives from it. */
+interface TreeProfile {
+  stored: StoredProfile | null;
+  profile: RootProfile;
+}
+const NO_PROFILE: RootProfile = { type: null, members: [], reservations: new Map(), profiles: new Set(), legacyHandles: new Set() };
+/** One accept's profile reads: each root's `_index.md` is parsed at most
+ * once, and its validations and stored facts share the result. */
+type ProfileReader = (root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>) => Promise<RootProfileRead>;
+/** A profile write an accepted update makes: a row, null to delete the row,
+ * or undefined when the update leaves `_index.md` and the avatar alone. */
+type ProfileUpdate = StoredProfile | null | undefined;
 /** Watch replay derives each update's transition from two roots; every
  * watcher of a tree replays the same recent updates. */
 const TRANSITION_CACHE_ENTRIES = 32;
@@ -225,6 +240,8 @@ interface PreparedAnswer {
  */
 interface UpdatePolicy {
   subject: string;
+  /** The accept's profile reads, shared by validation and the stored facts. */
+  profiles: ProfileReader;
   rejection?: { kind: "account-configuration"; message: string };
   merge?: MergeStrategy;
   /** Validate the complete candidate graph once, before reconciliation. */
@@ -269,8 +286,8 @@ export class ReservedBoundaryConflictError extends Error {
 export class HostDaemon implements AsyncDisposable {
   private readonly wireSchemas = new CollectionSchemaCache();
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
-  /** Parsed profile facts by immutable root hash (`rootProfile`). */
-  private readonly rootProfiles = new Map<ObjectHash, RootProfile>();
+  /** Stored profile rows by TreeID (`treeProfile`), committed state only. */
+  private readonly treeProfiles = new Map<string, TreeProfile>();
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
@@ -304,8 +321,8 @@ export class HostDaemon implements AsyncDisposable {
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
-      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group.ref, profileTree, handle),
-      rootProfileType: (tree) => this.rootProfileType(tree.ref),
+      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group.id, profileTree, handle),
+      rootProfileType: (tree) => this.rootProfileType(tree.id),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
   }
@@ -731,7 +748,7 @@ export class HostDaemon implements AsyncDisposable {
       tree.status === "active"
       && tree.canonicalPath !== null
       && tree.policy === "ordinary"
-      && this.rootProfileType(tree.ref) !== null
+      && this.rootProfileType(tree.id) !== null
       && this.canWrite(account, tree)
     );
   }
@@ -907,7 +924,8 @@ export class HostDaemon implements AsyncDisposable {
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
-    if (requiredType) await this.validateProfileRoot(snapshot.root, snapshot.objects, requiredType);
+    const profiles = this.profileReader();
+    if (requiredType) checkProfileType((await profiles(snapshot.root, snapshot.objects)).facts, requiredType);
     const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
     if (!parent) throw new Error("Canonical parent is unavailable");
     const activated = await this.insertTree(
@@ -923,6 +941,7 @@ export class HostDaemon implements AsyncDisposable {
       authentication.account.id,
       requestDigest,
       change,
+      profiles,
     );
     return activated;
   }
@@ -940,17 +959,27 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   communityMembers(): RootProfileFacts["members"] {
-    return this.rootProfile(this.community().ref).members;
+    return this.rootProfile(this.community().id).members;
   }
 
   handleForProfile(profileTree: string): string | undefined {
     return this.accounts.handleForProfile(profileTree);
   }
 
-  /** A root's complete profile facts, card fields included: its stored row,
-   * or read from the root when it has none (it is not a profile root). */
-  async profileCard(root: ObjectHash): Promise<RootProfileFacts> {
-    return storedProfileFacts(this.db, root) ?? await rootProfileFacts(root, (hash) => this.objects.read(hash));
+  /** A tree's complete profile facts, card fields included, from its stored
+   * row. A tree without a row is not a profile. */
+  profileCard(tree: string | HostTree): RootProfileFacts {
+    return this.treeProfile(idOf(tree)).stored?.facts ?? { version: 3, type: null, members: [] };
+  }
+
+  /** Every active tree whose head declares `type: group`, with its facts: one query. */
+  groupProfiles(): Array<{ tree: string; facts: RootProfileFacts }> {
+    return (this.db.query(`
+      SELECT p.tree_id, p.facts FROM profile_facts p JOIN trees t ON t.id = p.tree_id
+      WHERE t.status = 'active' AND json_extract(p.facts, '$.type') = 'group'
+      ORDER BY p.tree_id
+    `).all() as Array<{ tree_id: string; facts: string }>)
+      .map((row) => ({ tree: row.tree_id, facts: JSON.parse(row.facts) as RootProfileFacts }));
   }
 
   /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
@@ -1572,7 +1601,7 @@ export class HostDaemon implements AsyncDisposable {
           now
         );
       const changes = await this.entryChanges(current.root, root);
-      const profile = await this.profileFacts(root, proposed);
+      const profile = await this.profileUpdate(tree.id, root, changes, proposed, policy.profiles);
       markPhase("entry-changes");
       const accepted = this.acceptedStore.commit(
         {
@@ -1589,9 +1618,8 @@ export class HostDaemon implements AsyncDisposable {
         },
         () => {
           commit.withinTransaction?.();
-          recordProfileFacts(this.db, root, profile);
           // Community membership enables accounts in the same transaction.
-          if (tree.canonicalPath === "/") this.reconcileCommunityAccounts(profile);
+          this.applyProfileUpdate(tree.id, tree.canonicalPath === "/", profile);
         }
       );
       if (!accepted) continue;
@@ -1673,22 +1701,27 @@ export class HostDaemon implements AsyncDisposable {
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
       if (effects.length && (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution effects are not allowed");
     };
+    const profiles = this.profileReader();
     return {
       subject: this.subjectFor(tree, account, linkDigest, credentialSubject),
+      profiles,
       validateCandidate: async (root, objects) => {
         if (execution && !request.ifCurrent) throw new Error("Execution updates require an exact-state guard");
         await checkEffects(tree.ref, root, objects);
         await this.validateReservedBoundaries(tree, root, objects);
         const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
-        if (requiredType) await this.validateProfileRoot(root, objects, requiredType);
-        if (tree.canonicalPath === "/") await this.validateCommunityReservations(root, objects);
+        if (requiredType || tree.canonicalPath === "/") {
+          const facts = await this.candidateProfile(tree.id, root, objects, profiles);
+          if (requiredType) checkProfileType(facts, requiredType);
+          if (tree.canonicalPath === "/") this.validateCommunityReservations(facts);
+        }
       },
       validateAccepted: async (remoteTree, root, objects) => {
         await checkEffects(remoteTree.ref, root, objects);
         if (root === request.candidate) return;
         await this.validateGraph(root, objects, remoteTree.ref);
         await this.validateReservedBoundaries(remoteTree, root, objects);
-        if (remoteTree.canonicalPath === "/") await this.validateCommunityReservations(root, objects);
+        if (remoteTree.canonicalPath === "/") this.validateCommunityReservations(await this.candidateProfile(remoteTree.id, root, objects, profiles));
       },
       prepareCommit: async () => ({
         withinTransaction: () => {
@@ -1726,6 +1759,8 @@ export class HostDaemon implements AsyncDisposable {
     };
     return {
       subject: credentialSubject,
+      // A configuration tree holds only its YAML files, never `_index.md`.
+      profiles: this.profileReader(),
       rejection: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
@@ -1880,6 +1915,7 @@ export class HostDaemon implements AsyncDisposable {
     accountID?: string,
     requestDigest?: ObjectHash,
     change?: string,
+    profiles: ProfileReader = this.profileReader(),
   ): Promise<HostTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
@@ -1892,9 +1928,9 @@ export class HostDaemon implements AsyncDisposable {
       ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parentTree, [], [{ path, tree: id }], { replaceEntries: true }))
       : null;
     const staged = new Map(snapshot.objects);
-    const profile = await this.profileFacts(snapshot.root, staged);
     const entry = await this.internalEntry(id, null, snapshot.root, change ?? `initial:${id}`, staged);
     const initialChanges = await this.entryChanges(null, snapshot.root);
+    const profile = await this.profileUpdate(id, snapshot.root, initialChanges, staged, profiles);
     const now = Date.now();
     this.db.transaction(() => {
       this.db.run("INSERT INTO trees (id, ref, account_id) VALUES (?, ?, ?)", [id, snapshot.root, accountID ?? null]);
@@ -1913,7 +1949,7 @@ export class HostDaemon implements AsyncDisposable {
         entryChanges: initialChanges,
         entry,
       });
-      recordProfileFacts(this.db, snapshot.root, profile);
+      this.applyProfileUpdate(id, path === "/", profile);
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) this.advanceParent(attachment, now, credentialSubject ?? null);
@@ -1964,21 +2000,22 @@ export class HostDaemon implements AsyncDisposable {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
     const staged = new Map(rewrite.generated);
-    const profile = await this.profileFacts(rewrite.nextRoot, staged);
     const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
     const changes = await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot);
-    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, entryChanges: changes, entry, profile };
+    const profile = await this.profileUpdate(rewrite.parent.id, rewrite.nextRoot, changes, staged);
+    const community = rewrite.parent.canonicalPath === "/";
+    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, entryChanges: changes, entry, profile, community };
   }
 
   /** Advance a canonical parent inside the caller's transaction, only from the
    * update its log entry follows. */
   private advanceParent(prepared: Awaited<ReturnType<HostDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
-    const { expectedUpdate, profile, ...input } = prepared;
+    const { expectedUpdate, profile, community, ...input } = prepared;
     const accepted = this.acceptedStore.current(input.tree)?.id === expectedUpdate
       ? this.acceptedStore.advance({ ...input, acceptedAt, subject })
       : null;
     if (!accepted) throw new RefConflictError(this.get(input.tree)?.ref ?? null);
-    recordProfileFacts(this.db, input.root, profile);
+    this.applyProfileUpdate(input.tree, community, profile);
     return accepted;
   }
 
@@ -2071,15 +2108,6 @@ export class HostDaemon implements AsyncDisposable {
     }
   }
 
-  private async validateProfileRoot(
-    root: ObjectHash,
-    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
-    kind: "person" | "group",
-  ): Promise<void> {
-    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
-    if (facts.type !== kind) throw new Error(`Profile root must declare type: ${kind} in its _index.md`);
-  }
-
 
   /**
    * The two profile invariants the server enforces: an account's profile tree
@@ -2094,49 +2122,103 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Whether a group root lists this person: by Profile TreeID, or by handle
    * for a legacy scalar `/~handle` member locator. */
-  private isProfileMember(groupRoot: ObjectHash, profileTree: string, handle: string | undefined): boolean {
-    const profile = this.rootProfile(groupRoot);
+  private isProfileMember(group: string, profileTree: string, handle: string | undefined): boolean {
+    const profile = this.rootProfile(group);
     return profile.profiles.has(profileTree) || (handle !== undefined && profile.legacyHandles.has(handle));
   }
 
   /** Current-Canopy allocation policy: the community's member handles reserve /~handle. */
   private communityReservations(): ReadonlyMap<string, { profileTree?: string }> {
-    return this.rootProfile(this.community().ref).reservations;
+    return this.rootProfile(this.community().id).reservations;
   }
 
-  /** A root's profile facts, when it is a person or group profile root. */
-  private async profileFacts(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<RootProfileFacts | null> {
-    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
-    return facts.type ? facts : null;
+  /** A fresh set of profile reads for one accept (`ProfileReader`). */
+  private profileReader(): ProfileReader {
+    const reads = new Map<ObjectHash, Promise<RootProfileRead>>();
+    return (root, objects) => {
+      let read = reads.get(root);
+      if (!read) {
+        phaseTimer()?.count("profile-parse", 1);
+        read = readRootProfile(root, (hash) => this.objects.load(hash, objects));
+        reads.set(root, read);
+      }
+      return read;
+    };
+  }
+
+  /** The type and members `root` would give `tree`, for validation: the
+   * stored facts when its `_index.md` is the head's, which reads only the
+   * root directory, otherwise one parse shared with the rest of the accept. */
+  private async candidateProfile(
+    tree: string,
+    root: ObjectHash,
+    objects: ReadonlyMap<ObjectHash, Uint8Array>,
+    profiles: ProfileReader,
+  ): Promise<RootProfileFacts> {
+    const stored = this.treeProfile(tree).stored;
+    if (stored && await rootIndexHash(root, (hash) => this.objects.load(hash, objects)) === stored.indexHash) return stored.facts;
+    return (await profiles(root, objects)).facts;
+  }
+
+  /** The profile write an update of `tree` to `root` makes, decided from its
+   * entry changes: recomputed only when they touch the root `_index.md` or the
+   * avatar file the stored row declares. Runs before the accept transaction. */
+  private async profileUpdate(
+    tree: string,
+    root: ObjectHash,
+    changes: EntryChanges,
+    objects: ReadonlyMap<ObjectHash, Uint8Array>,
+    profiles: ProfileReader = this.profileReader(),
+  ): Promise<ProfileUpdate> {
+    if (!profileChanged(this.treeProfile(tree).stored, changes)) return undefined;
+    return storedProfileOf(await profiles(root, objects));
+  }
+
+  /** Write a profile update inside its accept transaction. When the community's
+   * members change, its accounts are reconciled in the same transaction. */
+  private applyProfileUpdate(tree: string, community: boolean, update: ProfileUpdate): void {
+    if (update === undefined) return;
+    const before = readStoredProfile(this.db, tree);
+    writeStoredProfile(this.db, tree, update);
+    this.treeProfiles.delete(tree);
+    if (community && stableJSONString(before?.facts.members ?? []) !== stableJSONString(update?.facts.members ?? [])) {
+      this.reconcileCommunityAccounts(update?.facts ?? null);
+    }
   }
 
   /**
-   * Authorization reads each accepted root's stored profile facts (see
-   * `storedProfileFacts` in profile.ts) by immutable root hash, so it never reparses mutable
-   * filesystem state or treats display names as identity. A root without a
-   * row declares no profile type.
+   * Authorization reads each tree's stored profile facts (`profile_facts`,
+   * written with the accepted head), so it never reparses mutable filesystem
+   * state or treats display names as identity. A tree without a row declares
+   * no profile type. Only committed rows are cached: a row read inside a
+   * transaction may yet roll back.
    */
-  private rootProfile(root: ObjectHash): RootProfile {
-    const cached = this.rootProfiles.get(root);
+  private treeProfile(tree: string): TreeProfile {
+    const cached = this.treeProfiles.get(tree);
     if (cached) return cached;
-    const profile = storedProfileFacts(this.db, root);
-    // Not memoized: a profile root's facts are stored when it is accepted.
-    if (!profile) return { type: null, members: [], reservations: new Map(), profiles: new Set(), legacyHandles: new Set() };
-    const facts: RootProfile = {
-      type: profile.type,
-      members: profile.members,
-      reservations: memberReservations(profile.members),
-      profiles: memberProfiles(profile.members),
-      legacyHandles: new Set(profile.members.flatMap((member) => legacyMemberHandle(member) ?? [])),
+    const stored = readStoredProfile(this.db, tree);
+    const members = stored?.facts.members ?? [];
+    const value: TreeProfile = {
+      stored,
+      profile: stored ? {
+        type: stored.facts.type,
+        members,
+        reservations: memberReservations(members),
+        profiles: memberProfiles(members),
+        legacyHandles: new Set(members.flatMap((member) => legacyMemberHandle(member) ?? [])),
+      } : NO_PROFILE,
     };
-    if (this.rootProfiles.size >= ROOT_PROFILE_LIMIT) this.rootProfiles.delete(this.rootProfiles.keys().next().value!);
-    this.rootProfiles.set(root, facts);
-    return facts;
+    if (!this.db.inTransaction) this.treeProfiles.set(tree, value);
+    return value;
   }
 
-  /** The root document's `type: person` or `type: group`, or null when it declares neither. */
-  rootProfileType(root: ObjectHash): "person" | "group" | null {
-    return this.rootProfile(root).type;
+  private rootProfile(tree: string): RootProfile {
+    return this.treeProfile(tree).profile;
+  }
+
+  /** The tree head's `type: person` or `type: group`, or null when it declares neither. */
+  rootProfileType(tree: string | HostTree): "person" | "group" | null {
+    return this.rootProfile(idOf(tree)).type;
   }
 
   /**
@@ -2192,8 +2274,7 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** A community update may not reserve a handle whose /~name a tree already holds. */
-  private async validateCommunityReservations(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
-    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
+  private validateCommunityReservations(facts: RootProfileFacts): void {
     const current = this.communityReservations();
     for (const handle of memberReservations(facts.members).keys()) {
       if (!current.has(handle) && this.nameHeldByTree(handle)) {
@@ -2251,6 +2332,11 @@ export class HostDaemon implements AsyncDisposable {
 function deviceTokenDigest(credentialDigest: string): string {
   if (!/^sha256:[a-f0-9]{64}$/.test(credentialDigest)) throw new Error("Device credential digest is invalid");
   return credentialDigest.slice("sha256:".length);
+}
+
+/** An account profile keeps `type: person` and the community root `type: group`. */
+function checkProfileType(facts: RootProfileFacts, kind: "person" | "group"): void {
+  if (facts.type !== kind) throw new Error(`Profile root must declare type: ${kind} in its _index.md`);
 }
 
 function idOf(tree: string | HostTree): string {

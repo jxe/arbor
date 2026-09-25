@@ -395,7 +395,7 @@ export async function serveHost(options: {
           if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
           const authenticated = requireAccount(authentication);
           return json({
-            snapshot: await buildDirectory(canopy, authenticated, publicOrigin),
+            snapshot: buildDirectory(canopy, authenticated, publicOrigin),
             observedThrough: canopy.observedThrough(),
           });
         }

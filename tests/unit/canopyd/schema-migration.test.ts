@@ -50,7 +50,7 @@ describe("Canopy schema version stamp", () => {
 
     const reopened = await HostDaemon.open(root);
     expect(reopened.community().kind).toBe("ordinary");
-    expect(reopened.rootProfileType(reopened.community().ref)).toBe("group");
+    expect(reopened.rootProfileType(reopened.community())).toBe("group");
     await reopened[Symbol.asyncDispose]();
   });
 
@@ -66,15 +66,26 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 20 is current: a schema-19 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("20");
+  test("schema 21 is current: a schema-20 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("21");
     const root = await dataRoot();
     const first = await HostDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
-    db.run("UPDATE meta SET value = '19' WHERE key = 'schema_version'");
+    db.run("UPDATE meta SET value = '20' WHERE key = 'schema_version'");
     db.close();
-    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 19 but this build requires 20.*run the offline migration/);
+    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 20 but this build requires 21.*run the offline migration/);
+  });
+
+  test("a root without the profile_facts table is a schema mismatch", async () => {
+    const root = await dataRoot();
+    const first = await HostDaemon.open(root, bootstrap);
+    await first[Symbol.asyncDispose]();
+    expect(columns(join(root, "canopy.sqlite3"), "profile_facts")).toEqual(["tree_id", "index_hash", "avatar_path", "facts"]);
+    const db = new Database(join(root, "canopy.sqlite3"));
+    db.run("DROP TABLE profile_facts");
+    db.close();
+    await expect(HostDaemon.open(root)).rejects.toBeInstanceOf(SchemaMismatchError);
   });
 
   test("refuses a database stamped with a different version", async () => {

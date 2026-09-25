@@ -128,7 +128,7 @@ it, and never on the acceptance path.
 
 1. **Actor recording.** Columns, derivation at every acceptance path (ordinary
    updates, account configuration, boundary rewrites, tree creation), invariant
-   checks, and the next free migration (after canopyd 018's) adding the columns
+   checks, and the next free migration (after migration 020) adding the columns
    and backfilling post-squash rows. Rehearse on a production copy.
 2. **Portable actor.** Replace `subject` with `actor` in TS, Swift, fixtures, spec
    (`01-tree-operations.md`) and docs together.

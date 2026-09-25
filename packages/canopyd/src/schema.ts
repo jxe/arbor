@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "./updates/store.ts";
+import { createProfileFactsTable } from "./profile.ts";
 
 /**
  * Stamped into `meta.schema_version` when the database is created. A stored
@@ -8,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "20";
+export const CANOPY_SCHEMA_VERSION = "21";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "account_id"],
@@ -25,6 +26,7 @@ export const AUTHORITY_SCHEMA = {
   tree_reservations: ["id", "account_id", "canonical_path"],
   entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
+  profile_facts: ["tree_id", "index_hash", "avatar_path", "facts"],
   meta: ["key", "value"],
 } as const;
 
@@ -110,6 +112,7 @@ export function createHostSchema(db: Database): void {
     )
   `);
   createAccessTable(db);
+  createProfileFactsTable(db);
   db.run(`
     CREATE TABLE meta (
       key TEXT PRIMARY KEY,
