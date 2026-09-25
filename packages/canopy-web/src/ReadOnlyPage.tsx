@@ -3,7 +3,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import type { NodeSnapshot } from "@overstory/arborsync-client";
 import type { NodeSummary } from "@overstory/protocol";
-import { resolveLogicalURL } from "@overstory/protocol/logical-url";
+import { markdownSourceDirectory, resolveLogicalURL } from "@overstory/protocol/logical-url";
 import {
   ManagedRowsContext,
   arborEditorExtensions,
@@ -40,7 +40,7 @@ export function ReadOnlyPage({ node, children: childItems, navigate }: {
   const children = useMemo(() => new Map(childItems.map((child) => [child.ref.path, child])), [childItems]);
   const managedRows = useMemo<ManagedRowsController>(() => ({
     resolve: (rawPath) => {
-      const link = resolveLogicalURL(node.ref.path, rawPath);
+      const link = resolveLogicalURL(markdownSourceDirectory(node.ref.path, node.content?.representation?.origin ?? "sibling"), rawPath);
       return link?.kind === "local" && children.has(link.path) ? link.path : null;
     },
     kind: (path) => {
@@ -65,7 +65,7 @@ export function ReadOnlyPage({ node, children: childItems, navigate }: {
         const anchor = (event.target as Element).closest("a");
         const href = anchor?.getAttribute("href");
         if (!href) return;
-        const link = resolveLogicalURL(node.ref.path, href);
+        const link = resolveLogicalURL(markdownSourceDirectory(node.ref.path, node.content?.representation?.origin ?? "sibling"), href);
         if (link?.kind !== "local") return;
         event.preventDefault();
         navigate(link.path);

@@ -95,9 +95,33 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## File-relative Markdown links and readable key tokens — 2026-09-25
+
+Implemented; not deployed, installed, or run against the todos tree
+([Cleanup 001](plans/soon/001-file-relative-links-and-pageid-cutoff.md)). A
+relative link in Markdown resolves from the directory holding its source file
+and names the target's body file (`Calendar.md`, `x/_index.md`), so Obsidian
+and other Markdown readers follow it; a stable key is the readable token
+`#arbor-key=id:h31mlm` or `;arbor-key=id:h31mlm` everywhere except the `~row-`
+segment ([locators §2](docs/overstory-spec/03-locators.md#2-stable-keys-revisions-and-fragments)).
+A bare `#fragment` is only a content fragment, the `arbor://…/node/…?stableKey=`
+read shim is gone, Markdown IDs convert to keys only through
+`markdown-identity.ts` and Swift's `markdownStableKey`, and Arbor Sync's owner
+maps are keyed by stable key. Same-tree Swift document rows are relative
+links; moving or re-forming a page heals its own outbound links as well as
+inbound ones (`healMarkdownLinks`, TS and Swift). The Swift search index is
+format 2 and rebuilds from older files. Evidence: the shared vectors
+`url-resolution`, `node-targets`, `stable-key-tokens`,
+`markdown-source-directories`, `markdown-links`, `markdown-link-healing`,
+`markdown-link-destinations` and `directory-documents` pass in TypeScript
+(`tests/unit/logical-url.test.ts`, `directory-document.test.ts`) and Swift
+(`LogicalURLTests`, `CanopyWorkingTreeTests`, `CanopyEditorTests`);
+`tests/unit/canopyd/public-page.test.ts`; `tests/integration/workspace.test.ts`.
+The todos rewrite is [migration 021](packages/canopyd/migrations/021-file-relative-links/README.md).
+
 ## Arbor Sync folder deltas, pause and pending — 2026-09-25
 
-Implemented on a branch, not merged or installed. A folder change against an
+Implemented; Arbor Sync not yet restarted on it. A folder change against an
 accepted basis sends each changed file and directory as an object delta from
 the object at the same path whenever that is smaller, as Swift editors already
 did; a change chained on an unsettled change still sends whole objects. The

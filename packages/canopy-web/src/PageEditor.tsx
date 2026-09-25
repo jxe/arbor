@@ -16,8 +16,7 @@ import type {
   StructuralWorkspaceOperation,
 } from "@overstory/arborsync-client";
 import { canonicalNodePath } from "@overstory/protocol/logical-path";
-import { legacyPageIDCandidate, resolveLogicalURL } from "@overstory/protocol/logical-url";
-import { pageIDFromStableKey, pageIDStableKey } from "@overstory/protocol/node-key";
+import { markdownSourceDirectory, resolveLogicalURL } from "@overstory/protocol/logical-url";
 import { api, type BrowserMutationResult } from "@overstory/arborsync-client/api";
 import {
   EditorCoordinator,
@@ -26,7 +25,7 @@ import {
   type HistoryEntry,
 } from "./editor-coordinator.ts";
 import { importEntries } from "./file-drop.ts";
-import { hasChildren, nodeDocument, presentationKind } from "./node-presentation.ts";
+import { hasChildren, nodeDocument, presentationBody, presentationKind } from "./node-presentation.ts";
 import {
   arborSchema,
   arborEditorExtensions,
@@ -356,21 +355,22 @@ interface ChildDocumentRow {
   materialization: string;
 }
 
+/** The directory a node's relative links resolve from. */
+function sourceDirectory(node: NodeResponse): string {
+  return markdownSourceDirectory(node.ref.path, node.content?.representation?.origin ?? (hasChildren(node) ? "index" : "sibling"));
+}
+
 function childDocumentRows(directory: string, blocks: readonly ArborBlock[], children: readonly NodeSummary[]): ChildDocumentRow[] {
   const childByPath = new Map(children.map((child) => [canonicalNodePath(child.ref.path), child]));
-  const childByPageID = new Map(children.flatMap((child) => {
-    const pageID = pageIDFromStableKey(child.ref.stableKey);
-    return pageID ? [[pageID, child] as const] : [];
-  }));
+  const childByStableKey = new Map(children.flatMap((child) => child.ref.stableKey ? [[child.ref.stableKey, child] as const] : []));
   const matched = new Set<NodeSummary>();
   const rows: ChildDocumentRow[] = [];
   const walk = (items: readonly ArborBlock[]): void => {
     for (const block of items) {
       if (block.type === "standaloneLink") {
         const link = resolveLogicalURL(directory, String(block.props?.path ?? ""));
-        const pageID = link ? legacyPageIDCandidate(link) : null;
         const child = link?.kind === "local"
-          ? (pageID && childByPageID.get(pageID)) || childByPath.get(link.path)
+          ? (link.stableKey && childByStableKey.get(link.stableKey)) || childByPath.get(link.path)
           : undefined;
         if (child && !matched.has(child)) {
           matched.add(child);
@@ -419,16 +419,17 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
   const childrenRevision = physicalChildren.map((child) => `${child.ref.path}:${presentationKind(child)}:${child.materialization}`).join("\0");
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.ref.path, child])), [childrenRevision]);
   const placedDocument = useMemo(() => markdownDocument && isDirectory
-    ? placeDirectoryChildren(node.ref.path, markdownDocument, physicalChildren.map((child) => ({
+    ? placeDirectoryChildren({ path: node.ref.path, body: node.content?.representation?.origin ?? "index" }, markdownDocument, physicalChildren.map((child) => ({
       name: child.name,
       path: child.ref.path,
+      body: presentationBody(child),
       stableKey: child.ref.stableKey,
     }))).document
     : markdownDocument,
   [node.capabilities.content?.revision, childrenRevision, isDirectory]);
   const initial = placedDocument?.blocks ?? authored;
   const childRows = useMemo(
-    () => childDocumentRows(node.ref.path, initial, physicalChildren),
+    () => childDocumentRows(sourceDirectory(node), initial, physicalChildren),
     [node.capabilities.content?.revision, childrenRevision],
   );
   const managedOrder = childRows.map((row) => row.ref.path);
@@ -875,9 +876,9 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     await flushAutosave();
     const before = currentBlocks();
     const previewResult = reorderChildLinks(before, {
-      directory: node.ref.path,
+      sourceDirectory: sourceDirectory(node),
       removePaths: paths,
-      insertMoves: paths.map((path) => ({ oldPath: path, newPath: path })),
+      insertMoves: paths.map((path) => ({ oldPath: path, newPath: path, newBody: childrenByPath.get(path) ? presentationBody(childrenByPath.get(path)!) : null })),
       beforePath,
       beforeBlockId,
     });
@@ -1300,17 +1301,11 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     const anchor = (event.target as Element).closest("a");
     const href = anchor?.getAttribute("href");
     if (!href) return;
-    // Every document resolves links from its canonical logical address as a
-    // directory-like base, regardless of leaf/directory/_index.md backing.
-    const link = resolveLogicalURL(node.ref.path, href);
+    // Links resolve from the directory holding the document's body file.
+    const link = resolveLogicalURL(sourceDirectory(node), href);
     if (link?.kind === "external") return;
     event.preventDefault();
-    if (link?.kind === "local") {
-      const pageID = legacyPageIDCandidate(link);
-      navigate(pageID ? { tree: node.ref.tree, path: link.path, stableKey: pageIDStableKey(pageID) } : link.path);
-    } else if (link?.kind === "fragment") {
-      navigate({ tree: node.ref.tree, path: node.ref.path, stableKey: pageIDStableKey(legacyPageIDCandidate(link)!) });
-    }
+    if (link?.kind === "local") navigate(link.stableKey ? { tree: node.ref.tree, path: link.path, stableKey: link.stableKey } : link.path);
     // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };
   const closePageActions = () => {

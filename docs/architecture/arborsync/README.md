@@ -17,7 +17,7 @@ supplies request protection and error handling and composes the handlers:
 `Workspace` owns one placed folder: filesystem and object-source lifecycle,
 descriptor and scope, watcher subscription, and change observations. Its
 `editor` component owns node and provider projection, stable-key resolution,
-link healing, and generated types; it has no mutation API. `TreeObjectCache`
+and generated types; it has no mutation API. `TreeObjectCache`
 composes the filesystem source, durable pending objects, and the host, in that
 order; file bytes stay in their files, with no mirror.
 
