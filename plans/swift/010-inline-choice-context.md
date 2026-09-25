@@ -14,7 +14,7 @@ submission and accepted transitions; a submitted draft is an ordinary change-log
 record carrying `resolves` (Clients 001). Native owns presentation and navigation.
 EditorBridge and Quagmire own source selection, rendering and accessories, not
 conflict policy. [008](../soon/008-complete-native-move-copy-undo-capture.md) owns operation
-capture; [canopyd 014](../soon/014-merge-moved-text.md) owns server
+capture; [canopyd 014](../canopyd/014-merge-handles-many-cases.md) owns server
 reconciliation; [Web 025](../canopy-web/025-arbor-web.md) Phase 9 owns the TypeScript
 review controller. Held folders (refused changes) are a different surface, owned by
 [012](012-show-held-folders.md).

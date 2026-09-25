@@ -13,14 +13,14 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 |---|---|
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
-| canopyd [014](soon/014-merge-moved-text.md) | Merge the moved-text forms still held for review (Swift/Python declarations, cross-file structured moves, cross-document references) |
 | canopyd [018](soon/018-profile-facts-per-tree.md) | Profile facts stored once per tree (migration 020) |
 
 ## Remaining outcomes
 
 | Outcome | What remains | Start here |
 |---|---|---|
-| Extend Native editing and conflict review | Additional move/copy/undo cases and accepted choices shown in their editor context; the core capture, sync and review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md) and [010](swift/010-inline-choice-context.md); server transfer policy in canopyd [014](soon/014-merge-moved-text.md) |
+| Extend Native editing and conflict review | Additional move/copy/undo cases and accepted choices shown in their editor context; the core capture, sync and review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md) and [010](swift/010-inline-choice-context.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
+| Make the merge handle many more cases | Measure which reviews users hit, then widen the automatic subsets with explicit proofs: anchors that agree in both orders, cross-document links, new keys and set-like arrays in JSON/YAML, declaration moves in Swift, Go, Rust and Python, imports, and formats such as BibTeX and notebooks | canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Show held folders in the Mac app | List placed folders whose changes the host refused and offer Discard Refused Changes | Native [012](swift/012-show-held-folders.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
 | Make Overstory applications executable | Headless sidecar with resource policy → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow. Declarative collection schemas are implemented; their Swift edits await the [Mac gates](verification/release-and-soak.md#collection-schema-mac-gates) | Apps [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
