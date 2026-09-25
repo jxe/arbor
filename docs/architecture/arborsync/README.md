@@ -29,6 +29,15 @@ machine without a second copy of the tree, and why the Mac app's in-memory
 working tree needs no content store of its own. The daemon has no editor
 path.
 
+`FolderSync` publishes each scan as one `trace: null` change carrying exactly
+the objects its basis lacks. Against an accepted basis a changed file or
+directory travels as an object delta from the object at the same path there,
+whenever the delta is smaller; `transitionPayload` in `@overstory/protocol`
+pairs and sizes them, the same code canopyd uses for accepted transitions,
+and objects over 64 MiB always go whole. A change chained on an unsettled
+change sends its objects whole, because canopyd resolves delta bases against
+the request's accepted base root.
+
 ## Durability and observation
 
 The daemon uses a private intent journal, recovery bookkeeping, filesystem

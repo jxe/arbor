@@ -7,6 +7,8 @@ import {
   encodeCandidateUpdateJSON,
   hashObject,
   decodeBase64,
+  transitionPayload,
+  TreeReader,
   ProtocolError,
   protocolEntryObject,
   ProtocolClient,
@@ -55,10 +57,10 @@ export function folderStateRoot(tree: string): string {
   return join(arborPrivateRoot(), "trees", Buffer.from(tree).toString("base64url"));
 }
 
-/** Bytes a pending local change in `log` carries. */
+/** Bytes a pending local change in `log` carries, whole or as a delta. */
 export async function pendingBytes(log: ChangeLog, hash: string): Promise<Uint8Array | undefined> {
   for (const record of await log.retained()) {
-    const object = record.update.objects.find((object) => object.hash === hash);
+    const object = record.candidate.objects.find((object) => object.hash === hash);
     if (object) return decodeBase64(object.bytes);
   }
   return undefined;
@@ -280,7 +282,7 @@ export class FolderSync implements AcceptedTree {
     if (appended) await this.coordinator.noteLocalChange();
   }
 
-  /** A `trace: null` change from what the folder held to what it holds: both graphs sparse (directories, plus the candidate's new files), the element carrying exactly the objects its basis lacks. */
+  /** A `trace: null` change from what the folder held to what it holds: both graphs sparse (directories, plus the candidate's new files), the element carrying exactly the objects its basis lacks, whole or as deltas. */
   private async prepare(known: KnownFolder, lazy: LazyTreeSnapshot): Promise<LocalChange> {
     let graph: TreeSnapshot;
     let graphJSON: LocalChange["graph"] | undefined;
@@ -310,8 +312,20 @@ export class FolderSync implements AcceptedTree {
     }
     const candidate: TreeSnapshot = { root: lazy.root, objects };
     const change = `folder-${crypto.randomUUID()}`;
-    const update = encodeCandidateUpdateJSON({ change, candidate: lazy.root, trace: null, resolves: [], deltas: [],
-      objects: [...objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })) });
+    // Against an accepted basis each changed object may go as a delta from
+    // the object at its path there, which the host retains. A chained
+    // authored basis is not retained when the host preflights the request,
+    // so its objects go whole.
+    const payload = known.basis.kind === "accepted"
+      ? await transitionPayload(graph.root, lazy.root, new TreeReader(async (hash) => {
+        const bytes = objects.get(hash) ?? graph.objects.get(hash) ?? await this.host.objectBytes(hash);
+        if (!bytes) throw new UpdateValidationError(`Accepted object is unavailable: ${hash}`);
+        return bytes;
+      }, { verified: true }), { known: retained })
+      : { objects: [...objects].filter(([hash]) => !graph.objects.has(hash)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+    const update = encodeCandidateUpdateJSON({ change, candidate: lazy.root, trace: null, resolves: [],
+      deltas: payload.deltas.sort((a, b) => a.result.localeCompare(b.result)),
+      objects: payload.objects.sort((a, b) => a.hash.localeCompare(b.hash)) });
     return { change, tree: this.tree, basis: known.basis, graph: graphJSON ?? snapshotJSON(graph), sourcePath: null, document: null,
       candidate: snapshotJSON(candidate), update };
   }

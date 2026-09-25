@@ -95,6 +95,18 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Arbor Sync folder deltas — 2026-09-25
+
+Implemented on a branch, not merged or installed. A folder change against an
+accepted basis sends each changed file and directory as an object delta from
+the object at the same path whenever that is smaller, as Swift editors already
+did; a change chained on an unsettled change still sends whole objects. The
+pairing and size rule moved from canopyd's accepted transitions into
+`transitionPayload` in `@overstory/protocol`, with `walkTreeDiff` beside it, and
+canopyd now calls it. Evidence: `tests/integration/folder-deltas.test.ts` (a
+large Markdown edit publishes as a delta and canopyd accepts it; a chained
+change goes whole), and the unchanged `accepted-transition` tests.
+
 ## Overstory identifiers and UI copy — 2026-09-24
 
 Implemented; Swift unverified; Mac app build and install pending. Cleanup 006

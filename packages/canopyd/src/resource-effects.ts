@@ -1,5 +1,4 @@
-import { canonicalNodePath, type AccessOperation, type ObjectHash } from "@overstory/protocol";
-import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./updates/tree-diff.ts";
+import { canonicalNodePath, treeReader, walkTreeDiff, type AccessOperation, type LoadObject, type ObjectHash, type TreeReader } from "@overstory/protocol";
 export interface ResourceEffect {
   path: string;
   operation: AccessOperation;
@@ -11,7 +10,7 @@ const opaque = (name: string) => name.startsWith("_") || name === "schema.cddl" 
 export async function resourceEffects(
   before: ObjectHash,
   after: ObjectHash,
-  load: Load | TreeReader
+  load: LoadObject | TreeReader
 ): Promise<ResourceEffect[]> {
   const reader = treeReader(load);
   const result: ResourceEffect[] = [];
