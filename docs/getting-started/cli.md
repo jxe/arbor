@@ -298,6 +298,30 @@ arbor mv --dry-run https://old.example/~joe/todos https://arb.example/~joe/todos
 arbor mv https://old.example/~joe/todos https://arb.example/~joe/todos
 ```
 
+### `arbor pause`, `arbor resume`, `arbor pending`
+
+```text
+arbor pause <placed-path>
+arbor resume <placed-path>
+arbor pending <placed-path> [--json]
+```
+
+`arbor pause` stops Arbor Sync publishing the placed folder that holds the
+path, until `arbor resume`, including across daemon restarts; accepted updates
+from other devices still arrive. `arbor status` reports the tree as `paused`.
+`arbor pending` shows exactly what Arbor Sync would send next: the accepted
+base and candidate roots, the count of whole objects and deltas, each file
+delta read against its base text (unchanged spans collapse to their byte count
+and lines), each changed directory's added, removed and changed entries, and
+new files with their text. `--json` prints the exact update request body.
+Resume publishes the change the last `arbor pending` showed.
+
+```sh
+arbor pause ~/Documents/notes
+arbor pending ~/Documents/notes
+arbor resume ~/Documents/notes
+```
+
 ## Related executables
 
 `canopyd` and `arborsync` are separate executables with their own process-level

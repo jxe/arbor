@@ -7,7 +7,7 @@ import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 
 type SyncHTTPService = Pick<ArborSyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
-  "objectBytes" | "discardHeldChanges" | "resolveLocator">;
+  "objectBytes" | "discardHeldChanges" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -100,6 +100,17 @@ export function syncHandler(service: SyncHTTPService, options: {
       if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", "Discarding held changes requires a tree", 400);
       await service.discardHeldChanges(body.tree);
       return json({ tree: body.tree });
+    }
+    if (request.method === "POST" && (url.pathname === "/v1/placements/pause" || url.pathname === "/v1/placements/resume")) {
+      const body = await request.json() as { tree?: unknown };
+      const pause = url.pathname === "/v1/placements/pause";
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", `${pause ? "Pausing" : "Resuming"} a placement requires a tree`, 400);
+      return json(pause ? await service.pauseFolder(body.tree) : await service.resumeFolder(body.tree));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/pending") {
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "pending requires explicit tree scope", 400);
+      return json(await service.pendingUpdate(tree));
     }
     if (request.method === "GET" && url.pathname === "/v1/resolve") {
       const locator = url.searchParams.get("locator");

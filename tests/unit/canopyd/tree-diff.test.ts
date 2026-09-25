@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { TreeReader, walkTreeDiff } from "../../../packages/canopyd/src/updates/tree-diff.ts";
+import { encodeProtocolDirectory, hashObject, TreeReader, walkTreeDiff, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { buildAcceptedTransitionPayload } from "../../../packages/canopyd/src/updates/transition.ts";
 import { entryChanges } from "../../../packages/canopyd/src/updates/entry-metadata.ts";
 

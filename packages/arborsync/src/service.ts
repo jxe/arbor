@@ -9,6 +9,7 @@ import type {
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
+  UpdateRequestJSON,
 } from "@overstory/protocol";
 import { canonicalNodePath, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
@@ -20,6 +21,14 @@ import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@overstory/client";
+
+/** `GET /v1/pending`: the request a placed folder would publish next, and the accepted base it names. */
+export interface PendingUpdate {
+  tree: string;
+  paused: boolean;
+  base: { root: string; update: string } | null;
+  request: UpdateRequestJSON | null;
+}
 
 /** What a loopback client needs to open a placed tree as its own working tree. */
 export type BootstrapTreeDescriptor = Pick<
@@ -404,18 +413,41 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return result;
   }
 
-  /** A placed tree's synchronization as its update machine presents it, with its unsettled local changes. */
-  async syncPresentation(tree: string) {
+  private folderSync(tree: string): FolderSync {
     const folder = this.folders.get(tree);
     if (!folder) throw new ProtocolError("not-found", `Tree has no synchronizing placement: ${tree}`, 404, { tree });
-    return folder.sync.coordinator.presentation();
+    return folder.sync;
+  }
+
+  /** A placed tree's synchronization as its update machine presents it, with its unsettled local changes. */
+  async syncPresentation(tree: string) {
+    return this.folderSync(tree).coordinator.presentation();
   }
 
   /** Discard a tree's held request and every change authored on it; the folder returns to the accepted state. */
   async discardHeldChanges(tree: string): Promise<void> {
-    const folder = this.folders.get(tree);
-    if (!folder) throw new ProtocolError("not-found", `Tree has no synchronizing placement: ${tree}`, 404, { tree });
-    await folder.sync.discardHeldChanges();
+    await this.folderSync(tree).discardHeldChanges();
+  }
+
+  /** Stop publishing a placed folder's changes until resumed, across restarts. */
+  async pauseFolder(tree: string): Promise<{ tree: string; paused: boolean }> {
+    const sync = this.folderSync(tree);
+    await sync.pause();
+    return { tree, paused: sync.isPaused };
+  }
+
+  /** Publish a paused folder's changes again, starting with a scan of what it holds. */
+  async resumeFolder(tree: string): Promise<{ tree: string; paused: boolean }> {
+    const sync = this.folderSync(tree);
+    await sync.resume();
+    return { tree, paused: sync.isPaused };
+  }
+
+  /** Exactly what the folder's next publication would POST, without sending or retaining it. */
+  async pendingUpdate(tree: string): Promise<PendingUpdate> {
+    const sync = this.folderSync(tree);
+    const pending = await sync.preview();
+    return { tree, paused: sync.isPaused, base: pending?.base ?? null, request: pending?.request ?? null };
   }
 
   /** The runner for one placed folder, created on first use and again after the folder moves. */

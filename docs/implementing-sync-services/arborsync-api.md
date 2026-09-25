@@ -20,7 +20,8 @@ credentials or access-link secrets.
 placed folder's synchronization client plus the loopback services a
 working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
 `GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`,
-`POST /v1/sync`, `POST /v1/placements/move`,
+`POST /v1/sync`, `POST /v1/placements/move`, `POST /v1/placements/pause`,
+`POST /v1/placements/resume`, `GET /v1/pending`,
 `GET /v1/bootstrap` and `GET /v1/credential` (§3b),
 `GET /v1/objects/{hash}` (§3a), the data-home identity and account
 bootstrap routes (§4), and `GET /v1/events` (§5). The Mac app's client in
@@ -73,7 +74,7 @@ type LocalTreeDescriptor = TreeDescriptor & {
   name: string;
   placement: "placed" | "replica" | "remote";
   osPath?: string;
-  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error" | "paused";
   missing?: boolean;
 };
 
@@ -372,6 +373,28 @@ log, catches up to the host's current state, and writes that state to the
 folder, replacing the refused bytes. Accepted alternatives (`conflicted: true`)
 are not held: they are accepted state, reviewed through the host's conflict
 inspection like any other working-tree client's.
+
+A person can also pause a placed folder to see what the daemon would publish
+before it sends it:
+
+```text
+POST /v1/placements/pause    { "tree": "<TreeID>" }   → { tree, paused: true }
+POST /v1/placements/resume   { "tree": "<TreeID>" }   → { tree, paused: false }
+GET  /v1/pending?tree=<TreeID>                       → { tree, paused, base, request }
+```
+
+While paused, scans append nothing to the change log and the tree reports
+`sync: "paused"` (or `conflict` while a request is held); accepted updates
+still arrive and are written to the folder when it holds no local edit. The
+pause is durable across daemon restarts. Resume clears it and scans at once.
+`GET /v1/pending` returns the exact `UpdateRequestJSON` the next publication
+would POST: the log's unsettled chain plus, when the folder differs from what
+it last held, the change a scan would append, and `base`, the accepted
+`{ root, update }` the request names. It sends and retains nothing, and the
+next scan of an unchanged folder publishes the change it prepared, so the
+request resume sends is the one the last `pending` showed. `request` and
+`base` are null when nothing is pending. Changes already in the change log
+before a pause still publish.
 
 ## 5. Snapshot then observe
 

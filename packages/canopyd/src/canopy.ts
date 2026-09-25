@@ -7,7 +7,7 @@ import { MergeHistory } from "./updates/merge-history.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, type DecisionPage } from "@overstory/protocol";
+import { checkPlainTrace, TreeReader, type DecisionPage } from "@overstory/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -51,7 +51,6 @@ import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/rec
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
-import { TreeReader } from "./updates/tree-diff.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl, accessRule } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";

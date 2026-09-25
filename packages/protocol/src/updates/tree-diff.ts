@@ -5,9 +5,9 @@ import {
   type ObjectHash,
   type ProtocolDirectory,
   type ProtocolDirectoryEntry,
-} from "@overstory/protocol";
+} from "../objects.ts";
 
-export type Load = (hash: ObjectHash) => Promise<Uint8Array>;
+export type LoadObject = (hash: ObjectHash) => Promise<Uint8Array>;
 
 /**
  * Reads each object once, checks its hash once, and decodes each directory
@@ -19,7 +19,7 @@ export class TreeReader {
   private readonly objects = new Map<ObjectHash, Promise<Uint8Array>>();
   private readonly directories = new Map<ObjectHash, Promise<ProtocolDirectory>>();
 
-  constructor(private readonly load: Load, private readonly options: { verified?: boolean } = {}) {}
+  constructor(private readonly load: LoadObject, private readonly options: { verified?: boolean } = {}) {}
 
   bytes(hash: ObjectHash): Promise<Uint8Array> {
     let bytes = this.objects.get(hash);
@@ -43,12 +43,12 @@ export class TreeReader {
   }
 }
 
-export function treeReader(load: Load | TreeReader): TreeReader {
+export function treeReader(load: LoadObject | TreeReader): TreeReader {
   return load instanceof TreeReader ? load : new TreeReader(load);
 }
 
 /** One directory level of a walk: either side is absent where that side has no directory. */
-interface DirectoryPair {
+export interface DirectoryPair {
   path: string;
   depth: number;
   before: { hash: ObjectHash; directory: ProtocolDirectory } | null;
@@ -56,7 +56,7 @@ interface DirectoryPair {
 }
 
 /** One name whose entry differs between the two sides. */
-interface EntryPair {
+export interface EntryPair {
   /** `/`-joined from the walk's root, without a trailing slash; the root is `""`. */
   path: string;
   parent: string;
@@ -66,7 +66,7 @@ interface EntryPair {
   after?: ProtocolDirectoryEntry;
 }
 
-interface TreeDiffVisitor {
+export interface TreeDiffVisitor {
   directory?(pair: DirectoryPair): void | Promise<void>;
   /** Return true to walk into the entry's directory on each side that has one. */
   entry(pair: EntryPair): boolean | void | Promise<boolean | void>;
@@ -87,7 +87,7 @@ function sameEntry(a: ProtocolDirectoryEntry | undefined, b: ProtocolDirectoryEn
 export async function walkTreeDiff(
   before: ObjectHash | null,
   after: ObjectHash | null,
-  load: Load | TreeReader,
+  load: LoadObject | TreeReader,
   visitor: TreeDiffVisitor,
 ): Promise<void> {
   const reader = treeReader(load);

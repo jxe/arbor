@@ -30,7 +30,11 @@ request. Neither client strips operations.
 Source edits against an accepted basis may ship the edited file as an object
 delta when that is smaller; chained authored records always send the whole
 file, because `reconstructDeltas` resolves delta bases against the accepted
-base root before the request's own objects are stored.
+base root before the request's own objects are stored. Arbor Sync's folder
+changes follow the same rule through `transitionPayload`
+(`updates/transition-payload.ts`), which also builds canopyd's accepted
+transitions: each changed object is paired with the object at its path in the
+starting root by `walkTreeDiff` (`updates/tree-diff.ts`).
 
 **Net watch catch-up** is unconditional. A client requests
 `GET /.arbor/trees/{tree}/watch` with its confirmed cursor; canopyd captures

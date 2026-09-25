@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@overstory/protocol";
-import { equal, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
+import { equal, localChangeRequest, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
   type StoredLocalChange, type StoredSnapshot } from "../local-change.ts";
 import { publicationTip } from "../update-machine.ts";
 
@@ -107,14 +107,7 @@ export class ChangeLog {
     })), accepted);
   }
   async request(through: string, accepted: ReadonlySet<string> = new Set()): Promise<{ base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } }> {
-    const records = new Map((await this.retained()).map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
-    let current = through;
-    for (;;) {
-      const record = records.get(current); if (!record) throw new Error("Missing authored dependency");
-      updates.unshift(accepted.has(current) ? { ...record.update, objects: [], deltas: [] } : record.update);
-      if (record.basis.kind === "accepted") return { base: { root: record.basis.root, update: record.basis.update }, request: { base: record.basis.update, updates } };
-      current = record.basis.change;
-    }
+    return localChangeRequest(await this.retained(), through, accepted);
   }
 
   private async load(settled: ReadonlySet<string> = new Set()): Promise<void> {

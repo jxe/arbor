@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
-import type { ObjectHash } from "@overstory/protocol";
-import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./tree-diff.ts";
+import { treeReader, walkTreeDiff, type LoadObject, type ObjectHash, type TreeReader } from "@overstory/protocol";
 
 /**
  * Descriptive metadata of a tree's file entries, kept beside the hashes and
@@ -53,7 +52,7 @@ export function documentKey(path: string, source: string): string {
 export async function entryChanges(
   before: ObjectHash | null,
   after: ObjectHash,
-  load: Load | TreeReader,
+  load: LoadObject | TreeReader,
 ): Promise<EntryChanges> {
   const reader = treeReader(load);
   const changes: EntryChanges = { set: [], removed: [] };

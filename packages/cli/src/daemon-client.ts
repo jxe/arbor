@@ -6,6 +6,7 @@ import type {
   ProfileIdentity,
   SnapshotEnvelope,
   TreeRef,
+  UpdateRequestJSON,
   WorkspaceEvent,
 } from "@overstory/protocol";
 import { parseSSEStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
@@ -96,6 +97,15 @@ export interface LocalPlacementMoveResult {
   check: boolean;
 }
 
+/** `GET /v1/pending?tree=`: the request a placed folder would publish next, exactly as it would be sent. */
+export interface PendingUpdate {
+  tree: string;
+  paused: boolean;
+  /** The accepted base the request names; null with `request` when nothing is pending. */
+  base: { root: string; update: string } | null;
+  request: UpdateRequestJSON | null;
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -156,6 +166,29 @@ export class ArborSyncRESTClient {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ source, destination, check }),
     });
+  }
+
+  /** Stop publishing a placed folder's changes until resumed. */
+  pauseFolder(tree: string): Promise<{ tree: string; paused: boolean }> {
+    return this.request("/v1/placements/pause", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tree }),
+    });
+  }
+
+  /** Publish a paused folder's changes again. */
+  resumeFolder(tree: string): Promise<{ tree: string; paused: boolean }> {
+    return this.request("/v1/placements/resume", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tree }),
+    });
+  }
+
+  /** What a placed folder would publish next, without sending it. */
+  pending(tree: string): Promise<PendingUpdate> {
+    return this.request(`/v1/pending?tree=${encodeURIComponent(tree)}`);
   }
 
   /** The claimed Canopy accounts of this data home and the local person identity, if one exists. */

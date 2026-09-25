@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type AccountConfigurationSnapshot, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type AccountConfigurationSnapshot, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
@@ -63,10 +63,15 @@ function usage(): never {
   arbor place <canonical-url> <local-path>
   arbor mv [--dry-run] <placed-local-root> <new-local-path>
   arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>
+  arbor pause <placed-path>
+  arbor resume <placed-path>
+  arbor pending <placed-path> [--json]
 
 Notes:
   arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
-  arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.`);
+  arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
+  arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
+  arbor pending  shows exactly what Arbor Sync would send next for a placed folder.`);
   process.exit(2);
 }
 
@@ -391,6 +396,60 @@ async function mvCommand(args: string[]): Promise<void> {
     console.log(`${result.check ? "Would move" : "Moved"} ${result.tree}`);
     console.log(`  from ${result.source}`);
     console.log(`  to   ${result.destination}`);
+  });
+}
+
+/** The placed tree whose folder holds `input`, by the daemon's `osPath`s; the deepest placement wins. */
+async function placedTree(client: ArborSyncRESTClient, input: string) {
+  const path = await realpath(resolve(input)).catch(() => resolve(input));
+  const tree = (await client.trees()).snapshot
+    .filter((candidate) => candidate.osPath && candidate.placement === "placed" && sameOrDescendantPath(path, candidate.osPath))
+    .sort((left, right) => right.osPath!.length - left.osPath!.length)[0];
+  if (!tree) throw new Error(`Not inside a placed folder: ${path}`);
+  return tree;
+}
+
+async function pauseCommand(args: string[], action: "pause" | "resume"): Promise<void> {
+  if (args.length !== 1 || args[0]!.startsWith("-")) usage();
+  await withArborSync(resolve(args[0]!), async (client) => {
+    const tree = await placedTree(client, args[0]!);
+    await (action === "pause" ? client.pauseFolder(tree.id) : client.resumeFolder(tree.id));
+    console.log(`${action === "pause" ? "Paused" : "Resumed"} ${tree.osPath} (${tree.id})`);
+  });
+}
+
+async function pendingCommand(args: string[]): Promise<void> {
+  const json = args.includes("--json");
+  const operands = args.filter((arg) => arg !== "--json");
+  if (operands.length !== 1 || operands[0]!.startsWith("-")) usage();
+  await withArborSync(resolve(operands[0]!), async (client) => {
+    const tree = await placedTree(client, operands[0]!);
+    const pending = await client.pending(tree.id);
+    if (json) {
+      console.log(JSON.stringify(pending.request, null, 2));
+      return;
+    }
+    const state = pending.paused ? "paused" : tree.sync ?? "unknown";
+    if (!pending.request || !pending.base) {
+      console.log(`Nothing pending for ${tree.osPath} (${tree.id}, ${state})`);
+      return;
+    }
+    const { updates } = pending.request;
+    console.log(`Pending for ${tree.osPath} (${tree.id}, ${state})`);
+    console.log(`Accepted base: update ${pending.request.base}, root ${pending.base.root}`);
+    // Earlier elements' objects serve later elements' bases; the rest come from the daemon.
+    const objects = new Map<string, Uint8Array>();
+    let before = pending.base.root;
+    for (const [index, element] of updates.entries()) {
+      const update = decodeCandidateUpdateJSON(element);
+      for (const object of update.objects) objects.set(object.hash, object.bytes);
+      console.log(`\nUpdate ${index + 1} of ${updates.length}: ${update.change}${update.trace === null ? "" : " (traced)"}`);
+      console.log(await describeTransitionPayload({
+        before, after: update.candidate, payload: update,
+        load: async (hash) => objects.get(hash) ?? await client.object(tree.id, hash).catch(() => undefined),
+      }));
+      before = update.candidate;
+    }
   });
 }
 
@@ -1140,13 +1199,14 @@ async function finishCloud(args: string[]): Promise<void> {
   }
 }
 
-type StatusTreeCondition = "missing" | "conflict" | "error" | "offline" | "syncing" | "not-placed" | "up-to-date";
+type StatusTreeCondition = "missing" | "conflict" | "error" | "offline" | "paused" | "syncing" | "not-placed" | "up-to-date";
 
 function statusTreeCondition(tree: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"][number]): StatusTreeCondition {
   if (tree.missing) return "missing";
   if (tree.sync === "conflict") return "conflict";
   if (tree.sync === "error") return "error";
   if (tree.sync === "offline") return "offline";
+  if (tree.sync === "paused") return "paused";
   if (tree.sync === "syncing") return "syncing";
   if (tree.placement === "remote" || !tree.osPath) return "not-placed";
   return "up-to-date";
@@ -1478,6 +1538,14 @@ async function main(): Promise<void> {
   if (command === "mv") {
     await mvCommand(args);
     process.exit(0);
+  }
+  if (command === "pause" || command === "resume") {
+    await pauseCommand(args, command);
+    return;
+  }
+  if (command === "pending") {
+    await pendingCommand(args);
+    return;
   }
   usage();
 }
