@@ -5,7 +5,7 @@ import {
   useQuery,
   useUser,
 } from "overstory/react"
-import { arbor, mutation, publicError } from "overstory/data"
+import { node, mutation, publicError } from "overstory/data"
 import { z } from "zod"
 import { myLists } from "./scripts/queries"
 import {
@@ -17,8 +17,8 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = arbor("./data")
-const lists = arbor("./data/lists").children
+const suppliesData = node("./data")
+const lists = node("./data/lists").children
 
 export const createList = mutation(
   suppliesData,

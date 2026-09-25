@@ -1,9 +1,9 @@
 import { useQuery, useUser } from "overstory/react"
-import { arbor, query } from "overstory/data"
+import { node, query } from "overstory/data"
 import { z } from "zod"
 import { ListGrid, PracticeGrid, Shell } from "./components/shared"
 
-const arbor_profiles = arbor("./data/arbor_profiles").children
+const arbor_profiles = node("./data/arbor_profiles").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const profile = query.maybe(

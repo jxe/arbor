@@ -65,7 +65,7 @@ examples/supplies/
     _store.sqlite3
 ```
 
-Each module opens its own cheap relative `arbor(path)` handles and selects the
+Each module opens its own cheap relative `node(path)` handles and selects the
 addressed nodes' children. The compiler canonicalizes those imports to the same
 nested data-tree identity; there is no central data registry. Queries and mutations use Standard Schema inputs, stable
 relationship metadata, inferred `RowOf`/`ResultOf` types, injected Overstory users,

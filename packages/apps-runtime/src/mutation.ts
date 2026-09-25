@@ -50,9 +50,9 @@ function relationFor(
   const name = relationNameOf(handle);
   const authored = sourceOf(handle);
   const binding = authored ? bindings.get(authored.path) : undefined;
-  if (!authored || !binding) throw new Error(`Relation ${name} has no activated arbor() source`);
+  if (!authored || !binding) throw new Error(`Relation ${name} has no activated node() source`);
   if (binding.authoredPath !== authored.path || binding.schemaFingerprint !== schema.fingerprint) {
-    throw new Error(`Relation ${name} has a stale or mismatched arbor() source`);
+    throw new Error(`Relation ${name} has a stale or mismatched node() source`);
   }
   if (binding.tree !== storeSource.tree || posix.dirname(binding.path) !== storeSource.path || posix.basename(binding.path) !== name) {
     throw new Error(`Relation ${name} does not resolve under the active SQLite store`);
@@ -308,7 +308,7 @@ export class SQLiteMutationBroker {
     }
     const root = bindings.get(handle.source.path);
     if (!root || root.path !== this.source.path || root.authoredPath !== handle.source.path) {
-      throw new MutationCallError({ code: "conflict", message: "The mutation's arbor() source does not resolve to this store", retryable: false });
+      throw new MutationCallError({ code: "conflict", message: "The mutation's node() source does not resolve to this store", retryable: false });
     }
     const input = await validateInput(handle.schema, call.input);
     const inputJSON = stableJSONString(input);

@@ -1,7 +1,7 @@
-import { arbor, query } from "overstory/data"
+import { node, query } from "overstory/data"
 
-const arbor_profiles = arbor("../data/arbor_profiles").children
-const lists = arbor("../data/lists").children
+const arbor_profiles = node("../data/arbor_profiles").children
+const lists = node("../data/lists").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 // This query is shared by MyLists and the membership control on Practice.

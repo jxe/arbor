@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { skipQuery, useQuery } from "overstory/react"
-import { arbor, query } from "overstory/data"
+import { node, query } from "overstory/data"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 
-const arbor_profiles = arbor("../data/arbor_profiles").children
-const practices = arbor("../data/practices").children
+const arbor_profiles = node("../data/arbor_profiles").children
+const practices = node("../data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const practiceSearch = query.many(

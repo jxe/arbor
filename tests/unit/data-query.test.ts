@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { arbor, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "overstory/data";
+import { node, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "overstory/data";
 
 const repository = join(import.meta.dir, "..", "..");
 const supplies = join(repository, "examples", "supplies");
@@ -8,7 +8,7 @@ const supplies = join(repository, "examples", "supplies");
 describe("arbor/data query planning", () => {
   test("runs an authored planner once and retains symbolic input", () => {
     let invocations = 0;
-    const handle = query.many(arbor("./data/practices").children, (practice, { input }: any) => {
+    const handle = query.many(node("./data/practices").children, (practice, { input }: any) => {
       invocations += 1;
       return {
         where: (practice.name as any).contains(input.search),
@@ -27,7 +27,7 @@ describe("arbor/data query planning", () => {
   test("rejects unknown fields and unproved singular queries during compilation", async () => {
     const location = await resolveDatabaseLocation(join(supplies, "List.tsx"), "./data");
     const schema = await introspectStoreSchema(location);
-    const lists = arbor("./data/lists").children;
+    const lists = node("./data/lists").children;
     const unknown = query.many(lists, (list) => ({ select: { leaked: (list as any).secret } }));
     const ambiguous = query.maybe(lists, (list) => ({
       where: (list.visibility as any).eq("public"),

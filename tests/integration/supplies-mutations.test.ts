@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@overstory/protocol";
 import { z } from "zod";
 import {
-  arbor,
+  node,
   LiveQueryBroker,
   mutation,
   MutationCallError,
@@ -176,8 +176,8 @@ describe.serial("Supplies mutation runner", () => {
 
     const diagnostics: unknown[] = [];
     const diagnosticBroker = new SQLiteMutationBroker(engine.schema, store, storeSource(), { diagnostic: (error) => diagnostics.push(error) });
-    const authored = arbor("./data");
-    const lists = arbor("./data/lists").children;
+    const authored = node("./data");
+    const lists = node("./data/lists").children;
     const failing = mutation(authored, z.object({}), async ({ tx }: any) => {
       tx.insert(lists, {
         id: "99999999-0000-4000-8000-000000000001",
@@ -317,7 +317,7 @@ describe.serial("Supplies mutation runner", () => {
     await expect(call("renameList", { listId: careList, name: "Unauthorized race" }, "race-rename", bo))
       .rejects.toBeInstanceOf(MutationCallError);
 
-    const currentName = query.one(arbor("./data/lists").children, (list: any) => ({
+    const currentName = query.one(node("./data/lists").children, (list: any) => ({
       where: list.id.eq(listeningList),
       select: list.pick("id", "name"),
     }));

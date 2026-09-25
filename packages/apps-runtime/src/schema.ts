@@ -123,7 +123,7 @@ export async function resolveDatabaseLocation(
   boundaries: readonly TreeBoundary[] = [],
 ): Promise<ResolvedDatabaseLocation> {
   if (!isAbsolute(importingModulePath)) throw new Error("The importing module path must be absolute");
-  if (!specifier.startsWith(".")) throw new Error("arbor() accepts only local relative paths for SQLite store binding");
+  if (!specifier.startsWith(".")) throw new Error("node() accepts only local relative paths for SQLite store binding");
   const unresolved = resolve(dirname(importingModulePath), specifier);
   const directory = await realpath(unresolved);
   const boundary = boundaries
@@ -148,14 +148,14 @@ export async function resolveArborSource(
 ): Promise<ResolvedArborSource> {
   if (!isAbsolute(importingModulePath)) throw new Error("The importing module path must be absolute");
   if (!specifier.startsWith(".")) {
-    throw new Error("This SQLite activation path requires a compiler-resolved local relative arbor() source");
+    throw new Error("This SQLite activation path requires a compiler-resolved local relative node() source");
   }
   const unresolved = resolve(dirname(importingModulePath), specifier);
   const physical = await realpath(options.virtualLeaf ? dirname(unresolved) : unresolved);
   const boundary = boundaries
     .filter((candidate) => inside(resolve(candidate.root), physical))
     .sort((left, right) => resolve(right.root).length - resolve(left.root).length)[0];
-  if (!boundary) throw new Error(`arbor(${JSON.stringify(specifier)}) does not resolve inside a declared tree boundary`);
+  if (!boundary) throw new Error(`node(${JSON.stringify(specifier)}) does not resolve inside a declared tree boundary`);
   const parentPath = logicalPath(boundary.root, physical);
   const path = options.virtualLeaf
     ? `${parentPath === "/" ? "" : parentPath}/${basename(unresolved)}`

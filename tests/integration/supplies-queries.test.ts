@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { revisionOf } from "@overstory/protocol";
 import { z } from "zod";
 import {
-  arbor,
+  node,
   query,
   QueryInputError,
   QueryUserRequiredError,
@@ -135,8 +135,8 @@ describe("Supplies SQLite query engine", () => {
     expect(engine.schema.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
-  test("rejects unactivated and incorrectly resolved arbor() sources before execution", async () => {
-    const unbound = query.many(arbor("./data/lists").children, (list: any) => ({
+  test("rejects unactivated and incorrectly resolved node() sources before execution", async () => {
+    const unbound = query.many(node("./data/lists").children, (list: any) => ({
       select: list.pick("id"),
     }));
     await expect(engine.execute(unbound)).rejects.toThrow("was not resolved during activation");
@@ -207,7 +207,7 @@ describe("Supplies SQLite query engine", () => {
 
   test("applies Standard Schema transformations and query.one cardinality", async () => {
     const transformedSearch = query.many(
-      arbor("./data/practices").children,
+      node("./data/practices").children,
       z.object({ search: z.string().trim().toLowerCase() }),
       (practice, { input }: any) => ({
         where: (practice.name as any).contains(input.search),
@@ -216,7 +216,7 @@ describe("Supplies SQLite query engine", () => {
       }),
     );
     const exactPractice = query.one(
-      arbor("./data/practices").children,
+      node("./data/practices").children,
       z.object({ id: z.string().uuid() }),
       (practice, { input }: any) => ({
         where: (practice.id as any).eq(input.id),

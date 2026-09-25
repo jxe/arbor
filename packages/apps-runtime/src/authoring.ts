@@ -108,7 +108,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
-export interface ArborNodeHandle {
+export interface NodeHandle {
   readonly path: string;
   readonly children: NodeSetHandle;
 }
@@ -121,7 +121,7 @@ export interface NodeSetHandle<Row = Record<string, unknown>> {
 
 export interface QueryHandle<Result = unknown, Input = undefined> {
   readonly kind: "query";
-  readonly source: ArborNodeHandle;
+  readonly source: NodeHandle;
   readonly plan: QueryPlan;
   readonly schema?: StandardSchemaV1<Input, Input>;
   readonly __result?: Result;
@@ -130,7 +130,7 @@ export interface QueryHandle<Result = unknown, Input = undefined> {
 
 export interface MutationHandle<Result = unknown, Input = unknown> {
   readonly kind: "mutation";
-  readonly source: ArborNodeHandle;
+  readonly source: NodeHandle;
   readonly schema: StandardSchemaV1<Input, Input>;
   readonly handler: (...args: any[]) => Result | Promise<Result>;
   readonly __result?: Result;
@@ -223,7 +223,7 @@ function member(relation: string, field: string): unknown {
   });
 }
 
-function rowScope(relation: string, source?: ArborNodeHandle): NodeSetHandle {
+function rowScope(relation: string, source?: NodeHandle): NodeSetHandle {
   const target = {};
   return new Proxy(target, {
     get(_target, property) {
@@ -335,15 +335,15 @@ function relationshipSelection(relation: string, relationship: string, argument:
 function relationFromPath(path: string): string {
   const normalized = path.replace(/\/+$/, "");
   const relation = normalized.slice(normalized.lastIndexOf("/") + 1);
-  if (!relation || relation === "." || relation === "..") throw new Error("arbor() children require a named node path");
+  if (!relation || relation === "." || relation === "..") throw new Error("node() children require a named node path");
   return relation;
 }
 
-export function arbor(path: string): ArborNodeHandle {
+export function node(path: string): NodeHandle {
   if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("arbor:"))) {
-    throw new Error("arbor() requires a relative, logical, or Arbor path");
+    throw new Error("node() requires a relative, logical, or Arbor path");
   }
-  const handle = { path } as ArborNodeHandle;
+  const handle = { path } as NodeHandle;
   Object.assign(handle, { children: rowScope(relationFromPath(path), handle) });
   return Object.freeze(handle);
 }
@@ -356,8 +356,8 @@ function createQuery(cardinality: QueryCardinality, relation: NodeSetHandle, sch
   const schema = possiblePlanner ? schemaOrPlanner as StandardSchemaV1 : undefined;
   const planned = planner(rowScope(actualRelation), { input: parameterProxy(), user: userValue(false) });
   const normalized = normalizePlan(actualRelation, planned);
-  const source = (relation as unknown as { [SOURCE]: ArborNodeHandle })[SOURCE];
-  if (!source) throw new Error("A root query source must be arbor(path).children");
+  const source = (relation as unknown as { [SOURCE]: NodeHandle })[SOURCE];
+  if (!source) throw new Error("A root query source must be node(path).children");
   return Object.freeze({
     kind: "query" as const,
     source,
@@ -373,7 +373,7 @@ export const query = {
 };
 
 export function mutation<Result, Input>(
-  source: ArborNodeHandle,
+  source: NodeHandle,
   schema: StandardSchemaV1<Input, Input>,
   handler: (...args: any[]) => Result | Promise<Result>,
 ): MutationHandle<Result, Input> {
@@ -395,6 +395,6 @@ export function relationNameOf(relation: NodeSetHandle): string {
   return (relation as unknown as { [RELATION]: string })[RELATION];
 }
 
-export function sourceOf(relation: NodeSetHandle): ArborNodeHandle | undefined {
-  return (relation as unknown as { [SOURCE]: ArborNodeHandle | undefined })[SOURCE];
+export function sourceOf(relation: NodeSetHandle): NodeHandle | undefined {
+  return (relation as unknown as { [SOURCE]: NodeHandle | undefined })[SOURCE];
 }

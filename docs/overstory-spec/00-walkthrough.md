@@ -116,9 +116,9 @@ Each row has an ordinary public address such as
 Joe writes `Practices.mdx` importing a handle from `handles.ts`:
 
 ```ts
-import { arbor, query } from "overstory/data"
+import { node, query } from "overstory/data"
 
-const practices = arbor("./practices").children
+const practices = node("./practices").children
 
 export const publishedPractices = query.many(practices, practice => ({
   where: practice.published.eq(true),
@@ -139,7 +139,7 @@ re-evaluates, and a new `result` with a new `outputHash` follows
 
 ## 8. Run a mutation
 
-`handles.ts` also exports `addPractice = mutation(arbor("."), inputSchema, async ({ tx, user }, input) => …)`.
+`handles.ts` also exports `addPractice = mutation(node("."), inputSchema, async ({ tx, user }, input) => …)`.
 A form on the page calls it as an action. The browser sends
 `POST /.arbor/trees/tr_…/mutate` with the handle reference, validated input,
 and a caller-chosen `mutationID`. The runner opens the CSV's whole-file

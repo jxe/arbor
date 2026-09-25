@@ -86,7 +86,7 @@ The tokens this section introduces, and what each survives:
 A query is a deterministic function of `(resolved node snapshots,
 validated input, trusted user context)`. Its only data door is a finite,
 declarative selection over the scoped logical node model. Authored sources use
-`arbor(path)` everywhere. The initial portable node-set source is `.children`,
+`node(path)` everywhere. The initial portable node-set source is `.children`,
 with the same meaning for expanded directories, Markdown records, collection files,
 SQLite tables, and later external or replicated providers. Every result retains
 tree-scoped provenance internally even when the authored projection omits it.
@@ -129,7 +129,7 @@ Activation retains each literal's authored spelling together with its resolved
 store identity. Before query data access or mutation transaction entry, the
 provider verifies that complete binding against the mounted tree, store root,
 selected child relation, and active schema. Imported helpers retain the binding
-of the module in which their `arbor(path)` was authored. An unbound, ambiguous,
+of the module in which their `node(path)` was authored. An unbound, ambiguous,
 stale, or differently resolved handle is inactive rather than being redirected
 to a same-named table in the currently open database.
 

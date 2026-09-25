@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@overstory/protocol";
 import {
-  arbor,
+  node,
   introspectStoreSchema,
   LiveQueryBroker,
   query,
@@ -22,8 +22,8 @@ const careList = "10000000-0000-4000-8000-000000000001";
 const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const lists = arbor("./data/lists").children;
-const arborProfiles = arbor("./data/arbor_profiles").children;
+const lists = node("./data/lists").children;
+const arborProfiles = node("./data/arbor_profiles").children;
 const topPublicList = query.many(lists, (list: any) => ({
   where: list.visibility.eq("public"),
   orderBy: list.updated_at.desc(),

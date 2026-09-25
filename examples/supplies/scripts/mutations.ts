@@ -1,11 +1,11 @@
-import { arbor, mutation, publicError } from "overstory/data"
+import { node, mutation, publicError } from "overstory/data"
 import { z } from "zod"
 
-const suppliesData = arbor("../data")
-const list_contributors = arbor("../data/list_contributors").children
-const list_practices = arbor("../data/list_practices").children
-const lists = arbor("../data/lists").children
-const practice_tags = arbor("../data/practice_tags").children
+const suppliesData = node("../data")
+const list_contributors = node("../data/list_contributors").children
+const list_practices = node("../data/list_practices").children
+const lists = node("../data/lists").children
+const practice_tags = node("../data/practice_tags").children
 
 // React Actions submit strings; imperative callers may already have booleans.
 export const booleanInput = z.union([z.boolean(), z.stringbool()])

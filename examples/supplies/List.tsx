@@ -7,7 +7,7 @@ import {
   useUser,
 } from "overstory/react"
 import {
-  arbor,
+  node,
   mutation,
   publicError,
   query,
@@ -33,15 +33,15 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = arbor("./data")
-const arbor_profiles = arbor("./data/arbor_profiles").children
-const list_practices = arbor("./data/list_practices").children
-const list_reactions = arbor("./data/list_reactions").children
-const list_tags = arbor("./data/list_tags").children
-const lists = arbor("./data/lists").children
-const practice_authors = arbor("./data/practice_authors").children
-const practice_tags = arbor("./data/practice_tags").children
-const practices = arbor("./data/practices").children
+const suppliesData = node("./data")
+const arbor_profiles = node("./data/arbor_profiles").children
+const list_practices = node("./data/list_practices").children
+const list_reactions = node("./data/list_reactions").children
+const list_tags = node("./data/list_tags").children
+const lists = node("./data/lists").children
+const practice_authors = node("./data/practice_authors").children
+const practice_tags = node("./data/practice_tags").children
+const practices = node("./data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const list = query.maybe(

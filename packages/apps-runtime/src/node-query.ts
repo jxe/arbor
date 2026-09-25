@@ -67,7 +67,7 @@ export class NodeQueryEngine {
     if (containsRequiredUser(handle.plan) && !user) throw new QueryUserRequiredError();
     const source = await this.provider.snapshot(handle.source.path);
     const children = source.capabilities.children;
-    if (!children) throw new QueryCompileError(`arbor(${JSON.stringify(handle.source.path)}) does not have children`);
+    if (!children) throw new QueryCompileError(`node(${JSON.stringify(handle.source.path)}) does not have children`);
     const rows: NodeSummary[] = [];
     const cursors = new Set<string>();
     let cursor: string | null = null;

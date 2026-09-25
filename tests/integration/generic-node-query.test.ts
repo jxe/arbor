@@ -4,19 +4,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@overstory/arborsync";
-import { arbor, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "overstory/data";
+import { node, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "overstory/data";
 
 let root: string;
 let state: string;
 let workspace: Workspace;
 let sqlite: SQLiteQueryEngine;
 
-const records = arbor("./records").children;
+const records = node("./records").children;
 const matching = query.many(records, (record: any) => ({
   where: record.title.contains("a"),
   select: record.pick("id", "title"),
 }));
-const keyed = arbor("./keys").children;
+const keyed = node("./keys").children;
 const allKeys = query.many(keyed, (row: any) => row.pick("rank", "id", "title"));
 const oneKey = query.one(keyed, (row: any) => ({
   where: [row.rank.eq(2), row.id.eq("é")],
@@ -30,7 +30,7 @@ const noCoercion = query.many(keyed, (row: any) => ({
   where: row.rank.eq("2"),
   select: row.pick("rank", "id"),
 }));
-const liveRecords = arbor("./live-records").children;
+const liveRecords = node("./live-records").children;
 const liveMatching = query.many(liveRecords, (record: any) => ({
   where: record.title.contains("a"),
   select: record.pick("id", "title"),
@@ -123,7 +123,7 @@ async function settleEvents(quietMs = 200): Promise<void> {
   }
 }
 
-describe("portable arbor() node queries", () => {
+describe("portable node() queries", () => {
   test("uses the same filtering and picking handle over expanded and SQLite children", async () => {
     const nodes = ordinaryNodes();
     const [expanded, rolledUp] = await Promise.all([nodes.execute(matching), sqlite.execute(matching)]);
@@ -259,7 +259,7 @@ describe("portable arbor() node queries", () => {
     const raceDirectory = join(root, "race-live");
     await mkdir(raceDirectory);
     await writeFile(join(raceDirectory, "one.md"), "---\nid: one\ntitle: Alpha\n---\n");
-    const raceSource = arbor("./race-live").children;
+    const raceSource = node("./race-live").children;
     const raceQuery = query.many(raceSource, (record: any) => record.pick("id", "title"));
     let executions = 0;
     let injected = false;

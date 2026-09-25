@@ -157,12 +157,12 @@ slice. The intended authoring surface looks like this:
 // atlas.tsx
 import { useState } from "react";
 import { z } from "zod";
-import { arbor, query, mutation } from "overstory/data";
+import { node, query, mutation } from "overstory/data";
 import { useQuery, useMutationAction } from "overstory/react";
 
-const atlas = arbor(".");
-const essays = arbor("./essays").children;
-const submissions = arbor("./submissions").children;
+const atlas = node(".");
+const essays = node("./essays").children;
+const submissions = node("./submissions").children;
 
 export const recentEssays = query.many(
   essays,
@@ -212,7 +212,7 @@ This offers similar benefits to a modern web app, but with different tradeoffs:
 
 - **Live components, not pages.** The web's unit of delivery is the page — a finished document. Any actual data is either baked invisibly into markup at render time, or trapped behind the site's private API. Here, data and live components are first class: a typed projection of data can sit inside any page, next to prose. Components are stateful and interactive from the start, and are live against the data they declare: every component is a standing subscription.
 - **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `submissions`" -- the write set could just as well name a tree you don't own — `tree("arbor://paxmachina.org/inbox")` — and the consent statement would say so.
-- **Isomorphic by construction.** With arbor, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arborsync if they have it synced.
+- **Isomorphic by construction.** With Overstory, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arborsync if they have it synced.
 
 ## Agents and tools live in the tree
 

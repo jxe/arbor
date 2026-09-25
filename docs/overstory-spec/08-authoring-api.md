@@ -7,7 +7,7 @@ Package names are part of the authored portability surface: a compatible runtime
 
 ## 1. Packages
 
-`overstory/data` is authoring for data and handles: `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
+`overstory/data` is authoring for data and handles: `node(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
 
 `overstory/react` is the component package: `useQuery`, `skipQuery`, `useMutationAction`, `useCanInvoke`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`.
 

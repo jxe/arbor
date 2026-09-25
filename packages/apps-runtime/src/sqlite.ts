@@ -522,7 +522,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
 
   bind(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
     if (source.authoredPath !== handle.source.path) {
-      throw new QueryCompileError("The resolved query source does not match its authored arbor() path");
+      throw new QueryCompileError("The resolved query source does not match its authored node() path");
     }
     this.assertSource(handle, source);
     this.bindings.set(handle, source);
@@ -537,7 +537,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     }
     const parent = posix.dirname(source.path);
     if (parent !== this.source.path || posix.basename(source.path) !== handle.plan.relation) {
-      throw new QueryCompileError("The resolved arbor() path does not name this SQLite store relation");
+      throw new QueryCompileError("The resolved node() path does not name this SQLite store relation");
     }
   }
 
@@ -550,7 +550,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     options: QueryExecutionOptions<Input> = {},
   ): Promise<QueryExecution<Result>> {
     const source = this.bindings.get(handle as QueryHandle<unknown, unknown>);
-    if (!source) throw new QueryCompileError("The query's arbor() source was not resolved during activation");
+    if (!source) throw new QueryCompileError("The query's node() source was not resolved during activation");
     this.assertSource(handle as QueryHandle<unknown, unknown>, source);
     const compiled = compileQuery(handle, this.schema);
     const input = await validateQueryInput(handle.schema, options.input);

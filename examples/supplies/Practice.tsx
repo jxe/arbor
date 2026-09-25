@@ -1,5 +1,5 @@
 import { Markdown, useMutationAction, useQuery, useUser } from "overstory/react"
-import { arbor, mutation, publicError, query } from "overstory/data"
+import { node, mutation, publicError, query } from "overstory/data"
 import { z } from "zod"
 import { setListPractice } from "./scripts/mutations"
 import { myLists } from "./scripts/queries"
@@ -15,10 +15,10 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = arbor("./data")
-const arbor_profiles = arbor("./data/arbor_profiles").children
-const practice_authors = arbor("./data/practice_authors").children
-const practices = arbor("./data/practices").children
+const suppliesData = node("./data")
+const arbor_profiles = node("./data/arbor_profiles").children
+const practice_authors = node("./data/practice_authors").children
+const practices = node("./data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const practice = query.maybe(
