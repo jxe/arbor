@@ -58,8 +58,8 @@ Joe confirms each step.
 7. `arbor resume <placement>`. The update number advances, the placement returns to idle, and the new root equals the pending candidate.
 8. Check links, rows and backlinks on the Mac, the iPhone and the canopyd pages.
 9. With Joe, fix by hand the links the rewrite reports as dangling. The rehearsal found 20:
-   - 16 rows in the root `_index.md` name pages that now live deeper, such as `Activism-essay` (now `March-Out-My-Work/Activism-essay.md`). Point each at its current file, or delete it.
-   - 4 are elsewhere: `Untitled-4.md` twice (its fragment already stripped), plus `Untitled-2.md` and `Advisory-Structure.md`.
+   - 15 rows in the root `_index.md` name pages that now live deeper, such as `Activism-essay` (now `March-Out-My-Work/Activism-essay.md`). Point each at its current file, or delete it.
+   - 5 are elsewhere: `Untitled-4.md` three times (two of them had their fragment stripped), plus `Untitled-2.md` and `Advisory-Structure.md`.
    - `Plan-meditation-for-tomorrow.md` also has a missing image.
 
    Edit in Canopy or Obsidian. Each fix publishes as an ordinary edit.
