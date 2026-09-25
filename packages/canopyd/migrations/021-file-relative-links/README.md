@@ -2,7 +2,7 @@
 
 An authored-data migration, not a schema change: canopyd's schema stays 21.
 It rewrites the links in Joe's todos tree from the pre-021 spellings to the
-ones the 021 writers emit ([Cleanup 001](../../../../plans/soon/001-file-relative-links-and-pageid-cutoff.md)):
+ones the 021 writers emit (Cleanup 001, recorded in [status](../../../../status.md#file-relative-markdown-links-and-readable-key-tokens--2026-09-25)):
 
 - A relative Markdown link resolves against the directory that holds the source file and names the target's physical file: `Calendar.md`, `Picture-of-Life/Foo.md`, `x/_index.md`.
 - A stable key is spelled `#arbor-key=id:h31mlm`, the readable token, not base64url.

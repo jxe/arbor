@@ -97,7 +97,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## File-relative Markdown links and readable key tokens — 2026-09-25
 
-Deployed (canopyd build `20d068ea`), Arbor Sync restarted and the Mac and iOS apps rebuilt on 2026-09-25; the todos tree was rewritten the same day ([Cleanup 001](plans/soon/001-file-relative-links-and-pageid-cutoff.md)). Hands-on checks on the Mac and iPhone are pending. A
+Deployed (canopyd build `20d068ea`), Arbor Sync restarted and the Mac and iOS apps rebuilt on 2026-09-25; the todos tree was rewritten the same day, and Joe verified links in the Mac and iPhone apps. Cleanup 001 is closed; its plan (which absorbed Cleanup 005) is in git history before this entry. A
 relative link in Markdown resolves from the directory holding its source file
 and names the target's body file (`Calendar.md`, `x/_index.md`), so Obsidian
 and other Markdown readers follow it; a stable key is the readable token

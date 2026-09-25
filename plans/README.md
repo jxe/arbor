@@ -11,7 +11,6 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 
 | Plan | What it does |
 |---|---|
-| Cleanup [001](soon/001-file-relative-links-and-pageid-cutoff.md) | Obsidian-compatible file-relative links, readable key tokens, the PageID cutoff and the todos link migration |
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | canopyd [005](soon/005-tree-configuration-trees.md) | Decide and design per-tree configuration and co-administration |
 | Filesystem [011](soon/011-independent-writes-after-rejection.md) | Keep independent writes moving after a rejected change |
