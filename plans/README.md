@@ -75,8 +75,8 @@ them, and each active plan records any identifier it inherited.
 ## Planning rules
 
 - A plan moves into `soon/` when chosen and keeps its identifier. A new plan's number must not
-  collide with a plan of the same owner in `soon/` (canopyd 014 lives there, so the next canopyd
-  plan is not 014).
+  collide with a plan of the same owner in `soon/` (Native 008 lives there, so the next Native
+  plan is not 008).
 - Keep one owner for each remaining task. Link to it from dependencies instead of copying its checklist.
 - Active plans describe remaining work. Delete implemented or superseded executor documents
   after recording their evidence in `status.md`; transfer unfinished gates explicitly.
