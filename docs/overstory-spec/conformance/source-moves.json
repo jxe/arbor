@@ -1,0 +1,392 @@
+{
+  "tree": "tr_moves",
+  "path": "/note.md",
+  "cases": [
+    {
+      "name": "a paragraph moves down past its sibling",
+      "source": "A para\n\nB para\n\nC para\n",
+      "moves": [
+        {
+          "source": [
+            0,
+            8
+          ],
+          "anchor": [
+            8,
+            16
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [],
+      "result": "B para\n\nA para\n\nC para\n"
+    },
+    {
+      "name": "a paragraph moves to the top",
+      "source": "A para\n\nB para\n\nC para\n\n",
+      "moves": [
+        {
+          "source": [
+            16,
+            24
+          ],
+          "anchor": [
+            0,
+            8
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "result": "C para\n\nA para\n\nB para\n\n"
+    },
+    {
+      "name": "two blocks land one after another",
+      "source": "A\n\nB\n\nC\n\nD\n\n",
+      "moves": [
+        {
+          "source": [
+            6,
+            9
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        },
+        {
+          "source": [
+            9,
+            12
+          ],
+          "anchor": [
+            6,
+            9
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [],
+      "result": "C\n\nD\n\nA\n\nB\n\n"
+    },
+    {
+      "name": "an item moves under its sibling and is re-indented",
+      "source": "Intro\n\n- one\n- two\n  - child\n- three\n\nOutro\n",
+      "moves": [
+        {
+          "source": [
+            29,
+            37
+          ],
+          "anchor": [
+            19,
+            29
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 29,
+          "length": 1,
+          "replacement": "  -"
+        }
+      ],
+      "result": "Intro\n\n- one\n- two\n  - child\n  - three\n\nOutro\n"
+    },
+    {
+      "name": "an item is indented in place",
+      "source": "Intro\n\n- one\n- two\n  - child\n- three\n\nOutro\n",
+      "moves": [],
+      "edits": [
+        {
+          "offset": 13,
+          "length": 1,
+          "replacement": "  -"
+        }
+      ],
+      "result": "Intro\n\n- one\n  - two\n  - child\n- three\n\nOutro\n"
+    },
+    {
+      "name": "a subtree moves up with its child",
+      "source": "Intro\n\n- one\n- two\n  - child\n- three\n\nOutro\n",
+      "moves": [
+        {
+          "source": [
+            13,
+            29
+          ],
+          "anchor": [
+            7,
+            13
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "result": "Intro\n\n- two\n  - child\n- one\n- three\n\nOutro\n"
+    },
+    {
+      "name": "the second of two equal-byte blocks moves above the first",
+      "source": "Same\n\nOther\n\nSame\n\n",
+      "moves": [
+        {
+          "source": [
+            13,
+            19
+          ],
+          "anchor": [
+            0,
+            6
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "result": "Same\n\nSame\n\nOther\n\n"
+    },
+    {
+      "name": "CRLF and multibyte text move intact",
+      "source": "Café\r\n\r\nnaïve ☕\r\n\r\né\r\n",
+      "moves": [
+        {
+          "source": [
+            9,
+            23
+          ],
+          "anchor": [
+            0,
+            9
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "result": "naïve ☕\r\n\r\nCafé\r\n\r\né\r\n"
+    },
+    {
+      "name": "an edit inside moved text lands with it",
+      "source": "A para\n\nB para\n\n",
+      "moves": [
+        {
+          "source": [
+            0,
+            8
+          ],
+          "anchor": [
+            8,
+            16
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 2,
+          "length": 4,
+          "replacement": "text"
+        }
+      ],
+      "result": "B para\n\nA text\n\n"
+    },
+    {
+      "name": "an edit to stationary text beside a landing place",
+      "source": "A para\n\nB para\n\n",
+      "moves": [
+        {
+          "source": [
+            0,
+            8
+          ],
+          "anchor": [
+            8,
+            16
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 8,
+          "length": 1,
+          "replacement": "Bee"
+        }
+      ],
+      "result": "Bee para\n\nA para\n\n"
+    },
+    {
+      "name": "two moves beside one anchor",
+      "source": "A\n\nB\n\nC\n\n",
+      "moves": [
+        {
+          "source": [
+            3,
+            6
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        },
+        {
+          "source": [
+            6,
+            9
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "refused": "unsupported"
+    },
+    {
+      "name": "an insertion at a moved span's edge",
+      "source": "A\n\nB\n\nC\n\n",
+      "moves": [
+        {
+          "source": [
+            6,
+            9
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 6,
+          "length": 0,
+          "replacement": "x"
+        }
+      ],
+      "refused": "unsupported"
+    },
+    {
+      "name": "an edit across a moved span's edge",
+      "source": "A\n\nB\n\nC\n\n",
+      "moves": [
+        {
+          "source": [
+            6,
+            9
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 3,
+          "length": 4,
+          "replacement": "x"
+        }
+      ],
+      "refused": "unsupported"
+    },
+    {
+      "name": "an insertion at a landing place",
+      "source": "A\n\nB\n\nC\n\n",
+      "moves": [
+        {
+          "source": [
+            6,
+            9
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [
+        {
+          "offset": 0,
+          "length": 0,
+          "replacement": "x"
+        }
+      ],
+      "refused": "unsupported"
+    },
+    {
+      "name": "a move beside its own source",
+      "source": "A\n\nB\n\n",
+      "moves": [
+        {
+          "source": [
+            0,
+            3
+          ],
+          "anchor": [
+            0,
+            3
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [],
+      "refused": "invalid"
+    },
+    {
+      "name": "overlapping moves",
+      "source": "A\n\nB\n\nC\n\n",
+      "moves": [
+        {
+          "source": [
+            0,
+            4
+          ],
+          "anchor": [
+            6,
+            9
+          ],
+          "side": "after"
+        },
+        {
+          "source": [
+            3,
+            6
+          ],
+          "anchor": [
+            6,
+            9
+          ],
+          "side": "before"
+        }
+      ],
+      "edits": [],
+      "refused": "invalid"
+    },
+    {
+      "name": "a move that splits a UTF-8 scalar",
+      "source": "☕\n\nB\n\n",
+      "moves": [
+        {
+          "source": [
+            1,
+            5
+          ],
+          "anchor": [
+            5,
+            8
+          ],
+          "side": "after"
+        }
+      ],
+      "edits": [],
+      "refused": "invalid"
+    }
+  ]
+}

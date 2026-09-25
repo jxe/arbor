@@ -461,3 +461,33 @@ test("a generation list validates as a chain and drops generations that changed 
     { edits: [{ offset: 0, length: 6, replacement: "After" }], source: first },
   ])).toThrow();
 });
+
+test("shared source moves execute exactly, refuse ambiguity, and publish as moves before edits", async () => {
+  const { arrangeSources, applySourceChange, UnsupportedSourceMove } = await import("@overstory/protocol");
+  const moves = await Bun.file(new URL("../../docs/overstory-spec/conformance/source-moves.json", import.meta.url)).json();
+  const encoder = new TextEncoder(), path = moves.path as string;
+  for (const c of moves.cases) {
+    const arrange = () => arrangeSources(new Map([[path, encoder.encode(c.source)]]),
+      c.moves.map((m: {source: [number, number]; anchor: [number, number]; side: "before" | "after"}) => ({ source: { path, range: m.source }, anchor: { path, range: m.anchor }, side: m.side })),
+      c.edits.map((e: SourceEdit) => ({ path, range: [e.offset, e.offset + e.length] as [number, number], text: encoder.encode(e.replacement) })));
+    if (c.refused) {
+      let failure: unknown;
+      try { arrange(); } catch (error) { failure = error; }
+      expect(failure, c.name).toBeInstanceOf(Error);
+      expect(failure instanceof UnsupportedSourceMove, c.name).toBe(c.refused === "unsupported");
+      continue;
+    }
+    expect(applySourceChange(c.source, c.edits, c.moves), c.name).toBe(c.result);
+    // The published frame states the moves, then the edits, and canopyd's
+    // exact executor reproduces the candidate from it.
+    const file = encoder.encode(c.source), hash = hashObject(file);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file: hash }] });
+    const graph = { root: hashObject(directory), objects: new Map([[hashObject(directory), directory], [hash, file]]) };
+    const record = prepareSourceChange({ tree: moves.tree, change: "moves", graph, sourcePath: path, basis: { kind: "accepted", root: graph.root, update: "r1" },
+      intent: { basis: { tree: moves.tree, path: "/note", revision: "r1", source: c.source }, edits: c.edits, ...(c.moves.length ? { moves: c.moves } : {}), source: c.result } });
+    const operations = authored(record.update);
+    expect(operations.map(o => o.kind), c.name).toEqual([...c.moves.map(() => "moveSource"), ...c.edits.map(() => "editSource")]);
+    const executed = await executeExactSourceEdits(graph.root, operations, async h => graph.objects.get(h)!);
+    expect(executed.root, c.name).toBe(record.candidate.root);
+  }
+});

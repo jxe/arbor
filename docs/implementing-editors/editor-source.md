@@ -58,6 +58,14 @@ The Quagmire binding does what only the editor can:
 - **Capture exactly.** Each generation's patch is captured against the
   previous generation's ledger, so it states what the editor did, including
   lineage and explicit copies; the source restates it against its basis.
+- **Move, don't retype.** A generation that only rearranges blocks (a reorder,
+  a drag, an indent or outdent, a move under another parent) is captured as
+  moves of each relocated block's exact source, beside a block that stays or
+  an earlier move, plus edits to the leading spaces of lines whose depth
+  changed. A peer's concurrent edit to a moved block then follows it. The
+  result must reparse to the editor's tree; anything else (new or edited
+  blocks, tab indentation) is an ordinary edit. `source-moves.json` gives the
+  exact meaning shared with canopyd.
 - **Guard uncommitted input.** Quagmire can hold a keystroke before its commit
   callback fires. `flush()` captures it first; an acknowledgement that finds
   the mounted tree ahead of the latest capture appends it as a successor
@@ -115,8 +123,8 @@ generation. Adjacent plain frames compact: every operation must be a
 lineage-free `editSource` over `basis` material with a range, the generations
 compose per path through `composeSourceEdits`, the composed operations are
 keyed `edit-<k>-<i>` in output order, and a run that returns to its starting
-root yields no frame. Frames carrying lineage, copies, or operation material
-name the generation they were captured against and are never merged. A trace
+root yields no frame. Frames carrying lineage, copies, moves or operation
+material name the generation they were captured against and are never merged. A trace
 that would exceed the protocol's 64 frames or 1024 operations is dropped to
 `trace: null`; exact bytes stay authoritative. The same rule runs in the
 host's `composeFrames`, which proves a composition by executing it.

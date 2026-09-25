@@ -240,6 +240,7 @@ public enum CanopyMarkdownCodec {
     }
 
     static func admission(blocks: [Block], ledger: CanopySourceLedger, copies: [BlockID: BlockID] = [:], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (CanopyMarkdownAdmission, CanopySourceLedger) {
+        if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger) { return arranged }
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
@@ -269,6 +270,10 @@ public enum CanopyMarkdownCodec {
                   !raw.hasPrefix(ledger.newline) else { return "" }
             return emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
         }
+        // The last recorded block has no blank line after it. Emitted before
+        // another block it would run into it, so that block is separated.
+        let originallyLast = ledger.records.values.max { $0.range.lowerBound < $1.range.lowerBound }?.block.id
+        var previousEmitted: BlockID?
         func append(_ block: Block, depth: Int, containerDepth: Int) {
             guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
@@ -281,6 +286,9 @@ public enum CanopyMarkdownCodec {
                record.indent == containerDepth {
                 raw = record.raw
                 if ledger.records[block.id] == nil { copied = record }
+                else if containerDepth == 0, previousEmitted != nil, previousEmitted == originallyLast {
+                    raw = separator(before: raw, containerDepth: containerDepth) + raw
+                }
             } else {
                 let needsExplicitEmptyMarker = emptyParagraph
                     && (!emittedAuthoredBlock || remainingNonemptyBlocks == 0)
@@ -304,6 +312,7 @@ public enum CanopyMarkdownCodec {
                 }
             }
             chunks.append(raw)
+            previousEmitted = block.id
             emittedTail = String((emittedTail + raw).suffix(max(2, ledger.newline.count * 2)))
             nextRecords[block.id] = SourceRecord(
                 block: block,
@@ -375,6 +384,158 @@ public enum CanopyMarkdownCodec {
             records: nextRecords
         )
         return (CanopyMarkdownAdmission(source: source, patch: patch), next)
+    }
+
+    /// A generation that only rearranges existing blocks (reorders them or
+    /// changes their depth) states itself as moves of their exact source plus
+    /// re-indentation of the lines that changed depth, so a peer's edit to a
+    /// moved block follows it. Every block keeps its recorded bytes except for
+    /// leading spaces; the result must reparse to exactly the editor's tree.
+    /// Anything else (new, removed or edited blocks, tabs, an indentation this
+    /// cannot shift, a separator the new order would need) returns nil and the
+    /// generation is serialized as an ordinary edit.
+    private static func arrangement(blocks: [Block], ledger: CanopySourceLedger) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
+        struct Placed { var record: SourceRecord; var depth: Int; var indent: Int; var raw: String; var edits: [WorkspaceSourceEdit] }
+        var placed: [Placed] = []
+        var seen = Set<BlockID>()
+        func place(_ block: Block, depth: Int, indent: Int) -> Bool {
+            guard !isProjectedChild(block) else { return true }
+            guard let record = ledger.records[block.id], record.block.kind == block.kind, seen.insert(block.id).inserted,
+                  let shifted = reindented(record, by: indent - record.indent) else { return false }
+            placed.append(Placed(record: record, depth: depth, indent: indent, raw: shifted.raw, edits: shifted.edits))
+            let child = indent + (isIndentContainer(block) ? 1 : 0)
+            return block.children.allSatisfy { place($0, depth: depth + 1, indent: child) }
+        }
+        guard blocks.allSatisfy({ place($0, depth: 0, indent: 0) }), seen.count == ledger.records.count, !placed.isEmpty else { return nil }
+        let old = placed.map(\.record.range.lowerBound)
+        guard old != old.sorted() || placed.contains(where: { $0.indent != $0.record.indent }) else { return nil }
+        // Try the exact bytes first. A top-level block recorded without a
+        // blank line after it (the last block, or one written tight against
+        // its successor) may need one before a different successor.
+        if let result = arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger) { return result }
+        let successors = Dictionary(uniqueKeysWithValues: zip(ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.map(\.block.id),
+                                                              ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
+        let blank = ledger.newline + ledger.newline
+        for index in placed.indices.dropLast() where placed[index].indent == 0 && !placed[index].raw.hasSuffix(blank)
+            && successors[placed[index].record.block.id] != .some(placed[index + 1].record.block.id) {
+            let end = placed[index].record.range.upperBound, width = ledger.newline.utf8.count
+            guard placed[index].raw.hasSuffix(ledger.newline) else { return nil }
+            placed[index].raw += ledger.newline
+            placed[index].edits.append(.init(utf8Range: (end - width)..<end, replacement: blank,
+                                             lineage: [.init(source: (end - width)..<end, replacement: 0..<width)]))
+        }
+        return arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger)
+    }
+
+    private static func arranged(placed: [(record: SourceRecord, depth: Int, indent: Int, raw: String, edits: [WorkspaceSourceEdit])],
+                                 blocks: [Block], ledger: CanopySourceLedger) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
+        let old = placed.map(\.record.range.lowerBound)
+        // Blocks that keep their relative order stay; the rest move.
+        let stays = Set(longestIncreasingSubsequence(old).map { placed[$0].record.block.id })
+        let envelope = ledger.envelope.utf8.count
+        var moves: [WorkspaceSourceMove] = []
+        var index = 0
+        while index < placed.count {
+            guard !stays.contains(placed[index].record.block.id) else { index += 1; continue }
+            var end = index
+            while end < placed.count, !stays.contains(placed[end].record.block.id) { end += 1 }
+            // A run lands after the block before it (or the envelope) and
+            // chains forward; a run at the very start lands before the first
+            // staying block and chains backward.
+            if index > 0 || envelope > 0 {
+                var anchor = index > 0 ? placed[index - 1].record.range : 0..<envelope
+                for item in placed[index..<end] {
+                    moves.append(.init(source: item.record.range, anchor: anchor, side: .after))
+                    anchor = item.record.range
+                }
+            } else {
+                var anchor = placed[end].record.range
+                for item in placed[index..<end].reversed() {
+                    moves.append(.init(source: item.record.range, anchor: anchor, side: .before))
+                    anchor = item.record.range
+                }
+            }
+            index = end
+        }
+        let source = ledger.envelope + placed.map(\.raw).joined()
+        let edits = placed.flatMap(\.edits).sorted { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }
+        let patch = WorkspaceDocumentPatch(baseContentRevision: ledger.revision, edits: edits, moves: moves)
+        guard (try? patch.applying(to: ledger.source))?.utf8.elementsEqual(source.utf8) == true else { return nil }
+        // The bytes must mean the editor's tree: separators and indentation
+        // that read differently in the new order are not a rearrangement.
+        let reopened = open(source: source, revision: ledger.revision, identitySeed: "arrangement")
+        guard sameShape(reopened.blocks, removingProjectedBlocks(from: blocks)) else { return nil }
+        var records: [BlockID: SourceRecord] = [:]
+        var position = envelope
+        for item in placed {
+            records[item.record.block.id] = SourceRecord(block: item.record.block, raw: item.raw, depth: item.depth, indent: item.indent,
+                                                         range: position..<(position + item.raw.utf8.count))
+            position += item.raw.utf8.count
+        }
+        let next = CanopySourceLedger(source: source, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records)
+        return (CanopyMarkdownAdmission(source: source, patch: patch), next)
+    }
+
+    /// A record's raw source shifted `levels` indentation levels (two spaces
+    /// each) on every non-blank line, with the edits that do it in the
+    /// record's source coordinates. Each edit replaces a line's leading
+    /// spaces, or, where there are none, the line's first character with its
+    /// bytes kept as lineage, so no edit is an insertion at a block's edge.
+    private static func reindented(_ record: SourceRecord, by levels: Int) -> (raw: String, edits: [WorkspaceSourceEdit])? {
+        guard levels != 0 else { return (record.raw, []) }
+        let bytes = Array(record.raw.utf8)
+        var raw: [UInt8] = [], edits: [WorkspaceSourceEdit] = []
+        var lineStart = 0
+        while lineStart <= bytes.count {
+            let lineEnd = bytes[lineStart...].firstIndex(of: UInt8(ascii: "\n")) ?? bytes.count
+            let line = bytes[lineStart..<lineEnd]
+            let spaces = line.prefix { $0 == UInt8(ascii: " ") }.count
+            let rest = line.dropFirst(spaces)
+            if rest.first == UInt8(ascii: "\t") { return nil }
+            if rest.allSatisfy({ $0 == UInt8(ascii: "\r") }) {
+                raw += line
+            } else {
+                let shifted = spaces + 2 * levels
+                guard shifted >= 0 else { return nil }
+                let indentation = String(repeating: " ", count: shifted), start = record.range.lowerBound + lineStart
+                if spaces > 0 {
+                    edits.append(.init(utf8Range: start..<(start + spaces), replacement: indentation))
+                } else {
+                    // The first scalar is kept as lineage so the edit is not an
+                    // insertion at the block's edge.
+                    guard let scalar = String(decoding: rest, as: UTF8.self).unicodeScalars.first else { return nil }
+                    let first = String(scalar), width = first.utf8.count
+                    edits.append(.init(utf8Range: start..<(start + width), replacement: indentation + first,
+                                       lineage: [.init(source: start..<(start + width), replacement: shifted..<(shifted + width))]))
+                }
+                raw += Array(indentation.utf8) + rest
+            }
+            guard lineEnd < bytes.count else { break }
+            raw.append(UInt8(ascii: "\n"))
+            lineStart = lineEnd + 1
+        }
+        guard let text = String(bytes: raw, encoding: .utf8) else { return nil }
+        return (text, edits)
+    }
+
+    /// Indices of one longest strictly increasing subsequence.
+    private static func longestIncreasingSubsequence(_ values: [Int]) -> [Int] {
+        var tails: [Int] = [], previous = Array(repeating: -1, count: values.count)
+        for (index, value) in values.enumerated() {
+            var low = 0, high = tails.count
+            while low < high { let middle = (low + high) / 2; if values[tails[middle]] < value { low = middle + 1 } else { high = middle } }
+            if low > 0 { previous[index] = tails[low - 1] }
+            if low == tails.count { tails.append(index) } else { tails[low] = index }
+        }
+        var result: [Int] = [], cursor = tails.last ?? -1
+        while cursor >= 0 { result.append(cursor); cursor = previous[cursor] }
+        return result.reversed()
+    }
+
+    /// Whether two trees have the same content and nesting, ignoring
+    /// identities and host metadata.
+    private static func sameShape(_ a: [Block], _ b: [Block]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0.kind == $1.kind && sameShape($0.children, $1.children) }
     }
 
     static func rebased(_ opened: CanopyMarkdownOpenedDocument, preserving current: [Block]) -> CanopyMarkdownOpenedDocument {

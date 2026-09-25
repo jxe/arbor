@@ -233,6 +233,48 @@ struct ChangeLogTests {
         }
     }
 
+    @Test("Shared source moves execute exactly, refuse ambiguity, and publish as moves before edits")
+    func sharedSourceMoves() throws {
+        struct Fixture: Decodable {
+            struct Move: Decodable { let source: [Int]; let anchor: [Int]; let side: WorkspaceSourceMove.Side }
+            struct Edit: Decodable { let offset: Int; let length: Int; let replacement: String }
+            struct Case: Decodable { let name: String; let source: String; let moves: [Move]; let edits: [Edit]; let result: String?; let refused: String? }
+            let tree: String; let path: String; let cases: [Case]
+        }
+        let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
+        let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "source-moves.json")))
+        for c in f.cases {
+            let moves = c.moves.map { WorkspaceSourceMove(source: $0.source[0]..<$0.source[1], anchor: $0.anchor[0]..<$0.anchor[1], side: $0.side) }
+            let edits = c.edits.map { WorkspaceSourceEdit(utf8Range: $0.offset..<($0.offset + $0.length), replacement: $0.replacement) }
+            let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: edits, moves: moves)
+            guard let result = c.result else {
+                do {
+                    _ = try patch.applying(to: c.source)
+                    Issue.record("\(c.name) should be refused")
+                } catch let WorkspacePatchError.invalidMoves(failure) {
+                    if case .unsupported = failure { #expect(c.refused == "unsupported", "\(c.name)") } else { #expect(c.refused == "invalid", "\(c.name)") }
+                }
+                continue
+            }
+            #expect(try patch.applying(to: c.source) == result, "\(c.name)")
+            let file = Data(c.source.utf8)
+            let root = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.path.dropFirst()), file: ProtocolObjectCodec.hash(file))]))
+            let graph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [root, file].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/note"), source: c.source, contentRevision: "r1")
+            let record = try LocalChange(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.path,
+                intent: .init(basis: basis, patch: patch, source: result))
+            let operations = record.update.trace?.flatMap(\.operations) ?? []
+            #expect(operations.map(\.kind) == moves.map { _ in "moveSource" } + edits.map { _ in "editSource" }, "\(c.name)")
+            for (index, move) in moves.enumerated() {
+                guard case let .object(source)? = operations[index].fields["source"], case let .object(at)? = operations[index].fields["at"] else { Issue.record("Missing move refs"); continue }
+                #expect(source["range"] == .array([.integer(move.source.lowerBound), .integer(move.source.upperBound)]))
+                #expect(at["range"] == .array([.integer(move.anchor.lowerBound), .integer(move.anchor.upperBound)]))
+                #expect(operations[index].fields["side"] == .string(move.side.rawValue))
+            }
+        }
+    }
+
     @Test("Shared requests retain same-root dependencies and restart with original operation identities")
     func sharedRequests() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }

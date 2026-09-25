@@ -45,7 +45,7 @@ public final class EditorSource {
 
     /// Capture one generation; `patch` takes `latestSource` to `generation.source`.
     public func append(_ generation: WorkspaceDocumentGeneration) {
-        guard !generation.patch.edits.isEmpty || !generation.source.utf8.elementsEqual(latestSource.utf8) else { return }
+        guard !generation.patch.isEmpty || !generation.source.utf8.elementsEqual(latestSource.utf8) else { return }
         pending.append(generation)
         if failure == nil { next() }
     }
@@ -125,7 +125,7 @@ public final class EditorSource {
                 replays = false
                 break
             }
-            if !patch.edits.isEmpty { chain.append(.init(patch: patch, source: generation.source)) }
+            if !patch.isEmpty { chain.append(.init(patch: patch, source: generation.source)) }
             previous = generation.source
         }
         let whole = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [
@@ -135,7 +135,8 @@ public final class EditorSource {
             return try WorkspaceDocumentIntent(basis: basis, patch: whole, source: final)
         }
         if chain.count == 1 { return try WorkspaceDocumentIntent(basis: basis, patch: chain[0].patch, source: final) }
-        let composed = (try? WorkspaceSourceEdit.compose(generations: chain.map(\.patch.edits)))
+        // Moves do not compose; such a chain states its bytes as one replacement.
+        let composed = chain.contains(where: { $0.patch.moves != nil }) ? nil : (try? WorkspaceSourceEdit.compose(generations: chain.map(\.patch.edits)))
             .map { WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: $0) }
         let patch = composed.flatMap { (try? $0.applying(to: basis.source))?.utf8.elementsEqual(final.utf8) == true ? $0 : nil } ?? whole
         return try WorkspaceDocumentIntent(basis: basis, patch: patch, source: final, generations: chain)

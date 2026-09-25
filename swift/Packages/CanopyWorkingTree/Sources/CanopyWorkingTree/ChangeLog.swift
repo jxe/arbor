@@ -75,12 +75,13 @@ public struct LocalChange: Codable, Equatable, Sendable {
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         // A generation that changed nothing states nothing; the rest chain exactly.
         var generations = (intent.generations.isEmpty ? [WorkspaceDocumentGeneration(patch: intent.patch, source: intent.source)] : intent.generations)
-            .filter { !$0.patch.edits.isEmpty }
+            .filter { !$0.patch.isEmpty }
         var boundarySource = intent.basis.source
         for generation in generations {
             let bytes = Array(boundarySource.utf8)
-            for edit in generation.patch.edits {
-                for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
+            let ranges = generation.patch.edits.map(\.utf8Range) + (generation.patch.moves ?? []).flatMap { [$0.source, $0.anchor] }
+            for range in ranges {
+                for offset in [range.lowerBound, range.upperBound] {
                     if offset < bytes.count && bytes[offset] & 0xc0 == 0x80 {
                         throw Self.invalid("Source range splits a UTF-8 scalar")
                     }
@@ -93,7 +94,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         // composed edit reproduces its final exact bytes. Provenance stays in
         // separate frames; immutable admissions are never rewritten here.
         if compact, generations.count > 1,
-           generations.allSatisfy({ $0.patch.edits.allSatisfy {
+           generations.allSatisfy({ $0.patch.moves == nil && $0.patch.edits.allSatisfy {
                ($0.lineage ?? []).isEmpty && ($0.copies ?? []).isEmpty
            } }),
            let edits = try? WorkspaceSourceEdit.compose(generations: generations.map { $0.patch.edits }),
@@ -179,7 +180,17 @@ public struct LocalChange: Codable, Equatable, Sendable {
             if frame == 0 { basisFile = file }
             sources[root] = generation.source
             let basisSource = Array(previousSource.utf8)
-            var operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [ProtocolSourceOperation] in
+            // Moves precede the frame's edits, which address basis bytes
+            // wherever the moves put them (`WorkspaceSourceArrangement`).
+            let moves = try (file == nil ? [] : generation.patch.moves ?? []).enumerated().map { index, move -> ProtocolSourceOperation in
+                func ref(_ range: Range<Int>) -> ProtocolSemanticValue {
+                    .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file!)]),
+                             "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])])
+                }
+                return try ProtocolSourceOperation(["key": .string("move-\(frame)-\(index)"), "kind": .string("moveSource"),
+                    "source": ref(move.source), "at": ref(move.anchor), "side": .string(move.side.rawValue)])
+            }
+            var operations = try moves + Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [ProtocolSourceOperation] in
                 // Byte-valid output alone does not prove scalar-aligned selection.
                 for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
                     if offset < basisSource.count && basisSource[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
@@ -260,7 +271,9 @@ public struct LocalChange: Codable, Equatable, Sendable {
             if let file = basisFile,
                let resultHash = (try? ProtocolObjectCodec.encode(.file(Data(intent.source.utf8)))).map(ProtocolObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
-               let delta = Self.delta(baseHash: file, base: Data(intent.basis.source.utf8), edits: intent.patch.edits, result: result) {
+               let delta = intent.patch.moves == nil
+                ? Self.delta(baseHash: file, base: Data(intent.basis.source.utf8), edits: intent.patch.edits, result: result)
+                : Self.spliceDelta(baseHash: file, base: Data(intent.basis.source.utf8), result: result) {
                 deltas.append(delta)
             }
             // Directories along the path change hash on every edit but differ

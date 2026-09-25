@@ -81,6 +81,11 @@ authority for the implemented subset; the request grammar itself is in
   and foreign-document capture to Swift and TypeScript admission tests. Both must
   bind the declared path and captured bytes to the authored graph before emitting
   `copySource`; ordinary text equality is not provenance.
+- `source-moves.json` gives the exact meaning of a generation's moves beside its
+  edits, all in basis coordinates: each case's result, or whether it is refused
+  as invalid or as an order basis coordinates do not decide. The Swift and
+  TypeScript executors, both change logs (moves publish as `moveSource` before the
+  frame's edits) and canopyd's fast path (`arrangeSources`) run it.
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
@@ -106,6 +111,7 @@ authority for the implemented subset; the request grammar itself is in
 | `resource-policy.json` | `who` / `via` / `allow` / `within` rule grammar |
 | `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |
 | `source-copy.json`, `source-preservation.json` | Source transfer and exact-byte preservation |
+| `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |
 | `url-resolution.json` | Locator resolution (spec 03) |
 | `protocol-accepted-state.json`, `protocol-accepted-transport.json` | Accepted states, receipts, inspection, and catch-up transport |
 | `protocol-authored-updates.json`, `protocol-authored-transport.json` | The authored request grammar, digests, and transport encodings |

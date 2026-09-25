@@ -1,19 +1,20 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
-import { applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit } from "@overstory/protocol";
+import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@overstory/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory,
   encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
 
 export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
-/** One editor generation of a coalesced intent: its edits against the source
- * the previous generation produced, and the source it produced. */
-export interface SourceGeneration { edits: SourceEdit[]; source: string }
+/** One editor generation of a coalesced intent: its moves and edits against
+ * the source the previous generation produced, and the source it produced. */
+export interface SourceGeneration { edits: SourceEdit[]; moves?: SourceMove[]; source: string }
 /** `edits` always take the basis to `source` in one step. `generations`, when
  * present, is the same change as the editor captured it, one generation after
  * another, ending at `source`; plain generations may coalesce into one frame. */
 export interface SourceIntent {
   basis: { tree: string; path: string; revision: string; source: string };
   edits: SourceEdit[];
+  moves?: SourceMove[];
   source: string;
   generations?: SourceGeneration[];
 }
@@ -99,17 +100,17 @@ export function prepareSourceChange(input: {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
       typeof intent.basis.path !== "string" || !validText(intent.basis.source, decoder) || typeof intent.source !== "string" ||
-      !validEdits(intent.edits, decoder) || !intent.edits.length ||
-      applySourceEdits(intent.basis.source, intent.edits) !== intent.source ||
+      !validEdits(intent.edits, decoder) || !(intent.edits.length || intent.moves?.length) ||
+      applySourceChange(intent.basis.source, intent.edits, intent.moves) !== intent.source ||
       (intent.generations !== undefined && (!Array.isArray(intent.generations) || intent.generations.some(g => !validEdits(g.edits, decoder) || typeof g.source !== "string")))) throw new Error("Invalid source intent");
   validateSourceIntent(intent);
   // A generation that changed nothing states nothing; the rest chain exactly.
-  let generations = (intent.generations ?? [{ edits: intent.edits, source: intent.source }]).filter(g => g.edits.length);
+  let generations: SourceGeneration[] = (intent.generations ?? [{ edits: intent.edits, ...(intent.moves ? { moves: intent.moves } : {}), source: intent.source }]).filter(g => g.edits.length || g.moves?.length);
   if (!generations.length) throw new Error("Invalid source intent");
   let boundarySource = intent.basis.source;
   for (const generation of generations) {
     const bytes = encoder.encode(boundarySource);
-    for (const edit of generation.edits)
+    for (const edit of [...generation.edits, ...(generation.moves ?? []).flatMap(m => [{ offset: m.source[0], length: m.source[1] - m.source[0] }, { offset: m.anchor[0], length: m.anchor[1] - m.anchor[0] }])])
       for (const offset of [edit.offset, edit.offset + edit.length])
         if (offset < bytes.length && (bytes[offset]! & 0xc0) === 0x80)
           throw new Error("Source range splits a UTF-8 scalar");
@@ -117,7 +118,7 @@ export function prepareSourceChange(input: {
   }
   // Preserve the validated generation chain's exact result while avoiding a
   // complete intermediate tree per plain edit. Copies/lineage keep their frames.
-  if (input.compact !== false && generations.length > 1 && generations.every(g =>
+  if (input.compact !== false && generations.length > 1 && generations.every(g => !g.moves?.length &&
     g.edits.every(e => !e.lineage?.length && !e.copies?.length))) {
     const edits = composeSourceEdits(generations.map(g => g.edits));
     if (edits.length && applySourceEdits(intent.basis.source, edits) === intent.source)
@@ -183,7 +184,14 @@ export function prepareSourceChange(input: {
     const root = replace(previousRoot, 0, previousSource, generation.source);
     sources.set(root, generation.source);
     const sourceBytes = encoder.encode(previousSource);
-    let operations: SourceOperation[] = operationEdits(generation.edits).flatMap((edit, i) => {
+    // Moves precede the frame's edits, which address basis bytes wherever the
+    // moves put them (`arrangeSources`).
+    const moves: SourceOperation[] = file ? (generation.moves ?? []).map((move, i) => ({
+      key: `move-${frame}-${i}`, kind: "moveSource" as const,
+      source: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: move.source },
+      at: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: move.anchor }, side: move.side,
+    })) : [];
+    let operations: SourceOperation[] = [...moves, ...operationEdits(generation.edits).flatMap((edit, i) => {
       for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
       if (!file) return [];
       const key = `edit-${frame}-${i}`;
@@ -198,7 +206,7 @@ export function prepareSourceChange(input: {
         result.push({key:`copy-placeholder-${frame}-${i}-${j}`,kind:"editSource",source:target,text:""});
       }
       return result;
-    });
+    })];
     // Assigned inside replace(), so read it through its declared type.
     const added = addedBody as AddedBody | undefined;
     if (!file && added)
@@ -237,10 +245,10 @@ export function prepareSourceChange(input: {
 /** `edits` must take the basis to `source`; each generation must reproduce
  * the next exactly and the chain must end at `source`. */
 export function validateSourceIntent(intent: SourceIntent): void {
-  if (applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw Error("Invalid source intent");
+  if (applySourceChange(intent.basis.source, intent.edits, intent.moves) !== intent.source) throw Error("Invalid source intent");
   let previous = intent.basis.source;
   for (const generation of intent.generations ?? []) {
-    if (applySourceEdits(previous, generation.edits) !== generation.source) throw Error("Invalid source generation");
+    if (applySourceChange(previous, generation.edits, generation.moves) !== generation.source) throw Error("Invalid source generation");
     previous = generation.source;
   }
   if (intent.generations && previous !== intent.source) throw Error("Source generations do not end at the candidate");

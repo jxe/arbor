@@ -20,7 +20,7 @@ struct LiveEditorAdmissionTests {
         return tree
     }
 
-    private func freshUndoPage(client: ProtocolClient, tree: String) async throws -> WorkspaceReference {
+    private func freshUndoPage(client: ProtocolClient, tree: String, content: String = "Causal second\n\nRetained tail\n") async throws -> WorkspaceReference {
         let current = try await client.descriptor(tree: tree)
         let snapshot = try await client.snapshot(tree: tree, root: current.tree.root)
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
@@ -28,7 +28,7 @@ struct LiveEditorAdmissionTests {
             throw WorkspaceProviderError.invalidAction("Expected directory")
         }
         let name = "undo-" + UUID().uuidString
-        let file = Data("Causal second\n\nRetained tail\n".utf8), hash = ProtocolObjectCodec.hash(file)
+        let file = Data(content.utf8), hash = ProtocolObjectCodec.hash(file)
         var entries = original; entries.append(.init(name: name + ".md", file: hash))
         entries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
         let bytes = try ProtocolObjectCodec.encode(.directory(entries, childrenSource: descriptor))
@@ -353,8 +353,8 @@ extension LiveEditorAdmissionTests {
     /// last generation's exact layout differs from a re-encoding against the
     /// oldest basis. Each generation is now its own frame; the three plain
     /// insertions compact into one, and a block reorder in the same burst
-    /// keeps its lineage in a second frame against the exact intermediate root.
-    @Test("A coalesced burst that nests a list item and reorders publishes two frames with lineage in the second and is accepted")
+    /// is a move in a second frame against the exact intermediate root.
+    @Test("A coalesced burst that nests a list item and reorders publishes two frames with a move in the second and is accepted")
     func coalescedListNormalizationFrames() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
@@ -391,12 +391,83 @@ extension LiveEditorAdmissionTests {
         let frames = try #require(record.update.trace)
         #expect(frames.count == 2, Comment(rawValue: "frames=\(frames.count)"))
         #expect(frames.first?.operations.allSatisfy { $0.kind == "editSource" && $0.fields["lineage"] == nil } == true)
-        #expect(frames.last?.operations.contains { ($0.fields["lineage"].map { $0 != .array([]) } ?? false) } == true)
+        #expect(frames.last?.operations.first?.kind == "moveSource", Comment(rawValue: "\(frames.last?.operations.map(\.kind) ?? [])"))
         #expect(frames.first?.before == record.graph.root && frames.last?.after == record.candidate.root)
         // Canopy validates the chain frame by frame and accepts it.
         let accepted = try await coordinator.syncOnce()
         #expect(accepted.state == .current, Comment(rawValue: String(describing: accepted)))
         #expect(try await session.snapshot().source == expected)
         await binding.close(); await coordinator.close(); await tree.close()
+    }
+
+    /// A reorder is published as a move of the moved paragraph's exact source,
+    /// survives a restart as the same request, carries a peer's concurrent
+    /// edit to the moved text, and the page keeps editing afterwards.
+    @Test("A moved paragraph publishes as a move, replays after restart, and carries a peer's edit", arguments: [false, true])
+    func movedParagraph(peerEdit: Bool) async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
+              let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "moved-paragraph-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ProtocolClient(origin: url, credential: token)
+        let reference = try await freshUndoPage(client: client, tree: treeID, content: "First para\n\nSecond para\n\nMoved para\n")
+        let tree = try await place(client.descriptor(tree: treeID), client: client)
+        let transport = ProtocolReplicaTransport(client: client)
+        var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        // The peer authors against the accepted page before the move is published.
+        let capture = try await tree.captureSourceBasis(reference)
+        let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(reference)
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        let document = binding.document
+        document.transaction(name: "Move Block") {
+            var children = document.children
+            children.insert(children.removeLast(), at: 0)
+            _ = document.replaceChildrenReconciled(children)
+        }
+        binding.appendCurrentGeneration()
+        await binding.flush()
+        #expect(binding.lastError == nil)
+        let expected = "Moved para\n\nFirst para\n\nSecond para\n\n"
+        #expect(try await session.snapshot().source == expected)
+        await binding.close()
+        let queue = try await ChangeLog(tree: treeID, stateRoot: root)
+        let record = try #require(try await queue.retained().last { $0.document?.reference == reference })
+        let operations = try #require(record.update.trace).flatMap(\.operations)
+        #expect(operations.map(\.kind) == ["moveSource", "editSource"], Comment(rawValue: "\(operations.map(\.kind))"))
+        // A restart retains the identical request: no rebasing or re-derivation.
+        await coordinator.close()
+        coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let reopened = try #require(try await ChangeLog(tree: treeID, stateRoot: root).retained().last { $0.document?.reference == reference })
+        #expect(reopened.update == record.update)
+        var final = expected
+        if peerEdit {
+            let original = capture.document.source, word = try #require(original.range(of: "Moved"))
+            let range = original.utf8.distance(from: original.startIndex, to: word.lowerBound)..<original.utf8.distance(from: original.startIndex, to: word.upperBound)
+            let patch = WorkspaceDocumentPatch(baseContentRevision: capture.document.contentRevision, edits: [.init(utf8Range: range, replacement: "Peer-edited")])
+            let peer = try capture.prepare(intent: .init(basis: capture.document, patch: patch, source: original.replacingOccurrences(of: "Moved", with: "Peer-edited")))
+            let request = try await client.prepareUpdates(tree: treeID, base: #require(capture.accepted), updates: [peer.update])
+            _ = try await client.submitUpdateResponse(request)
+            _ = try await coordinator.recoverWatchGap()
+            final = expected.replacingOccurrences(of: "Moved", with: "Peer-edited")
+        }
+        let accepted = try await coordinator.syncOnce()
+        #expect(accepted.state == .current, Comment(rawValue: String(describing: accepted)))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+        let after = try await provider.openDocument(reference)
+        #expect(try await after.snapshot().source == final)
+        // Editing continues on the accepted result, inside the moved paragraph.
+        let continued = try await CanopyDocumentBinding.open(reference: reference, session: after)
+        continued.document.transaction(name: "Typing") {
+            _ = continued.document.setText(continued.document.children[0].id, AttributedString("Typed after the move"))
+        }
+        continued.appendCurrentGeneration()
+        await continued.flush()
+        #expect(continued.lastError == nil)
+        #expect(try await coordinator.syncOnce().state == .current)
+        #expect(try await after.snapshot().source == "Typed after the move\n\nFirst para\n\nSecond para\n\n")
+        await continued.close(); await coordinator.close(); await tree.close()
     }
 }

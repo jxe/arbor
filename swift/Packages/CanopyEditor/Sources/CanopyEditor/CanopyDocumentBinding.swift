@@ -141,7 +141,7 @@ public final class CanopyDocumentBinding {
         // frame (docs/overstory-spec/09-client-synchronization.md §4).
         let (captured, nextLedger) = CanopyMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
         ledger = nextLedger
-        guard !captured.patch.edits.isEmpty || !captured.source.utf8.elementsEqual(source.latestSource.utf8) else { return }
+        guard !captured.patch.isEmpty || !captured.source.utf8.elementsEqual(source.latestSource.utf8) else { return }
         generation += 1
         authoredLedgers[generation] = nextLedger
         lastEnqueuedSource = captured.source

@@ -240,11 +240,19 @@ extension WorkspaceSourceEdit {
 public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
     public var baseContentRevision: String
     public var edits: [WorkspaceSourceEdit]
+    /// Moves execute before `edits`, which may then edit moved material where
+    /// it lands (`WorkspaceSourceMove`). Absent in a patch without moves, so
+    /// such a patch encodes as before.
+    public var moves: [WorkspaceSourceMove]?
 
-    public init(baseContentRevision: String, edits: [WorkspaceSourceEdit]) {
+    public init(baseContentRevision: String, edits: [WorkspaceSourceEdit], moves: [WorkspaceSourceMove]? = nil) {
         self.baseContentRevision = baseContentRevision
         self.edits = edits
+        self.moves = moves?.isEmpty == true ? nil : moves
     }
+
+    /// Whether applying the patch changes nothing it states.
+    public var isEmpty: Bool { edits.isEmpty && (moves ?? []).isEmpty }
 
     public func applying(to source: String) throws -> String {
         let original = Data(source.utf8)
@@ -295,6 +303,21 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
             priorEnd = edit.utf8Range.upperBound
         }
 
+        if let moves, !moves.isEmpty {
+            guard edits.allSatisfy({ ($0.copies ?? []).isEmpty }) else { throw WorkspacePatchError.invalidRange(0..<0) }
+            let file = ""
+            do {
+                let arranged = try WorkspaceSourceArrangement.apply(
+                    files: [file: original],
+                    moves: moves.map { .init(source: .init(file: file, range: $0.source), anchor: .init(file: file, range: $0.anchor), side: $0.side) },
+                    edits: edits.map { .init(span: .init(file: file, range: $0.utf8Range), text: Data($0.replacement.utf8)) }
+                )
+                guard let value = String(data: arranged[file] ?? original, encoding: .utf8) else { throw WorkspacePatchError.invalidUTF8 }
+                return value
+            } catch let failure as WorkspaceSourceArrangement.Failure {
+                throw WorkspacePatchError.invalidMoves(failure)
+            }
+        }
         let growth = edits.reduce(0) { $0 + $1.replacement.utf8.count - $1.utf8Range.count }
         var result = Data()
         result.reserveCapacity(max(0, original.count + growth))
@@ -391,6 +414,7 @@ public enum WorkspacePatchError: Error, Equatable, Sendable {
     case invalidRange(Range<Int>)
     case guardMismatch(Range<Int>)
     case invalidUTF8
+    case invalidMoves(WorkspaceSourceArrangement.Failure)
 }
 
 public protocol WorkspaceDocumentSession: Actor, Sendable {

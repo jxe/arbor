@@ -1723,24 +1723,30 @@ private actor InterleavingLiveUpdateSession: WorkspaceDocumentSession {
     func close() { continuation.finish() }
 }
 
-@Test("Stable block reorder preserves exact source lineage")
-func reorderedSourceLineage() throws {
+@Test("A block reorder moves the exact source of the block that moved")
+func reorderedSourceMove() throws {
     let source = "Alpha 🪴\r\n\r\nBeta\r\n\r\nGamma\r\n"
     let opened = CanopyMarkdownCodec.open(source:source,revision:"r",identitySeed:"lineage")
     let blocks = [opened.blocks[1], opened.blocks[0], opened.blocks[2]]
     let admission = CanopyMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
+    #expect(admission.source == "Beta\r\n\r\nAlpha 🪴\r\n\r\nGamma\r\n")
     #expect(try admission.patch.applying(to:source) == admission.source)
-    #expect(admission.patch.edits.flatMap { $0.lineage ?? [] }.count >= 1)
+    #expect(admission.patch.edits.isEmpty)
+    let move = try #require(admission.patch.moves?.first)
+    #expect(admission.patch.moves?.count == 1)
+    let bytes = Data(source.utf8)
+    #expect(Set([bytes.subdata(in:move.source), bytes.subdata(in:move.anchor)]) == Set([Data("Alpha 🪴\r\n\r\n".utf8), Data("Beta\r\n\r\n".utf8)]))
 }
 
 @Test("Reordering equal-byte blocks still retains distinct source intent")
-func equalByteReorderLineage() throws {
+func equalByteReorderMove() throws {
     let opened = CanopyMarkdownCodec.open(source:"same\n\nsame\n\n",revision:"r",identitySeed:"equal")
     #expect(opened.blocks.count == 2)
     let admission = CanopyMarkdownCodec.admission(blocks:opened.blocks.reversed(),ledger:opened.ledger).0
+    // The bytes are unchanged, but one block moved past the other.
     #expect(admission.source == opened.ledger.source)
-    #expect(admission.patch.edits.count == 1)
-    #expect(admission.patch.edits[0].lineage?.count == 2)
+    #expect(admission.patch.moves?.count == 1)
+    #expect(admission.patch.moves?.first.map { $0.source != $0.anchor } == true)
     #expect(try admission.patch.applying(to:opened.ledger.source) == admission.source)
 }
 
@@ -1757,7 +1763,7 @@ func boundEqualByteReorder() async throws {
     await binding.flush()
     let patches = await session.admittedPatches()
     #expect(patches.count == 1)
-    #expect(patches.first?.edits.first?.lineage?.count == 2)
+    #expect(patches.first?.moves?.count == 1)
     #expect(binding.lastError == nil)
     await binding.close()
 }
@@ -1877,5 +1883,98 @@ extension CanopyEditorTests {
         #expect(healedChild.source == "[Source](../source#pg_source)\n")
         #expect(renamed.title == "A Different Title")
         await workspace.closeAll()
+    }
+}
+
+@Suite("Rearrangements publish as moves of exact source")
+struct RearrangementTests {
+    /// Rearrange the parsed tree with `change`, admit it, and check the patch
+    /// reproduces the new source and that the source reopens as the tree.
+    func admit(_ source: String, _ change: (inout [Block]) -> Void) throws -> (source: String, patch: WorkspaceDocumentPatch) {
+        let opened = CanopyMarkdownCodec.open(source:source,revision:"r",identitySeed:"moves")
+        var blocks = opened.blocks
+        change(&blocks)
+        let admission = CanopyMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
+        #expect(try admission.patch.applying(to:source) == admission.source)
+        let reopened = CanopyMarkdownCodec.open(source:admission.source,revision:"r2",identitySeed:"moves")
+        #expect(CanopyMarkdownCodec.serializeBlocks(reopened.blocks) == CanopyMarkdownCodec.serializeBlocks(blocks))
+        return (admission.source, admission.patch)
+    }
+
+    @Test("Indenting an item in place re-indents only its lines")
+    func indentInPlace() throws {
+        let result = try admit("- one\n- two\n- three\n") { blocks in
+            let two = blocks.remove(at:1)
+            blocks[0].children.append(two)
+        }
+        #expect(result.source == "- one\n  - two\n- three\n")
+        #expect(result.patch.moves == nil)
+        #expect(result.patch.edits.map(\.replacement) == ["  -"])
+    }
+
+    @Test("Outdenting a child removes its indentation")
+    func outdent() throws {
+        let result = try admit("- one\n  - child\n- two\n") { blocks in
+            let child = blocks[0].children.removeFirst()
+            blocks.insert(child, at:1)
+        }
+        #expect(result.source == "- one\n- child\n- two\n")
+        #expect(result.patch.moves == nil)
+        #expect(result.patch.edits.map(\.replacement) == [""])
+    }
+
+    @Test("Moving an item under another parent moves it and re-indents it where it lands")
+    func moveUnderParent() throws {
+        let result = try admit("- one\n- two\n  - child\n- three\n") { blocks in
+            let three = blocks.removeLast()
+            blocks[0].children.append(three)
+        }
+        #expect(result.source == "- one\n  - three\n- two\n  - child\n")
+        #expect(result.patch.moves?.count == 1)
+        #expect(result.patch.edits.map(\.replacement) == ["  -"])
+    }
+
+    @Test("A selection of several blocks lands as one chain, in order")
+    func multipleBlocks() throws {
+        let result = try admit("A\n\nB\n\nC\n\nD\n\n") { blocks in
+            blocks = [blocks[2], blocks[3], blocks[0], blocks[1]]
+        }
+        #expect(result.source == "C\n\nD\n\nA\n\nB\n\n")
+        #expect(result.patch.moves?.count == 2)
+    }
+
+    @Test("CRLF, multibyte and combining text move byte for byte")
+    func exactBytes() throws {
+        let result = try admit("Café\r\n\r\n- naïve ☕\r\n- e\u{301}\r\n") { blocks in
+            let last = blocks.removeLast()
+            blocks.insert(last, at:1)
+            blocks[1].children.append(blocks.removeLast())
+        }
+        #expect(result.source == "Café\r\n\r\n- e\u{301}\r\n  - naïve ☕\r\n")
+        #expect(result.patch.moves?.count == 1)
+    }
+
+    @Test("Tab indentation falls back to an ordinary edit")
+    func tabFallback() throws {
+        let tabs = try admit("- one\n\t- child\n- two\n") { blocks in
+            let child = blocks[0].children.removeFirst()
+            blocks.append(child)
+        }
+        #expect(tabs.patch.moves == nil)
+    }
+
+    @Test("A last block moved up gains the blank line it needs before its new successor")
+    func separatedLastBlock() throws {
+        let moved = try admit("A\n\nB\n") { blocks in blocks.reverse() }
+        #expect(moved.source == "B\n\nA\n\n")
+        #expect(moved.patch.moves?.count == 1)
+        #expect(moved.patch.edits.map(\.replacement) == ["\n\n"])
+        // An ordinary edit that also reorders keeps the blocks apart too.
+        let edited = try admit("A\n\nB\n") { blocks in
+            blocks.reverse()
+            blocks[1].kind = .paragraph(text:AttributedString("A2"))
+        }
+        #expect(edited.patch.moves == nil)
+        #expect(edited.source.hasPrefix("B\n\nA2"))
     }
 }

@@ -1,4 +1,5 @@
 import { canonicalCBORHash } from "./cbor.ts";
+import { arrangeSources } from "../updates/source-moves.ts";
 import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
 
@@ -232,6 +233,15 @@ export interface SourceEdit {
   expected?: string;
 }
 
+/** Relocation of non-empty source bytes beside `anchor`: stationary bytes, or
+ * the whole source of an earlier move. Offsets are UTF-8 bytes of the same
+ * source the edits address; `arrangeSources` gives the exact meaning. */
+export interface SourceMove {
+  source: [number, number];
+  anchor: [number, number];
+  side: "before" | "after";
+}
+
 export class SourceEditError extends Error {
   constructor(message: string) {
     super(message);
@@ -309,6 +319,26 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
     return new TextDecoder("utf-8", { fatal: true }).decode(result);
   } catch {
     throw new SourceEditError("sourceEdits produce invalid UTF-8");
+  }
+}
+
+/** Apply one generation: its moves, then its edits, all in `source`'s own
+ * coordinates. Without moves this is `applySourceEdits`. */
+export function applySourceChange(source: string, edits: readonly SourceEdit[], moves: readonly SourceMove[] = []): string {
+  // Edits keep their own checks (order, guards, lineage) whatever moves do.
+  const plain = applySourceEdits(source, edits);
+  if (!moves.length) return plain;
+  if (edits.some(edit => edit.copies?.length)) throw new SourceEditError("A generation with moves states no copies");
+  const path = "/source", encoder = new TextEncoder();
+  try {
+    const arranged = arrangeSources(
+      new Map([[path, encoder.encode(source)]]),
+      moves.map(move => ({ source: { path, range: move.source }, anchor: { path, range: move.anchor }, side: move.side })),
+      edits.map(edit => ({ path, range: [edit.offset, edit.offset + edit.length] as [number, number], text: encoder.encode(edit.replacement) })),
+    );
+    return new TextDecoder("utf-8", { fatal: true }).decode(arranged.get(path)!);
+  } catch (error) {
+    throw new SourceEditError(error instanceof Error ? error.message : "Invalid source moves");
   }
 }
 

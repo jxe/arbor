@@ -36,8 +36,8 @@ command as wholly unimplemented.
 
 | Existing action or case | What remains |
 |---|---|
-| Move source blocks, including Move to Document | Preserve the actual source/destination relationship where the existing command does not yet capture it. Distinguish moving text from moving a whole page entry. |
-| Copy material whose text/formatting changes | Extend beyond the byte-exact source spans currently captured. Express the copy and actual edits faithfully; never identify a source by searching for matching text. |
+| Move to Document | Publish one change that moves the blocks' exact source from one page to the other, instead of an unrelated append and deletion. Distinguish moving text from moving a whole page entry. Moves within a page are done ([status](../../status.md#implemented)). |
+| Copy material whose text/formatting changes | Extend beyond the byte-exact source spans currently captured, including a duplicate at a new depth. Express the copy and actual edits faithfully; never identify a source by searching for matching text. |
 | Undo compound commands such as moving blocks or inlining a child page and retiring it | Inventory their actual effects, then retain enough action identity to undo those effects without implicitly erasing peer work. Page-conversion undo is already implemented. |
 | Creation/import and actions at nested-tree boundaries | Check which existing actions can truthfully use supported operation forms and which must remain snapshots. Preserve TreeID and destination boundaries. |
 | Multiple selections and exact-text edge cases | Verify existing capture first; fix demonstrated gaps involving ordering, equal-byte edits, CRLF or combining characters. These are not separate new features. |
