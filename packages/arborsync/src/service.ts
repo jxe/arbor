@@ -1,5 +1,5 @@
 import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
-import { FolderSync, folderStateRoot, pendingBytes } from "./folder-sync.ts";
+import { FolderSync, folderStateRoot, pendingBytes, type DeclinedReport } from "./folder-sync.ts";
 import { ChangeLog } from "@overstory/working-tree/node";
 import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
@@ -424,9 +424,24 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return this.folderSync(tree).coordinator.presentation();
   }
 
-  /** Discard a tree's held request and every change authored on it; the folder returns to the accepted state. */
+  /** A placed folder's declined work: the paths the host refused and where they are on disk now. */
+  async declinedChanges(tree: string): Promise<DeclinedReport | null> {
+    return this.folderSync(tree).declinedReport();
+  }
+
+  /** Discard a request held whole and every change authored on it; the folder returns to the accepted state. */
   async discardHeldChanges(tree: string): Promise<void> {
     await this.folderSync(tree).discardHeldChanges();
+  }
+
+  /** Put the accepted state back at a folder's declined paths; its other changes are kept. */
+  async restoreDeclined(tree: string): Promise<void> {
+    await this.folderSync(tree).restoreDeclined();
+  }
+
+  /** Publish a folder's declined paths again as the folder holds them now. */
+  async resendDeclined(tree: string): Promise<void> {
+    await this.folderSync(tree).resendDeclined();
   }
 
   /** Stop publishing a placed folder's changes until resumed, across restarts. */
@@ -464,6 +479,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       client: (current) => this.accountClient(current),
       updateSyncMetadata: (current) => this.trees.updateSyncMetadata(current),
       setSyncState: (state) => this.trees.setSyncState(tree, state),
+      setDeclined: (declined) => this.trees.setDeclined(tree, declined),
       withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
       scan: () => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? []),
       root: workspace.root,

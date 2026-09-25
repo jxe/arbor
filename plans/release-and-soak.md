@@ -139,6 +139,12 @@ elapsed calendar time alone is insufficient.
   restart already have evidence. If a stall recurs, capture the machine phase and
   preparation error before retrying; see the automatic-publication recipe below. Phone
   foreground refresh is expected, not a background-sync defect.
+- [ ] **Declined folder paths (Filesystem 011):** after Arbor Sync is restarted on it, record
+  one real rejection on a placed folder (an account configuration path the host rejects is the
+  easiest: a `LinkPreviews/` directory in the account checkout), that other edits in the same
+  folder still publish, `arbor declined` lists the path, and `arbor declined --restore`
+  removes it. A daemon with a request already held from before the change converts it to
+  declined paths on its first pass.
 - [ ] **Clients 001 / Hetzner sync lab:** run `packages/canopyd/deploy/hcloud-sync-lab` against
   the update-machine daemon. Its binary scenario now expects Canopy to accept both versions as an
   unresolved alternative instead of a daemon conflict; it has not run since that rewrite.

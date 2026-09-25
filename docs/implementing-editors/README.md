@@ -15,7 +15,7 @@ it is not the editor's publication path.
 ## User interaction
 
 - [Reference design](design.md): navigation, editing, identity, sharing, and synchronization.
-- [Held folder changes for Arbor Sync clients](held-folder-changes.md): presenting a placed folder whose changes the host refused. This is distinct from Canopy's accepted-state review.
+- [Declined folder changes for Arbor Sync clients](declined-folder-changes.md): presenting a placed folder with changes the host declined. This is distinct from Canopy's accepted-state review.
 
 The [browser architecture](../architecture/canopy-browser/README.md) describes
 runtime ownership. [Status](../../status.md) distinguishes the reference design

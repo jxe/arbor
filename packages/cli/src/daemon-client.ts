@@ -106,6 +106,19 @@ export interface PendingUpdate {
   request: UpdateRequestJSON | null;
 }
 
+/** `GET /v1/declined?tree=`: a placed folder's declined work, kept on disk while the rest syncs. */
+export interface DeclinedChanges {
+  tree: string;
+  /** Why the host declined, as it said. */
+  detail?: string;
+  /** The entries the declined request changed that the folder has not yet brought back to the accepted state. */
+  paths: string[];
+  /** Where that work is on disk now, including content moved out of a declined path. */
+  points: string[];
+  since: string;
+  request: { digest: string; base: { root: string; update: string }; candidate: string };
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -180,6 +193,29 @@ export class ArborSyncRESTClient {
   /** Publish a paused folder's changes again. */
   resumeFolder(tree: string): Promise<{ tree: string; paused: boolean }> {
     return this.request("/v1/placements/resume", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tree }),
+    });
+  }
+
+  /** A placed folder's declined work, or null when nothing is declined. */
+  async declined(tree: string): Promise<DeclinedChanges | null> {
+    return (await this.request<{ declined: DeclinedChanges | null }>(`/v1/declined?tree=${encodeURIComponent(tree)}`)).declined;
+  }
+
+  /** Put the host's state back at a folder's declined paths; its other changes are kept. */
+  restoreDeclined(tree: string): Promise<{ tree: string }> {
+    return this.request("/v1/declined/restore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tree }),
+    });
+  }
+
+  /** Publish a folder's declined paths again as the folder holds them now. */
+  resendDeclined(tree: string): Promise<{ tree: string }> {
+    return this.request("/v1/declined/resend", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ tree }),

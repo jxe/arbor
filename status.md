@@ -16,7 +16,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 | Area | State | Where to read |
 |---|---|---|
-| Canopy first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-held-changes) |
+| Canopy first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-declined-changes) |
 | Bun CLI distribution: publishable package, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](docs/overstory-spec/01-tree-operations.md), [conformance](docs/overstory-spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](docs/overstory-spec/01-tree-operations.md) |
@@ -95,6 +95,42 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## Declined folder paths (Filesystem 011) — 2026-09-25
+
+Implemented; Arbor Sync not yet restarted on it. A rejection no longer stops a
+placed folder. When canopyd definitively rejects a folder request, `FolderSync`
+records the request's footprint (the smallest entries differing between its
+base and final candidate) as **declined paths** in `sync/declined.json`, and
+discards the request from the change log. The folder keeps its bytes. Each
+later scan publishes the folder against the accepted state with the accepted
+entry at every declined point, as a fresh change; accepted updates are written
+everywhere except declined points. A declined path climbs to the highest
+ancestor where the folder and the accepted state are not both directories, so a
+declined directory deletion is never published in part, and accepted content
+missing from a declined path is declined wherever it reappears, so a declined
+move is never half published (`packages/arborsync/src/declined-paths.ts`). A
+path is released when the folder matches the accepted state there.
+`GET /v1/declined`, `POST /v1/declined/restore` and `POST /v1/declined/resend`
+back the new `arbor declined [--restore|--resend]`;
+`LocalTreeDescriptor.declined` lists the paths and `arbor status` shows
+`declined`. A request rejected as `unsupported` is still held whole
+(`sync: "conflict"`) until `POST /v1/held/discard`, which now handles only that
+case. "Declined" is the user-facing word; the update machine's `held` state is
+unchanged, as are the control schema and Swift runner; the coordinator gained
+`heldRequest()`. The folder is the record of declined intent, so there is no
+effect ledger: snapshot reconciliation is by state. Spec 09 §5 gained the
+snapshot rule. Evidence: `tests/unit/declined-paths.test.ts`;
+`tests/integration/self-sync.test.ts` (a real canopyd rejection of an account
+configuration path, kept across restart and restored; independent edits
+published and a remote update written while a path is declined, then resent; a
+path released when the folder is put back); `bun run test`. Found in passing,
+not fixed: canopyd's child-tree boundary rejection
+(`ReservedBoundaryConflictError`) answers 409 `conflict` without the conflict
+details the client decodes, so a client would treat it as a transport failure
+and retry; folder scans emit canonical boundaries virtually, so the daemon
+cannot currently trigger it. The hands-on gate is in
+[release and verification](plans/release-and-soak.md#observation-and-soak-closeout).
 
 ## Arbor Sync write path removed — 2026-09-25
 
@@ -357,7 +393,7 @@ Console tree (arb.nxhx.org) published a new file in 1.3 s and its removal in
 1.2 s through the watcher alone, leaving no retained request. The longer soak
 is on Joe's own list. Clients 001 closed the same day; its plan is deleted (git
 history). Its follow-ups: held folders in the Mac app
-([Native 012](plans/swift/012-show-held-folders.md)), the browser client
+([Native 012](plans/swift/012-show-declined-folders.md)), the browser client
 ([Web 025](plans/canopy-web/025-arbor-web.md)), a Hetzner sync lab run
 ([release and soak](plans/release-and-soak.md)), and History on
 working trees ([open questions](plans/open-questions.md)).

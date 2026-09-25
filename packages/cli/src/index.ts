@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
-import { ArborSyncRESTClient } from "./daemon-client.ts";
+import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { materializeTree, snapshotDirectory } from "@overstory/fs";
 import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
@@ -66,12 +66,17 @@ function usage(): never {
   arbor pause <placed-path>
   arbor resume <placed-path>
   arbor pending <placed-path> [--json]
+  arbor declined <placed-path> [--json]
+  arbor declined --restore <placed-path>
+  arbor declined --resend <placed-path>
 
 Notes:
   arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
   arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
   arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
-  arbor pending  shows exactly what Arbor Sync would send next for a placed folder.`);
+  arbor pending  shows exactly what Arbor Sync would send next for a placed folder.
+  arbor declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
+    --restore puts back the host's version of those paths; --resend sends them again as they are.`);
   process.exit(2);
 }
 
@@ -449,6 +454,37 @@ async function pendingCommand(args: string[]): Promise<void> {
         load: async (hash) => objects.get(hash) ?? await client.object(tree.id, hash).catch(() => undefined),
       }));
       before = update.candidate;
+    }
+  });
+}
+
+function printDeclined(declined: DeclinedChanges, osPath: string): void {
+  console.log(`Declined in ${osPath} (${declined.tree}) since ${declined.since}`);
+  if (declined.detail) console.log(`The host said: ${declined.detail}`);
+  console.log("Kept on this device and not published:");
+  for (const point of declined.points) console.log(`  ${point}`);
+  console.log("The rest of the folder keeps syncing. Make these match the host and they are released, or:");
+  console.log(`  arbor declined --restore ${JSON.stringify(osPath)}   put back the host's version`);
+  console.log(`  arbor declined --resend ${JSON.stringify(osPath)}    send them again as they are`);
+}
+
+async function declinedCommand(args: string[]): Promise<void> {
+  const flags = new Set(args.filter((arg) => arg.startsWith("-")));
+  const operands = args.filter((arg) => !arg.startsWith("-"));
+  const action = flags.has("--restore") ? "restore" : flags.has("--resend") ? "resend" : "show";
+  const json = flags.has("--json");
+  if (operands.length !== 1 || [...flags].some((flag) => !["--restore", "--resend", "--json"].includes(flag))
+    || (flags.has("--restore") && flags.has("--resend")) || (json && action !== "show")) usage();
+  await withArborSync(resolve(operands[0]!), async (client) => {
+    const tree = await placedTree(client, operands[0]!);
+    const declined = await client.declined(tree.id);
+    if (action === "show" && json) console.log(JSON.stringify(declined, null, 2));
+    else if (!declined) console.log(`Nothing declined in ${tree.osPath} (${tree.id})`);
+    else if (action === "show") printDeclined(declined, tree.osPath!);
+    else {
+      await (action === "restore" ? client.restoreDeclined(tree.id) : client.resendDeclined(tree.id));
+      console.log(action === "restore" ? `Put back the host's version in ${tree.osPath}:` : `Sending again from ${tree.osPath}:`);
+      for (const point of declined.points) console.log(`  ${point}`);
     }
   });
 }
@@ -1200,11 +1236,12 @@ async function finishCloud(args: string[]): Promise<void> {
   }
 }
 
-type StatusTreeCondition = "missing" | "conflict" | "error" | "offline" | "paused" | "syncing" | "not-placed" | "up-to-date";
+type StatusTreeCondition = "missing" | "conflict" | "declined" | "error" | "offline" | "paused" | "syncing" | "not-placed" | "up-to-date";
 
 function statusTreeCondition(tree: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"][number]): StatusTreeCondition {
   if (tree.missing) return "missing";
   if (tree.sync === "conflict") return "conflict";
+  if (tree.declined) return "declined";
   if (tree.sync === "error") return "error";
   if (tree.sync === "offline") return "offline";
   if (tree.sync === "paused") return "paused";
@@ -1546,6 +1583,10 @@ async function main(): Promise<void> {
   }
   if (command === "pending") {
     await pendingCommand(args);
+    return;
+  }
+  if (command === "declined") {
+    await declinedCommand(args);
     return;
   }
   usage();

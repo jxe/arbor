@@ -398,6 +398,24 @@ their existing constraints; this procedure is not a bypass for them.
 Filesystem clients materialize ordinary projected files and keep accepted identity,
 the unresolved signal, and unaccepted work in durable client state outside authored
 files. They need not retain accepted alternatives or inspection evidence locally.
+
+A source whose changes are whole-tree snapshots (`trace: null`), such as a placed
+folder, may prove independence by path. The footprint of a rejected request is the
+set of smallest entries that differ between its base and its final candidate. The
+client durably records that footprint as **declined paths** and may then leave
+`held` by replacing the request with fresh work: each later candidate is prepared
+against the accepted state, carries the accepted entry (or its absence) at every
+declined point, and takes everything else from the source. A declined point is the
+recorded path, or its highest ancestor at which the source and the accepted state are
+not both directories, so a rejected directory deletion is never published in part.
+Content the accepted state holds at a declined point but the source no longer holds
+there is declined wherever it appears as a new or changed entry, since a snapshot has
+no move identity. Accepted updates are materialized everywhere except declined points.
+The source itself keeps the declined work, so no separate record of published effects
+is needed: snapshot reconciliation is by state, not by replayed operation. A declined
+path is released when the source agrees with the accepted state there; the explicit
+actions are restoring the accepted state at declined points and resending them with
+fresh identity. A request rejected as `unsupported` is not replaced this way.
 They MUST retain the exact accepted projection underlying each captured local change.
 The host establishes whether a snapshot edit continues a displayed alternative.
 When attribution is ambiguous, it retains the ambiguity if representable within the

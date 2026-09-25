@@ -158,9 +158,12 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   name: string;
   osPath?: string;
   placement: "placed" | "replica" | "remote";
-  /** `conflict`: the host refused the folder's changes; they are held until discarded.
+  /** `conflict`: a request is held whole: the host does not support an operation in it, or a read-only placement has local edits.
    * `paused`: a person paused publishing the folder's changes; accepted updates still arrive. */
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error" | "paused";
+  /** Folder paths whose changes the host refused. They stay on disk and
+   * unpublished while the rest of the folder keeps syncing. */
+  declined?: { paths: string[]; since: string; detail?: string };
   missing?: boolean;
 }
 

@@ -7,7 +7,7 @@ import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 
 type SyncHTTPService = Pick<ArborSyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
-  "objectBytes" | "discardHeldChanges" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+  "objectBytes" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -99,6 +99,18 @@ export function syncHandler(service: SyncHTTPService, options: {
       const body = await request.json() as { tree?: unknown };
       if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", "Discarding held changes requires a tree", 400);
       await service.discardHeldChanges(body.tree);
+      return json({ tree: body.tree });
+    }
+    if (request.method === "GET" && url.pathname === "/v1/declined") {
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "declined requires explicit tree scope", 400);
+      return json({ declined: await service.declinedChanges(tree) });
+    }
+    if (request.method === "POST" && (url.pathname === "/v1/declined/restore" || url.pathname === "/v1/declined/resend")) {
+      const body = await request.json() as { tree?: unknown };
+      const restore = url.pathname === "/v1/declined/restore";
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", `${restore ? "Restoring" : "Resending"} declined changes requires a tree`, 400);
+      await (restore ? service.restoreDeclined(body.tree) : service.resendDeclined(body.tree));
       return json({ tree: body.tree });
     }
     if (request.method === "POST" && (url.pathname === "/v1/placements/pause" || url.pathname === "/v1/placements/resume")) {

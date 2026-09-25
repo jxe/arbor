@@ -640,6 +640,13 @@ export class UpdateCoordinator {
     await this.publishTip();
   }
 
+  /** The held request and why, for a source that can prove what later work is independent of it. */
+  heldRequest(): { reason: HeldReason; detail?: string; attempt: UpdateAttempt } | undefined {
+    const state = this.machine, attempt = this.control.attempt;
+    if (state.kind !== "held" || !attempt || attempt.digest !== state.request.id) return undefined;
+    return { reason: state.reason, ...(state.detail === undefined ? {} : { detail: state.detail }), attempt };
+  }
+
   /** Local changes not yet settled, oldest first. */
   async pendingChanges(): Promise<LocalChange[]> {
     await this.load();

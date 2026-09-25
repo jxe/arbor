@@ -329,6 +329,28 @@ arbor pending ~/Documents/notes
 arbor resume ~/Documents/notes
 ```
 
+### `arbor declined`
+
+```text
+arbor declined <placed-path> [--json]
+arbor declined --restore <placed-path>
+arbor declined --resend <placed-path>
+```
+
+When the host declines a folder change, the paths that change touched are
+declined: they stay on disk and unpublished while the rest of the folder keeps
+syncing in both directions, and `arbor status` reports the tree as
+`declined`. `arbor declined` lists where the declined work is now (including
+content moved out of a declined path) and the host's reason. Make those paths
+match the host and they are released on the next scan. Otherwise `--restore`
+puts back the host's version and keeps your other changes, and `--resend`
+sends them again as they are, for when the reason has gone.
+
+```sh
+arbor declined ~/Documents/notes
+arbor declined --restore ~/Documents/notes
+```
+
 ## Related executables
 
 `canopyd` and `arborsync` are separate executables with their own process-level

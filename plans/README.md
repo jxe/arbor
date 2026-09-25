@@ -7,13 +7,12 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 ## Soon
 
 Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's identifier
-(Filesystem 011 is still Filesystem 011) and its entry in the [catalog](catalog.md), marked **SOON**.
+(Filesystem 005 is still Filesystem 005) and its entry in the [catalog](catalog.md), marked **SOON**.
 
 | Plan | What it does |
 |---|---|
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | canopyd [005](soon/005-tree-configuration-trees.md) | Decide and design per-tree configuration and co-administration |
-| Filesystem [011](soon/011-independent-writes-after-rejection.md) | Keep independent writes moving after a rejected change |
 
 ## Remaining outcomes
 
@@ -21,7 +20,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 |---|---|---|
 | Extend Native editing | Copies with changes, paste and inline provenance, and compound undo; capture, block moves, Move to Document, sync and accepted-choice review are implemented | Native [008](swift/008-copies-with-changes-and-compound-undo.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Make the merge handle many more cases | Lose nothing, keep the syntax, approach the meaning; merge or merge with a note far more often than asking for review: anchors that agree in both orders, cross-document links, new keys and arrays in JSON/YAML, code moves and imports, and formats such as BibTeX and notebooks | canopyd [014](canopyd/014-merge-handles-many-cases.md) |
-| Show held folders in the Mac app | List placed folders whose changes the host refused and offer Discard Refused Changes | Native [012](swift/012-show-held-folders.md) |
+| Show declined folders in the Mac app | List placed folders with declined paths and offer restore and resend | Native [012](swift/012-show-declined-folders.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
 | Make Overstory applications executable | Headless sidecar with resource policy → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow. Declarative collection schemas are implemented; their Swift edits await the [Mac gates](release-and-soak.md#collection-schema-mac-gates) | Apps [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
 | Make sharing easier | Safe access links and coherent group management; name-based sharing, the directory, and avatar profiles are implemented. Proposed, undecided: per-tree configuration with co-administrators and group-owned trees | Security [004](security/004-access-link-secrets.md), canopyd [005](soon/005-tree-configuration-trees.md), [product design](catalog.md#product-completion) |
@@ -37,8 +36,7 @@ and hands-on checks are separate from the extensions above; see [current status]
 
 [Release and verification](release-and-soak.md) collects the outstanding installation,
 deployment, manual acceptance and soak checks. It separates those checks from new feature work.
-[Filesystem 011](soon/011-independent-writes-after-rejection.md) owns the implementation
-change for independent writes after rejection. Verification checklists do not authorize deployment.
+Verification checklists do not authorize deployment.
 
 ## Parked and conditional work
 
@@ -58,7 +56,7 @@ contracts remain in [open questions](open-questions.md).
 | `soon/` | Plans chosen for near-term work, from any owner; each keeps its owner's identifier |
 | `swift/` | Placement, offline collections, editor command capture and conflict review |
 | `canopy-web/` | The browser client: working-tree rebuild, hosts, and the native surfaces ported |
-| `filesystem/` | Rejection scheduling, ignore policy and disk editors |
+| `filesystem/` | Ignore policy and disk editors |
 | `canopyd/` | Merge policy, storage, accepted document history, provenance and hosted-tree configuration |
 | `cli/` | Structured access for external agents |
 | `apps/` | Executable documents, runtime authority and hosted agents |
@@ -71,8 +69,8 @@ them, and each active plan records any identifier it inherited.
 ## Planning rules
 
 - A plan moves into `soon/` when chosen and keeps its identifier. A new plan's number must not
-  collide with a plan of the same owner in `soon/` (Filesystem 011 lives there, so the next
-  Filesystem plan is not 011).
+  collide with a plan of the same owner in `soon/` (Filesystem 005 lives there, so the next
+  Filesystem plan is not 005).
 - Keep one owner for each remaining task. Link to it from dependencies instead of copying its checklist.
 - Active plans describe remaining work. Delete implemented or superseded executor documents
   after recording their evidence in `status.md`; transfer unfinished gates explicitly.

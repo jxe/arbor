@@ -9,7 +9,7 @@ do not acquire new capabilities from that specification.
 Arbor Sync makes placed folders content-addressable and keeps each one equal
 to canopyd's accepted root in both directions. Everything below is either that
 store's read surface (objects, bootstrap, credential) or the control surface
-for placements, accounts, and held changes.
+for placements, accounts, and declined changes.
 
 Arbor Sync binds to loopback and rejects cross-origin browser requests. JSON is
 UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
@@ -19,7 +19,7 @@ credentials or access-link secrets.
 **REST v1 is a control surface, not an editor path.** The daemon is the
 placed folder's synchronization client plus the loopback services a
 working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
-`GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`,
+`GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`, `GET /v1/declined`, `POST /v1/declined/restore`, `POST /v1/declined/resend`,
 `POST /v1/sync`, `POST /v1/placements/move`, `POST /v1/placements/pause`,
 `POST /v1/placements/resume`, `GET /v1/pending`,
 `GET /v1/bootstrap` and `GET /v1/credential` (§3b),
@@ -162,7 +162,10 @@ server state, so it is not a daemon operation.
 `sync` is the folder's update machine (spec 09): `idle` is current,
 `syncing` has local changes publishing or an accepted state installing,
 `offline` retries automatically, `error` needs credentials or has stopped, and
-`conflict` means the host refused the folder's changes and they are held (§4).
+`conflict` means a request is held whole: the host does not support an
+operation in it, or a read-only placement has local edits. `declined` lists
+the folder paths whose changes the host declined; they stay on disk
+unpublished while the rest of the folder keeps syncing (§4).
 It includes placed trees, pathless replicas, known remote placements, and the
 implicit authenticated account-configuration tree.
 
@@ -285,7 +288,7 @@ local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
-## 4. Identity, account bootstrap, and held changes
+## 4. Identity, account bootstrap, and declined changes
 
 Narrow operations remain for data-home state that cannot yet be represented by
 editing an authenticated configuration tree: the local person identity and a
@@ -359,20 +362,53 @@ therefore has no `connectCommunity`, `disconnectCommunity`,
 `setTreeAccess`, local device list/revoke proxy, or `/v1/remote` route.
 
 Each placed folder runs the update machine (spec 09): a folder edit is
-scanned into a local change in the folder's change log and published; a
-request the host refuses is **held** with its later changes, the folder keeps
-its bytes, and the tree reports `sync: "conflict"`. Held changes are never
-retried, rebased, or merged locally. The one way out is explicit:
+scanned into a local change in the folder's change log and published. When
+the host definitively rejects a request, the entries it changed (its
+footprint, from its base to its candidate) become the folder's **declined
+paths**, recorded in `declined.json` beside the change log, and the request
+leaves the change log. The folder keeps every byte. From then on:
+
+- each scan publishes the folder with the accepted state at every declined
+  point, as a fresh change against the accepted base, so independent edits
+  keep publishing;
+- accepted updates are written everywhere except declined points, so remote
+  work keeps arriving;
+- a declined path is kept whole up to where the folder and the accepted
+  state stop both having directories above it, so a declined deletion of a
+  directory is never published in part;
+- content a declined path no longer holds on disk, found in a new or
+  changed entry elsewhere, is declined there too, so a declined move is never
+  half published;
+- a declined path is released as soon as the folder matches the accepted
+  state there.
+
+Declined work is never merged, rebased, or resent automatically. The explicit
+actions are:
+
+```text
+GET  /v1/declined?tree=<TreeID>          → { declined: { tree, detail?, paths, points, since, request } | null }
+POST /v1/declined/restore   { "tree": "<TreeID>" }
+POST /v1/declined/resend    { "tree": "<TreeID>" }
+```
+
+`points` are where declined work is on disk now. Restore writes the accepted
+state at every declined point and keeps the folder's other changes. Resend
+clears the record so the next scan publishes the declined paths as the folder
+holds them, with fresh identity; a second rejection declines them again.
+
+A request the host rejected as unsupported is **held** whole
+(`sync: "conflict"`) with every change authored on it, and nothing publishes
+until it is discarded:
 
 ```text
 POST /v1/held/discard   { "tree": "<TreeID>" }
 ```
 
-It removes the held request and every change authored on it from the change
-log, catches up to the host's current state, and writes that state to the
-folder, replacing the refused bytes. Accepted alternatives (`conflicted: true`)
-are not held: they are accepted state, reviewed through the host's conflict
-inspection like any other working-tree client's.
+That removes the held request and every change authored on it from the change
+log, catches up to the host's current state, and writes it to the folder.
+Accepted alternatives (`conflicted: true`) are neither: they are accepted
+state, reviewed through the host's conflict inspection like any other
+working-tree client's.
 
 A person can also pause a placed folder to see what the daemon would publish
 before it sends it:
@@ -384,7 +420,7 @@ GET  /v1/pending?tree=<TreeID>                       → { tree, paused, base, r
 ```
 
 While paused, scans append nothing to the change log and the tree reports
-`sync: "paused"` (or `conflict` while a request is held); accepted updates
+`sync: "paused"` (or `conflict` while a request is held whole); accepted updates
 still arrive and are written to the folder when it holds no local edit. The
 pause is durable across daemon restarts. Resume clears it and scans at once.
 `GET /v1/pending` returns the exact `UpdateRequestJSON` the next publication

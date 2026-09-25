@@ -43,6 +43,7 @@ export class TreeManager implements AsyncDisposable {
   private sessionID: string | null = null;
   private recordDiagnostics: Diagnostic[] = [];
   private syncStates = new Map<string, NonNullable<LocalTreeDescriptor["sync"]>>();
+  private declinedStates = new Map<string, NonNullable<LocalTreeDescriptor["declined"]>>();
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
   private reloadTail: Promise<void> = Promise.resolve();
@@ -490,6 +491,7 @@ export class TreeManager implements AsyncDisposable {
       placement: root.placement!.replica ? "replica" : "placed",
       // Persisted refs are a base, not proof that this process has reconciled it.
       sync: this.syncStates.get(id) ?? "syncing",
+      ...(this.declinedStates.has(id) ? { declined: this.declinedStates.get(id)! } : {}),
       ...acceptedBase(root.placement!),
       ...(root.missing ? { missing: true } : {}),
     }));
@@ -539,6 +541,12 @@ export class TreeManager implements AsyncDisposable {
   setSyncState(tree: string, state: NonNullable<LocalTreeDescriptor["sync"]>): void {
     if (this.syncStates.get(tree) === state) return;
     this.syncStates.set(tree, state);
+    this.invalidateDescriptors();
+  }
+
+  setDeclined(tree: string, declined: LocalTreeDescriptor["declined"]): void {
+    if (JSON.stringify(this.declinedStates.get(tree)) === JSON.stringify(declined)) return;
+    if (declined) this.declinedStates.set(tree, declined); else this.declinedStates.delete(tree);
     this.invalidateDescriptors();
   }
 

@@ -8,12 +8,9 @@ import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveHost } from "@overstory/canopyd";
-import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeCandidateUpdateJSON, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
+import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
 import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
 import { retireEarlierSyncState } from "@overstory/client";
-import { snapshotJSON } from "@overstory/working-tree";
-import { ChangeLog } from "@overstory/working-tree/node";
-import { folderStateRoot } from "../../packages/arborsync/src/folder-sync.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 const token = "self-sync-owner";
@@ -499,33 +496,24 @@ describe("private self-sync", () => {
     } finally { await restarted[Symbol.asyncDispose](); }
   });
 
-  test("a refused change is held across restart until discarded, and the folder returns to the accepted state", async () => {
+  test("a declined folder change is kept on disk across restart while the account folder keeps syncing, until restored", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
     const owner = new ProtocolClient(host.url, token);
-    const account = await owner.account();
-    const configurationTree = account.account.configuration.id;
+    const configurationTree = (await owner.account()).account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
-    const accepted = await owner.snapshot(configurationTree, remote.tree.root);
-    // A change the host refuses: an account configuration path it does not allow.
-    const extra = encodeProtocolDirectory({ type: "directory", entries: [] }), extraHash = hashObject(extra);
-    const rootDirectory = decodeProtocolDirectory(accepted.objects.get(accepted.root)!);
-    const staleRoot = encodeProtocolDirectory({ type: "directory", entries: [...rootDirectory.entries, { name: "LinkPreviews", directory: extraHash }]
-      .sort((left, right) => compareProtocolNames(left.name, right.name)) });
-    const staleRootHash = hashObject(staleRoot);
-    const spine = new Map([...accepted.objects].filter(([, bytes]) => { try { decodeProtocolDirectory(bytes); return true; } catch { return false; } }));
-    const change = `folder-refused-${crypto.randomUUID()}`;
-    const log = new ChangeLog(configurationTree, folderStateRoot(configurationTree));
-    await log.retain({ change, tree: configurationTree, basis: { kind: "accepted", root: remote.tree.root, update: remote.tree.update },
-      graph: snapshotJSON({ root: accepted.root, objects: spine }), sourcePath: null, document: null,
-      candidate: snapshotJSON({ root: staleRootHash, objects: new Map([...spine].filter(([hash]) => hash !== accepted.root).concat([[staleRootHash, staleRoot], [extraHash, extra]])) }),
-      update: encodeCandidateUpdateJSON({ change, candidate: staleRootHash, trace: null, resolves: [], deltas: [],
-        objects: [{ hash: staleRootHash, bytes: staleRoot }, { hash: extraHash, bytes: extra }].sort((left, right) => left.hash.localeCompare(right.hash)) }) });
+    const checkout = join(stateA, "accounts", configurationTree);
+    // A path the host refuses in an account configuration.
+    await mkdir(join(checkout, "LinkPreviews"), { recursive: true });
+    await writeFile(join(checkout, "LinkPreviews", "preview.txt"), "refused\n");
 
     const service = await ArborSyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
-      expect(await service.syncPresentation(configurationTree)).toMatchObject({ state: "held", pending: 1 });
-      expect((await service.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("conflict");
+      expect(await service.syncPresentation(configurationTree)).toMatchObject({ state: "current", pending: 0 });
+      const descriptor = (await service.trees.descriptors()).find(({ id }) => id === configurationTree);
+      expect(descriptor?.sync).toBe("idle");
+      expect(descriptor?.declined?.paths).toEqual(["/LinkPreviews"]);
+      expect(await service.declinedChanges(configurationTree)).toMatchObject({ paths: ["/LinkPreviews"], points: ["/LinkPreviews"] });
       expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
     } finally {
       await service[Symbol.asyncDispose]();
@@ -533,13 +521,108 @@ describe("private self-sync", () => {
     const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
     try {
       await restarted.synchronizeNow();
-      expect(await restarted.syncPresentation(configurationTree)).toMatchObject({ state: "held", pending: 1 });
-      await restarted.discardHeldChanges(configurationTree);
+      expect((await restarted.declinedChanges(configurationTree))?.points).toEqual(["/LinkPreviews"]);
+      expect(await readFile(join(checkout, "LinkPreviews", "preview.txt"), "utf8")).toBe("refused\n");
+      await restarted.restoreDeclined(configurationTree);
+      expect(await restarted.declinedChanges(configurationTree)).toBeNull();
+      await expect(readFile(join(checkout, "LinkPreviews", "preview.txt"), "utf8")).rejects.toThrow();
+      await restarted.synchronizeNow();
       expect(await restarted.syncPresentation(configurationTree)).toMatchObject({ state: "current", pending: 0 });
-      expect((await restarted.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("idle");
+      const descriptor = (await restarted.trees.descriptors()).find(({ id }) => id === configurationTree);
+      expect(descriptor?.sync).toBe("idle");
+      expect(descriptor?.declined).toBeUndefined();
       expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
     } finally {
       await restarted[Symbol.asyncDispose]();
+    }
+  });
+
+  test("independent folder work publishes and remote work arrives while a declined path is kept", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const systemFetch = globalThis.fetch;
+    let refusing = false;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (refusing && url.includes(`/.arbor/trees/${tree}/updates`)) {
+        return Response.json({ error: "invalid-request", message: "refused for the test", retryable: false }, { status: 400 });
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+    const owner = new ProtocolClient(host.url, token);
+    const hasEntry = async (name: string) => {
+      const current = await readAccepted(owner, tree);
+      return decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!).entries.some((entry) => entry.name === name);
+    };
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await service.synchronizeNow();
+      refusing = true;
+      await writeFile(join(treeA, "refused.txt"), "the host refuses this\n");
+      await service.synchronizeNow();
+      refusing = false;
+      expect((await service.declinedChanges(tree))?.points).toEqual(["/refused.txt"]);
+
+      // Independent work publishes with fresh identity; the declined file does not.
+      await writeFile(join(treeA, "independent.txt"), "published while held\n");
+      await service.synchronizeNow();
+      expect(await hasEntry("independent.txt")).toBe(true);
+      expect(await hasEntry("refused.txt")).toBe(false);
+
+      // Remote work arrives while the path is declined, and the declined file is left alone.
+      const current = await readAccepted(owner, tree);
+      const root = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
+      const remoteBytes = new TextEncoder().encode("from another client\n");
+      const nextRoot = encodeProtocolDirectory({ type: "directory", entries: [...root.entries,
+        { name: "remote.txt", file: hashObject(remoteBytes) }, { name: "refused.txt", file: hashObject(remoteBytes) }]
+        .sort((left, right) => compareProtocolNames(left.name, right.name)) });
+      current.snapshot.objects.set(hashObject(remoteBytes), remoteBytes);
+      current.snapshot.objects.set(hashObject(nextRoot), nextRoot);
+      await owner.submitUpdate(tree, current.descriptor.tree.update, { root: hashObject(nextRoot), objects: current.snapshot.objects });
+      await service.synchronizeNow();
+      expect(await readFile(join(treeA, "remote.txt"), "utf8")).toBe("from another client\n");
+      expect(await readFile(join(treeA, "refused.txt"), "utf8")).toBe("the host refuses this\n");
+      expect((await service.declinedChanges(tree))?.points).toEqual(["/refused.txt"]);
+
+      // Resending publishes the declined file as the folder holds it now.
+      await service.resendDeclined(tree);
+      await service.synchronizeNow();
+      expect(await service.declinedChanges(tree)).toBeNull();
+      const after = await readAccepted(owner, tree);
+      const entry = decodeProtocolDirectory(after.snapshot.objects.get(after.snapshot.root)!).entries.find((candidate) => candidate.name === "refused.txt");
+      expect(entry?.file).toBe(hashObject(new TextEncoder().encode("the host refuses this\n")));
+      expect(await service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
+    } finally {
+      globalThis.fetch = systemFetch;
+      await service[Symbol.asyncDispose]();
+    }
+  });
+
+  test("a declined path is released when the folder is put back", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const systemFetch = globalThis.fetch;
+    let refusing = false;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (refusing && url.includes(`/.arbor/trees/${tree}/updates`)) {
+        return Response.json({ error: "invalid-request", message: "refused for the test", retryable: false }, { status: 400 });
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await service.synchronizeNow();
+      refusing = true;
+      await writeFile(join(treeA, "withdrawn.txt"), "never mind\n");
+      await service.synchronizeNow();
+      refusing = false;
+      expect((await service.declinedChanges(tree))?.points).toEqual(["/withdrawn.txt"]);
+      await rm(join(treeA, "withdrawn.txt"));
+      await service.synchronizeNow();
+      expect(await service.declinedChanges(tree)).toBeNull();
+      expect((await service.trees.descriptors()).find(({ id }) => id === tree)?.declined).toBeUndefined();
+    } finally {
+      globalThis.fetch = systemFetch;
+      await service[Symbol.asyncDispose]();
     }
   });
 });

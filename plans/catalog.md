@@ -16,7 +16,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 003 — Project collection files into native offline replicas](swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
 - [Native 006 — Place trees sparsely on iOS](swift/006-sparse-ios-placement.md) — **PLANNED · M.** Place an iOS tree by walking its spine (directories and Markdown) object by object, as catch-up already does, instead of downloading one whole snapshot; resume by keeping what arrived, and state what an unfetched file does offline.
 - [Native 008 — Capture copies with changes and compound undo](swift/008-copies-with-changes-and-compound-undo.md) — **PLANNED; needs Quagmire 0.9.0.** Copies at a new depth, paste and inline provenance, and undo of Move to Document and inline-and-retire; block moves and Move to Document as one change are implemented, not installed.
-- [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
+- [Native 012 — Show declined folders in the Mac app](swift/012-show-declined-folders.md) — **NOT STARTED.** List placed folders with declined paths in Sync Status and offer Restore and Resend through Arbor Sync's `/v1/declined` routes.
 - **Choice review extensions** — promote one only when a real review needs it. Safe binary previews and export, richer directory browsing and format-specific collection reconstruction; richer long-source comparison (beyond 4,000 lines it falls back to raw source) and visual checks of whitespace and line-ending differences; a compatible freshness policy so unrelated accepted updates need not force renewed review (host and client together); wider fault injection across review persistence, submission, installation, retirement, authorization changes and cancellation; explanations of verified moves, copies and deletions; rule-provided combination previews; bulk resolution and offline review.
 
 ## Web client
@@ -30,7 +30,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
 - [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](soon/005-ignore-policy.md) — **SOON · P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
-- [Filesystem 011 — Keep independent filesystem writes moving after a rejection](soon/011-independent-writes-after-rejection.md) — **SOON · NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 
 ## canopyd authority, storage and history

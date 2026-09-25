@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   arborPrivateRoot,
@@ -15,6 +15,8 @@ import {
   ProtocolClient,
   type LazyTreeSnapshot,
   type ObjectHash,
+  type ProtocolDirectoryEntry,
+  type ProtocolObjectSource,
   type SharedTreePlacement,
   type TreeSnapshot,
   type LocalTreeDescriptor,
@@ -35,6 +37,7 @@ import {
   type UpdateTransport,
 } from "@overstory/working-tree";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
+import { differences, entryAt, maskDeclined, resolveDeclined, within, type LoadObject } from "./declined-paths.ts";
 
 /** What the daemon provides one folder's synchronization. */
 export interface FolderSyncHost {
@@ -53,6 +56,30 @@ export interface FolderSyncHost {
   objectBytes(hash: ObjectHash): Promise<Uint8Array | undefined>;
   /** Accepted bytes were written to the folder. */
   materialized(): void;
+  /** The folder's declined paths changed. */
+  setDeclined(declined: LocalTreeDescriptor["declined"]): void;
+}
+
+/**
+ * Declined folder work, kept on disk: the host definitively rejected a
+ * request, and `paths` are the entries it changed. Each stays declined until
+ * the folder agrees with the accepted state there, or the work is restored or
+ * resent. Everything else syncs.
+ */
+export interface DeclinedFolder {
+  /** Why the host declined, as it said. */
+  detail?: string;
+  paths: string[];
+  since: string;
+  /** The refused request, for reference; the folder itself holds its intent. */
+  request: { digest: string; base: { root: string; update: string }; candidate: string };
+}
+
+/** What `arbor declined` shows: the record, and where declined work is on disk now. */
+export interface DeclinedReport extends DeclinedFolder {
+  tree: string;
+  /** Where the declined paths are now, including content a declined path moved elsewhere. */
+  points: string[];
 }
 
 /** Where one tree's change log, control record and folder record live. */
@@ -87,6 +114,27 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
     }
     signal.addEventListener("abort", finish, { once: true });
   });
+}
+
+async function writeFileAtomic(path: string, bytes: Uint8Array | string, mode = 0o600): Promise<void> {
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    const file = await open(temporary, "wx", mode);
+    try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+}
+
+/** The scanned folder's bytes first, then an accepted source's, without failing on a hash neither has. */
+function fromLazyThen(lazy: LazyTreeSnapshot, load: (hash: string) => Promise<Uint8Array>) {
+  return async (hash: ObjectHash): Promise<Uint8Array | undefined> =>
+    await lazy.objects.get(hash)?.bytes() ?? await load(hash).catch(() => undefined);
+}
+
+/** Durably replace a small private JSON record. */
+async function writeRecord(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFileAtomic(path, JSON.stringify(value));
 }
 
 /** Every hash reachable from `root` through the directories `objects` holds. */
@@ -139,6 +187,9 @@ export class FolderSync implements AcceptedTree {
   private closed = false;
   private readonly pausedPath: string;
   private paused: boolean;
+  private readonly declinedPath: string;
+  private declined?: { value: DeclinedFolder | undefined };
+  private settling?: Promise<boolean>;
   /** The change the last preview prepared; the next scan of the same folder sends exactly it. */
   private previewed?: LocalChange;
 
@@ -148,6 +199,7 @@ export class FolderSync implements AcceptedTree {
     this.log = new ChangeLog(tree, stateRoot);
     this.knownPath = join(stateRoot, "sync", "folder.json");
     this.pausedPath = join(stateRoot, "sync", "paused.json");
+    this.declinedPath = join(stateRoot, "sync", "declined.json");
     this.paused = existsSync(this.pausedPath);
     const transport: UpdateTransport = {
       submitUpdates: async (tree, request) => (await this.client()).submitUpdates(tree, request),
@@ -157,11 +209,15 @@ export class FolderSync implements AcceptedTree {
     };
     this.coordinator = new UpdateCoordinator(tree, this.log, new FileControlStore(stateRoot), transport, this, {
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
-      onState: (state) => { if (state.kind !== "unplaced") this.report(folderSyncState(state)); },
+      onState: (state) => {
+        if (state.kind !== "unplaced") this.report(folderSyncState(state));
+        // A definitive refusal becomes declined paths once the transition finishes.
+        if (state.kind === "held" && state.reason === "rejected") setTimeout(() => void this.settleRefusal().catch(() => {}), 0);
+      },
     });
   }
 
-  /** A paused folder reports `paused` unless its changes are held. */
+  /** A paused folder reports `paused` unless a request is held whole. */
   private report(state: NonNullable<LocalTreeDescriptor["sync"]>): void {
     this.host.setSyncState(this.paused && state !== "conflict" ? "paused" : state);
   }
@@ -190,14 +246,76 @@ export class FolderSync implements AcceptedTree {
   }
 
   private async saveKnown(known: KnownFolder): Promise<void> {
-    const temporary = `${this.knownPath}.${crypto.randomUUID()}.tmp`;
-    await mkdir(dirname(this.knownPath), { recursive: true, mode: 0o700 });
-    try {
-      const file = await open(temporary, "wx", 0o600);
-      try { await file.writeFile(JSON.stringify(known)); await file.sync(); } finally { await file.close(); }
-      await rename(temporary, this.knownPath);
-    } finally { await rm(temporary, { force: true }); }
+    await writeRecord(this.knownPath, known);
     this.known = known;
+  }
+
+  private async loadDeclined(): Promise<DeclinedFolder | undefined> {
+    if (this.declined) return this.declined.value;
+    let value: DeclinedFolder | undefined;
+    try {
+      value = JSON.parse(await readFile(this.declinedPath, "utf8")) as DeclinedFolder;
+      if (!Array.isArray(value?.paths) || typeof value.since !== "string") throw new Error(`Invalid declined record: ${this.declinedPath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    this.declined = { value };
+    this.reportDeclined();
+    return value;
+  }
+
+  /** Record declined work, or clear it when nothing is declined. */
+  private async saveDeclined(declined: DeclinedFolder | undefined): Promise<void> {
+    const value = declined?.paths.length ? declined : undefined;
+    if (value) await writeRecord(this.declinedPath, value);
+    else await rm(this.declinedPath, { force: true });
+    this.declined = { value };
+    this.reportDeclined();
+  }
+
+  private reportDeclined(): void {
+    const declined = this.declined?.value;
+    this.host.setDeclined(declined ? { paths: declined.paths, since: declined.since, ...(declined.detail === undefined ? {} : { detail: declined.detail }) } : undefined);
+  }
+
+  /** Objects by hash: those given, the scanned folder's, then the folder's index and Canopy. */
+  private loader(lazy?: LazyTreeSnapshot, first?: (hash: ObjectHash) => Promise<Uint8Array | undefined>): LoadObject {
+    return async (hash) => {
+      const bytes = await first?.(hash) ?? await lazy?.objects.get(hash)?.bytes() ?? await this.host.objectBytes(hash);
+      if (!bytes) throw new UpdateValidationError(`Object is unavailable: ${hash}`);
+      return bytes;
+    };
+  }
+
+  /**
+   * The folder as it may be published: what it holds, with the accepted
+   * state at every declined point. `record` lifts declined paths the folder now
+   * agrees with the accepted state on.
+   */
+  private async publishable(lazy: LazyTreeSnapshot, accepted: string, record: boolean): Promise<LazyTreeSnapshot> {
+    const declined = await this.loadDeclined();
+    if (!declined) return lazy;
+    const load = this.loader(lazy);
+    const { points, lifted } = await resolveDeclined(declined.paths, lazy.root, accepted as ObjectHash, load);
+    if (record && lifted.length) await this.saveDeclined({ ...declined, paths: declined.paths.filter((path) => !lifted.includes(path)) });
+    if (!points.length) return lazy;
+    const masked = await maskDeclined(lazy.root, accepted as ObjectHash, points, load);
+    const objects = new Map(lazy.objects);
+    for (const [hash, bytes] of masked.objects) objects.set(hash, { hash, bytes: async () => bytes });
+    // The accepted content at declined points need not be in the folder.
+    const add = async (entry: ProtocolDirectoryEntry | null): Promise<void> => {
+      const object = entry ? protocolEntryObject(entry) : undefined;
+      if (!object || objects.has(object.hash)) return;
+      const source: ProtocolObjectSource = { hash: object.hash, bytes: () => load(object.hash) };
+      objects.set(object.hash, source);
+      if (object.kind === "directory") for (const child of decodeProtocolDirectory(await source.bytes()).entries) await add(child);
+    };
+    for (const point of points) await add(await entryAt(accepted as ObjectHash, point, load));
+    return { root: masked.root, objects };
+  }
+
+  private osPath(path: string): string {
+    return join(this.host.root, ...path.split("/").filter(Boolean));
   }
 
   // MARK: AcceptedTree
@@ -226,7 +344,9 @@ export class FolderSync implements AcceptedTree {
       const known = await this.loadKnown();
       if (!local.pending && known) {
         if (known.root !== base.root) {
-          if ((await this.host.scan()).root === known.root) await this.write(base.root, (hash) => source.object(hash));
+          const lazy = await this.host.scan();
+          const installed = (await this.accepted())?.root ?? known.root;
+          if ((await this.publishable(lazy, installed, true)).root === known.root) await this.write(base.root, (hash) => source.object(hash));
           else rescan = true;
         }
         if (!rescan) await this.saveKnown({ root: base.root, basis: { kind: "accepted", root: base.root, update: base.update } });
@@ -237,10 +357,20 @@ export class FolderSync implements AcceptedTree {
     if (rescan) this.scheduleScan(0);
   }
 
-  /** Write `root` to the folder and prove the folder now holds it. */
+  /** Write `root` to the folder, except at declined points, and prove the folder now holds it there. */
   private async write(root: string, load: (hash: string) => Promise<Uint8Array>): Promise<void> {
-    await materializeTree(this.host.root, root as ObjectHash, load, undefined, this.host.excludedMounts());
-    if ((await this.host.scan()).root !== root) throw new UpdateValidationError("The folder does not hold the accepted root it was given");
+    const declined = await this.loadDeclined();
+    let points: string[] = [];
+    if (declined) {
+      const lazy = await this.host.scan();
+      points = (await resolveDeclined(declined.paths, lazy.root, root as ObjectHash, this.loader(lazy, fromLazyThen(lazy, load)))).points;
+    }
+    await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...this.host.excludedMounts(), ...points.map((point) => this.osPath(point))]);
+    const written = await this.host.scan();
+    const shown = points.length
+      ? (await maskDeclined(written.root, root as ObjectHash, points, this.loader(written, fromLazyThen(written, load)))).root
+      : written.root;
+    if (shown !== root) throw new UpdateValidationError("The folder does not hold the accepted root it was given");
     this.host.materialized();
   }
 
@@ -282,7 +412,7 @@ export class FolderSync implements AcceptedTree {
     const appended = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known) return false;
-      const lazy = await this.host.scan();
+      const lazy = await this.publishable(await this.host.scan(), placement.ref!, true);
       if (lazy.root === known.root) return false;
       if (placement.access !== "write") {
         // A read-only placement cannot publish; its edits wait, visibly.
@@ -470,7 +600,7 @@ export class FolderSync implements AcceptedTree {
     const change = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known || placement.access !== "write") return undefined;
-      const lazy = await this.host.scan();
+      const lazy = await this.publishable(await this.host.scan(), placement.ref!, false);
       if (lazy.root === known.root) return undefined;
       return this.previewed = await this.prepare(known, lazy);
     });
@@ -486,12 +616,109 @@ export class FolderSync implements AcceptedTree {
   /** Publish what the folder holds now, retry, or catch up, and wait for the result. */
   async syncOnce() {
     await this.scan();
-    return this.coordinator.syncOnce();
+    const presentation = await this.coordinator.syncOnce();
+    await this.settleRefusal();
+    // A refusal became declined paths: publish the rest of the folder now.
+    return presentation.state === "held" && this.coordinator.state.kind !== "held" ? this.coordinator.syncOnce() : presentation;
   }
 
-  /** Discard a held request and every change authored on it; the folder then returns to the accepted state. */
-  async discardHeldChanges(): Promise<void> {
+  /** Turn a definitively rejected request into declined paths, once. True when it did. */
+  private settleRefusal(): Promise<boolean> {
+    return this.settling ??= this.declineRefused().finally(() => { this.settling = undefined; });
+  }
+
+  /**
+   * A refused request's footprint (the entries it changed) becomes declined
+   * paths, and the request leaves the machine. The folder still holds that
+   * work on disk; the next scan publishes everything else against the
+   * accepted state with fresh identity.
+   */
+  private async declineRefused(): Promise<boolean> {
+    const refused = this.coordinator.heldRequest();
+    const accepted = await this.accepted();
+    if (refused?.reason !== "rejected" || !accepted) return false;
+    const { attempt } = refused;
+    await this.host.withWorkspaceIO(async () => {
+      const objects = new Map<string, Uint8Array>();
+      for (const record of await this.log.retained()) for (const snapshot of [record.graph, record.candidate]) {
+        for (const [hash, bytes] of decodeTreeSnapshotJSON(snapshot).objects) objects.set(hash, bytes);
+      }
+      const footprint = await differences(attempt.base.root as ObjectHash, attempt.candidate as ObjectHash,
+        this.loader(undefined, async (hash) => objects.get(hash)));
+      const prior = await this.loadDeclined();
+      await this.saveDeclined({
+        ...(refused.detail === undefined ? {} : { detail: refused.detail }),
+        paths: [...new Set([...(prior?.paths ?? []), ...footprint])].sort(),
+        since: prior?.since ?? new Date().toISOString(),
+        request: { digest: attempt.digest, base: attempt.base, candidate: attempt.candidate },
+      });
+      // Nothing of the refused chain is published: the next change starts from the accepted state.
+      await this.saveKnown({ root: accepted.root, basis: { kind: "accepted", root: accepted.root, update: accepted.update } });
+    });
     await this.coordinator.discardHeldChanges();
+    await this.scan();
+    return true;
+  }
+
+  /** The folder's declined work and where it is now, or null. */
+  async declinedReport(): Promise<DeclinedReport | null> {
+    await this.settling;
+    const accepted = await this.accepted();
+    return this.host.withWorkspaceIO(async () => {
+      const declined = await this.loadDeclined();
+      if (!declined || !accepted) return null;
+      const lazy = await this.host.scan();
+      const { points } = await resolveDeclined(declined.paths, lazy.root, accepted.root as ObjectHash, this.loader(lazy));
+      return { tree: this.tree, ...declined, points };
+    });
+  }
+
+  /** Discard a request held whole (one the host does not support) and every change authored on it; the folder then returns to the accepted state. */
+  async discardHeldChanges(): Promise<void> {
+    if (this.coordinator.heldRequest()?.reason === "unsupported") await this.coordinator.discardHeldChanges();
+  }
+
+  /** Put the accepted state back at every declined point; the folder's other changes are kept. */
+  async restoreDeclined(): Promise<void> {
+    await this.settleRefusal();
+    const accepted = await this.accepted();
+    await this.host.withWorkspaceIO(async () => {
+      const declined = await this.loadDeclined();
+      if (!declined || !accepted) return;
+      const lazy = await this.host.scan();
+      const load = this.loader(lazy);
+      const { points } = await resolveDeclined(declined.paths, lazy.root, accepted.root as ObjectHash, load);
+      for (const point of points) await this.restore(point, await entryAt(accepted.root as ObjectHash, point, load), load);
+      await this.saveDeclined(undefined);
+      this.host.materialized();
+    });
+    await this.scan();
+  }
+
+  /** Publish declined work again as the folder holds it now, with fresh identity. */
+  async resendDeclined(): Promise<void> {
+    await this.settleRefusal();
+    await this.host.withWorkspaceIO(() => this.saveDeclined(undefined));
+    await this.scan();
+  }
+
+  /** Put the accepted entry (or its absence) at one declined point on disk. */
+  private async restore(point: string, entry: ProtocolDirectoryEntry | null, load: LoadObject): Promise<void> {
+    const target = this.osPath(point);
+    const mounts = this.host.excludedMounts();
+    if (mounts.some((mount) => within(mount, target) || within(target, mount))) {
+      throw new UpdateValidationError(`A placed tree is mounted at or beneath ${point}; move it before restoring`);
+    }
+    if (entry?.tree) return;
+    if (!entry?.directory) await rm(target, { recursive: true, force: true });
+    if (entry?.file) {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFileAtomic(target, await load(entry.file), 0o644);
+    } else if (entry?.directory) {
+      const kind = await stat(target).catch(() => undefined);
+      if (kind && !kind.isDirectory()) await rm(target, { force: true });
+      await materializeTree(target, entry.directory, load, undefined, mounts);
+    }
   }
 
   async close(): Promise<void> {
