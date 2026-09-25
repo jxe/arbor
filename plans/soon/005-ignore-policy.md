@@ -5,57 +5,52 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. Treat ignore matching as one filesystem-membership policy shared
-> by discovery, browsing, watching, indexing, snapshots, and materialization;
-> do not add independent filters to those consumers. If anything in the
-> "STOP conditions" section occurs, stop and report rather than improvising.
-> When complete, record verification evidence in `status.md`, delete this file,
-> and remove its active entry from `plans/README.md`.
+> by discovery, listing, watching, snapshots, filesystem object reads, and
+> materialization; do not add independent filters to those consumers. If
+> anything in the "STOP conditions" section occurs, stop and report rather
+> than improvising. When complete, record verification evidence in
+> `status.md`, delete this file, and remove its entry from `plans/README.md`
+> and `plans/catalog.md`.
 >
 > **Drift check (run first)**:
 >
 > ```sh
-> git diff --stat ce51a4e..HEAD -- \
->   packages/fs packages/arborsync/src packages/arborsync/src/state \
->   tests/unit/discovery.test.ts tests/unit/protocol-objects.test.ts \
->   tests/integration/workspace.test.ts tests/integration/self-sync.test.ts \
->   docs/architecture/arborsync/data-home.md docs/overstory-spec/02-directory-format.md
+> git diff --stat e66f8a02..HEAD -- \
+>   packages/fs/src packages/arborsync/src/folder-sync.ts \
+>   packages/arborsync/src/declined-paths.ts packages/arborsync/src/service.ts \
+>   packages/arborsync/src/filesystem-object-source.ts \
+>   swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/LocalFolderPreview.swift
 > git status --short
 > ```
 >
-> This plan was written while the worktree already contained unrelated edits,
-> including edits in `packages/arborsync/src/service.ts`,
-> `packages/arborsync/src/workspace.ts`, `packages/arborsync/src/state/indexer.ts`, and
-> `plans/README.md`. Preserve them. If their live behavior no longer matches
-> the current-state description below, stop and reconcile the plan first.
+> If the files named under "Current state" no longer behave as described,
+> stop and reconcile the plan first.
 
 ## Status
 
 - **Priority**: P1
-- **Effort**: L
-- **Risk**: HIGH
+- **Effort**: M
+- **Risk**: HIGH (a wrong filter silently uploads secrets or deletes local files)
 - **Depends on**: none
-- **Coordinates with**: Speed 001, because ignored paths must never enter the
-  search/backlink index, but neither plan depends on the other
 - **Category**: security, correctness, and filesystem architecture
-- **Planned at**: commit `ce51a4e`, 2026-09-07
+- **Planned at**: commit `ce51a4e`, 2026-09-07; revised against `e66f8a02`,
+  2026-09-25, after the FolderSync rewrite made a separate
+  tracked-membership store unnecessary
 
 ## Outcome
 
-Overstory has one explicit filesystem-membership policy. It retains the existing
+Overstory has one explicit filesystem-membership policy. It keeps the
 mandatory exclusions for Overstory-private and generated directories, adds
 portable `.arborignore` files, and reads ordinary `.gitignore` files as a
-compatibility source. A matching new local path is opaque to Overstory: it is not
-shown as a tree child, assigned durable identity, parsed, indexed, watched as
-authored content, included in an Overstory snapshot, uploaded, overwritten, or
-deleted during materialization.
+compatibility source. A matching untracked local path is opaque to Overstory.
+It is not shown as a tree child, indexed, included in a snapshot, uploaded,
+overwritten, or deleted during materialization.
 
-The last accepted Overstory snapshot is the tracked-membership boundary. A path
-already present in that accepted tree remains visible and synchronized even if
-a later ignore rule matches it. It leaves the tree only through an explicit
-filesystem deletion or structural mutation, after which a surviving ignored
-local copy is untracked and opaque. This gives Overstory Git's important safety
-property without depending on a Git index and prevents an ignore-file edit
-from silently publishing a tree-wide deletion.
+A path already present in the root the folder last held is **tracked**. It
+stays synchronized even if a later ignore rule matches it, as in Git. It leaves
+the tree only through an explicit deletion. After that, a surviving or
+recreated local copy is untracked and opaque. An ignore-file edit therefore can
+never publish a tree-wide deletion.
 
 The policy has these fixed semantics:
 
@@ -66,99 +61,75 @@ The policy has these fixed semantics:
    Match paths with `/` separators, Git-style anchoring, directory rules,
    comments, escaping, and `!` negation. Do not invoke Git or inspect its
    index.
-3. Do not consult `.git/info/exclude`, `core.excludesFile`, or a user's global
-   Git ignore file. Those machine-private sources must not make the same Overstory
-   placement produce an invisible, device-dependent tree. A future
-   placement-private ignore option belongs in `placements.yaml`; it is not
-   part of this plan.
-4. `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, `DerivedData`, Overstory
-   transaction temporaries, nested tree mounts, and symlinks retain their
-   current stronger treatment. A negated user pattern cannot re-include an
-   Overstory-private directory or cross a nested-tree boundary.
-5. If an ignore file cannot be decoded or its policy cannot be evaluated
-   safely, retain the last valid policy for an open placement, publish a
-   structured local diagnostic, and do not construct or submit a candidate
-   from a partially filtered walk. Initial activation with no valid policy
-   fails closed before upload.
+3. Do not consult `.git/info/exclude`, `core.excludesFile`, or a global Git
+   ignore file. Those machine-private sources would make the same placement
+   produce a device-dependent tree. A future placement-private ignore option
+   belongs in `placements.yaml` and is not part of this plan.
+4. The mandatory exclusions keep their stronger treatment: `.git`,
+   `node_modules`, `.arbor`, `Trash`, `.build`, `DerivedData`, transaction
+   temporaries, iCloud placeholders, nested tree mounts, and symlinks. A negated
+   user pattern cannot re-include them.
+5. An ignore file that is not valid UTF-8 contributes no patterns and produces
+   a structured local diagnostic that names the file but not its contents. It
+   does not block synchronization. Tracked content is unaffected either way,
+   and the diagnostic tells the user their rules are not applying.
 6. Ignored paths never cause pull cleanup. An accepted remote entry is still
-   materialized because it is tracked; after an accepted remote deletion, a
-   matching local path may remain on disk but is excluded from the verification
-   snapshot and cannot be re-uploaded while the rule matches.
+   written because it is tracked. After an accepted remote deletion of a
+   tracked path that a rule now matches, the local bytes are kept, become
+   untracked, and are not re-uploaded while the rule matches.
 
 ## Why this matters
 
-Overstory currently synchronizes every ordinary file except a short hard-coded set
-of directory names. A developer can reasonably place a repository expecting
-its ignored `.env`, credential files, caches, generated output, or large build
-artifacts to remain local, but Overstory will currently snapshot and upload most of
-them. That is both a secret-disclosure risk and a severe mismatch with user
-expectation.
+Overstory synchronizes every ordinary file except a short hard-coded set of
+directory names. A developer who places a repository can reasonably expect its
+ignored `.env`, credential files, caches, and build output to stay local.
+Overstory currently snapshots and uploads them, which risks disclosing secrets
+and goes against what the user expects.
 
-Applying ignore rules only in search or the sidebar would be worse than having
-no feature: invisible files could still upload, or a pull could delete content
-Overstory claimed not to own. The filter therefore belongs at the shared
-`WorkspaceFS`/Overstory projection boundary and must be proven consistently across
-every consumer.
+Applying ignore rules only in the sidebar or search would be worse than having
+no rules at all. Invisible files could still upload, or a pull could delete
+content Overstory claimed not to own. The filter therefore belongs at the shared
+`@overstory/fs` walk and has to be proven consistent across every consumer.
 
 ## Current state
 
-Relevant files and responsibilities:
+- `packages/fs/src/discovery.ts` exports `IGNORED_WORKSPACE_DIRECTORIES`,
+  `isIgnoredWorkspaceDirectory`, and `WORKSPACE_WATCHER_IGNORE_GLOBS`.
+  `discoverWorkspace()` is consumed only by `WorkspaceFS`
+  (`workspace-fs.ts:85,100,109`), whose discovery result feeds page-ID
+  loading, search indexing, and generated collection types.
+- `packages/fs/src/workspace-fs.ts` filters `list()` with the same set and
+  passes the static globs to `@parcel/watcher` (`:364`).
+- `packages/fs/src/protocol-tree.ts` checks the set again in
+  `snapshotDirectory()` (`:148`) and in the cleanup loop of `materializeTree()`
+  (`:260`). Both already accept a list of excluded absolute roots.
+  `snapshotDirectory()` also accepts a `SnapshotObjectIndex` whose
+  `directoryHash` shortcut returns a cached directory hash without walking.
+- `packages/arborsync/src/service.ts:scanWorkspace()` (`:514`) is the folder
+  scan. FolderSync reaches it through `host.scan()`
+  (`folder-sync.ts:51`, wired at `service.ts:484`).
+- `packages/arborsync/src/folder-sync.ts` durably records `known.root`, the
+  root the folder last held (written or scanned), and reaches the accepted root
+  through `accepted()`. It already masks paths against a root:
+  `publishable()` (`:295`) substitutes accepted content at declined points, and
+  `write()` (`:363`) passes declined points to `materializeTree` as exclusions,
+  then verifies the rescanned folder against the root. `declined-paths.ts`
+  provides `entryAt(root, path, load)`.
+- `packages/arborsync/src/filesystem-object-source.ts` rebuilds directory
+  bytes from disk (`:74`) and audits file rows (`:100`) by calling
+  `snapshotDirectory` directly. Its rebuilt directory hashes must match what
+  the folder scan produced.
+- `swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/LocalFolderPreview.swift:27`
+  keeps its own copy of the directory set for the pre-placement preview
+  (`CanopyAppModel.swift:1376`).
+- `packages/arborsync/src/state/placements.ts` accepts only scalar
+  `path: TreeID` entries. Do not widen it.
 
-- `packages/fs/src/discovery.ts` owns startup discovery and exports the
-  hard-coded directory set plus watcher globs. Its current policy is only:
-
-  ```ts
-  export const IGNORED_WORKSPACE_DIRECTORIES: ReadonlySet<string> = new Set([
-    ".git",
-    "node_modules",
-    ".arbor",
-    "Trash",
-    ".build",
-    "DerivedData",
-  ]);
-  ```
-
-- `packages/fs/src/workspace-fs.ts` independently uses that set in `list()`
-  and passes static globs to `@parcel/watcher`. Dynamic ignore files are not
-  represented, and watcher events cannot currently explain why a path is
-  excluded.
-- `packages/fs/src/protocol-tree.ts` independently checks the same directory set
-  during `snapshotDirectory()` and pull cleanup in `materializeTree()`. Files
-  such as `.env` are included. Pull cleanup preserves only the hard-coded set
-  and explicit nested-placement roots.
-- `packages/arborsync/src/state/indexer.ts` calls `discoverWorkspace()` and indexes the
-  resulting files. It should consume the filtered discovery result rather than
-  implementing pattern matching.
-- `packages/arborsync/src/service.ts:scanWorkspace()` and
-  `packages/arborsync/src/folder-sync.ts` compare the scanned folder with the
-  root it last held, append local changes, and materialize accepted states.
-  Ignore policy and tracked membership must be part of these same comparisons
-  or clean placements will appear permanently dirty.
-- `FolderSync` retains the root the folder last held and its change log, but
-  no accepted path-membership view. Extend private sync state only as much as
-  needed to recover the tracked-membership invariant offline; do not put
-  ignore metadata in Overstory objects or canopyd APIs.
-- `packages/arborsync/src/state/placements.ts` deliberately accepts only scalar
-  `path: TreeID` entries. Do not widen that schema in this plan.
-- `packages/fs/README.md` says all hidden directories other than the fixed set
-  are ordinary content. `docs/architecture/arborsync/data-home.md` owns replaceable local
-  implementation choices. `docs/overstory-spec/02-directory-format.md` owns the portable
-  directory projection and is where `.arborignore` membership belongs;
-  `.gitignore` compatibility remains reference-implementation documentation.
-
-Conventions to preserve:
-
-- `WorkspaceFS` is the sole server-side authority for workspace-content I/O;
-  keep consumers thin and pass one immutable policy/snapshot view through an
-  operation rather than rereading ignore files at different times.
-- Discovery is symlink-safe, nested mounted roots are explicit exclusions, and
-  Overstory names are ordered with `compareProtocolNames`, not locale ordering.
-- Durable private synchronization state lives beneath `.state`; it does not
-  enter authored trees or portable account configuration.
-- Tests use `bun:test`, temporary workspace and state directories, and cleanup
-  in `afterEach` or `finally`. Follow `tests/unit/discovery.test.ts` for
-  discovery fixtures and `tests/unit/protocol-objects.test.ts` for snapshot/materialization
-  round trips.
+**Tracked** needs no new state. A path is tracked when
+`entryAt(knownRoot, path)` is non-null, and FolderSync already persists
+`known.root` together with its basis. Existing placements therefore need no
+upgrade step: a `.env` they already uploaded is in `known.root` and stays
+tracked.
 
 ## Commands you will need
 
@@ -166,263 +137,195 @@ Conventions to preserve:
 |---|---|---|
 | Focused filesystem tests | `bun test tests/unit/discovery.test.ts tests/unit/protocol-objects.test.ts tests/integration/workspace.test.ts` | all pass |
 | Synchronization tests | `bun test tests/integration/self-sync.test.ts` | all pass |
-| Typecheck | `bun run typecheck` | exit 0, no errors |
-| Product suite | `bun run test` | all pass |
+| Typecheck | `bun run typecheck` | exit 0 |
+| Product suite | `bun run test` | all pass (see the known parallel-only flakes in memory/status) |
 | Protocol suite | `bun run test:protocol` | all pass |
-| Diff hygiene | `git diff --check` | exit 0, no output |
+| Swift preview tests | `swift test` in `swift/Packages/CanopyWorkingTree` | all pass |
+| Links and diff hygiene | `bun run check:links && git diff --check` | exit 0 |
 
-Do not run `git add`, commit, push, a long-lived daemon, or a formatter over
-unrelated files. If a dependency is added, use Bun's lockfile tooling narrowly
-and verify that `bun.lock` contains only the intended package change.
+Do not commit, push, or run a long-lived daemon unless Joe asks. If you add a
+dependency, change `bun.lock` narrowly.
 
 ## Scope
 
-**In scope**:
+**In scope**: a policy module under `packages/fs/src/` and its export;
+`discovery.ts`, `workspace-fs.ts`, and `protocol-tree.ts`; the FolderSync,
+service and filesystem-object-source wiring; `LocalFolderPreview.swift`; a
+shared matcher fixture; the tests listed below; `packages/fs/README.md`,
+`docs/architecture/arborsync/data-home.md`,
+`docs/overstory-spec/02-directory-format.md`; the plan index.
 
-- a focused ignore-policy module under `packages/fs/src/` and its export;
-- `packages/fs/src/discovery.ts`;
-- `packages/fs/src/workspace-fs.ts`;
-- `packages/fs/src/protocol-tree.ts`;
-- the narrow Arbor Sync state/coordinator changes required to supply accepted
-  tracked membership consistently;
-- `package.json` and `bun.lock` only if a maintained Git-ignore matcher is used;
-- `tests/unit/discovery.test.ts` and `tests/unit/protocol-objects.test.ts`;
-- focused cases in `tests/integration/workspace.test.ts` and
-  `tests/integration/self-sync.test.ts`;
-- `packages/fs/README.md`, `docs/architecture/arborsync/data-home.md`, and
-  `docs/overstory-spec/02-directory-format.md`; and
-- `plans/README.md` and this plan's eventual deletion.
-
-**Out of scope**:
-
-- Git index integration, shelling out to Git, `.git/info/exclude`, global Git
-  configuration, or reproducing Git's staging UI;
-- widening `placements.yaml` or adding device-local pattern configuration;
-- a sidebar toggle, ignored-files browser, or general `arbor ignore` command;
-- changing Overstory object shapes, TreeID identity, canopyd merge behavior, ACLs,
-  or nested-tree boundary semantics;
-- following symlinks or permitting ignore negation to expose Overstory-private
-  state; and
-- opportunistic search-index, watcher, or snapshot refactors beyond what the
-  shared policy requires.
-
-## Git workflow
-
-- Branch: `codex/security-005-ignore-policy`.
-- Make focused commits with short imperative messages matching current history,
-  for example `Keep ignored files outside Overstory trees`.
-- Do not push or open a pull request unless the operator explicitly asks.
+**Out of scope**: Git index integration or shelling out to Git; machine-global
+Git sources; widening `placements.yaml`; an `arbor untrack` command (see
+Maintenance notes); marking ignored paths in the Mac app's "what it would
+publish" view (a Native follow-up); changing Overstory object shapes, canopyd,
+or nested-tree semantics; following symlinks.
 
 ## Steps
 
-### Step 1: Freeze ignore and tracked-membership behavior in tests
+### Step 1: Freeze matcher behavior in a shared fixture
 
-Add table-driven policy tests before integrating it. Cover root and nested
-`.arborignore` and `.gitignore`, comments, escaped leading `#`/`!`, anchored
-patterns, directory patterns, `**`, negation, Unicode names, and `/` path
-normalization. Prove that mandatory internal exclusions cannot be negated and
-that both ignore control files remain included.
+Write `tests/fixtures/ignore-policy/cases.json`, a table of
+`{ files: {path: contents}, path, isDirectory, ignored }` cases covering:
 
-Add tracked-membership cases with three states: no accepted base, a path in the
-accepted base, and the same path absent from the new accepted base. The same
-matching path must respectively be excluded, included, and excluded. Keep this
-pure and independent of Git installation or process environment.
+- root and nested `.arborignore` and `.gitignore`;
+- comments and escaped leading `#`/`!`;
+- anchored patterns, directory-only rules, `**`, and negation, including
+  negation that cannot re-include a file whose parent directory is excluded;
+- Unicode names and `/` normalization;
+- that both control files are always included;
+- that mandatory exclusions cannot be negated.
 
-**Verify**: run the focused filesystem-test command. The new pure-policy tests
-pass; existing integration failures caused by incomplete wiring are acceptable
-only if their names correspond exactly to later steps.
+Add a pure `bun:test` runner for the fixture. The Swift port in Step 5 runs the
+same file.
 
-### Step 2: Introduce one immutable workspace ignore policy
+**Verify**: the runner exists and fails only because the module is missing.
 
-Create a focused module under `packages/fs/src/` that loads the complete
-root-relative policy for one coherent filesystem operation. Prefer a small,
-maintained matcher with documented Git-compatible semantics over a new partial
-glob engine; pin it through the normal Bun lockfile if needed. The policy must
-offer at least:
+### Step 2: One immutable ignore policy
 
-- an inclusion decision for a root-relative file or directory path;
-- the matched source file and pattern for diagnostics/tests;
-- mandatory/private versus user-pattern classification;
-- a stable policy revision derived from the exact control-file bytes and
-  placement root; and
-- a way to combine policy matching with the accepted tracked path set.
+Create `packages/fs/src/ignore-policy.ts`. Prefer a maintained Git-compatible
+matcher (the `ignore` package is the obvious candidate) over a new glob engine.
+Its interface:
 
-Do not cache based only on mtimes. Load exact bytes, reject undecodable control
-files, and keep path containment and symlink rules in the existing filesystem
-authority.
+- `loadIgnorePolicy(root, { excludedRoots })` returns one immutable
+  `IgnorePolicy` for a single operation;
+- `policy.decision(treePath, isDirectory)` returns
+  `"included" | "mandatory" | "ignored"` together with the matching source file
+  and pattern for diagnostics and tests;
+- `policy.diagnostics` lists any control file that was not valid UTF-8.
 
-**Verify**: run the pure-policy tests and `bun run typecheck`; both pass.
+Move the mandatory set into this module. `IGNORED_WORKSPACE_DIRECTORIES` stays
+exported only for the watcher's static globs.
 
-### Step 3: Put discovery, listing, watching, and indexing behind the policy
+**Verify**: the fixture runner and `bun run typecheck` pass.
 
-Make `discoverWorkspace()` receive or load one policy view and use it for both
-directory descent and file admission. Make `WorkspaceFS.list()` and path
-resolution apply the same view; an ignored untracked path must not become a
-node merely because it was addressed directly. Keep arbitrary filesystem
-browsing with `discovery: "none"` path-addressable and path-only: ignore policy
-limits managed Overstory-tree membership, not the user's ability to open an
-ordinary absolute local file outside a placement.
+### Step 3: Discovery, listing, and watching
 
-For watching, static mandatory globs may remain an optimization, but dynamic
-patterns cannot rely solely on `@parcel/watcher` ignore globs because ignore
-files themselves must be observed. Filter queued events through the current
-coherent policy; an ignore-file event reloads the policy, rebuilds discovery,
-identity maps, search/backlinks, and generated types once, then emits the
-appropriate tree-level invalidation. Preserve the last valid policy and emit a
-diagnostic if reload fails.
+`discoverWorkspace()` loads one policy and uses it for both directory descent
+and file admission. `WorkspaceFS.list()` and path resolution use the same
+policy, so an ignored path does not become a node just because it was addressed
+directly. Browsing with `discovery: "none"` stays path-addressable: the policy
+limits tree membership, not which local files the user can open.
 
-Do not add matching to `packages/arborsync/src/state/indexer.ts`; prove that its existing
-discovery input contains no ignored untracked files.
+The static mandatory globs stay as a watcher optimization. Filter queued events
+through the current policy. An event on `.arborignore` or `.gitignore` reloads
+the policy and rediscovers once, then emits a tree-level invalidation.
 
-**Verify**: `bun test tests/unit/discovery.test.ts tests/integration/workspace.test.ts` passes, including external creation/removal and live ignore-file edits.
+`WorkspaceFS` does not know about tracked paths. Its discovery is the
+local-browsing view. The synchronized tree is decided in Step 4.
 
-### Step 4: Make snapshot and materialization use the identical policy
+**Verify**: `bun test tests/unit/discovery.test.ts tests/integration/workspace.test.ts`
+passes, including external creation and removal of files and live ignore-file
+edits.
 
-Change `snapshotDirectory()` to consume the same immutable policy and tracked
-membership view as discovery. All Arbor Sync snapshot call sites must pass the
-coherent view rather than allowing the snapshotter to rediscover different
-ignore bytes mid-operation.
+### Step 4: Snapshot, materialization, and FolderSync
 
-Change `materializeTree()` to determine cleanup protection before deleting any
-entry. It must never delete an ignored untracked local path. It must still
-materialize and update an accepted tracked entry even when a current pattern
-matches it. When the host deletes such an entry, preserve any matching
-local bytes as ignored/untracked and verify the physical projection against the
-remote root using the new accepted membership, so the placement becomes idle
-instead of repeatedly re-uploading the preserved copy.
+Give `snapshotDirectory()` and `materializeTree()` one new optional input,
+`skip(treePath, isDirectory): Promise<boolean>`, which callers build from the
+policy and a tracked root:
 
-Keep nested mounts and mandatory exclusions stronger than user rules. Do not
-change the protocol snapshot shape.
+```ts
+skip = decision === "ignored" && !(await entryAt(trackedRoot, treePath, load))
+```
 
-**Verify**: `bun test tests/unit/protocol-objects.test.ts` passes with new round trips for
-new ignored files, tracked matching files, remote deletion, pull preservation,
-and matching-root verification.
+Evaluate it lazily and only for ignored paths, so an ordinary walk loads no
+extra objects. Mandatory exclusions keep their current unconditional handling.
+Then:
 
-### Step 5: Persist and advance accepted tracked membership safely
+- `host.scan(trackedRoot)` takes the tracked root. FolderSync passes
+  `known.root` when it compares or publishes (`install`, `scan`, `preview`,
+  `restore`). In `write()` it passes the root it just wrote.
+- `write()` passes the same `skip` to `materializeTree`, with the new root as
+  the tracked root. Cleanup never deletes an ignored path that is absent from
+  that root. Every tracked entry is still written, including one a rule now
+  matches.
+- Ignored filtering happens in the scan, before `publishable()` masks declined
+  points, so the two mechanisms compose without knowing about each other.
+- `FilesystemObjectSource` rebuilds and audits with the same policy and the
+  folder's `known.root`, so a rebuilt directory hash matches the scan. A policy
+  reload drops cached `directoryHash` rows beneath the directory containing the
+  changed ignore file.
+- The first placement of a folder that has no accepted base uses an empty
+  tracked set, so ignores apply before the first snapshot.
 
-Extend Arbor Sync's private per-tree state so restart and offline edits know
-which physical paths belong to the last accepted root. Derive membership by
-walking validated Overstory directory objects, excluding boundary entries; never
-trust an unvalidated path manifest from a server response. Update membership at
-the same durable boundary as accepted root/object retention, including accepted
-local candidates, reconciled server results, watch transitions, and conflict
-resolution.
+**Verify**: `bun test tests/unit/protocol-objects.test.ts tests/integration/self-sync.test.ts`
+passes the cases listed under "Test plan". Each self-sync case ends with the
+expected accepted root and `sync: "idle"`.
 
-Do not let the path view get ahead of the accepted root. If an optimized
-hash-only transition lacks enough objects to derive its complete membership,
-retain the previous view only when the transition is proven content-only;
-otherwise fetch/reconstruct the accepted graph or fall back to the existing
-full reconciliation path. Do not guess from the current filesystem after a
-remote deletion.
+### Step 5: Swift preview
 
-On first activation of a tree with no accepted base, apply ignores before its
-first snapshot. For an existing placement upgrading from state without tracked
-membership, reconstruct it from the accepted remote snapshot before permitting
-an ignore-matched omission; never reinterpret the current disk as proof that a
-path was untracked.
+`LocalFolderPreview` applies the same policy with an empty tracked set, so the
+preview shows exactly what a first placement would publish. Port the matcher
+to Swift inside `CanopyWorkingTree`, keep it small, and drive its tests from the
+shared fixture. If the port cannot pass the fixture, stop. Do not ship two
+matchers that disagree.
 
-**Verify**: `bun test tests/integration/self-sync.test.ts` passes with restart,
-offline edit, watch-transition, remote deletion, and legacy-state upgrade
-cases. Each ends with the expected accepted root and `sync: "idle"`.
+**Verify**: the Swift fixture tests pass.
 
-### Step 6: Document the contract and run maintained gates
+### Step 6: Documentation and gates
 
-Update `docs/overstory-spec/02-directory-format.md` with `.arborignore`, its nested pattern
-scope, control-file inclusion, tracked-membership rule, and the distinction
-between tree content and opaque placement files. Keep `.gitignore` compatibility,
-the fixed implementation exclusions, policy-error recovery, and unsupported
-global/local Git sources in `packages/fs/README.md` and
-`docs/architecture/arborsync/data-home.md` rather than presenting them as universal Overstory protocol.
+- `docs/overstory-spec/02-directory-format.md`: `.arborignore`, its nested
+  scope, that control files are included, the tracked rule, and the difference
+  between tree content and opaque placement files.
+- `packages/fs/README.md` and `docs/architecture/arborsync/data-home.md`:
+  `.gitignore` compatibility, the mandatory exclusions, the UTF-8 diagnostic,
+  the unsupported Git sources, and the untrack recipe (see Maintenance notes).
+- Remove this plan's rows from `plans/README.md` and `plans/catalog.md`.
 
-Update the plan index, run the product and protocol suites, run a repository-wide
-relative Markdown-link check, and run `git diff --check`.
-
-**Verify**: every command in "Commands you will need" passes; the link checker
-reports no broken repository-relative links; `git status --short` contains only
-the intended implementation, test, documentation, lockfile, and plan changes
-plus the operator's preserved pre-existing changes.
+**Verify**: every command in "Commands you will need" passes.
 
 ## Test plan
 
-Add tests proving all of the following:
-
-1. A fresh ignored `.env`, credential fixture, ignored directory, and ignored
-   Markdown page never appear in discovery, child listing, PageID maps, search,
-   backlinks, generated types, snapshots, or pending Overstory objects.
-2. Root/nested `.arborignore` and `.gitignore` patterns, negation, anchoring,
-   escaping, directory rules, `**`, Unicode names, and normalized separators
-   match deterministically without a Git executable.
-3. `.arborignore` and `.gitignore` remain included and their live edits trigger
-   exactly one coherent policy/discovery refresh.
-4. Mandatory exclusions, transaction files, symlinks, and nested tree mounts
-   remain excluded even under negated patterns.
-5. A matching path already in the accepted root remains listed, indexed,
-   snapshotted, uploaded when edited, and updated by a pull.
-6. Deleting that tracked path removes it from the accepted tree. A matching
-   local copy subsequently created or preserved by pull cleanup remains on disk
-   but does not make the placement dirty or re-enter synchronization.
-7. Materialization never deletes ignored untracked files and still reaches the
-   authority's exact root according to accepted tracked membership.
-8. Restart/offline behavior restores the accepted membership atomically with
-   the accepted root. Legacy private state reconstructs membership before
-   omitting anything.
-9. An unreadable or undecodable ignore file retains the last valid policy,
-   exposes a safe diagnostic without file contents, and blocks initial upload
-   when there is no valid prior policy.
-10. Global Git ignores and `.git/info/exclude` have no effect.
-
-## Done criteria
-
-- [ ] One shared policy controls managed-tree discovery, direct resolution,
-      children, watching, indexing inputs, snapshots, and materialization.
-- [ ] `.arborignore` is specified portably and `.gitignore` works as documented
-      compatibility without consulting Git or machine-global configuration.
-- [ ] Fresh matching paths and their contents never enter Overstory objects or
-      diagnostics.
-- [ ] Accepted matching paths remain tracked until explicit removal; changing
-      a pattern alone cannot delete accepted content.
-- [ ] Ignored untracked local bytes survive pulls and cannot keep a placement
-      dirty or be re-uploaded.
-- [ ] Mandatory exclusions, symlink safety, and nested-tree boundaries retain
-      precedence.
-- [ ] Policy/membership state is crash-safe and upgrades existing placements
-      without treating missing private metadata as permission to omit content.
-- [ ] Focused tests, `bun run typecheck`, `bun run test`,
-      `bun run test:protocol`, the relative-link check, and
-      `git diff --check` all pass.
-- [ ] No global Git configuration, placement schema, Overstory shape, canopyd API,
-      or unrelated working-tree file changed.
+1. A fresh ignored `.env`, an ignored directory, and an ignored Markdown page
+   never appear in discovery, listing, PageID maps, search, generated types,
+   snapshots, or published change graphs.
+2. The shared fixture passes in TypeScript and Swift without a Git executable.
+3. Live edits to `.arborignore` and `.gitignore` cause exactly one policy reload
+   and rediscovery.
+4. Mandatory exclusions, transaction files, symlinks, and nested mounts stay
+   excluded under negated patterns.
+5. A matching path already in `known.root` stays listed by the sync, is
+   uploaded when edited, and is updated by a pull.
+6. Deleting that tracked path locally publishes the deletion. A later local
+   copy at the same path stays on disk, and the placement stays idle.
+7. A remote deletion of a tracked path that a rule matches keeps the local
+   bytes, and the placement returns to idle without uploading them again.
+8. Materialization never deletes an ignored untracked file and still verifies
+   the accepted root.
+9. A restart with an ignored untracked file present reaches idle without a
+   change.
+10. `FilesystemObjectSource` rebuilds a directory containing ignored files to
+    the scanned hash.
+11. An ignore file that is not valid UTF-8 produces a diagnostic without its
+    contents, and synchronization continues.
+12. Global Git ignores and `.git/info/exclude` have no effect.
 
 ## STOP conditions
 
 Stop and report back rather than improvising if:
 
-- a coherent implementation requires making ignore rules or local absolute
-  paths part of Overstory objects, synchronized account configuration, or canopyd;
-- an accepted tracked path cannot be distinguished from an ignored untracked
-  path after restart without storing or reconstructing a validated membership
-  view tied atomically to the accepted root;
-- materialization would need to delete ignored local bytes to verify the remote
-  root, or would need to include them and thereby re-upload them;
-- the matcher cannot implement the documented nested, negation, escaping, and
-  Unicode behavior deterministically on macOS and Linux;
-- ignore-file reload races can produce a snapshot from one policy and an index
-  or candidate from another;
-- the necessary change widens `placements.yaml`, changes Overstory shapes, follows
-  symlinks, or weakens nested-tree boundaries; or
-- any focused gate fails twice after a reasonable correction.
+- a coherent implementation requires putting ignore rules or local absolute
+  paths into Overstory objects, synchronized account configuration, or canopyd;
+- materialization would have to delete ignored local bytes to verify the root,
+  or include them and so re-upload them;
+- the tracked root that a scan needs is not available from FolderSync's durable
+  record at some call site;
+- the TypeScript and Swift matchers cannot both pass the shared fixture; or
+- a focused gate fails twice after a reasonable correction.
 
 ## Maintenance notes
 
-- Reviewers should scrutinize the transitions between accepted tracked content
-  and ignored opaque content more than the pattern parser itself. The dangerous
-  failures are silent upload, silent deletion, and a placement that can never
-  return to its accepted root.
-- Any future placement-private ignore option must compose as a local projection
-  mask without changing canonical tree membership or leaking absolute paths.
-- If Overstory later supports multiple writable local placements of one TreeID,
-  accepted membership remains tree-wide while placement-private masks remain
-  local; do not infer canonical deletion from one masked placement.
-- New consumers of workspace enumeration must receive the shared policy view or
-  the already filtered discovery result. They must not invent another list of
+- Reviewers should look hardest at the transitions between tracked and ignored
+  content, not at the pattern parser. The dangerous failures are silent
+  upload, silent deletion, and a placement that can never reach idle.
+- **Untracking.** Because tracked paths win, adding a rule does not stop
+  syncing an already uploaded `.env`. The documented recipe is: move the file
+  out of the folder, let the deletion sync, then move it back. The rule then
+  keeps it local. The bytes remain in accepted history, so a leaked secret
+  must be rotated. A one-step `arbor untrack` command is a candidate for the
+  catalog, not part of this plan.
+- New consumers of workspace enumeration must receive the shared policy or the
+  already filtered discovery result. They must not keep their own list of
   ignored names.
+- Any future placement-private ignore option must work as a local projection
+  mask. It must not change canonical tree membership or leak absolute paths.
