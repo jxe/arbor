@@ -18,8 +18,8 @@ import UIKit
 import VisionKit
 #endif
 
-/// How a Canopy account is named in account lists, whether the Mac daemon or
-/// the iPhone's keychain holds it.
+/// How a Canopy account is named in account lists, whether as the Mac
+/// daemon's overview reports it or as `CanopyAccountService` lists it.
 private protocol CanopyAccountPresentable {
     var configurationTree: String { get }
     var handle: String? { get }
@@ -54,8 +54,8 @@ extension LocalHostAccountDescriptor: CanopyAccountPresentable {
 }
 #endif
 
-extension NativeHostAccount: CanopyAccountPresentable {
-    fileprivate var accountHost: String? { origin.host() }
+extension CanopyAccount: CanopyAccountPresentable {
+    fileprivate var accountHost: String? { origin?.host() }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -745,7 +745,7 @@ struct CanopyRootView: View {
     @State private var pinchDictation: EditorPinchDictation
     @State private var peoplePresented = false
     @State private var sidebarTreeSelection: String?
-    @State private var sidebarAccounts: [NativeHostAccount] = []
+    @State private var sidebarAccounts: [CanopyAccount] = []
     @State private var sidebarAccountError: String?
     @State private var accountFollowUpProfile: String?
     @State private var accountFollowUpSheet: CanopyPresentedSheet?
@@ -1352,7 +1352,7 @@ struct CanopyRootView: View {
         sidebarAccountError = workspace.localArborSyncOverviewError
 #else
         do {
-            sidebarAccounts = try await KeychainDeviceCredentialStore().accounts()
+            sidebarAccounts = try await workspace.accountService.accounts()
             sidebarAccountError = nil
         } catch { sidebarAccountError = error.localizedDescription }
 #endif
@@ -3213,12 +3213,12 @@ private struct MacArborSyncAccountPanel: View {
     let workspace: CanopyWorkspaceState
     let syncSections: AnyView
     let openProfile: (String) -> Void
-    @State private var pairing: LocalArborSyncPairingPresentation?
+    @State private var pairing: CanopyPairingOffer?
     @State private var pairingConfigurationTree: String?
     @State private var changingDeviceID: String?
     @State private var deauthorizationTarget: DeviceDeauthorizationTarget?
     @State private var setupPresented = false
-    @State private var identityState: LocalHostAccountsEnvelope?
+    @State private var identityState: CanopyAccountState?
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
@@ -3383,8 +3383,8 @@ private struct MacArborSyncAccountPanel: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
             do {
-                let client = try await workspace.ensureArborSync().client
-                try await client.backupIdentity(destination: url.path)
+                try await workspace.ensureArborSync()
+                try await workspace.accountService.backupIdentity(to: url)
             } catch { message = error.localizedDescription }
         }
     }
@@ -3397,9 +3397,8 @@ private struct MacArborSyncAccountPanel: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
             do {
-                let client = try await workspace.ensureArborSync().client
-                let path = identityState?.identity?.profilePath ?? CanopySupportDirectories.root.appending(path: "Profile").path
-                try await client.restoreIdentity(backup: Data(contentsOf: url), path: path)
+                try await workspace.ensureArborSync()
+                try await workspace.accountService.restoreIdentity(backup: Data(contentsOf: url))
                 await refresh()
             } catch { message = error.localizedDescription }
         }
@@ -3411,7 +3410,8 @@ private struct MacArborSyncAccountPanel: View {
         }
         await workspace.refreshLocalArborSyncOverview()
         do {
-            identityState = try await workspace.ensureArborSync().client.onboardingState()
+            try await workspace.ensureArborSync()
+            identityState = try await workspace.accountService.state()
         } catch { message = error.localizedDescription }
         guard let accounts = workspace.localArborSyncOverview?.accounts else { return }
         for account in accounts {
@@ -3511,7 +3511,7 @@ private struct MacArborSyncAccountPanel: View {
 
     private func createPairing(configurationTree: String) async {
         do {
-            let value = try await workspace.createLocalArborSyncPairing(configurationTree: configurationTree)
+            let value = try await workspace.createPairingOffer(configurationTree: configurationTree)
             pairing = value
             pairingConfigurationTree = configurationTree
             message = nil
@@ -3596,8 +3596,7 @@ struct CanopyIOSLaunchView: View {
     @State private var treeError: String?
     @State private var confirmationCode: String?
     @State private var origin: URL?
-    @State private var service: NativeAccountService?
-    @State private var accounts: [NativeHostAccount] = []
+    @State private var accounts: [CanopyAccount] = []
     @State private var selectedConfigurationTree: String?
     @State private var trees: [ProtocolTreeDescriptor] = []
     @State private var syncingTree: ProtocolTreeDescriptor?
@@ -3819,13 +3818,9 @@ struct CanopyIOSLaunchView: View {
 
     private func claim(_ raw: String) async {
         do {
-            let payload = try JSONDecoder().decode(PairingPayload.self, from: Data(raw.utf8)).validated()
-            let service = NativeAccountService(origin: payload.origin)
             let label = UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name
-            let claim = try await service.claim(payload, label: label)
-            self.service = service
-            origin = payload.origin
-            selectedConfigurationTree = await service.configurationID()
+            let claim = try await workspace.accountService.claimPairing(Data(raw.utf8), deviceLabel: label)
+            selectedConfigurationTree = claim.configurationTree
             confirmationCode = claim.confirmationCode
             scanError = nil
             await loadAccounts()
@@ -3838,26 +3833,26 @@ struct CanopyIOSLaunchView: View {
 
     private func loadAccounts() async {
         do {
-            accounts = try await KeychainDeviceCredentialStore().accounts()
+            accounts = try await workspace.accountService.accounts()
             scanError = nil
         } catch {
             scanError = error.localizedDescription
         }
     }
 
-    private func select(_ account: NativeHostAccount) {
+    private func select(_ account: CanopyAccount) {
         origin = account.origin
         selectedConfigurationTree = account.configurationTree
-        service = NativeAccountService(origin: account.origin, configurationTree: account.configurationTree)
         phase = .choosing
         Task { await loadTrees() }
     }
 
     private func loadTrees() async {
-        guard let service else { return }
+        guard let selectedConfigurationTree,
+              let account = accounts.first(where: { $0.configurationTree == selectedConfigurationTree }) else { return }
         treeError = nil
         do {
-            trees = try await service.trees().snapshot.sorted {
+            trees = try await workspace.accountService.client(for: account).trees().snapshot.sorted {
                 ($0.canonicalPath ?? $0.id) < ($1.canonicalPath ?? $1.id)
             }
         } catch {
@@ -3880,7 +3875,6 @@ struct CanopyIOSLaunchView: View {
     }
 
     private func resetForPairing() {
-        service = nil
         origin = nil
         selectedConfigurationTree = nil
         confirmationCode = nil
@@ -3931,8 +3925,8 @@ private struct IOSTopOverscrollIndicator: View {
 private struct IOSPlaceTreePanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: CanopyWorkspaceState
-    @State private var accounts: [NativeHostAccount] = []
-    @State private var selectedAccount: NativeHostAccount?
+    @State private var accounts: [CanopyAccount] = []
+    @State private var selectedAccount: CanopyAccount?
     @State private var trees: [ProtocolTreeDescriptor] = []
     @State private var loading = true
     @State private var placingTreeID: String?
@@ -4017,7 +4011,7 @@ private struct IOSPlaceTreePanel: View {
         loading = true
         defer { loading = false }
         do {
-            accounts = try await KeychainDeviceCredentialStore().accounts()
+            accounts = try await workspace.accountService.accounts()
             if let account = accounts.first {
                 selectedAccount = account
                 await loadTrees(for: account)
@@ -4028,14 +4022,11 @@ private struct IOSPlaceTreePanel: View {
         }
     }
 
-    private func loadTrees(for account: NativeHostAccount) async {
+    private func loadTrees(for account: CanopyAccount) async {
         loading = true
         defer { loading = false }
         do {
-            trees = try await NativeAccountService(
-                origin: account.origin,
-                configurationTree: account.configurationTree
-            ).trees().snapshot.sorted {
+            trees = try await workspace.accountService.client(for: account).trees().snapshot.sorted {
                 ($0.canonicalPath ?? $0.id).localizedCaseInsensitiveCompare($1.canonicalPath ?? $1.id) == .orderedAscending
             }
             message = nil
@@ -4046,13 +4037,13 @@ private struct IOSPlaceTreePanel: View {
     }
 
     private func place(_ tree: ProtocolTreeDescriptor) async {
-        guard let account = selectedAccount else { return }
+        guard let account = selectedAccount, let origin = account.origin else { return }
         placingTreeID = tree.id
         defer { placingTreeID = nil }
         do {
             try await workspace.place(
                 tree: tree,
-                from: account.origin,
+                from: origin,
                 configurationTree: account.configurationTree
             )
             dismiss()
@@ -4069,7 +4060,7 @@ private struct IOSAccountPanel: View {
     let openProfile: (String) -> Void
     let onDisconnect: @MainActor () -> Void
     @State private var placement: NativePlacementRecord?
-    @State private var accounts: [NativeHostAccount] = []
+    @State private var accounts: [CanopyAccount] = []
     @State private var snapshots: [String: ProtocolAccountDescriptor] = [:]
     @State private var accountErrors: [String: String] = [:]
     @State private var message: String?
@@ -4150,12 +4141,11 @@ private struct IOSAccountPanel: View {
         defer { loading = false }
         do {
             placement = try await workspace.nativePlacement()
-            accounts = try await KeychainDeviceCredentialStore().accounts()
+            accounts = try await workspace.accountService.accounts()
             for account in accounts {
                 do {
-                    snapshots[account.configurationTree] = try await NativeAccountService(
-                        origin: account.origin, configurationTree: account.configurationTree
-                    ).account().account
+                    snapshots[account.configurationTree] = try await workspace.accountService
+                        .client(for: account).account().account
                     accountErrors[account.configurationTree] = nil
                 } catch { accountErrors[account.configurationTree] = error.localizedDescription }
             }

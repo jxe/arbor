@@ -24,8 +24,10 @@ Passing builds and automated tests do not establish interactive acceptance.
 
 ## Native 011 Mac gates
 
-Owner: Native [011](../soon/011-unify-mac-accounts-and-fold-daemon-clients.md). The client folds and
-route removals were made on Linux without a Swift toolchain; none of these has run.
+Native 011 is closed in source (see [status](../../status.md#native-011-account-service--2026-09-25)
+and [the folds](../../status.md#native-011-daemon-client-folds--2026-09-24)); these gates are what
+remains of it. The client folds, route removals and the shared account service were made on Linux
+without a Swift toolchain; none of these has run.
 
 - [ ] Regenerate `swift/Canopy.xcodeproj` with `xcodegen generate --spec swift/project.yml --project swift`
   and commit it if it differs from the hand-edited project.
@@ -39,6 +41,21 @@ route removals were made on Linux without a Swift toolchain; none of these has r
   and `ProviderContractTests` inside `CanopyWorkingTree`; then `swift/scripts/hosted-smoke.ts`.
 - [ ] From the Mac app against a disposable host, create a pairing offer (now made on the host
   with the account credential) and pair a second device with it.
+- [ ] Build both platforms with the new `swift/CanopyApp/CanopyAccountService.swift` (protocol and
+  the iPhone's `KeychainAccountService`) and `swift/CanopyApp/ArborSync/ArborSyncAccountService.swift`
+  (the Mac's data-home implementation; both were added to the hand-edited project), and run the
+  two new `CanopyAppTests` cases (account lookups through a fake service; the iPhone store's
+  unsupported capabilities).
+- [ ] Mac onboarding through `ArborSyncAccountService`, against a disposable data home and host:
+  create an identity, back it up, recover it from the backup, adopt a legacy keychain identity,
+  claim a fresh account, cancel and resume a pending claim, pair this Mac from another device's
+  code and resume an interrupted pairing, then choose a tree. The account panel's back-up,
+  recover and pairing-offer actions work the same way. Check with the daemon's
+  `GET /v1/accounts` that the identity, account and credential are in the data home, not the
+  app's keychain.
+- [ ] iPhone through `KeychainAccountService`: pair from the Mac's QR code (confirmation code
+  shown), list accounts in the launch view, Place a Tree and Sync & Accounts panels, open a
+  People profile and its avatar, and Disconnect and Pair Again; no keychain entry moves.
 
 ## Overstory identifier rename Mac gates
 

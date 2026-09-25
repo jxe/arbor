@@ -136,6 +136,60 @@ uncompiled, and `swift/Canopy.xcodeproj` was hand-edited for the renamed app
 files and must be regenerated with xcodegen on a Mac; the gates are in
 [release and verification](plans/verification/release-and-soak.md#overstory-identifier-rename-mac-gates).
 
+## Native 011 account service — 2026-09-25
+
+Decided and implemented in source, not compiled or installed. Joe chose
+option 1: **the data home stays the owner of a Mac's identity and account
+credentials.** The daemon keeps its onboarding routes (`POST /v1/me`,
+`/v1/me/restore`, `/v1/me/backup`, `POST /v1/bootstrap/accounts` and
+`/accounts/cancel`, `POST /v1/bootstrap/pairings/claim`), `GET /v1/accounts`,
+`GET /v1/credential` and `POST /v1/placements/move`; the iPhone keeps its own
+keychain stores. No storage, route or wire format changed on either platform,
+and there is no migration.
+
+The app's account operations now go through one Swift protocol,
+`CanopyAccountService` (`swift/CanopyApp/CanopyAccountService.swift`), chosen
+once per platform by `CanopyWorkspaceState.accountService`:
+`KeychainAccountService` on iOS (over `NativeAccountService`,
+`KeychainDeviceCredentialStore` and `KeychainProfileIdentityStore`) and
+`ArborSyncAccountService` on macOS (`swift/CanopyApp/ArborSync/`, over the
+daemon's REST client and `ArborSyncCredentialProvider`; it uses the connected
+daemon and never launches one). The surface is `state()` (accounts, identity,
+pending claim and pairing), `accounts()`, `credentialProvider(configurationTree:)`
+(and `client(for:)` on top), `createIdentity`, `restoreIdentity`,
+`backupIdentity`, `claimAccount`, `cancelPendingClaim`, `claimPairing`,
+`resumePairing` and `forget`. What only one store can do is declared in
+`capabilities` and otherwise throws `CanopyAccountServiceError.unsupported`:
+the iPhone cannot restore or back up an identity file, cancel a claim or
+resume a pairing without its payload; the Mac cannot forget an account (the
+daemon has no such route).
+
+The account-operation forks in `CanopyAppModel.swift` collapsed: directory
+refresh, avatar loading, the account lookup behind opening a profile (the
+iPhone-only `connectedConfigurationTree` is gone), the credentialed client for
+visits, profile resolution and group creation (the Mac-only `protocolClient`
+is gone), and pairing offers (`createPairingOffer`, now shared). The Mac
+onboarding and account panel and the iPhone launch, Place a Tree and Sync &
+Accounts views call the service instead of the REST client, `NativeAccountService`
+or the keychain stores. Behavior notes: the iPhone's directory refresh now
+walks its accounts rather than its placements (a pre-account placement with no
+configuration tree is no longer refreshed), and an avatar or profile lookup at
+an origin with no account is anonymous on both platforms; the Mac reads
+`GET /v1/accounts` once more per directory refresh.
+
+Forks that remain are not account operations: tree access and resource
+consent (the Mac edits the data-home checkout of the configuration tree and
+asks the daemon to push it, the iPhone updates the host directly), which
+sidebar trees and nested trees are placed (daemon placements or the app's
+native placements), and opening a profile (the Mac visits it, the iPhone
+places it).
+
+Verified on Linux: `bun run typecheck`, `bun run check:links` and
+`git diff --check` pass. Not verified: every Swift change is uncompiled, and
+`swift/Canopy.xcodeproj` was hand-edited for the two new files and must be
+regenerated with xcodegen on a Mac. The plan is deleted; its Mac gates are in
+[release and verification](plans/verification/release-and-soak.md#native-011-mac-gates).
+
 ## Native 011 daemon-client folds — 2026-09-24
 
 Implemented, not installed. Both daemon clients now live with their only
@@ -153,9 +207,12 @@ suites through `xcodebuild`). The daemon no longer serves
 pairing offers on the host with the account credential, as iOS does. The
 Mac's data-home identity, claim and pairing-claim routes, `GET /v1/accounts`,
 `GET /v1/credential`, `POST /v1/placements/move` and `POST /v1/held/discard`
-are kept after the source audit;
-[Native 011](plans/soon/011-unify-mac-accounts-and-fold-daemon-clients.md)
-records why and the decision that remains.
+are kept after the source audit: there was no Swift writer for the data
+home's identity store, the CLI has no claim command, `arbor status` may target
+a cloud-session daemon, and `arbor mv` needs the daemon to pause and relocate a
+watched root. The daemon and iOS keep credentials in different stores, so the
+[account service](#native-011-account-service--2026-09-25) records the
+ownership decision that followed.
 
 Verified on Linux with Bun 1.3.14 on top of `5145569`: `bun run typecheck`
 passes. `bun run test` has 1,163 passes and 19 failures against 1,168 and 14

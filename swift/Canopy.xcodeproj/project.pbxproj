@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		59C81C6495AC026C9B5B8A42 /* CanopyAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */; };
+		7595ECF9722146EF2DF49C67 /* ArborSyncAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */; };
 		29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */; };
 		2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */; };
 		30566E514B280F135A088116 /* CanopyStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */; };
@@ -49,6 +51,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAccountService.swift; sourceTree = "<group>"; };
+		AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncAccountService.swift; sourceTree = "<group>"; };
 		0FB6B346C13D17D474A125B8 /* CanopyAppKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyAppKit; path = Packages/CanopyAppKit; sourceTree = SOURCE_ROOT; };
 		3600BDEB02C0A0FF8C51027E /* CanopyAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CanopyAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySupportDirectories.swift; sourceTree = "<group>"; };
@@ -124,6 +128,7 @@
 		6B4877ADFB09A22A0138B811 /* ArborSync */ = {
 			isa = PBXGroup;
 			children = (
+				AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */,
 				1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */,
 				502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */,
 				17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */,
@@ -136,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				6B4877ADFB09A22A0138B811 /* ArborSync */,
+				F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */,
 				F31651AC411F40A49C39CA50 /* CanopyApp.swift */,
 				5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */,
 				E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */,
@@ -321,6 +327,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				59C81C6495AC026C9B5B8A42 /* CanopyAccountService.swift in Sources */,
 				C8A3D6F3250D2896E4D8A2FC /* CanopyApp.swift in Sources */,
 				2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */,
 				B733490C08AF612381651350 /* CanopyConflictReview.swift in Sources */,
@@ -332,6 +339,7 @@
 				D04DEF93C13612B18F18C8D3 /* CanopySaveDiagnostics.swift in Sources */,
 				30566E514B280F135A088116 /* CanopyStyle.swift in Sources */,
 				E6D54BC465AC7BE111DD3D8A /* CanopySupportDirectories.swift in Sources */,
+				7595ECF9722146EF2DF49C67 /* ArborSyncAccountService.swift in Sources */,
 				A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */,
 				C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */,
 				3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */,

@@ -42,7 +42,12 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 `CanopyEditor` sit above. Each daemon client lives with its only caller: the
 TypeScript one in `packages/cli/src/daemon-client.ts`, the Swift one (REST
 client, loopback credential provider and object store, process supervisor,
-models) in `swift/CanopyApp/ArborSync/`, compiled for macOS only.
+models) in `swift/CanopyApp/ArborSync/`, compiled for macOS only. The app's
+account operations go through one protocol, `CanopyAccountService`
+(`swift/CanopyApp/CanopyAccountService.swift`), with two implementations:
+iOS keeps accounts in `OverstoryClient`'s Keychain stores, and the Mac keeps
+them in the data home through the daemon's onboarding routes, so the daemon
+and the CLI share them ([local state](canopy-browser/local-state.md)).
 
 ### TypeScript packages
 

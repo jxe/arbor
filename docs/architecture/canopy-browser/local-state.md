@@ -57,13 +57,18 @@ and `devices.yaml` on disk exactly as the CLI does and asks the daemon to
 synchronize. The Mac's identity and account credentials are data-home state
 shared with the CLI and the daemon (the profile identity, each account's
 connection record and credential in the operating-system store), not the
-iOS app's Keychain stores; the app reads them through the daemon's
-`GET /v1/accounts` and `GET /v1/credential`, and creates or recovers the
-identity and claims or pairs an account through the daemon's onboarding
-routes, which write those stores. Pairing offers for another device go to the
-host directly with the account credential, as on iOS. Unifying the two
-platforms' stores is the remaining decision of
-[Native 011](../../../plans/soon/011-unify-mac-accounts-and-fold-daemon-clients.md).
+iOS app's Keychain stores. The data home owns them (Native 011 chose it over
+moving them into the app), so the daemon and the `arbor` command see the same
+accounts as the app. The app reaches them through `CanopyAccountService`, the
+one account interface both platforms implement: on the Mac,
+`ArborSyncAccountService` reads the daemon's `GET /v1/accounts` and
+`GET /v1/credential` and creates, recovers or backs up the identity and claims
+or pairs an account through the daemon's onboarding routes, which write those
+stores; on iOS, `KeychainAccountService` keeps them in the app's Keychain.
+Pairing offers for another device go to the host directly with the account
+credential on both platforms. The Mac cannot forget an account from the app,
+and iOS cannot restore or back up an identity file; the service declares both
+as missing capabilities.
 The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree

@@ -17,14 +17,15 @@ struct CanopyMacLaunchView: View {
     }
 }
 
-/// The daemon owns the Mac's identity and claims; the view holds presentation only.
+/// The data home owns the Mac's identity and claims, through the workspace's
+/// `accountService`; the view holds presentation and the Mac's file panels.
 struct CanopyMacOnboarding: View {
     let workspace: CanopyWorkspaceState
     var resumeExisting = false
     var addingAccount = false
     let complete: () -> Void
-    @State private var state: LocalHostAccountsEnvelope?
-    @State private var client: ArborSyncRESTClient?
+    @State private var state: CanopyAccountState?
+    @State private var connected = false
     @State private var legacy: NativeProfileIdentity?
     @State private var legacyConflict = false
     @State private var busy = false
@@ -33,10 +34,6 @@ struct CanopyMacOnboarding: View {
     @State private var pairingCode = ""
     @State private var treeChoices: [ProtocolTreeDescriptor] = []
     @State private var treeOrigin: URL?
-
-    private var profilePath: String {
-        state?.identity?.profilePath ?? CanopySupportDirectories.root.appending(path: "Profile").path
-    }
 
     var body: some View {
         Form {
@@ -78,13 +75,13 @@ struct CanopyMacOnboarding: View {
                     }
                     Section("Already joined on another device?") {
                         Text("Recovering your identity does not authorize this Mac on an existing account. Create a pairing code on an authorized device, then paste it here.")
-                        if let pending = state.pendingPairing {
-                            Text("Pending pairing with \(pending.origin)")
+                        if let pendingOrigin = state.pendingPairingOrigin {
+                            Text("Pending pairing with \(pendingOrigin)")
                             Button("Resume Pairing") {
-                                run { client in
-                                    try await client.claimPairing()
+                                run { service in
+                                    try await service.resumePairing()
                                     try await reload()
-                                    if let account = self.state?.accounts.first(where: { $0.canopy == pending.origin && $0.credentialAvailable }) {
+                                    if let account = self.state?.accounts.first(where: { $0.origin?.absoluteString == pendingOrigin && $0.credentialAvailable }) {
                                         try await chooseTrees(account)
                                     }
                                 }
@@ -92,9 +89,9 @@ struct CanopyMacOnboarding: View {
                         } else {
                             TextField("Pairing code", text: $pairingCode)
                             Button("Pair This Mac") {
-                                run { client in
+                                run { service in
                                     let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
-                                    try await client.claimPairing(payload: Data(pairingCode.utf8))
+                                    _ = try await service.claimPairing(Data(pairingCode.utf8), deviceLabel: Self.deviceLabel)
                                     pairingCode = ""
                                     try await reload()
                                     if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
@@ -114,9 +111,9 @@ struct CanopyMacOnboarding: View {
                         Section("Connect to a community") {
                             if let pending = state.pendingClaim {
                                 Text(pending.account).textSelection(.enabled)
-                                if pending.canCancel == true {
+                                if pending.canCancel {
                                     Button("Cancel Connection") {
-                                        run { client in try await client.cancelPendingClaim(); community = ""; try await reload() }
+                                        run { service in try await service.cancelPendingClaim(); community = ""; try await reload() }
                                     }
                                 } else {
                                     Text("This connection may already have reached the community. Resume it to finish safely.")
@@ -126,10 +123,10 @@ struct CanopyMacOnboarding: View {
                                 TextField("https://community.example", text: $community)
                             }
                             Button(state.pendingClaim == nil ? "Connect" : "Resume Connection") {
-                                run { client in
+                                run { service in
                                     let target = state.pendingClaim?.account ?? community.trimmingCharacters(in: .whitespacesAndNewlines)
                                     let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
-                                    try await client.claimAccount(account: target, path: state.pendingClaim?.path ?? profilePath)
+                                    try await service.claimAccount(target, deviceLabel: Self.deviceLabel)
                                     try await reload()
                                     if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
                                         try await chooseTrees(account)
@@ -142,7 +139,7 @@ struct CanopyMacOnboarding: View {
                     if !addingAccount, !state.accounts.isEmpty {
                         Section("Communities") {
                             ForEach(state.accounts) { account in
-                                Button(account.handle.map { "~\($0) · \(account.canopy ?? "")" } ?? account.configurationTree) {
+                                Button(account.handle.map { "~\($0) · \(account.origin?.absoluteString ?? "")" } ?? account.configurationTree) {
                                     run { _ in try await chooseTrees(account) }
                                 }
                                 .disabled(!account.credentialAvailable)
@@ -168,7 +165,7 @@ struct CanopyMacOnboarding: View {
                 } else {
                     Section("Set up your identity") {
                         Button("Create Identity") {
-                            run { client in try await client.createIdentity(path: profilePath); try await reload() }
+                            run { service in try await service.createIdentity(); try await reload() }
                         }
                         Button("Recover Identity…") { recover() }
                     }
@@ -179,7 +176,7 @@ struct CanopyMacOnboarding: View {
                 Section {
                     Text(message).foregroundStyle(.red).textSelection(.enabled)
                     Button("Try Again") { Task { await load() } }
-                    if state == nil, client != nil { Button("Recover Identity…") { recover() } }
+                    if state == nil, connected { Button("Recover Identity…") { recover() } }
                 }
             }
         }
@@ -193,7 +190,8 @@ struct CanopyMacOnboarding: View {
         busy = true
         defer { busy = false }
         do {
-            client = try await workspace.ensureArborSync().client
+            try await workspace.ensureArborSync()
+            connected = true
             legacy = try await KeychainProfileIdentityStore().identity()
             try await reload()
             let reconciliation = ProfileIdentityReconciliation.decide(
@@ -201,8 +199,10 @@ struct CanopyMacOnboarding: View {
                 keyAvailable: state?.identity?.keyAvailable == true,
                 native: legacy?.profileTree
             )
-            if !addingAccount, reconciliation == .adoptNative, let client {
-                try await client.restoreIdentity(backup: KeychainProfileIdentityStore().backupData(), path: profilePath)
+            if !addingAccount, reconciliation == .adoptNative {
+                // Adopt the identity this app kept in its own keychain before
+                // the data home held one.
+                try await workspace.accountService.restoreIdentity(backup: KeychainProfileIdentityStore().backupData())
                 try await reload()
             }
             if reconciliation == .chooseExisting, let identity = state?.identity, let legacy {
@@ -222,19 +222,20 @@ struct CanopyMacOnboarding: View {
     }
 
     private func reload() async throws {
-        guard let client else { return }
-        state = try await client.onboardingState()
+        guard connected else { return }
+        state = try await workspace.accountService.state()
         if let pending = state?.pendingClaim { community = pending.account }
         message = nil
     }
 
-    private func run(_ action: @escaping (ArborSyncRESTClient) async throws -> Void) {
-        guard let client else { return }
+    private func run(_ action: @escaping (any CanopyAccountService) async throws -> Void) {
+        guard connected else { return }
+        let service = workspace.accountService
         Task {
             busy = true
             message = nil
             defer { busy = false }
-            do { try await action(client) }
+            do { try await action(service) }
             catch {
                 let failure = error.localizedDescription
                 try? await reload()
@@ -249,8 +250,8 @@ struct CanopyMacOnboarding: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose your Arbor identity backup."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        run { client in
-            try await client.restoreIdentity(backup: Data(contentsOf: url), path: profilePath)
+        run { service in
+            try await service.restoreIdentity(backup: Data(contentsOf: url))
             try await reload()
         }
     }
@@ -260,15 +261,17 @@ struct CanopyMacOnboarding: View {
         panel.nameFieldStringValue = "Arbor Identity.json"
         panel.message = "This backup contains your private identity key. Keep it somewhere secure. Choose a new file."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        run { client in try await client.backupIdentity(destination: url.path) }
+        run { service in try await service.backupIdentity(to: url) }
     }
 
-    private func chooseTrees(_ account: LocalHostAccountDescriptor) async throws {
-        guard let client, let canopy = account.canopy, let origin = URL(string: canopy) else { return }
-        let credential = try await client.credential(configurationTree: account.configurationTree)
-        let wire = ProtocolClient(origin: origin, credential: credential)
+    private func chooseTrees(_ account: CanopyAccount) async throws {
+        guard connected, let origin = account.origin else { return }
+        let wire = try await workspace.accountService.client(for: account)
         treeChoices = try await wire.trees().snapshot.filter { $0.id != account.configurationTree }
         treeOrigin = origin
     }
+
+    /// The data home names this Mac's device itself and ignores the label.
+    private static let deviceLabel = "Mac"
 }
 #endif

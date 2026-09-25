@@ -95,12 +95,14 @@ struct LocalArborSyncOverview: Sendable, Equatable {
     let visits: [LocalArborSyncVisitPresentation]
     let observedThrough: String
 }
+#endif
 
-struct LocalArborSyncPairingPresentation: Sendable, Equatable {
+/// A pairing offer another device claims: the `PairingPayload` JSON its
+/// scanner reads, and the code both devices show.
+struct CanopyPairingOffer: Sendable, Equatable {
     let payload: String
     let confirmationCode: String
 }
-#endif
 
 /// A Members sheet the People view asks a group page to present once that
 /// page is open, optionally with a person ready to add.
@@ -190,8 +192,33 @@ final class CanopyWorkspaceState {
     private let nativePathMonitor = NWPathMonitor()
     private let nativePathMonitorQueue = DispatchQueue(label: "org.nxhx.Arbor.canopy-path")
     private var nativeTransportAvailable = false
+    private let suppliedAccountService: (any CanopyAccountService)?
+    /// The accounts `accountService` last listed, for account lookups by
+    /// origin that should not read the store each time.
+    private(set) var knownAccounts: [CanopyAccount] = []
 
-    init(provider suppliedProvider: InMemoryWorkspaceProvider? = nil) {
+    /// Where this device keeps its identity and account credentials, chosen
+    /// once per platform: the iPhone's keychain, or the Mac's data home
+    /// through the daemon (Native 011, option 1).
+    var accountService: any CanopyAccountService {
+        if let suppliedAccountService { return suppliedAccountService }
+#if os(macOS)
+        // The connected daemon only: a passive account read never launches
+        // one. Onboarding and the account panel connect first.
+        return ArborSyncAccountService { [weak self] in
+            guard let client = await self?.arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
+            return client
+        }
+#else
+        return KeychainAccountService()
+#endif
+    }
+
+    init(
+        provider suppliedProvider: InMemoryWorkspaceProvider? = nil,
+        accountService suppliedAccountService: (any CanopyAccountService)? = nil
+    ) {
+        self.suppliedAccountService = suppliedAccountService
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: CanopySupportDirectories.linkPreviews
         )
@@ -411,7 +438,7 @@ final class CanopyWorkspaceState {
     func disconnectNativeAccount() async throws {
         try await conflictReview?.flushDraft()
         guard let placement = try await nativePlacementStore.load() else { return }
-        try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).forget()
+        try await accountService.forget(origin: placement.origin, configurationTree: placement.configurationTree)
         try await nativePlacementStore.clear(configurationTree: placement.configurationTree)
         nativePlacements = try await nativePlacementStore.loadAll()
         serverWatchTask?.cancel()
@@ -760,23 +787,7 @@ final class CanopyWorkspaceState {
         guard let remote = ArborRemoteLocator(locator) else {
             throw ProtocolValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
         }
-        let client = protocolClient(origin: remote.origin, overview: overview)
-        return try await client.resolve(path: remote.path).ref.tree
-    }
-
-    /// A protocol client at `origin`: with the daemon's credential for an account
-    /// at that origin, anonymous otherwise.
-    private func protocolClient(origin: URL, overview: LocalArborSyncOverview?) -> ProtocolClient {
-        if let client = arborsyncClient,
-           let account = (overview ?? localArborSyncOverview)?.accounts.first(where: {
-               $0.credentialAvailable && $0.canopy.flatMap(URL.init(string:)).map { Self.sameOrigin($0, origin) } == true
-           }) {
-            return ProtocolClient(
-                origin: origin,
-                credentialProvider: ArborSyncCredentialProvider(client: client, configurationTree: account.configurationTree)
-            )
-        }
-        return ProtocolClient(origin: origin)
+        return try await accountClient(origin: remote.origin).resolve(path: remote.path).ref.tree
     }
 
     func promoteLocalFolder(
@@ -834,7 +845,7 @@ final class CanopyWorkspaceState {
         }
         let canonical = origin.appending(path: String(path.dropFirst())).absoluteString
         let source = try CanopyProfileDocument.newGroupSource(displayName: name, description: description, memberTrees: memberTrees)
-        let community = try await protocolClient(origin: origin, overview: localArborSyncOverview).resolve(path: "/").ref.tree
+        let community = try await accountClient(origin: origin).resolve(path: "/").ref.tree
         let folder = CanopySupportDirectories.dataHome.appending(path: "groups/\(slug)", directoryHint: .isDirectory)
         guard !FileManager.default.fileExists(atPath: folder.path) else {
             throw ProtocolValidationError.invalidValue("A group folder named \(slug) already exists on this Mac")
@@ -1107,7 +1118,7 @@ final class CanopyWorkspaceState {
             try await openPlacedTree(placed.id)
             return
         }
-        let client = protocolClient(origin: remote.origin, overview: localArborSyncOverview)
+        let client = try await accountClient(origin: remote.origin)
         let resolution = try await client.resolve(path: remote.path)
         let tree = resolution.enclosingTree
         let treeID = TreeID(rawValue: tree.id)
@@ -1403,6 +1414,7 @@ final class CanopyWorkspaceState {
             )
         }
         let visits = await recentVisits()
+        knownAccounts = accounts.map { CanopyAccount($0) }
         return LocalArborSyncOverview(
             origin: accounts.first?.canopy,
             handle: accounts.first?.handle,
@@ -1461,38 +1473,58 @@ final class CanopyWorkspaceState {
             await self.refreshLocalArborSyncOverview()
         }
     }
+#endif
 
-    func createLocalArborSyncPairing(configurationTree: String) async throws -> LocalArborSyncPairingPresentation {
-        guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
-        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
-        guard let overview = localArborSyncOverview else {
-            throw ArborSyncSupervisorError.incompatibleService("The account list is unavailable")
+    /// Ask the account's Canopy for a pairing offer, authorized by the
+    /// account's credential; both platforms do this directly on the host.
+    func createPairingOffer(configurationTree: String) async throws -> CanopyPairingOffer {
+        var found = knownAccounts.first { $0.configurationTree == configurationTree }
+        if found == nil {
+            knownAccounts = try await accountService.accounts()
+            found = knownAccounts.first { $0.configurationTree == configurationTree }
         }
-        guard let selected = overview.accounts.first(where: { $0.configurationTree == configurationTree }) else {
-            throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+        guard let account = found else { throw CanopyAccountServiceError.invalidAccount("The Canopy account is unavailable") }
+        guard let origin = account.origin else {
+            throw CanopyAccountServiceError.invalidAccount("The community origin is invalid")
         }
-        guard let rawOrigin = selected.canopy,
-              let origin = URL(string: rawOrigin) else {
-            throw ArborSyncSupervisorError.incompatibleService("The community origin is invalid")
-        }
-        // The offer comes from the host directly, authorized by the account's
-        // credential, as on iOS; the daemon no longer proxies pairing offers.
-        let wire = ProtocolClient(
-            origin: origin,
-            credentialProvider: ArborSyncCredentialProvider(client: client, configurationTree: configurationTree)
-        )
-        let offer = try await wire.createPairing()
+        let offer = try await accountService.client(for: account).createPairing()
         let payload = PairingPayload(
             origin: origin,
             pairing: .init(id: offer.id, secret: offer.secret)
         )
         let data = try JSONEncoder().encode(payload)
-        return LocalArborSyncPairingPresentation(
+        return CanopyPairingOffer(
             payload: String(decoding: data, as: UTF8.self),
             confirmationCode: offer.confirmationCode
         )
     }
-#endif
+
+    /// The account this device holds at `origin` with a credential, reading
+    /// the account store again only when the last list has none. An
+    /// unreadable store (the Mac's daemon not connected) holds none.
+    func connectedAccount(at origin: URL) async -> CanopyAccount? {
+        func match(_ accounts: [CanopyAccount]) -> CanopyAccount? {
+            accounts.first { $0.credentialAvailable && $0.origin.map { Self.sameOrigin($0, origin) } == true }
+        }
+        if let account = match(knownAccounts) { return account }
+        do {
+            knownAccounts = try await accountService.accounts()
+        } catch {
+            Self.recordDiagnostic("account-list", error)
+            return nil
+        }
+        return match(knownAccounts)
+    }
+
+    /// A protocol client at `origin`: with the credential of an account this
+    /// device holds there, anonymous otherwise.
+    private func accountClient(origin: URL) async throws -> ProtocolClient {
+        guard let account = await connectedAccount(at: origin) else { return ProtocolClient(origin: origin) }
+        return ProtocolClient(
+            origin: origin,
+            credentialProvider: try await accountService.credentialProvider(configurationTree: account.configurationTree)
+        )
+    }
 
     static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
         guard let diagnostic = CanopySaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
@@ -1522,44 +1554,30 @@ final class CanopyWorkspaceState {
                 self.directoryRefreshTask = nil
             }
             var failures: [String] = []
-#if os(macOS)
-            let accounts = self.localArborSyncOverview?.accounts ?? []
+            let accounts: [CanopyAccount]
+            do {
+                accounts = try await self.accountService.accounts()
+                self.knownAccounts = accounts
+            } catch {
+                // Without an account list (the Mac's daemon not yet connected)
+                // refresh the accounts last listed, as before a list existed.
+                accounts = self.knownAccounts
+                Self.recordDiagnostic("directory-accounts", error)
+            }
             var seen = Set<String>()
             for account in accounts where account.credentialAvailable {
-                guard let rawOrigin = account.canopy, seen.insert(rawOrigin).inserted,
-                      let origin = URL(string: rawOrigin) else { continue }
+                guard let origin = account.origin, seen.insert(origin.absoluteString).inserted else { continue }
                 do {
                     if !force, self.writableTreesByOrigin[origin.absoluteString] != nil,
                        let fetched = try await self.directoryStore.fetchedAt(origin: origin),
                        Date().timeIntervalSince(fetched) < 60 { continue }
-                    let client = self.protocolClient(origin: origin, overview: self.localArborSyncOverview)
+                    let client = try await self.accountService.client(for: account)
                     async let directory = client.directory()
                     async let trees = client.trees()
                     try await self.directoryStore.save(origin: origin, entries: directory.snapshot)
                     self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.snapshot.filter(\.grantsWrite).map(\.id))
-                } catch { failures.append("\(origin.host() ?? rawOrigin): \(error.localizedDescription)") }
+                } catch { failures.append("\(origin.host() ?? origin.absoluteString): \(error.localizedDescription)") }
             }
-#else
-            var seen = Set<String>()
-            for placement in self.nativePlacements {
-                let key = "\(placement.origin.absoluteString)|\(placement.configurationTree ?? "")"
-                guard seen.insert(key).inserted else { continue }
-                do {
-                    if !force, self.writableTreesByOrigin[placement.origin.absoluteString] != nil,
-                       let fetched = try await self.directoryStore.fetchedAt(origin: placement.origin),
-                       Date().timeIntervalSince(fetched) < 60 { continue }
-                    let service = NativeAccountService(
-                        origin: placement.origin,
-                        configurationTree: placement.configurationTree
-                    )
-                    let snapshot = try await service.directory()
-                    try await self.directoryStore.save(origin: placement.origin, entries: snapshot.snapshot)
-                    self.writableTreesByOrigin[placement.origin.absoluteString] = Set(
-                        try await service.trees().snapshot.filter(\.grantsWrite).map(\.id)
-                    )
-                } catch { failures.append("\(placement.origin.host() ?? placement.origin.absoluteString): \(error.localizedDescription)") }
-            }
-#endif
             self.directory = (try? await self.directoryStore.load()) ?? self.directory
             self.directoryError = failures.isEmpty ? nil : failures.joined(separator: "\n")
         }
@@ -1579,14 +1597,7 @@ final class CanopyWorkspaceState {
         guard let avatar = person.entry.avatar else {
             throw ProtocolValidationError.invalidValue("Directory entry has no avatar")
         }
-#if os(macOS)
-        return try await protocolClient(origin: person.origin, overview: localArborSyncOverview)
-            .object(tree: avatar.tree, hash: avatar.hash)
-#else
-        let configurationTree = try await connectedConfigurationTree(for: person.origin)
-        return try await NativeAccountService(origin: person.origin, configurationTree: configurationTree)
-            .object(tree: avatar.tree, hash: avatar.hash)
-#endif
+        return try await accountClient(origin: person.origin).object(tree: avatar.tree, hash: avatar.hash)
     }
 
     func openDirectoryProfile(_ person: DirectoryPerson) async throws {
@@ -1596,25 +1607,15 @@ final class CanopyWorkspaceState {
         }
         try await openRemoteLocator(locator)
 #else
-        let configurationTree = try await connectedConfigurationTree(for: person.origin)
-        let service = NativeAccountService(origin: person.origin, configurationTree: configurationTree)
-        guard let tree = try await service.trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
+        guard let account = await connectedAccount(at: person.origin) else {
+            throw ProtocolValidationError.invalidValue("No account is connected to this Canopy")
+        }
+        guard let tree = try await accountService.client(for: account).trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
             throw ProtocolValidationError.invalidValue("Profile is not hosted on this Canopy")
         }
-        try await place(tree: tree, from: person.origin, configurationTree: configurationTree)
+        try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
 #endif
     }
-
-#if os(iOS)
-    /// The configuration tree of the account this iPhone holds at `origin`.
-    private func connectedConfigurationTree(for origin: URL) async throws -> String {
-        let account = try await KeychainDeviceCredentialStore().accounts().first {
-            Self.sameOrigin($0.origin, origin)
-        }
-        guard let account else { throw ProtocolValidationError.invalidValue("No account is connected to this Canopy") }
-        return account.configurationTree
-    }
-#endif
 
     /// Follow a nested-tree boundary through the same account-aware paths used
     /// by People. Prefer an existing Mac placement, then the hosted profile

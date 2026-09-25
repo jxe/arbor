@@ -1185,6 +1185,46 @@ struct CanopyAppTests {
         #expect(source.contains("Recovered after interruption."))
     }
 
+    @Test("Account lookups by origin read the platform account service once and reuse its list")
+    func accountLookupsUseTheAccountService() async throws {
+        let service = RecordingAccountService(accounts: [
+            CanopyAccount(
+                configurationTree: "tr_cfg_a", origin: URL(string: "https://a.example"),
+                handle: "a", profileTree: nil, deviceID: "dv_a", credentialAvailable: true
+            ),
+            CanopyAccount(
+                configurationTree: "tr_cfg_b", origin: URL(string: "https://b.example"),
+                handle: nil, profileTree: nil, deviceID: nil, credentialAvailable: false
+            ),
+        ])
+        let workspace = CanopyWorkspaceState(provider: .sample(), accountService: service)
+        let a = try #require(URL(string: "https://A.example/~a"))
+        #expect(await workspace.connectedAccount(at: a)?.configurationTree == "tr_cfg_a")
+        #expect(await service.listings == 1)
+        // An account without its credential is not connected; the list is read again.
+        #expect(await workspace.connectedAccount(at: try #require(URL(string: "https://b.example"))) == nil)
+        #expect(await service.listings == 2)
+        // A known account is found without reading the store.
+        #expect(await workspace.connectedAccount(at: a)?.configurationTree == "tr_cfg_a")
+        #expect(await service.listings == 2)
+        #expect(workspace.knownAccounts.map(\.configurationTree) == ["tr_cfg_a", "tr_cfg_b"])
+    }
+
+    @Test("The iPhone account store reports what it cannot do instead of pretending")
+    func keychainAccountServiceCapabilities() async throws {
+        let service = KeychainAccountService()
+        #expect(service.capabilities == [.forget])
+        await #expect(throws: CanopyAccountServiceError.unsupported(.restoreIdentity)) {
+            try await service.restoreIdentity(backup: Data())
+        }
+        await #expect(throws: CanopyAccountServiceError.unsupported(.backupIdentity)) {
+            try await service.backupIdentity(to: URL(fileURLWithPath: "/dev/null"))
+        }
+        await #expect(throws: CanopyAccountServiceError.unsupported(.resumePairing)) {
+            try await service.resumePairing()
+        }
+    }
+
 #if os(macOS)
     /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local Canopy,
     /// claims an account into the test data home, places a disposable folder,
@@ -1242,4 +1282,34 @@ private actor StatusConflictSession: WorkspaceDocumentSession {
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { snapshot() }
     func close() {}
+}
+
+/// An account store that serves a fixed list and counts how often it is read.
+private actor RecordingAccountService: CanopyAccountService {
+    private let fixed: [CanopyAccount]
+    private(set) var listings = 0
+
+    init(accounts: [CanopyAccount]) { fixed = accounts }
+
+    nonisolated var capabilities: Set<CanopyAccountCapability> { [] }
+    func state() -> CanopyAccountState {
+        CanopyAccountState(accounts: fixed, identity: nil, pendingClaim: nil, pendingPairingOrigin: nil)
+    }
+    func accounts() -> [CanopyAccount] {
+        listings += 1
+        return fixed
+    }
+    func credentialProvider(configurationTree: String) throws -> any ProtocolCredentialProvider {
+        throw CanopyAccountServiceError.invalidAccount("No credential in the test store")
+    }
+    func createIdentity() {}
+    func restoreIdentity(backup _: Data) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
+    func backupIdentity(to _: URL) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
+    func claimAccount(_: String, deviceLabel _: String) {}
+    func cancelPendingClaim() throws { throw CanopyAccountServiceError.unsupported(.cancelPendingClaim) }
+    func claimPairing(_: Data, deviceLabel _: String) -> CanopyPairingClaim {
+        CanopyPairingClaim(configurationTree: nil, confirmationCode: nil)
+    }
+    func resumePairing() throws { throw CanopyAccountServiceError.unsupported(.resumePairing) }
+    func forget(origin _: URL, configurationTree _: String?) throws { throw CanopyAccountServiceError.unsupported(.forget) }
 }
