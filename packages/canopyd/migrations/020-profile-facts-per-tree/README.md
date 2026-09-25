@@ -6,8 +6,8 @@ facts in one `profile_facts` row per tree instead of one `meta` row per accepted
 root, and recomputes them only when an update touches `_index.md` or the declared
 avatar.
 
-**Status: rehearsed successfully on a live backup; not run live.** The live run waits
-for the verified build to deploy.
+**Status: deployed and verified live on 2026-09-25.** Keep the migration and backup
+through the rollback window.
 
 ## What changes
 
@@ -139,7 +139,14 @@ and one for each of the community's two earlier roots. It checks that:
 
 ## Rehearsal log
 
-Not yet run live.
+- **2026-09-25, live.** Build `fe0fccdb` entered maintenance mode on schema 20. The
+  migration wrote the same 3 profile rows as rehearsal, deleted all 4 legacy rows (1
+  historical), stamped schema 21 and preserved the live roots. The ordinary todos tree
+  had advanced after the backup; every profile row and the other 4 roots matched the
+  rehearsal. The redeployed server passed `verify.ts`; all placements returned idle and
+  the 111-file authored manifest was unchanged. A private page create/fetch/delete
+  round trip passed, and a temporary profile `displayName` change appeared in the
+  directory before its exact source bytes were restored.
 
 - **2026-09-25, live backup.** The schema-20 source passed `quick_check` with 5 trees,
   482 accepted updates and 4 `profile:` meta rows. The archive checksum and database
