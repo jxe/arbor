@@ -427,6 +427,11 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
     func flush() async throws
     func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode?
     func copyDocument() async throws -> WorkspaceCopyDocument?
+    /// Append one change moving source from this document into another; nil
+    /// when the provider cannot state it as one change.
+    func admit(transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult?
+    /// Publish retained local work now rather than after the usual delay.
+    func publishPending() async
     func history() async throws -> [WorkspaceHistoryEntry]
     func recover(revision: String) async throws -> WorkspaceDocumentSnapshot
     func close() async
@@ -435,6 +440,8 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
 public extension WorkspaceDocumentSession {
     func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode? { nil }
     func copyDocument() async throws -> WorkspaceCopyDocument? { nil }
+    func admit(transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult? { nil }
+    func publishPending() async {}
     /// Compatibility bridge for existing providers. It preserves their rejection/recovery
     /// behavior until their publication queues support independently retained bases.
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {

@@ -66,6 +66,16 @@ The Quagmire binding does what only the editor can:
   result must reparse to the editor's tree; anything else (new or edited
   blocks, tab indentation) is an ordinary edit. `source-moves.json` gives the
   exact meaning shared with canopyd.
+- **Move to Document is one change.** Moving blocks to another page of the same
+  tree appends one record over both pages: the blocks' recorded source leaves
+  one and lands after the other's last block, re-indented to its top level,
+  with a blank line added where one would run into another. Its basis is the
+  one retained tree holding both pages as the editor read them, decided from
+  record ancestry. When the two pages' local work sits on different chains,
+  the editor publishes it, adopts the byte-identical accepted view and tries
+  again; failing that, or for blocks apart from each other, it copies the
+  blocks exactly and deletes them from the origin. Until the editor removes
+  the moved blocks, no capture of the origin is taken.
 - **Guard uncommitted input.** Quagmire can hold a keystroke before its commit
   callback fires. `flush()` captures it first; an acknowledgement that finds
   the mounted tree ahead of the latest capture appends it as a successor

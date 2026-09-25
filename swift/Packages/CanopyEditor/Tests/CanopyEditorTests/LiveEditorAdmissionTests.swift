@@ -470,4 +470,96 @@ extension LiveEditorAdmissionTests {
         #expect(try await after.snapshot().source == "Typed after the move\n\nFirst para\n\nSecond para\n\n")
         await continued.close(); await coordinator.close(); await tree.close()
     }
+
+    enum MoveCase: String, CaseIterable, Sendable { case plain, peer, diverged }
+
+    /// Move to Document is one change over both pages: the paragraph leaves
+    /// one and lands in the other as a move, replays identically after a
+    /// restart, carries a peer's concurrent edit to it into the destination,
+    /// and, when the two pages' local work sits on different chains, goes
+    /// through after publishing that work.
+    @Test("Move to Document publishes one change over both pages", arguments: MoveCase.allCases)
+    func moveToDocument(_ variant: MoveCase) async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
+              let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_CROSS_DOCUMENT_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "move-to-document-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ProtocolClient(origin: url, credential: token)
+        let origin = try await freshUndoPage(client: client, tree: treeID, content: "Stays here\n\nMoved paragraph\n\nAlso stays\n")
+        let destination = try await freshUndoPage(client: client, tree: treeID, content: "Destination\n\n")
+        let tree = try await place(client.descriptor(tree: treeID), client: client)
+        let transport = ProtocolReplicaTransport(client: client)
+        var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+        let capture = try await tree.captureSourceBasis(origin)
+        var destinationText = "Destination\n\n"
+        if variant == .diverged {
+            // Unpublished work on the destination, on its own chain.
+            let other = try await CanopyDocumentBinding.open(reference: destination, session: provider.openDocument(destination))
+            other.document.transaction(name: "Typing") {
+                _ = other.document.setText(other.document.children[0].id, AttributedString("Destination edited"))
+            }
+            other.appendCurrentGeneration(); await other.flush()
+            #expect(other.lastError == nil)
+            await other.close()
+            destinationText = "Destination edited\n\n"
+        }
+        // The destination is open in another editor while the move happens.
+        let observer = variant == .plain ? try await CanopyDocumentBinding.open(reference: destination, session: provider.openDocument(destination)) : nil
+        let binding = try await CanopyDocumentBinding.open(reference: origin, session: provider.openDocument(origin))
+        let host = CanopyEditorHost(binding: binding, provider: provider, linkPreviewService: LinkPreviewService(cacheDirectory: root.appending(path: "previews")))
+        binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
+        if variant == .diverged {
+            binding.document.transaction(name: "Typing") {
+                _ = binding.document.setText(binding.document.children[0].id, AttributedString("Stays here, edited"))
+            }
+            await binding.flush()
+        }
+        let moved = binding.document.children[1]
+        // What Quagmire's Move to Document does: append, then remove here.
+        #expect(await host.appendToDocument(CanopyDocumentReferenceCodec.encode(destination), [moved]))
+        binding.document.transaction(name: "Move to DocumentLink") { binding.document.removeSubtree(moved.id) }
+        await binding.flush()
+        #expect(binding.lastError == nil)
+        let originText = (variant == .diverged ? "Stays here, edited" : "Stays here") + "\n\nAlso stays\n"
+        #expect(try await provider.openDocument(origin).snapshot().source == originText)
+        #expect(try await provider.openDocument(destination).snapshot().source == destinationText + "Moved paragraph\n\n")
+        let log = try await ChangeLog(tree: treeID, stateRoot: root)
+        let record = try #require(try await log.retained().last { $0.transfer != nil })
+        #expect(record.transfer?.reference.identity == destination.identity)
+        #expect(record.update.trace?.flatMap(\.operations).map(\.kind) == ["moveSource"])
+        // Nothing else was captured for either page after the move.
+        #expect(try await log.retained().last?.change == record.change)
+        if let observer {
+            for _ in 0..<100 where observer.document.children.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+            #expect(observer.document.children.count == 2)
+            #expect(observer.lastError == nil)
+            await observer.close()
+        }
+        await binding.close()
+        await coordinator.close()
+        coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        #expect(try await ChangeLog(tree: treeID, stateRoot: root).retained().last { $0.transfer != nil } == record)
+        var landed = "Moved paragraph"
+        if variant == .peer {
+            let source = capture.document.source, word = try #require(source.range(of: "paragraph"))
+            let range = source.utf8.distance(from: source.startIndex, to: word.lowerBound)..<source.utf8.distance(from: source.startIndex, to: word.upperBound)
+            let patch = WorkspaceDocumentPatch(baseContentRevision: capture.document.contentRevision, edits: [.init(utf8Range: range, replacement: "text, edited by a peer")])
+            let peer = try capture.prepare(intent: .init(basis: capture.document, patch: patch, source: source.replacingOccurrences(of: "paragraph", with: "text, edited by a peer")))
+            let request = try await client.prepareUpdates(tree: treeID, base: #require(capture.accepted), updates: [peer.update])
+            _ = try await client.submitUpdateResponse(request)
+            _ = try await coordinator.recoverWatchGap()
+            landed = "Moved text, edited by a peer"
+        }
+        let accepted = try await coordinator.syncOnce()
+        #expect(accepted.state == .current, Comment(rawValue: String(describing: accepted)))
+        #expect(try await client.descriptor(tree: treeID).tree.conflicted == false)
+        let after = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+        #expect(try await after.openDocument(origin).snapshot().source == originText)
+        #expect(try await after.openDocument(destination).snapshot().source == destinationText + landed + "\n\n")
+        await coordinator.close(); await tree.close()
+    }
 }

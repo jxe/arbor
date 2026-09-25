@@ -720,6 +720,24 @@ struct CanopyEditorTests {
     }
 
     @MainActor
+    @Test("Move to Document falls back to an exact copy when the provider cannot state one change")
+    func moveFallsBackToCopy() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let destination = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/origin")
+        let session = RecordingAdmissionSession(snapshot: .init(reference: reference, source: "Stays\n\nMoved\n\n", contentRevision: "r1"))
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        var errors: [String] = []
+        let host = CanopyEditorHost(binding: binding, provider: provider, linkPreviewService: linkPreviewService(), reportError: { errors.append($0) })
+        let moved = binding.document.children[1]
+        #expect(await host.appendToDocument(CanopyDocumentReferenceCodec.encode(destination), [moved]))
+        let target = try await provider.openDocument(destination).snapshot().source
+        #expect(target.hasSuffix("Moved\n\n"))
+        #expect(errors.isEmpty)
+        await binding.close()
+    }
+
+    @MainActor
     @Test("Page creation links exact titles, recovers retries, and disambiguates filename collisions")
     func pageCreationRecovery() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
@@ -1976,5 +1994,60 @@ struct RearrangementTests {
         }
         #expect(edited.patch.moves == nil)
         #expect(edited.source.hasPrefix("B\n\nA2"))
+    }
+}
+
+@Suite("Move to Document states one exact transfer")
+struct TransferPlanTests {
+    func plan(_ origin: String, _ destination: String, moving pick: ([Block]) -> [Block]) throws -> (transfer: WorkspaceDocumentTransfer, planned: CanopyMarkdownCodec.PlannedTransfer)? {
+        let a = CanopyMarkdownCodec.open(source:origin,revision:"a1",identitySeed:"origin")
+        let b = CanopyMarkdownCodec.open(source:destination,revision:"b1",identitySeed:"destination")
+        guard let planned = CanopyMarkdownCodec.transfer(pick(a.blocks), from:a.blocks, ledger:a.ledger, into:b) else { return nil }
+        let transfer = try WorkspaceDocumentTransfer(
+            origin:.init(reference:.init(tree:"tr_move",path:"/a"),source:origin,contentRevision:"a1"),
+            destination:.init(reference:.init(tree:"tr_move",path:"/b"),source:destination,contentRevision:"b1"),
+            moves:planned.moves,edits:planned.edits,originSource:planned.originSource,destinationSource:planned.destinationSource)
+        return (transfer, planned)
+    }
+
+    @Test("A paragraph leaves its page and lands after the destination's last block")
+    func paragraph() throws {
+        let result = try #require(try plan("One\n\nMoved\n\nThree\n", "Target\n\n") { [$0[1]] })
+        #expect(result.planned.originSource == "One\n\nThree\n")
+        #expect(result.planned.destinationSource == "Target\n\nMoved\n\n")
+        #expect(result.transfer.moves.count == 1)
+        #expect(result.transfer.moves[0].anchor.document == .destination)
+        #expect(result.transfer.edits.isEmpty)
+        #expect(result.planned.originLedger.records.count == 2)
+    }
+
+    @Test("Blank lines are added where a block would run into another")
+    func separators() throws {
+        let result = try #require(try plan("One\n\nLast\n", "Target\n") { [$0[1]] })
+        #expect(result.planned.originSource == "One\n\n")
+        #expect(result.planned.destinationSource == "Target\n\nLast\n")
+        #expect(result.transfer.edits.map(\.document) == [.destination])
+    }
+
+    @Test("A nested item lands at the top level, re-indented")
+    func nested() throws {
+        let result = try #require(try plan("- one\n  - child\n- two\n\nPara\n\n", "Target\n\n") { blocks in [blocks[0].children[0]] })
+        #expect(result.planned.destinationSource == "Target\n\n- child\n")
+        #expect(result.planned.originSource == "- one\n- two\n\nPara\n\n")
+        #expect(result.transfer.moves.count == 1)
+        #expect(result.transfer.edits.map(\.edit.replacement) == [""])
+    }
+
+    @Test("Blocks apart from each other are not one transfer")
+    func separateBlocks() throws {
+        #expect(try plan("One\n\nTwo\n\nThree\n\n", "Target\n\n") { [$0[0], $0[2]] } == nil)
+        let adjacent = try #require(try plan("One\n\nTwo\n\nThree\n\n", "Target\n\n") { [$0[0], $0[1]] })
+        #expect(adjacent.planned.destinationSource == "Target\n\nOne\n\nTwo\n\n")
+        #expect(adjacent.transfer.moves.count == 1)
+    }
+
+    @Test("An empty destination cannot be a landing place")
+    func emptyDestination() throws {
+        #expect(try plan("One\n\nTwo\n", "") { [$0[0]] } == nil)
     }
 }

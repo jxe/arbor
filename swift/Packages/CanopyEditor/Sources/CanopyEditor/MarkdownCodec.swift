@@ -532,6 +532,125 @@ public enum CanopyMarkdownCodec {
         return result.reversed()
     }
 
+    /// Move to Document as exact source: `roots` (subtrees of the origin, in
+    /// document order, whose recorded source is one contiguous span) leave the
+    /// origin and land at the end of `destination`, top level there,
+    /// re-indented and separated as the destination needs. Nil when that
+    /// cannot be stated exactly (a block without its recorded source, blocks
+    /// apart from each other, tab indentation, an empty destination, or bytes
+    /// that would not reparse to the intended trees).
+    struct PlannedTransfer {
+        var moves: [WorkspaceDocumentTransfer.Move]
+        var edits: [WorkspaceDocumentTransfer.Edit]
+        var originSource: String
+        var originLedger: CanopySourceLedger
+        var destinationSource: String
+    }
+
+    static func transfer(_ roots: [Block], from blocks: [Block], ledger: CanopySourceLedger,
+                         into destination: CanopyMarkdownOpenedDocument) -> PlannedTransfer? {
+        typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
+        var placed: [Placed] = []
+        func place(_ block: Block, indent: Int) -> Bool {
+            guard !isProjectedChild(block) else { return true }
+            guard let record = ledger.records[block.id], record.block.kind == block.kind,
+                  let shifted = reindented(record, by: indent - record.indent) else { return false }
+            placed.append((record, shifted.raw, shifted.edits))
+            let child = indent + (isIndentContainer(block) ? 1 : 0)
+            return block.children.allSatisfy { place($0, indent: child) }
+        }
+        guard !roots.isEmpty, roots.allSatisfy({ place($0, indent: 0) }) else { return nil }
+        let target = destination.ledger
+        let newline = target.newline, blank = newline + newline, width = newline.utf8.count
+        var edits: [WorkspaceDocumentTransfer.Edit] = []
+        // The destination's last block, or its envelope, is the landing place;
+        // it needs a blank line before what lands after it.
+        let last = target.records.values.max { $0.range.lowerBound < $1.range.lowerBound }
+        let anchor: Range<Int>
+        if let last {
+            anchor = last.range
+            if !target.source.hasSuffix(blank) {
+                guard target.source.hasSuffix(newline), last.range.upperBound == target.source.utf8.count else { return nil }
+                let end = last.range.upperBound
+                edits.append(.init(document: .destination, edit: .init(utf8Range: (end - width)..<end, replacement: blank,
+                    lineage: [.init(source: (end - width)..<end, replacement: 0..<width)])))
+            }
+        } else if !target.envelope.isEmpty, target.source.utf8.count == target.envelope.utf8.count {
+            anchor = 0..<target.envelope.utf8.count
+        } else { return nil }
+        // A moved block recorded without a blank line after it needs one
+        // before a different successor, as a rearrangement does.
+        let successors = Dictionary(uniqueKeysWithValues: zip(ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.map(\.block.id),
+            ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
+        let rootIDs = Set(roots.map(\.id))
+        for index in placed.indices.dropLast() {
+            let next = placed[index + 1]
+            guard rootIDs.contains(next.record.block.id), !placed[index].raw.hasSuffix(blank),
+                  successors[placed[index].record.block.id] != .some(next.record.block.id) else { continue }
+            guard placed[index].raw.hasSuffix(newline) else { return nil }
+            let end = placed[index].record.range.upperBound
+            placed[index].raw += newline
+            placed[index].edits.append(.init(utf8Range: (end - width)..<end, replacement: blank,
+                                             lineage: [.init(source: (end - width)..<end, replacement: 0..<width)]))
+        }
+        // The moved blocks' recorded source travels as one span.
+        var moves: [WorkspaceDocumentTransfer.Move] = []
+        var spans: [Range<Int>] = []
+        for item in placed {
+            if let previous = spans.last, previous.upperBound == item.record.range.lowerBound {
+                spans[spans.count - 1] = previous.lowerBound..<item.record.range.upperBound
+            } else { spans.append(item.record.range) }
+        }
+        // Separate spans would chain one move onto material another carried
+        // into the destination; canopyd executes that but does not yet
+        // reconcile it with a peer's edit, so such a selection is copied.
+        guard spans.count == 1 else { return nil }
+        for span in spans {
+            moves.append(.init(source: span, anchor: .init(document: .destination, range: anchor), side: .after))
+        }
+        edits += placed.flatMap(\.edits).map { WorkspaceDocumentTransfer.Edit(document: .origin, edit: $0) }
+        edits.sort { ($0.document == .origin ? 0 : 1, $0.edit.utf8Range.lowerBound) < ($1.document == .origin ? 0 : 1, $1.edit.utf8Range.lowerBound) }
+        // The origin without the moved spans, and its ledger.
+        let removed = Set(placed.map(\.record.block.id))
+        var originBytes = Data(), records: [BlockID: SourceRecord] = [:], cursor = 0
+        let original = Data(ledger.source.utf8)
+        for span in spans {
+            originBytes.append(original[cursor..<span.lowerBound]); cursor = span.upperBound
+        }
+        originBytes.append(original[cursor...])
+        for (id, record) in ledger.records where !removed.contains(id) {
+            let shift = spans.filter { $0.upperBound <= record.range.lowerBound }.reduce(0) { $0 + $1.count }
+            var moved = record; moved.range = (record.range.lowerBound - shift)..<(record.range.upperBound - shift)
+            records[id] = moved
+        }
+        guard let originSource = String(data: originBytes, encoding: .utf8) else { return nil }
+        let destinationSource = (edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source)
+            + placed.map(\.raw).joined()
+        // Both results must mean the intended trees.
+        let remaining = removingSubtrees(removed, from: removingProjectedBlocks(from: blocks))
+        guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
+              sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
+                        removingProjectedBlocks(from: destination.blocks) + roots.map(stripped)) else { return nil }
+        return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
+            originLedger: CanopySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
+            destinationSource: destinationSource)
+    }
+
+    private static func removingSubtrees(_ ids: Set<BlockID>, from blocks: [Block]) -> [Block] {
+        blocks.compactMap { block in
+            guard !ids.contains(block.id) else { return nil }
+            var value = block
+            value.children = removingSubtrees(ids, from: block.children)
+            return value
+        }
+    }
+
+    private static func stripped(_ block: Block) -> Block {
+        var value = block
+        value.children = removingProjectedBlocks(from: block.children)
+        return value
+    }
+
     /// Whether two trees have the same content and nesting, ignoring
     /// identities and host metadata.
     private static func sameShape(_ a: [Block], _ b: [Block]) -> Bool {

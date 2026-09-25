@@ -31,6 +31,17 @@ public struct SourceDocumentCapture: Codable, Equatable, Sendable {
     }
 }
 
+/// The destination of a Move to Document record: the second document the
+/// record changes, beside its `document`.
+public struct SourceTransferCapture: Codable, Equatable, Sendable {
+    public var reference: WorkspaceReference
+    public var path: String
+    public var basisRevision: String
+    public init(reference: WorkspaceReference, path: String, basisRevision: String) {
+        self.reference = reference; self.path = path; self.basisRevision = basisRevision
+    }
+}
+
 /// One immutable source admission. Construction is separate from persistence so
 /// a failed/uncertain write is retried with the same change and operation identities.
 /// A record keeps hashes, the wire element, and a capture summary; it never
@@ -47,7 +58,11 @@ public struct LocalChange: Codable, Equatable, Sendable {
     public var entryTransfer: EntryTransfer?
     public var entryActions: EntryActions?
     public var creation: SourcePageCreation?
+    /// A Move to Document record also changes this destination document.
+    public internal(set) var transfer: SourceTransferCapture?
     public var editorReference: WorkspaceReference? { document?.reference ?? creation?.document }
+    /// Every document whose source this record changes.
+    public var documentReferences: [WorkspaceReference] { [document?.reference, transfer?.reference].compactMap { $0 } }
     var localTrash: WorkingTreeLocalTrash?
 
     /// Digest of a captured intent, for exact-retry recognition without sources.
@@ -434,12 +449,14 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// Rehydrate a stored record. The journal keeps the wire element verbatim,
     /// so nothing is re-derived from document sources on load.
     init(change: String, tree: String, basis: LocalChangeBasis, graph: ProtocolSnapshot, candidate: ProtocolSnapshot, update: ProtocolCandidateUpdate,
-         sourcePath: String?, document: SourceDocumentCapture?, entryTransfer: EntryTransfer?, entryActions: EntryActions?, creation: SourcePageCreation?, localTrash: WorkingTreeLocalTrash?) throws {
+         sourcePath: String?, document: SourceDocumentCapture?, entryTransfer: EntryTransfer?, entryActions: EntryActions?, creation: SourcePageCreation?, localTrash: WorkingTreeLocalTrash?,
+         transfer: SourceTransferCapture? = nil) throws {
         self.change = change; self.tree = tree; self.basis = basis
         self.graph = ProtocolSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.candidate = ProtocolSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
         self.update = update; self.sourcePath = sourcePath; self.document = document
         self.entryTransfer = entryTransfer; self.entryActions = entryActions; self.creation = creation; self.localTrash = localTrash
+        self.transfer = transfer
         try validate()
     }
 
@@ -459,6 +476,10 @@ public struct LocalChange: Codable, Equatable, Sendable {
             guard present[delta.result] != nil, known.contains(delta.base) || present[delta.base] == nil else { throw Self.invalid("Delta does not target the candidate") }
         }
         guard (document == nil) == (sourcePath == nil) else { throw Self.invalid("Incomplete source intent") }
+        if let transfer {
+            guard let document, transfer.reference.tree == document.reference.tree, transfer.reference.identity != document.reference.identity,
+                  transfer.path != sourcePath else { throw Self.invalid("A transfer names a second document of the same tree") }
+        }
         if let document { guard document.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") } }
         try localTrash?.validate()
         _ = try JSONEncoder().encode(update)
@@ -569,6 +590,7 @@ private struct StoredLocalChange: Codable {
     var entryTransfer: EntryTransfer?
     var entryActions: EntryActions?
     var creation: SourcePageCreation?
+    var transfer: SourceTransferCapture?
 }
 
 /// Schema 4 stores hashes and the wire element with its frame chain.
@@ -713,7 +735,7 @@ public actor ChangeLog {
                     if let latest = records.last { required.insert(latest.change) }
                     var documents = Set<WorkspaceIdentity>()
                     for record in records.reversed() {
-                        if let identity = record.document?.reference.identity, documents.insert(identity).inserted {
+                        for identity in record.documentReferences.map(\.identity) where documents.insert(identity).inserted {
                             required.insert(record.change)
                         }
                     }
@@ -859,7 +881,8 @@ public actor ChangeLog {
             update: update,
             updateObjects: updateObjects,
             localTrash: record.localTrash.map { .init(nodes: $0.nodes, objects: $0.objects.map(\.hash).sorted()) },
-            entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation
+            entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation,
+            transfer: record.transfer
         )
     }
 
@@ -883,7 +906,8 @@ public actor ChangeLog {
         }
         return try LocalChange(change: record.change, tree: record.tree, basis: record.basis, graph: try snapshot(record.graph),
             candidate: try snapshot(record.candidate), update: update, sourcePath: record.sourcePath, document: record.document,
-            entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation, localTrash: trash)
+            entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation, localTrash: trash,
+            transfer: record.transfer)
     }
 
     private func currentFingerprint() throws -> ChangeLogFingerprint? {

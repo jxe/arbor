@@ -133,3 +133,92 @@ public enum WorkspaceSourceArrangement {
         return result
     }
 }
+
+/// One change that moves exact source from one document into another in the
+/// same tree: Move to Document. Every range is stated in the basis of the
+/// document it names; a move's source is always in the origin, and its
+/// anchor is destination material or the whole source of an earlier move.
+/// Edits inside moved material edit it where it lands.
+public struct WorkspaceDocumentTransfer: Hashable, Codable, Sendable {
+    public enum Document: String, Hashable, Codable, Sendable { case origin, destination }
+    public struct Span: Hashable, Codable, Sendable {
+        public var document: Document
+        public var range: Range<Int>
+        public init(document: Document, range: Range<Int>) { self.document = document; self.range = range }
+    }
+    public struct Move: Hashable, Codable, Sendable {
+        public var source: Range<Int>
+        public var anchor: Span
+        public var side: WorkspaceSourceMove.Side
+        public init(source: Range<Int>, anchor: Span, side: WorkspaceSourceMove.Side) { self.source = source; self.anchor = anchor; self.side = side }
+    }
+    public struct Edit: Hashable, Codable, Sendable {
+        public var document: Document
+        public var edit: WorkspaceSourceEdit
+        public init(document: Document, edit: WorkspaceSourceEdit) { self.document = document; self.edit = edit }
+    }
+
+    public let origin: WorkspaceDocumentSnapshot
+    public let destination: WorkspaceDocumentSnapshot
+    public let moves: [Move]
+    public let edits: [Edit]
+    public let originSource: String
+    public let destinationSource: String
+
+    public init(origin: WorkspaceDocumentSnapshot, destination: WorkspaceDocumentSnapshot, moves: [Move], edits: [Edit],
+                originSource: String, destinationSource: String) throws {
+        self.origin = origin; self.destination = destination; self.moves = moves; self.edits = edits
+        self.originSource = originSource; self.destinationSource = destinationSource
+        try validate()
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(origin: values.decode(WorkspaceDocumentSnapshot.self, forKey: .origin),
+                      destination: values.decode(WorkspaceDocumentSnapshot.self, forKey: .destination),
+                      moves: values.decode([Move].self, forKey: .moves), edits: values.decode([Edit].self, forKey: .edits),
+                      originSource: values.decode(String.self, forKey: .originSource),
+                      destinationSource: values.decode(String.self, forKey: .destinationSource))
+    }
+
+    /// Both documents are in one tree, distinct, and the moves and edits
+    /// produce exactly the declared sources.
+    public func validate() throws {
+        guard origin.reference.tree == destination.reference.tree, origin.reference.identity != destination.reference.identity else {
+            throw WorkspaceProviderError.invalidAction("A transfer moves between two documents of one tree")
+        }
+        guard !moves.isEmpty, edits.allSatisfy({ ($0.edit.copies ?? []).isEmpty && ($0.edit.lineage ?? []).allSatisfy { $0.document == nil } }) else {
+            throw WorkspaceProviderError.invalidAction("A transfer states moves and ordinary edits only")
+        }
+        let file = { (document: Document) in document.rawValue }
+        let arranged: [String: Data]
+        do {
+            arranged = try WorkspaceSourceArrangement.apply(
+                files: [file(.origin): Data(origin.source.utf8), file(.destination): Data(destination.source.utf8)],
+                moves: moves.map { .init(source: .init(file: file(.origin), range: $0.source), anchor: .init(file: file($0.anchor.document), range: $0.anchor.range), side: $0.side) },
+                edits: edits.map { .init(span: .init(file: file($0.document), range: $0.edit.utf8Range), text: Data($0.edit.replacement.utf8)) })
+        } catch let failure as WorkspaceSourceArrangement.Failure {
+            throw WorkspacePatchError.invalidMoves(failure)
+        }
+        guard arranged[file(.origin)] == Data(originSource.utf8), arranged[file(.destination)] == Data(destinationSource.utf8) else {
+            throw WorkspaceProviderError.invalidAction("Transfer does not produce its declared sources")
+        }
+        // Each document's edits keep their own checks (order, guards, lineage).
+        for document in [Document.origin, .destination] {
+            let basis = document == .origin ? origin : destination
+            _ = try WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: edits.filter { $0.document == document }.map(\.edit)).applying(to: basis.source)
+        }
+    }
+}
+
+public struct WorkspaceDocumentTransferResult: Sendable {
+    public var origin: WorkspaceDocumentSnapshot
+    public var destination: WorkspaceDocumentSnapshot
+    public init(origin: WorkspaceDocumentSnapshot, destination: WorkspaceDocumentSnapshot) { self.origin = origin; self.destination = destination }
+}
+
+public enum WorkspaceTransferError: Error, Equatable, Sendable {
+    /// The two documents' retained local work sits on different chains, so no
+    /// one tree holds both as the editor read them.
+    case basesDiverged
+}

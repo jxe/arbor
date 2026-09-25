@@ -133,8 +133,72 @@ public final class CanopyDocumentBinding {
         copySources.merge(document.blockCopiesForCurrentCommit) { _, newest in newest }
     }
 
+    /// Blocks a Move to Document has already moved out of this document's
+    /// source. Quagmire removes them from the editor once the host returns;
+    /// until then the editor's tree is not a generation to capture, and a
+    /// keystroke meanwhile waits in the editor for the next capture.
+    private var transferred: Set<BlockID> = []
+
+    private var holdsTransferred: Bool {
+        guard !transferred.isEmpty else { return false }
+        func contains(_ blocks: [Block]) -> Bool { blocks.contains { transferred.contains($0.id) || contains($0.children) } }
+        if contains(document.children) { return true }
+        transferred.removeAll()
+        return false
+    }
+
+    /// Move `roots` (subtrees of this document, in document order) to the end
+    /// of `destination` as one change stating both documents. Nil when it
+    /// cannot be stated that way (the provider, the source, or diverged local
+    /// work), and nothing has changed; the caller falls back.
+    public func transferBlocks(_ roots: [Block], into destination: any WorkspaceDocumentSession) async throws -> WorkspaceDocumentTransferResult? {
+        await flush()
+        if let failure = lastError { throw failure }
+        guard source.isSettled, !holdsTransferred, ledger.source.utf8.elementsEqual(source.basis.source.utf8),
+              mountedSource.utf8.elementsEqual(source.latestSource.utf8) else { return nil }
+        let basis = source.basis
+        let target = try await destination.snapshot()
+        let opened = CanopyMarkdownCodec.open(source: target.source, revision: target.contentRevision,
+                                              identitySeed: String(describing: target.reference.identity))
+        // The editor may have moved on while the destination was read.
+        guard source.isSettled, basis == source.basis, mountedSource.utf8.elementsEqual(source.latestSource.utf8),
+              let planned = CanopyMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: opened) else { return nil }
+        let transfer = try WorkspaceDocumentTransfer(origin: basis, destination: target, moves: planned.moves, edits: planned.edits,
+                                                     originSource: planned.originSource, destinationSource: planned.destinationSource)
+        func ids(_ blocks: [Block]) -> [BlockID] { blocks.flatMap { [$0.id] + ids($0.children) } }
+        transferred = Set(ids(roots))
+        let result: WorkspaceDocumentTransferResult?
+        do { result = try await source.session.admit(transfer: transfer) }
+        catch { transferred.removeAll(); throw error }
+        guard let result else { transferred.removeAll(); return nil }
+        var next = planned.originLedger
+        next.revision = result.origin.contentRevision
+        ledger = next
+        basisLedgers[result.origin.contentRevision] = next
+        source.adopt(result.origin)
+        trace("transferred \(roots.count) blocks to \(target.reference.path)")
+        refreshState()
+        return result
+    }
+
+    /// Adopt the session's current view as the next change's basis when it is
+    /// exactly what the editor holds, as a live update with the same bytes
+    /// does. A transfer retries on it after publication.
+    public func adoptCurrentSnapshot() async {
+        await flush()
+        guard source.isSettled, lastError == nil, let current = try? await session.snapshot(),
+              source.isSettled, current.contentRevision != source.basis.contentRevision,
+              current.source.utf8.elementsEqual(ledger.source.utf8),
+              mountedSource.utf8.elementsEqual(source.latestSource.utf8) else { return }
+        ledger.revision = current.contentRevision
+        basisLedgers[current.contentRevision] = ledger
+        reference = current.reference
+        source.adopt(current)
+    }
+
     /// Capture the editor's current tree as one generation and append it.
     func appendCurrentGeneration() {
+        guard !holdsTransferred else { return }
         captureTransactionEvidence()
         // The patch is captured against the previous generation's ledger,
         // exactly as the editor produced it; the change states it in its own

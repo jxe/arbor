@@ -672,6 +672,7 @@ public final class CanopyEditorHost: EditorHost {
             errorAction("Couldn't add blocks: the destination page is not in this workspace")
             return false
         }
+        if let moved = await moveToDocument(decoded, reference: reference, blocks) { return moved }
         do {
             _ = try await withDocumentSession(decoded) { session in
                 try await admitBlockEdit(in: session) { $0 += blocks }
@@ -682,6 +683,41 @@ public final class CanopyEditorHost: EditorHost {
             errorAction("Couldn't add blocks to \(decoded.path): \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// Move to Document within one tree as one change: Quagmire hands a move
+    /// this document's own blocks (a copy gets fresh identities), so blocks
+    /// recorded in this editor's source are moved rather than retyped. When
+    /// the two pages' local work sits on different chains, publish it and try
+    /// once more on the accepted view; failing that, or when the move is not
+    /// one exact change, copy the blocks exactly and let Quagmire remove them
+    /// here. Nil leaves an ordinary append.
+    private func moveToDocument(_ destination: WorkspaceReference, reference: DocumentReference, _ blocks: [Block]) async -> Bool? {
+        guard destination.tree == binding.reference.tree, destination.identity != binding.reference.identity,
+              !blocks.isEmpty, blocks.allSatisfy({ binding.ledger.records[$0.id] != nil }) else { return nil }
+        func attempt() async throws -> Bool {
+            try await withDocumentSession(destination) { session in
+                try await self.binding.transferBlocks(blocks, into: session) != nil
+            }
+        }
+        do {
+            if try await attempt() { return true }
+            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) is not one exact change; copying instead")
+        } catch WorkspaceTransferError.basesDiverged {
+            await binding.session.publishPending()
+            await binding.adoptCurrentSnapshot()
+            do { if try await attempt() { return true } }
+            catch WorkspaceTransferError.basesDiverged {}
+            catch {
+                errorAction("Couldn't move blocks: \(error.localizedDescription)")
+                return false
+            }
+            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) spans diverged local work after publication; copying instead")
+        } catch {
+            errorAction("Couldn't move blocks: \(error.localizedDescription)")
+            return false
+        }
+        return await copyToDocument(reference, blocks: blocks, from: binding.document)
     }
 
     /// Open a provider session for one operation and always close it.

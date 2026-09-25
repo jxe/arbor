@@ -111,6 +111,11 @@ Owner: canopyd [014](canopyd/014-merge-handles-many-cases.md). Deployed with `5e
   objects beside an edit to its value; a TS function moved beside a literal edit to it.
   Record each result, and that the replayed history check still passes.
 - [ ] Record that no client emits a new transfer form before the step above is recorded.
+- [ ] Deploy the fast-path acceptance of basis moves (Native 008: `arrangeSources`,
+  the engine's exact-basis moves and anchors on carried material) and record the
+  revision before installing a Native build that publishes block moves or Move to
+  Document. An older host still accepts those traces through the sidecar; it only
+  loses the fast path.
 
 The schema-12 merge-authority cutover (migration 010, deleted after cutover; see git history) is complete;
 these later refinements are not another request to repeat that migration.

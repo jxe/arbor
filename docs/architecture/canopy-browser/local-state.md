@@ -103,8 +103,12 @@ written under its earlier name, `sync/source-admissions.json` with
 Journal schemas: 2 stores roots, ordered object hashes, and authored metadata;
 3 stores the protocol element verbatim with a capture summary; 4 stores one
 frame per record, reading a schema-3 flat operation list once as a single
-frame and rewriting it. A fully settled journal of any schema retires without
-decoding. The TypeScript publisher records settlements in
+frame and rewriting it. A schema-4 record may also carry `transfer`: the
+destination document (reference, path and basis revision) of a Move to
+Document, whose one frame moves source out of the record's `document` and into
+it. A reader that ignores the field still publishes the record exactly; it only
+serves the destination's hidden candidate from other records. A fully settled
+journal of any schema retires without decoding. The TypeScript publisher records settlements in
 `sync/source-settlements.json`, written atomically only after the host has
 durably installed the request. The Mac's conflict review keeps
 `sync/conflict-review.json` (schema 3, reading 1 and 2) with exact drafts and

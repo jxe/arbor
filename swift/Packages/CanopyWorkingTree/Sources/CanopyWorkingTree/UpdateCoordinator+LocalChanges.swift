@@ -307,7 +307,7 @@ extension UpdateCoordinator {
     /// The hidden candidate view of `reference` when retained source work touches it.
     private func pendingSourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot? {
         guard let latest = try await pendingLocalChanges().last(where: {
-            $0.document == nil || $0.document?.reference.identity == reference.identity
+            $0.document == nil || $0.documentReferences.contains { $0.identity == reference.identity }
         }) else { return nil }
         let view = try await localSourceView(latest, reference: reference)
         sourceViews[view.document.contentRevision] = view
@@ -407,5 +407,105 @@ extension UpdateCoordinator {
         await publishTip()
         await workingTree.invalidateDocumentViews()
         return local.document
+    }
+
+    /// Append one Move to Document as a single local change over both
+    /// documents. Its basis is the one retained tree that holds both exactly as
+    /// the editor read them; when their local work sits on different chains
+    /// there is none, and the caller decides what to do instead.
+    public func appendSourceTransfer(_ transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult {
+        try requireOpen()
+        let task = afterEarlierAppends { try await self.retainSourceTransfer(transfer) }
+        return try await task.value
+    }
+
+    private func retainSourceTransfer(_ transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult {
+        try requireOpen()
+        try transfer.validate()
+        let queue = try await changeLog()
+        let digest = LocalChange.transferDigest(transfer)
+        let records = try await queue.retained()
+        let record: LocalChange
+        if let existing = records.last(where: { $0.document?.intentDigest == digest && $0.transfer != nil }) { record = existing }
+        else {
+            func view(_ snapshot: WorkspaceDocumentSnapshot) async throws -> CapturedSourceBasis {
+                try await sourceView(for: WorkspaceDocumentIntent(basis: snapshot, patch: .init(baseContentRevision: snapshot.contentRevision, edits: []), source: snapshot.source))
+            }
+            let origin = try await view(transfer.origin), destination = try await view(transfer.destination)
+            guard Data(origin.document.source.utf8) == Data(transfer.origin.source.utf8),
+                  Data(destination.document.source.utf8) == Data(transfer.destination.source.utf8) else {
+                throw ProtocolValidationError.invalidValue("A transfer does not name its documents' captured sources")
+            }
+            guard let basis = try transferBasis(origin: origin, originRevision: transfer.origin.contentRevision,
+                                                destination: destination, destinationRevision: transfer.destination.contentRevision,
+                                                records: records) else {
+                throw WorkspaceTransferError.basesDiverged
+            }
+            record = try LocalChange(tree: transfer.origin.reference.tree.rawValue, basis: basis.basis, graph: basis.graph,
+                                     originPath: origin.sourcePath, destinationPath: destination.sourcePath, transfer: transfer)
+        }
+        try await queue.retain(record)
+        let origin = try await localSourceView(record, reference: transfer.origin.reference)
+        let destination = try await localSourceView(record, reference: transfer.destination.reference)
+        sourceViews[origin.document.contentRevision] = origin
+        sourceViews[destination.document.contentRevision] = destination
+        await ensureEntered()
+        await publishTip()
+        await workingTree.invalidateDocumentViews()
+        return .init(origin: origin.document, destination: destination.document)
+    }
+
+    /// The basis of a transfer, decided from record ancestry and never from
+    /// equal roots: both views rest on one accepted base, or one view's
+    /// record descends from the other's with nothing between them touching
+    /// the other document or the tree's structure. The graph holds both files.
+    private func transferBasis(origin: CapturedSourceBasis, originRevision: String,
+                               destination: CapturedSourceBasis, destinationRevision: String,
+                               records: [LocalChange]) throws -> (basis: LocalChangeBasis, graph: ProtocolSnapshot)? {
+        let byChange = Dictionary(records.map { ($0.change, $0) }, uniquingKeysWith: { first, _ in first })
+        /// The record and its local ancestors, nearest first, and the accepted
+        /// base the chain rests on.
+        func chain(_ change: String) -> (records: [LocalChange], base: ProtocolUpdateBase?)? {
+            var result: [LocalChange] = [], cursor = change
+            while let record = byChange[cursor] {
+                result.append(record)
+                switch record.basis {
+                case let .accepted(base): return (result, base)
+                case let .authored(parent): cursor = parent
+                }
+            }
+            // A settled ancestor left the log: the chain rests on it, not on a base.
+            return result.isEmpty ? nil : (result, nil)
+        }
+        /// Whether `descendant`'s view already holds `other` exactly as read at
+        /// `ancestor` (a record, or nil for `other`'s accepted base).
+        func holds(_ descendant: String, ancestor: String?, otherBase: ProtocolUpdateBase?, other: WorkspaceReference) -> Bool {
+            guard let (line, base) = chain(descendant) else { return false }
+            for record in line {
+                if record.change == ancestor { return true }
+                if record.document == nil || record.documentReferences.contains(where: { $0.identity == other.identity }) { return false }
+            }
+            return ancestor == nil && base != nil && base == otherBase
+        }
+        let a = try localPredecessor(originRevision), b = try localPredecessor(destinationRevision)
+        let graph: ProtocolSnapshot, basis: LocalChangeBasis
+        switch (a, b) {
+        case (nil, nil):
+            guard let base = origin.accepted, base == destination.accepted, origin.graph.root == destination.graph.root else { return nil }
+            basis = .accepted(base); graph = origin.graph
+        case let (a?, b):
+            if a == b || holds(a, ancestor: b, otherBase: destination.accepted, other: destination.document.reference) {
+                basis = .authored(change: a); graph = origin.graph
+            } else if let b, holds(b, ancestor: a, otherBase: origin.accepted, other: origin.document.reference) {
+                basis = .authored(change: b); graph = destination.graph
+            } else { return nil }
+        case let (nil, b?):
+            guard holds(b, ancestor: nil, otherBase: origin.accepted, other: origin.document.reference) else { return nil }
+            basis = .authored(change: b); graph = destination.graph
+        }
+        // Both files must be present; each view's graph holds its own file.
+        var bytes = Dictionary(origin.graph.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        for object in destination.graph.objects + graph.objects { bytes[object.hash] = object.bytes }
+        return (basis, try ProtocolGraph.reachable(from: graph.root, in: bytes))
     }
 }

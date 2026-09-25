@@ -397,6 +397,20 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         return try await coordinator.copyDocument(snapshot())
     }
 
+    public func admit(transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult? {
+        try requireOpen()
+        guard !readOnly else { throw WorkspaceProviderError.readOnly(initialReference) }
+        guard transfer.origin.reference.identity == identity else { throw WorkspaceProviderError.invalidAction("Transfer belongs to another document") }
+        guard let coordinator else { return nil }
+        let result = try await coordinator.appendSourceTransfer(transfer)
+        sourceSnapshots[result.origin.contentRevision] = result.origin
+        return result
+    }
+
+    public func publishPending() async {
+        _ = try? await coordinator?.syncOnce()
+    }
+
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()
