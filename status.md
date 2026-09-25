@@ -143,9 +143,9 @@ never published and kept across a pull and a restart; a tracked `.log`
 uploaded when edited through the ignored-path channel, pulled, deleted, then
 kept local; remote deletions and rule changes keep ignored bytes, and a
 removed rule publishes what it uncovered; an ignore file that is not UTF-8).
-`bun run test` in the cloud container: 1,484 pass, 3 fail, the same 3 as an
+`bun run test` in the cloud container: 1,485 pass, 3 fail, the same 3 as an
 unchanged `HEAD` there (`supplies-*` cannot resolve `overstory/data`; the
-unreadable-directory discovery test runs as root). The TypeScript half of
+unreadable-directory discovery test runs as root). The canopyd merge suites passed (360); the TypeScript half of
 `bun run test:protocol` passed; its Swift half needs `xcodebuild`.
 `IgnorePolicy.swift` compiled in Swift 6 language mode with the Swift 6.2 Linux
 toolchain and passed the shared fixture under swift-testing, plus 9,600 random
