@@ -152,8 +152,9 @@ without claiming to prove the original incident's exact cause.
 
 ## Compatibility windows remain separate
 
-[Cleanup 001](soon/001-pageid-stable-key-cutoff.md) retains its own data audit,
-operator decision and backup conditions. A date passing does not close that window.
+[Cleanup 001](soon/001-file-relative-links-and-pageid-cutoff.md) ran its read-only audit and
+Joe closed the bare-fragment window on 2026-09-25; its todos link rewrite still waits for his
+go-ahead at each live step.
 Cleanup 002 closed on 2026-09-21; its evidence is in [status](../status.md#v1-account-and-local-state-cutoff--2026-09-21).
 
 When a gate passes, record exact revision/date/evidence in its owning checkpoint, then remove

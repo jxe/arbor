@@ -87,8 +87,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Compatibility cutoffs
 
-- [Cleanup 001 — Retire the PageID-shaped stable-key bridge](soon/001-pageid-stable-key-cutoff.md) — **SOON · WAITING** for its read-only data audit and an explicitly closed compatibility window.
-- [Cleanup 005 — Unify locator identity surfaces](soon/005-locator-identity-surfaces.md) — **SOON · P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
+- [Cleanup 001 — File-relative Markdown links, readable key tokens, and the PageID cutoff](soon/001-file-relative-links-and-pageid-cutoff.md) — **SOON · IN PROGRESS (2026-09-25).** Obsidian-compatible file-relative links naming the physical file, `#arbor-key=id:h31mlm` tokens, no bare-fragment identity, arborsync deltas and pause/pending/resume, then the todos link migration. Absorbs Cleanup 005.
 
 ## Product Completion
 

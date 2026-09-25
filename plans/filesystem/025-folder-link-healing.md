@@ -8,10 +8,11 @@
   writes publish as ordinary edits.
 - **State:** PLANNED, 2026-09-24 at `b7141f61` plus the uncommitted removal of
   `executeMutation` and the write journal.
-- **Coordinates with:** [Cleanup 001](../soon/001-pageid-stable-key-cutoff.md). This
-  plan heals only the stable-key link form. If Cleanup 001 lands first, drop
-  legacy bare `#<PageID>` handling from the healer; if this lands first, Cleanup
-  001 removes it with the rest of the bridge.
+- **Coordinates with:** [Cleanup 001](../soon/001-file-relative-links-and-pageid-cutoff.md). Cleanup
+  001 builds the byte-preserving `healMarkdownLinks` in `@overstory/protocol`,
+  makes relative links file-relative (naming the physical `.md` file), and
+  removes bare `#<PageID>` identity; this plan's daemon healer reuses that
+  function and heals only the stable-key form.
 
 ## Why
 

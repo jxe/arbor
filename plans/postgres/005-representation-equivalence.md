@@ -83,6 +83,17 @@ supported backing and prove:
   child segments. Cover spaces, slashes, Unicode normalization, reserved
   `~row-` prefixes, and same-named physical children without changing the
   relation name used by query and mutation handles.
+- Decide the row child segment rule, moved here from Cleanup 005. Today
+  `rowPathSegment` (`packages/protocol/src/model/node-key.ts`) uses a single
+  string key raw when it is a valid path component (not `.`/`..`, no `~row-`
+  prefix, no `.md` suffix, no `/`, `\` or NUL) and `~row-<base64url>`
+  otherwise. It does not exclude reserved child names (`_store.csv`,
+  `schema.cddl`) or non-NFC keys the way `childName` does, and a physical
+  `foo.md` beside a row whose segment is `foo` silently shadows the row
+  (`canopyd/src/projection.ts`). Either prove the raw rule reversible and
+  collision-free, or make the segment uniform. `~row-` is also the last
+  base64url key surface: `;arbor-key=` and `#arbor-key=` use the readable
+  token (03 §2), so a uniform segment should probably use it too.
 - Preserve exact CSV/JSON/JSONL formatting through semantic merge where the
   authority's current source span remains identifiable. Canonical encoding is a
   fallback only for changed material whose exact form cannot be retained.
