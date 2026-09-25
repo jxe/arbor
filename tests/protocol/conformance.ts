@@ -103,9 +103,15 @@ try {
       const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
       // The daemon client is Mac app code (Native 011), so its suites run in
       // the app-hosted CanopyAppTests bundle; xcodebuild forwards
-      // `TEST_RUNNER_`-prefixed variables to the test process.
+      // `TEST_RUNNER_`-prefixed variables to the test process. A local
+      // workspace, when present, overrides the pinned Quagmire with the
+      // sibling checkout (DEVELOPMENT.md, "Developing Overstory with Quagmire").
+      const localWorkspace = "swift/Canopy.local.xcworkspace";
+      const container = await Bun.file(join(import.meta.dir, "../..", localWorkspace, "contents.xcworkspacedata")).exists()
+        ? ["-workspace", localWorkspace]
+        : ["-project", "swift/Canopy.xcodeproj"];
       await run([
-        "xcodebuild", "test", "-quiet", "-project", "swift/Canopy.xcodeproj", "-scheme", "Canopy",
+        "xcodebuild", "test", "-quiet", ...container, "-scheme", "Canopy",
         "-destination", "platform=macOS",
         "-only-testing:CanopyAppTests/ArborSyncClientTests",
         "-only-testing:CanopyAppTests/LoopbackServicesTests",
