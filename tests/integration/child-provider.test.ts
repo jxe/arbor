@@ -72,11 +72,11 @@ describe("NodeProviderRouter conformance", () => {
 
   for (const item of cases) {
     test(`${item.name} exposes the shared snapshot and child-page contract`, async () => {
-      const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: item.parent, stableKey: null });
+      const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: item.parent, stableKey: null });
       expect(parent.capabilities.children?.backing).toMatchObject(item.backing);
       expect(parent.enclosingTree).toMatchObject({ id: workspace.tree, osPath: workspace.root });
 
-      const page = await workspace.editor.children(parent.ref);
+      const page = await workspace.nodes.children(parent.ref);
       expect(page.parent.path).toBe(item.parent);
       expect(page.items).toHaveLength(1);
       const summary = page.items[0]!;
@@ -88,7 +88,7 @@ describe("NodeProviderRouter conformance", () => {
 
       const key = item.keyed ? canonicalStableKey([["id", "one"]]) : null;
       expect(summary.ref.stableKey).toBe(key);
-      const snapshot = await workspace.editor.snapshot({
+      const snapshot = await workspace.nodes.snapshot({
         tree: workspace.tree,
         path: item.keyed ? `${item.parent}/stale-path` : item.child,
         stableKey: key,
@@ -101,7 +101,7 @@ describe("NodeProviderRouter conformance", () => {
   }
 
   test("virtual table summaries remain NodeSummary values", async () => {
-    const page = await workspace.editor.children({ tree: workspace.tree, path: "/sqlite", stableKey: null });
+    const page = await workspace.nodes.children({ tree: workspace.tree, path: "/sqlite", stableKey: null });
     const table = page.items.find((item) => item.ref.path === "/sqlite/items");
     expect(table).toBeDefined();
     expect("observedThrough" in table!).toBe(false);
@@ -109,12 +109,12 @@ describe("NodeProviderRouter conformance", () => {
   });
 
   test("ambiguous provider claims stay physical and report the existing diagnostic", async () => {
-    const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/mixed", stableKey: null });
+    const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/mixed", stableKey: null });
     expect(parent.capabilities.children?.backing).toEqual({ type: "expanded-files" });
     expect(parent.diagnostics.some((item) => item.code === "mixed-collection-backing")).toBe(true);
-    const page = await workspace.editor.children(parent.ref);
+    const page = await workspace.nodes.children(parent.ref);
     expect(page.items.some((item) => item.ref.path === "/mixed/one")).toBe(true);
-    expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/mixed/one", stableKey: null })).properties.title).toBe("Physical");
+    expect((await workspace.nodes.snapshot({ tree: workspace.tree, path: "/mixed/one", stableKey: null })).properties.title).toBe("Physical");
   });
 
 });

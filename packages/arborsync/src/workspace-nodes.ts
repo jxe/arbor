@@ -15,8 +15,13 @@ import { generateTreeTypes, generatedTypeDeclarationPath } from "./generated-typ
 import { NodeProviderRouter } from "./node-provider-router.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
 
-/** Node projection, stable-key resolution, and generated types over the folder's shared filesystem. */
-export class WorkspaceEditor implements AsyncDisposable {
+/**
+ * Node projection, stable-key resolution, and generated types over the folder's shared filesystem.
+ * Read-only. `snapshot` and `children` have no production caller; they stay as the folder node
+ * provider that `generic-node-query.test.ts` exercises until Apps 005 decides how the apps runtime
+ * reads a folder.
+ */
+export class WorkspaceNodes implements AsyncDisposable {
   private surface: FilesystemNodeSurface;
   private provider: NodeProviderRouter;
   /** First discovered owner of each stable key, every owner of it, and each uniquely owned path's key. */

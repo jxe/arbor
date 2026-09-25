@@ -12,8 +12,8 @@ that the `arbor` command and the Canopy app use.
 - `folder-sync.ts`: one placed folder on the update machine: the folder as
   the runner's accepted tree and as the source that scans edits into its
   change log, and its watch.
-- `workspace.ts`, `workspace-editor.ts`, `tree-manager.ts`: one placed folder,
-  its editor component, and the set of placed trees.
+- `workspace.ts`, `workspace-nodes.ts`, `tree-manager.ts`: one placed folder,
+  its node projection, and the set of placed trees.
 - `filesystem-object-source.ts`, `object-cache.ts`, `object-read-diagnostics.ts`:
   serving the folder itself as the object store.
 - `filesystem-node-surface.ts`, `node-provider-router.ts`, `node-sampling.ts`,

@@ -125,7 +125,3 @@ export function summarizeSample(sample: NodeResponse): NodeSummary {
   const { observedThrough: _observedThrough, content: _content, enclosingTree: _enclosingTree, ...summary } = sample;
   return summary;
 }
-
-export class RevisionConflictError extends Error {
-  constructor(public current: ExpandedNode) { super("The file changed since it was opened"); }
-}

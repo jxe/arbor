@@ -1,57 +1,29 @@
 # `@overstory/fs`
 
-`@overstory/fs` is Overstory's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
+`@overstory/fs` reads a placed folder as logical nodes, watches it, and converts
+between the folder and protocol trees. `WorkspaceFS` reads, discovers and watches;
+it never writes. The update machine writes accepted trees into the folder with
+`materializeTree` (`protocol-tree.ts`), and editors write the folder as ordinary
+files that the watcher then observes.
 
 ## Logical-node invariants
 
 - A node has one extensionless logical path plus optional `bodyPath` and `directoryPath`.
 - `x.md` is `/x`'s preferred body. A sibling `x/` supplies children.
-- `x/_index.md` is the body only when `x.md` is absent. Both body files produce `duplicate-body-representation` and block content and structural mutation.
-- A sibling body and directory move, copy, rename, trash, and restore as one unit.
-- Destinations never overwrite, merge, or acquire an automatic suffix.
-- Every physical directory has complete operational Markdown. Reads append ordinary links for otherwise-unmentioned immediate children without materializing a body; the first authored write persists the accepted complete source.
-- Directory content revisions cover exact stored body bytes plus canonically ordered immediate-child descriptors. Child-set changes invalidate content writes; filesystem enumeration reorder does not.
-- Link order is exact-source content. Structural move names physical sources and a destination container and never carries Markdown block/path anchors.
-- Every physical path is containment-checked against the real workspace root. Transaction staging names are private, same-filesystem siblings and are ignored by the watcher.
-- Full-byte revisions are the compare-and-swap boundary. Parsed body revisions are separate recovery information and cannot hide frontmatter-only changes.
+- `x/_index.md` is the body only when `x.md` is absent. Having both body files produces a `duplicate-body-representation` diagnostic.
+- Every physical directory has complete operational Markdown. Reads append ordinary links for otherwise-unmentioned immediate children without materializing a body.
+- Directory content revisions cover exact stored body bytes plus canonically ordered immediate-child descriptors. Child-set changes change the revision; filesystem enumeration order does not.
+- Every physical path is containment-checked against the real workspace root. Atomic-write staging names (`.arbor-txn-`, `.arbor-write-`) are ignored by listing and the watcher.
+- Full-byte revisions and parsed body revisions are separate, so a frontmatter-only change still changes the byte revision.
 
 ## Discovery
 
 Startup performs one symlink-safe discovery walk and shares its immutable result with page-ID loading, search indexing, and generated collection types. Discovery never follows symlinks. It omits Overstory-private or generated directories (`.git`, `node_modules`, `.arbor`, `Trash`, `.build`, and `DerivedData`); other hidden working directories, including `.claude`, remain ordinary workspace content.
 
-## Coordinators
+## Watching
 
-Two state machines cooperate:
-
-1. A node coordinator, keyed by durable page ID when known and logical path otherwise, serializes document generations. It owns recent authored byte revisions, durable generation, watcher echo settlement, unsettled-stomp reassertion, and shutdown draining.
-2. The workspace mutation coordinator serializes mutation batches and acquires affected node coordinators in stable logical-path order. It preflights the full batch before recording intent or moving a source.
-
-A document generation performs:
-
-```text
-resolve + byte CAS
-  → prepare and fsync sibling temporary
-  → repeat byte CAS
-  → atomic replacement
-  → watcher echo or settlement timeout
-  → one logical event
-```
-
-Once a generation has settled, disk changes are authoritative external observations. Even a byte revision found in the authored-revision ring is never automatically overwritten after settlement. During the unsettled window only, a known older authored revision is a stomp and the newest generation is reasserted.
-
-## Mutation recovery
-
-Each batch has a private intent record with `prepared`, `committing`, `committed`, or `interrupted` state.
-
-- Before `committing`, restart removes prepared temporaries.
-- From `committing`, restart rolls known source/staged/destination states forward.
-- Missing or unfamiliar states stop recovery and retain the intent plus every discoverable version under an `interrupted-fs-transaction` diagnostic.
-- Watcher events for staging and intermediate paths are suppressed. Consumers receive the logical batch only after commit.
-
-Tests should use temporary workspace and state directories and inject faults at named transition points. Important sequences include rapid document generations, rename during pending save, external atomic replacement, metadata-only rewrites, settled old-byte rewrites, partial hybrid-node moves, complete-directory source writes, child-set conflicts, and shutdown drain.
+The watcher debounces each logical path, reads it, and emits one `FsEvent`: `created`, `updated`, `deleted`, `moved`, or a `diagnostic`. A Markdown page whose `id:` reappears at a new path within the delete window is reported as one `moved` event with `previousPath`, not as a delete plus a create.
 
 ## Public surface
 
-`WorkspaceFS.open(root, { stateDirectory })` returns an instance with `resolve`, `read`, `list`, `writeMarkdown`, `writeFile`, `mutate`, `subscribe`, and `drain`. `mutate` accepts a discriminated `FsMutation` batch and returns a transaction ID plus logical created, updated, moved, and deleted paths. Failed preconditions throw `FsConflictError` with structured details suitable for HTTP 409 responses.
-
-Managed workspaces use the default durable-identity profile. Filesystem-wide browsing opens the same engine with `discovery: "none"` and `identity: "path-only"`: logical resolution and atomic/authored mutations stay shared, while browsing does not recursively scan, watch, or mint IDs in arbitrary files.
+`WorkspaceFS.open(root, { stateDirectory })` returns an instance with `resolve`, `read`, `list`, `subscribe`, `startupDiscovery`, `discoverRecursively` and `setExcludedRoots`. Filesystem-wide browsing opens it with `discovery: "none"` (no scan, no watch); `"shallow"` scans one level without watching.

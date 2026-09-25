@@ -40,10 +40,10 @@ function ordinaryNodes(): NodeQueryEngine {
   return new NodeQueryEngine({
     async snapshot(sourcePath) {
       const path = `/${sourcePath.replace(/^\.\//, "")}`;
-      return workspace.editor.snapshot({ tree: workspace.tree, path, stableKey: null });
+      return workspace.nodes.snapshot({ tree: workspace.tree, path, stableKey: null });
     },
     async children(source, cursor) {
-      return workspace.editor.children(source, cursor);
+      return workspace.nodes.children(source, cursor);
     },
   });
 }
@@ -173,12 +173,12 @@ describe("portable node() queries", () => {
     let sourceCursor = "";
     const nodes = new NodeQueryEngine({
       async snapshot() {
-        const source = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+        const source = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
         sourceCursor = source.observedThrough;
         workspace.events.emit({ tree: workspace.tree, kind: "created", ref: { tree: workspace.tree, path: "/records/new.md", stableKey: null }, origin: "external" });
         return source;
       },
-      async children(source, cursor) { return workspace.editor.children(source, cursor); },
+      async children(source, cursor) { return workspace.nodes.children(source, cursor); },
     });
     const execution = await nodes.execute(matching);
     expect(execution.dependencies.membership.observedThrough).toBe(sourceCursor);
@@ -266,7 +266,7 @@ describe("portable node() queries", () => {
     const engine = new NodeQueryEngine({
       async snapshot() {
         executions += 1;
-        const source = await workspace.editor.snapshot({ tree: workspace.tree, path: "/race-live", stableKey: null });
+        const source = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/race-live", stableKey: null });
         if (!injected) {
           injected = true;
           await writeFile(join(raceDirectory, "two.md"), "---\nid: two\ntitle: Beta\n---\n");
@@ -274,7 +274,7 @@ describe("portable node() queries", () => {
         }
         return source;
       },
-      async children(source, cursor) { return workspace.editor.children(source, cursor); },
+      async children(source, cursor) { return workspace.nodes.children(source, cursor); },
     });
     const broker = new NodeLiveQueryBroker(engine, workspace.events);
     const handleRef = { tree: workspace.tree, module: "/queries.ts", export: "raceQuery", version: "query-v1" };
@@ -299,11 +299,11 @@ describe("portable node() queries", () => {
     await Promise.all(Array.from({ length: 101 }, (_, index) =>
       writeFile(join(directory, `row-${String(index).padStart(3, "0")}.md`), `# ${index}\n`)));
     const ref = { tree: workspace.tree, path: "/large", stableKey: null };
-    const first = await workspace.editor.children(ref);
+    const first = await workspace.nodes.children(ref);
     expect(first.items).toHaveLength(100);
     expect(first.nextCursor).not.toBeNull();
     await writeFile(join(directory, "row-101.md"), "# 101\n");
-    await expect(workspace.editor.children(ref, first.nextCursor)).rejects.toThrow("page cursor does not belong");
+    await expect(workspace.nodes.children(ref, first.nextCursor)).rejects.toThrow("page cursor does not belong");
   });
 
   test("rejects non-portable ordering before reading children", async () => {

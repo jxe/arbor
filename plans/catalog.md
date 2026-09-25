@@ -32,7 +32,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](soon/005-ignore-policy.md) — **SOON · P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
 - [Filesystem 011 — Keep independent filesystem writes moving after a rejection](soon/011-independent-writes-after-rejection.md) — **SOON · NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
-- [Filesystem 025 — Heal links after folder moves, then remove the old editor write path](filesystem/025-folder-link-healing.md) — **P2 · PLANNED · M.** Moves made in a placed folder (Finder, `git mv`, agents) are never healed since the daemon editor path went; add a byte-preserving source-level healer shared with Swift, heal stable-key backlinks after a watcher move, then delete `scheduleLinkHealing`, `WorkspaceFS.writeMarkdown`/`mutate` and the unused mutation types.
 
 ## canopyd authority, storage and history
 

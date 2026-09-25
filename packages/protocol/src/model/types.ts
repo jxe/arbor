@@ -54,8 +54,3 @@ export interface SearchResult {
   /** Distinct pages currently linking to this result across known trees. */
   backlinkCount: number;
 }
-
-export interface NodeWriteRequest {
-  baseRevision: string;
-  source: string;
-}

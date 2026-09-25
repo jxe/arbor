@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { revisionOf } from "@overstory/protocol";
-import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@overstory/fs";
+import { WorkspaceFS } from "@overstory/fs";
 
 const opened: WorkspaceFS[] = [];
 const directories: string[] = [];
@@ -16,7 +15,7 @@ async function workspace(files: Record<string, string> = {}) {
     await mkdir(join(root, path, ".."), { recursive: true });
     await writeFile(join(root, path), source);
   }
-  const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 20 });
+  const fs = await WorkspaceFS.open(root, { stateDirectory: state });
   opened.push(fs);
   return { root, state, fs };
 }
@@ -49,15 +48,6 @@ describe("@overstory/fs logical nodes", () => {
     expect((await fs.list("/")).filter((entry) => entry.path === "/sibling")).toHaveLength(1);
   });
 
-  test("adding a child keeps the leaf body beside the new directory", async () => {
-    const { root, fs } = await workspace({ "page.md": "Page body\n" });
-    await fs.mutate({ operations: [{ op: "createMarkdown", path: "/page/child" }] });
-    expect(await readFile(join(root, "page.md"), "utf8")).toBe("Page body\n");
-    expect(await readFile(join(root, "page", "child.md"), "utf8")).toBe("");
-    expect((await fs.resolve("/page")).kind).toBe("directory");
-    expect((await fs.resolve("/page")).bodySource).toBe("sibling");
-  });
-
   test("keeps byte and parsed-body revisions separate", async () => {
     const { root, fs } = await workspace({ "page.md": "---\ntitle: One\n---\nSame body\n" });
     const before = await fs.read("/page");
@@ -83,48 +73,24 @@ describe("@overstory/fs logical nodes", () => {
     expect((await fs.list("/")).map((entry) => entry.path)).toEqual(["/offline", "/photo.png"]);
   });
 
-  test("moves and trashes both physical parts of a sibling-bodied directory", async () => {
-    const { root, fs } = await workspace({ "page.md": "Page body\n", "page/child.md": "Child\n" });
-    const renamed = await fs.mutate({ operations: [{ op: "rename", path: "/page", name: "renamed" }] });
-    expect(renamed.moved).toEqual([{ from: "/page", to: "/renamed" }]);
-    expect(await readFile(join(root, "renamed.md"), "utf8")).toContain("Page body\n");
-    expect(await readFile(join(root, "renamed", "child.md"), "utf8")).toBe("Child\n");
-
-    const trashed = await fs.mutate({ operations: [{ op: "trash", paths: ["/renamed"] }] });
-    expect(trashed.deleted).toEqual(["/renamed"]);
-    await expect(stat(join(root, "renamed.md"))).rejects.toThrow();
-    expect(await readFile(join(root, "Trash", "renamed.md"), "utf8")).toContain("Page body\n");
-    expect(await readFile(join(root, "Trash", "renamed", "child.md"), "utf8")).toBe("Child\n");
-  });
-
-  test("accepts exact directory Markdown and uses its first child link as the authored position", async () => {
-    const { root: workspaceRoot, fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "Initial\n" });
-    const root = await fs.read("/");
-    const written = await fs.writeMarkdown("/", {
-      baseRevision: root.byteRevision,
-      source: "## One\n\n[b](b)\n\n## Two\n\n[a](a)\n",
-    });
-    expect(written.document?.source).toBe("## One\n\n[b](b)\n\n## Two\n\n[a](a)\n");
-    expect(await readFile(join(workspaceRoot, "_index.md"), "utf8")).toBe("## One\n\n[b](b)\n\n## Two\n\n[a](a)\n");
-  });
-
   test("directory revisions include exact index bytes and physical child add, rename, and removal", async () => {
-    const { fs } = await workspace({ "a.md": "A\n", "_index.md": "[a](a)\n" });
+    const { root, fs } = await workspace({ "a.md": "A\n", "_index.md": "[a](a)\n" });
     const current = await fs.read("/");
-    await fs.mutate({ operations: [{ op: "createMarkdown", path: "/b", source: "B\n" }] });
-    const afterChild = await fs.read("/");
-    expect(afterChild.byteRevision).not.toBe(current.byteRevision);
-    await expect(fs.writeMarkdown("/", { baseRevision: current.byteRevision, source: current.document!.source })).rejects.toBeInstanceOf(FsConflictError);
+    await writeFile(join(root, "_index.md"), "[a](a) edited\n");
+    const afterIndex = await fs.read("/");
+    expect(afterIndex.byteRevision).not.toBe(current.byteRevision);
 
-    await fs.mutate({ operations: [{ op: "rename", path: "/b", name: "renamed" }] });
+    await writeFile(join(root, "b.md"), "B\n");
+    const afterChild = await fs.read("/");
+    expect(afterChild.byteRevision).not.toBe(afterIndex.byteRevision);
+
+    await rename(join(root, "b.md"), join(root, "renamed.md"));
     const afterRename = await fs.read("/");
     expect(afterRename.byteRevision).not.toBe(afterChild.byteRevision);
-    await expect(fs.writeMarkdown("/", { baseRevision: afterChild.byteRevision, source: afterChild.document!.source })).rejects.toBeInstanceOf(FsConflictError);
 
-    await fs.mutate({ operations: [{ op: "trash", paths: ["/renamed"] }] });
+    await rm(join(root, "renamed.md"));
     const afterRemoval = await fs.read("/");
     expect(afterRemoval.byteRevision).not.toBe(afterRename.byteRevision);
-    await expect(fs.writeMarkdown("/", { baseRevision: afterRename.byteRevision, source: afterRename.document!.source })).rejects.toBeInstanceOf(FsConflictError);
   });
 
   test("directory revision ignores filesystem enumeration order", async () => {
@@ -133,214 +99,12 @@ describe("@overstory/fs logical nodes", () => {
     expect((await first.fs.read("/")).byteRevision).toBe((await second.fs.read("/")).byteRevision);
   });
 
-  test("writes a shadowed node's _index.md, rejects occupied destinations and recursive moves", async () => {
-    const { root, fs } = await workspace({
-      "duplicate.md": "Sibling\n",
-      "duplicate/_index.md": "Index\n",
-      "destination/child.md": "Existing\n",
-      "folder/child.md": "Child\n",
-    });
-    const duplicate = await fs.read("/duplicate");
-    await fs.writeMarkdown("/duplicate", { baseRevision: duplicate.byteRevision, source: "New\n" });
-    expect(await readFile(join(root, "duplicate", "_index.md"), "utf8")).toBe("New\n");
-    expect(await readFile(join(root, "duplicate.md"), "utf8")).toBe("Sibling\n");
-    await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder/child"], destination: "/destination" }] })).rejects.toThrow("Destination already exists");
-    await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder"], destination: "/folder" }] })).rejects.toThrow("itself");
-    await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/schema.cddl" }] })).rejects.toThrow("Invalid workspace name");
-    await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/named.md" }] })).rejects.toThrow("do not include .md");
-  });
-
-  for (const [point, shouldExist] of [
-    ["mutation:prepared", false],
-    ["mutation:source-staged", true],
-    ["mutation:destination-committed", true],
-    ["mutation:committed", true],
-  ] as const) {
-    test(`recovers an injected crash at ${point}`, async () => {
-      const root = await mkdtemp(join(tmpdir(), "arbor-fs-crash-"));
-      const state = await mkdtemp(join(tmpdir(), "arbor-fs-crash-state-"));
-      directories.push(root, state);
-      const crashing = await WorkspaceFS.open(root, {
-        stateDirectory: state,
-        faultInjector: (current) => { if (current === point) throw new Error("power loss"); },
-      });
-      await expect(crashing.mutate(
-        { operations: [{ op: "createFile", path: "/created.txt", bytes: new TextEncoder().encode("complete") }] },
-        { mutationID: `client-${point}` },
-      )).rejects.toBeInstanceOf(FsInjectedCrashError);
-      await crashing[Symbol.asyncDispose]();
-
-      const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
-      opened.push(recovered);
-      if (shouldExist) {
-        expect(await readFile(join(root, "created.txt"), "utf8")).toBe("complete");
-        expect(recovered.takeRecoveredMutationResults()).toMatchObject([{
-          mutationID: `client-${point}`,
-          result: { changes: [{ path: "/created.txt", kind: "created" }] },
-        }]);
-      }
-      else await expect(stat(join(root, "created.txt"))).rejects.toThrow();
-    });
-  }
-
-  test("rolls a structural move forward without rewriting authored directory Markdown", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-row-crash-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-row-crash-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "page.md"), "Page\n");
-    await writeFile(join(root, "_index.md"), "[page](page)\n");
-    await mkdir(join(root, "folder"));
-    const crashing = await WorkspaceFS.open(root, {
-      stateDirectory: state,
-      faultInjector: (point) => { if (point === "mutation:destination-committed") throw new Error("power loss"); },
-    });
-    await expect(crashing.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
-    await crashing[Symbol.asyncDispose]();
-
-    const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
-    opened.push(recovered);
-    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
-    expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(false);
-    expect((await recovered.list("/folder")).map((entry) => entry.path)).toContain("/folder/page");
-    expect(await readFile(join(root, "_index.md"), "utf8")).toBe("[page](page)\n");
-  });
-
-  test("a move leaves authored links ordinary and does not materialize a destination index", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "page.md"), "Page\n");
-    await writeFile(join(root, "_index.md"), "[page](page)\n");
-    await mkdir(join(root, "folder"));
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
-    opened.push(fs);
-    await fs.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] });
-    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
-    expect(await readFile(join(root, "_index.md"), "utf8")).toBe("[page](page)\n");
-    await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
-  });
-
-  test("moves into a Markdown page without rewriting its authored source", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-move-into-page-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-move-into-page-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "destination.md"), "# Destination\n\nAuthored body.\n");
-    await writeFile(join(root, "source.md"), "# Source\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
-    opened.push(fs);
-
-    const result = await fs.mutate({ operations: [{ op: "move", paths: ["/source"], destination: "/destination" }] });
-
-    expect(result.moved).toEqual([{ from: "/source", to: "/destination/source" }]);
-    expect(await readFile(join(root, "destination.md"), "utf8")).toBe("# Destination\n\nAuthored body.\n");
-    expect(await readFile(join(root, "destination", "source.md"), "utf8")).toContain("# Source\n");
-    await expect(stat(join(root, "destination", "_index.md"))).rejects.toThrow();
-    expect((await fs.list("/destination")).map((entry) => entry.path)).toContain("/destination/source");
-  });
-
-  test("a rename never materializes the provider-completed directory source", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-state-"));
-    directories.push(root, state);
-    await mkdir(join(root, "folder"));
-    await writeFile(join(root, "folder", "draft.md"), "Draft\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
-    opened.push(fs);
-    await fs.mutate({ operations: [{ op: "rename", path: "/folder/draft", name: "published" }] });
-    expect(await readFile(join(root, "folder", "published.md"), "utf8")).toContain("Draft\n");
-    await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
-  });
-
-  test("keeps missing child placement virtual across an exact-source write", async () => {
-    const { root, fs } = await workspace({ "folder/_index.md": "Intro\n", "folder/b.md": "B\n", "folder/a.md": "A\n" });
-    const projected = await fs.read("/folder");
-    expect(projected.document?.source).toBe("Intro\n");
-    expect((await fs.list("/folder")).map((entry) => entry.path).sort()).toEqual(["/folder/a", "/folder/b"]);
-    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n");
-    await fs.writeMarkdown("/folder", { baseRevision: projected.byteRevision, source: projected.document!.source });
-    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n");
-  });
-
-  test("reasserts only unsettled authored stomps and observes settled rewrites", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-watch-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-watch-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nInitial\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 250 });
-    opened.push(fs);
-    const events: string[] = [];
-    fs.subscribe((event) => { if (event.classification) events.push(event.classification); });
-
-    const initial = await fs.read("/page");
-    const first = await fs.writeMarkdown("/page", {
-      baseRevision: initial.byteRevision,
-      source: "---\nid: abc123\n---\nFirst\n",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 320));
-    const second = await fs.writeMarkdown("/page", {
-      baseRevision: first.byteRevision,
-      source: "---\nid: abc123\n---\nSecond\n",
-    });
-    await writeFile(join(root, "page.md"), first.bytes!);
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    expect(await readFile(join(root, "page.md"), "utf8")).toContain("Second");
-    expect(events).toContain("stomp");
-
-    await new Promise((resolve) => setTimeout(resolve, 320));
-    await writeFile(join(root, "page.md"), first.bytes!);
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    expect(await readFile(join(root, "page.md"), "utf8")).toContain("First");
-    expect(events.at(-1)).toBe("external");
-    expect(second.byteRevision).not.toBe(first.byteRevision);
-  });
-
-  test("observes a peer undo that returns to the most recent authored revision", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-peer-undo-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-peer-undo-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nInitial\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 250 });
-    opened.push(fs);
-    const observeRevision = (revision: string) => new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        unsubscribe();
-        reject(new Error(`No external /page observation for ${revision}`));
-      }, 2_000);
-      const unsubscribe = fs.subscribe((event) => {
-        // Native watchers may also report parent-directory changes. Only the
-        // edited page's revision establishes that its peer write was observed.
-        if (event.path !== "/page" || event.classification !== "external" || event.byteRevision !== revision) return;
-        clearTimeout(timeout);
-        unsubscribe();
-        resolve();
-      });
-    });
-
-    const initial = await fs.read("/page");
-    const authored = await fs.writeMarkdown("/page", {
-      baseRevision: initial.byteRevision,
-      source: "---\nid: abc123\n---\nAuthored\n",
-    });
-    await fs.drain();
-
-    const peerSource = "---\nid: abc123\n---\nPeer edit\n";
-    const peerObserved = observeRevision(revisionOf(peerSource));
-    await writeFile(join(root, "page.md"), peerSource);
-    await peerObserved;
-    // Do not undo until the first peer state has actually reached the watcher.
-    const undoObserved = observeRevision(authored.byteRevision);
-    await writeFile(join(root, "page.md"), authored.bytes!);
-    await undoObserved;
-
-    expect(await readFile(join(root, "page.md"), "utf8")).toContain("Authored");
-  });
-
   test("correlates an external Markdown rename by durable page ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-state-"));
     directories.push(root, state);
     await writeFile(join(root, "before.md"), "---\nid: abc123\n---\nBody\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 30 });
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(fs);
     const events: Array<{ type: string; path: string; previousPath?: string }> = [];
     fs.subscribe((event) => events.push(event));

@@ -1,4 +1,4 @@
-import type { Diagnostic, MarkdownDocument, Materialization, NodeWriteRequest } from "@overstory/protocol";
+import type { Diagnostic, MarkdownDocument, Materialization } from "@overstory/protocol";
 
 export type FsBodySource = "sibling" | "index" | null;
 export type FsNodeKind = "missing" | "file" | "markdown" | "directory";
@@ -35,114 +35,19 @@ export interface FsReadResult {
   document?: MarkdownDocument;
 }
 
-export interface FsWriteResult extends FsReadResult {
-  /** Present when the document already has, or this filesystem profile mints, durable identity. */
-  pageID?: string;
-  generation: number;
-}
-
-export type FsMutation =
-  | { op: "createDirectory"; path: string }
-  | { op: "createMarkdown"; path: string; source?: string }
-  | { op: "createFile"; path: string; bytes: Uint8Array }
-  | { op: "rename"; path: string; name: string; updateDirectoryRows?: boolean }
-  | {
-    op: "move";
-    paths: string[];
-    destination: string;
-  }
-  | { op: "copy"; paths: string[]; destination: string }
-  | { op: "trash"; paths: string[] }
-  | { op: "restore"; paths: string[] }
-  | { op: "import"; destination: string; entries: FsImportEntry[] };
-
-export interface FsImportEntry {
-  path: string;
-  kind: "file" | "directory";
-  bytes?: Uint8Array;
-}
-
-export interface FsMutationRequest {
-  operations: FsMutation[];
-}
-
-export interface FsChange {
-  path: string;
-  previousPath?: string;
-  kind: "created" | "updated" | "moved" | "deleted";
-  /** Durable identity of the affected document, when it carries one. */
-  pageID?: string;
-}
-
-export interface FsMutationResult {
-  transactionId: string;
-  changes: FsChange[];
-  created: string[];
-  updated: string[];
-  moved: Array<{ from: string; to: string }>;
-  deleted: string[];
-}
-
-export type FsEventOrigin = "local-api" | "local-external" | "sync";
-export type FsEventClassification = "echo" | "stomp" | "external";
-
+/** A settled change the watcher observed in the folder. */
 export interface FsEvent {
-  type: "created" | "updated" | "moved" | "deleted" | "diagnostic" | "batch";
+  type: "created" | "updated" | "moved" | "deleted" | "diagnostic";
   path: string;
   previousPath?: string;
   byteRevision?: string;
   bodyRevision?: string;
-  transactionId?: string;
-  origin: FsEventOrigin;
-  classification?: FsEventClassification;
-  generation?: number;
-  settledGeneration?: number;
   diagnostic?: Diagnostic;
-  changes?: FsChange[];
 }
 
 export interface WorkspaceFSOptions {
   stateDirectory: string;
   discovery?: "recursive" | "shallow" | "none";
-  /** `path-only` preserves existing frontmatter but never mints or reconciles document IDs. */
-  identity?: "durable" | "path-only";
   /** Physically nested trees projected by the reader's workspace, not owned by this tree. */
   excludedRoots?: readonly string[];
-  settleDelayMs?: number;
-  faultInjector?: (point: string) => void | Promise<void>;
 }
-
-export interface FsConflictDetails {
-  code:
-    | "occupied-destination"
-    | "stale-revision"
-    | "duplicate-body"
-    | "read-only"
-    | "offline"
-    | "unsafe-path"
-    | "unsupported-entry"
-    | "interrupted-transaction"
-    | "recursive-move"
-    | "not-found"
-    | "invalid-name";
-  path: string;
-  current?: FsReadResult;
-}
-
-export class FsConflictError extends Error {
-  readonly status = 409;
-  constructor(public details: FsConflictDetails, message: string) {
-    super(message);
-    this.name = "FsConflictError";
-  }
-}
-
-/** Test-only crash signal: WorkspaceFS deliberately leaves durable intent/staging for reopen recovery. */
-export class FsInjectedCrashError extends Error {
-  constructor(public point: string, options?: ErrorOptions) {
-    super(`Injected filesystem crash at ${point}`, options);
-    this.name = "FsInjectedCrashError";
-  }
-}
-
-export type MarkdownWriteRequest = NodeWriteRequest;

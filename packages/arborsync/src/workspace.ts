@@ -7,13 +7,11 @@ import { EventBus } from "./events.ts";
 import { FilesystemObjectSource } from "./filesystem-object-source.ts";
 import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { rootDisplayName } from "./root-title.ts";
-import { WorkspaceEditor } from "./workspace-editor.ts";
+import { WorkspaceNodes } from "./workspace-nodes.ts";
 
 export { ProtocolError } from "@overstory/protocol";
-export { RevisionConflictError } from "./node-sampling.ts";
 
 export interface WorkspaceOptions {
-  faultInjector?: (stage: string) => void | Promise<void>;
   /** Shared process-wide bus; a standalone Workspace mints its own. */
   events?: EventBus;
   /** This root's tree scope tag; minted from the canonical root by default. */
@@ -38,7 +36,7 @@ export class Workspace implements AsyncDisposable {
   readonly fs: WorkspaceFS;
   readonly events: EventBus;
   readonly objects: FilesystemObjectSource;
-  readonly editor: WorkspaceEditor;
+  readonly nodes: WorkspaceNodes;
   tracking: "tracked" | "session";
   private displayName: string;
   private treeDescriptor: Partial<LocalTreeDescriptor>;
@@ -62,18 +60,18 @@ export class Workspace implements AsyncDisposable {
       changed: (absolute) => this.events.emit({
         tree: this.tree,
         kind: "diagnostic",
-        ref: this.editor.mutationRef(nodePathFromPhysical(toTreePath(this.root, absolute))),
+        ref: this.nodes.mutationRef(nodePathFromPhysical(toTreePath(this.root, absolute))),
         origin: "sync",
       }),
     });
 
-    this.editor = new WorkspaceEditor(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
+    this.nodes = new WorkspaceNodes(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
   }
   async [Symbol.asyncDispose](): Promise<void> {
     this.unsubscribeFS();
     await this.objects[Symbol.asyncDispose]();
-    await this.editor[Symbol.asyncDispose]();
+    await this.nodes[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
   }
   static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
@@ -81,7 +79,6 @@ export class Workspace implements AsyncDisposable {
     const stateDirectory = state.directory;
     const fs = await WorkspaceFS.open(path, {
       stateDirectory,
-      faultInjector: options.faultInjector,
       discovery: options.discovery,
       excludedRoots: options.excludedRoots,
     });
@@ -91,7 +88,7 @@ export class Workspace implements AsyncDisposable {
       tree: options.tree ?? state.identity.rootID,
       displayName: options.displayName ?? await rootDisplayName(fs.root),
     });
-    await workspace.editor.initialize(discovery, workspace.discovery === "recursive");
+    await workspace.nodes.initialize(discovery, workspace.discovery === "recursive");
     // The object index is never authority; the first walk after open audits it.
     void workspace.revalidateObjectIndex().catch(() => {});
     return workspace;
@@ -115,7 +112,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   describeProtocolCollectionFile(directory: string, sourceName: string) {
-    return this.editor.describeProtocolCollectionFile(directory, sourceName);
+    return this.nodes.describeProtocolCollectionFile(directory, sourceName);
   }
 
   updateTreeDescriptor(descriptor: Partial<LocalTreeDescriptor>): void {
@@ -125,8 +122,8 @@ export class Workspace implements AsyncDisposable {
   async activateRecursiveDiscovery(): Promise<void> {
     if (this.discovery === "recursive") return;
     const discovery = await this.fs.discoverRecursively();
-    this.editor.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    await this.editor.generateTypes(discovery);
+    this.nodes.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+    await this.nodes.generateTypes(discovery);
     this.discovery = "recursive";
   }
 
@@ -135,8 +132,8 @@ export class Workspace implements AsyncDisposable {
     if (next.length === this.excludedRoots.length && next.every((root, index) => root === this.excludedRoots[index])) return;
     this.excludedRoots = next;
     const discovery = await this.fs.setExcludedRoots(next);
-    this.editor.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    if (this.discovery === "recursive") await this.editor.generateTypes(discovery);
+    this.nodes.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+    if (this.discovery === "recursive") await this.nodes.generateTypes(discovery);
   }
 
   async refreshDisplayName(): Promise<string> {
@@ -157,38 +154,14 @@ export class Workspace implements AsyncDisposable {
 
   private async handleFsEvent(event: FsEvent): Promise<void> {
     if (event.path === "/") this.displayName = await rootDisplayName(this.root);
-    const publish = event.origin !== "local-api";
-    if (event.type !== "batch" && event.type !== "diagnostic") this.forgetObjectRows(event.path, event.previousPath);
-    if (event.type === "batch") {
-      for (const change of event.changes ?? []) this.forgetObjectRows(change.path, change.previousPath);
-      try {
-        const discovery = await this.fs.discoverRecursively();
-        this.editor.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-        await this.editor.generateTypes(discovery);
-      } catch {}
-      // A batch means the watcher overflowed or gapped; audit the object rows.
-      void this.revalidateObjectIndex().catch(() => {});
-    }
-    if (!publish) return;
-    if (event.type === "batch") {
-      for (const change of event.changes ?? []) {
-        this.events.emit({
-          tree: this.tree,
-          kind: change.kind,
-          ref: this.editor.mutationRef(change.path),
-          previousPath: change.previousPath,
-          origin: event.origin === "sync" ? "sync" : "external",
-        });
-      }
-      return;
-    }
+    if (event.type !== "diagnostic") this.forgetObjectRows(event.path, event.previousPath);
     this.events.emit({
       tree: this.tree,
       kind: event.type,
-      ref: this.editor.mutationRef(event.path),
+      ref: this.nodes.mutationRef(event.path),
       previousPath: event.previousPath,
       contentRevision: event.byteRevision,
-      origin: event.origin === "sync" ? "sync" : "external",
+      origin: "external",
     });
   }
 

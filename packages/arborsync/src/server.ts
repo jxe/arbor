@@ -15,7 +15,6 @@ export interface ArborSyncServerOptions {
   hostname?: string;
   instanceID?: string;
   runtimeKind?: "persistent" | "foreground" | "cloud";
-  faultInjector?: (stage: string) => void | Promise<void>;
   /** Fallback reconciliation interval; protocol watches normally drive synchronization. */
   syncIntervalMs?: number;
 }
@@ -82,7 +81,7 @@ export async function serveArborSync(
 ) {
   const service = await ArborSyncDaemon.open(
     startPath,
-    { faultInjector: options.faultInjector },
+    {},
     { ...(options.syncIntervalMs !== undefined ? { syncIntervalMs: options.syncIntervalMs } : {}) },
   );
   const workspace = service.session;
@@ -97,7 +96,7 @@ export async function serveArborSync(
 }
 
 /** Serve the control surface (placements, accounts, bootstrap) without inventing a local workspace. */
-export async function serveArborSyncControl(options: Omit<ArborSyncServerOptions, "faultInjector"> = {}) {
+export async function serveArborSyncControl(options: ArborSyncServerOptions = {}) {
   // Remote browsing must not invent a filesystem session, but it still owns
   // background reconciliation for the user's explicitly tracked placements.
   const service = await ArborSyncDaemon.openControl({ autoSync: true });

@@ -37,18 +37,13 @@ async function readAccepted(client: ProtocolClient, treeID: string) {
   return { descriptor, snapshot };
 }
 
-async function launch(
-  state: string,
-  path: string,
-  options: { faultInjector?: (stage: string) => void | Promise<void> } = {},
-) {
+async function launch(state: string, path: string) {
   process.env.ARBOR_DATA_HOME = state;
   // A long fallback interval proves that live protocol watches, not polling,
   // drive every cross-daemon expectation below.
   const running = await serveArborSync(path, {
     port: 0,
     syncIntervalMs: 60_000,
-    ...(options.faultInjector ? { faultInjector: options.faultInjector } : {}),
   });
   const client = new ArborSyncRESTClient({ baseURL: running.url });
   const close = async () => {

@@ -128,8 +128,8 @@ merge with a note) or **review**.
    `## Installing`; I add `[see setup](#setup)` elsewhere. **Note**, with the
    rewritten link as a one-click fix. Heading text is in Markdown's automatic
    subset, so this probably merges silently today; check that first. Related:
-   [Filesystem 025](../filesystem/025-folder-link-healing.md) heals links after
-   folder moves.
+   Canopy heals page links after a rename or move
+   (`CanopyEditorWorkspace.healLinks`).
 6. **Richer lists.** Moves and insertions in ordered lists, nested items (moved
    with their children, or re-indented under a new parent, which Native now
    states as a move plus edits to leading spaces), multi-line and loose items:

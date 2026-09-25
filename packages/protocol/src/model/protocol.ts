@@ -1,6 +1,6 @@
 import { canonicalCBORHash } from "./cbor.ts";
 import { arrangeSources } from "../updates/source-moves.ts";
-import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
+import type { NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
 
 
@@ -342,61 +342,6 @@ export function applySourceChange(source: string, edits: readonly SourceEdit[], 
     throw new SourceEditError(error instanceof Error ? error.message : "Invalid source moves");
   }
 }
-
-export type ContentWorkspaceOperation =
-  | {
-    op: "writeProperties";
-    ref: NodeRef;
-    basePropertiesRevision: string;
-    /** Complete candidate property map; omitted keys are deletions. */
-    properties: Record<string, JSONValue>;
-  }
-  | {
-    op: "writeText";
-    ref: NodeRef;
-    baseContentRevision: ContentRevision;
-    source: string;
-  }
-  | {
-    op: "writeMarkdown";
-    ref: NodeRef;
-    baseContentRevision: ContentRevision;
-    source: string;
-    /** Optional editor provenance; the complete `source` remains authoritative. */
-    sourceEdits?: SourceEdit[];
-  }
-  | {
-    op: "ensureDocumentIdentity";
-    ref: NodeRef;
-    baseContentRevision: ContentRevision;
-  };
-
-export type StructuralWorkspaceOperation =
-  | { op: "createDirectory"; tree: TreeRef; path: LogicalPath }
-  | { op: "createMarkdown"; tree: TreeRef; path: LogicalPath; source?: string }
-  | { op: "rename"; ref: NodeRef; name: string }
-  | {
-    op: "move";
-    refs: NodeRef[];
-    destination: NodeRef;
-  }
-  | { op: "copy"; refs: NodeRef[]; destination: NodeRef }
-  | { op: "trash"; refs: NodeRef[] }
-  | { op: "restore"; refs: NodeRef[] };
-
-export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation;
-
-export interface ContentMutationRequest {
-  mutationID: string;
-  operations: [ContentWorkspaceOperation];
-}
-
-export interface StructuralMutationRequest {
-  mutationID: string;
-  operations: [StructuralWorkspaceOperation, ...StructuralWorkspaceOperation[]];
-}
-
-export type MutationRequest = ContentMutationRequest | StructuralMutationRequest;
 
 export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 

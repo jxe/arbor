@@ -33,18 +33,18 @@ afterAll(async () => {
 
 describe("workspace service", () => {
   test("browses pages and directories", async () => {
-    const rootNode = await workspace.editor.snapshot({ tree: workspace.tree, path: "/", stableKey: null });
-    const rootChildren = await workspace.editor.children(rootNode.ref);
+    const rootNode = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/", stableKey: null });
+    const rootChildren = await workspace.nodes.children(rootNode.ref);
     expect(rootChildren.items.map((item) => item.name)).toContain("notes");
     expect(rootChildren.items.map((item) => item.name)).toContain(".claude");
     expect(rootChildren.items.map((item) => item.name)).not.toContain(".build");
-    const leaf = await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
+    const leaf = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
     expect(nodeDocument(leaf)?.blocks[0]?.type).toBe("toggle");
-    expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes.md", stableKey: null })).ref.path).toBe("/notes");
+    expect((await workspace.nodes.snapshot({ tree: workspace.tree, path: "/notes.md", stableKey: null })).ref.path).toBe("/notes");
   });
 
   test("keeps generated collection types in private workspace state", async () => {
-    const declarationPath = workspace.editor.generatedTypeDeclarationPath();
+    const declarationPath = workspace.nodes.generatedTypeDeclarationPath();
     expect(relative(root, declarationPath).startsWith("..")).toBe(true);
     expect(await readFile(declarationPath, "utf8")).toContain('declare module "arbor/runtime"');
     await expect(stat(join(root, ".arbor"))).rejects.toThrow();
@@ -54,7 +54,7 @@ describe("workspace service", () => {
     await mkdir(collection);
     await writeFile(schemaPath, 'overstory-schema-version = 1\nrow = { title: tstr }\n');
     await writeFile(join(collection, "_store.csv"), "title\nExample\n");
-    await workspace.editor.generateTypes();
+    await workspace.nodes.generateTypes();
 
     const generated = await readFile(declarationPath, "utf8");
     // Declarations come from the declarative schema: no authored module or Zod import.
@@ -71,19 +71,19 @@ describe("workspace service", () => {
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
-    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    const node = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
     expect(nodeKind(node)).toBe("directory");
     expect(nodeDocument(node)?.source).toBe("About the records.\n");
-    expect((await workspace.editor.children(node.ref)).items.some((child) => child.ref.path === "/records/one")).toBe(true);
-    const snapshot = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    expect((await workspace.nodes.children(node.ref)).items.some((child) => child.ref.path === "/records/one")).toBe(true);
+    const snapshot = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
     expect(snapshot.capabilities.children?.schema).toStartWith("sha256:");
-    const children = await workspace.editor.children(snapshot.ref);
+    const children = await workspace.nodes.children(snapshot.ref);
     expect(children.items).toContainEqual(expect.objectContaining({
       ref: expect.objectContaining({ path: "/records/one", stableKey: '[["id","abc123"]]' }),
       properties: expect.objectContaining({ id: "abc123", title: "One" }),
     }));
     const key = canonicalStableKey([["id", "abc123"]]);
-    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
+    const row = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
     expect(row.ref.path).toBe("/records/one");
     expect(row.capabilities.properties?.writable).toBe(true);
     expect(row.capabilities.content?.writable).toBe(true);
@@ -92,30 +92,27 @@ describe("workspace service", () => {
 
   test("resolves refs by stable key and fails an unowned key instead of guessing", async () => {
     await writeFile(join(root, "keyed.md"), "---\nid: kx9q2m\n---\nKeyed.\n");
-    await workspace.editor.snapshot({ tree: workspace.tree, path: "/keyed", stableKey: null });
-    const keyed = await workspace.editor.snapshot({ tree: workspace.tree, path: "/elsewhere", stableKey: canonicalStableKey([["id", "kx9q2m"]]) });
+    await workspace.nodes.snapshot({ tree: workspace.tree, path: "/keyed", stableKey: null });
+    const keyed = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/elsewhere", stableKey: canonicalStableKey([["id", "kx9q2m"]]) });
     expect(keyed.ref).toEqual({ tree: workspace.tree, path: "/keyed", stableKey: '[["id","kx9q2m"]]' });
     for (const stableKey of [canonicalStableKey([["id", "nobody"]]), canonicalStableKey([["slug", "keyed"]])]) {
-      await expect(workspace.editor.snapshot({ tree: workspace.tree, path: "/keyed", stableKey })).rejects.toMatchObject({ code: "not-found", status: 404 });
+      await expect(workspace.nodes.snapshot({ tree: workspace.tree, path: "/keyed", stableKey })).rejects.toMatchObject({ code: "not-found", status: 404 });
     }
   });
 
-  test("keeps an automatically minted page id on a Markdown row without declaring it", async () => {
+  test("keeps a page id on a Markdown row without declaring it", async () => {
     const collection = join(root, "reading");
     await mkdir(collection);
     await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\nrow = { title: tstr }\n');
-    await writeFile(join(collection, "draft.md"), "---\ntitle: Draft\nrating: 4\n---\nBody\n");
-    // A path change mints a durable page id into the row's frontmatter.
-    await workspace.fs.mutate({ operations: [{ op: "rename", path: "/reading/draft", name: "final" }] });
-    const id = /^id: (\S+)$/m.exec(await readFile(join(collection, "final.md"), "utf8"))?.[1];
-    expect(id).toBeString();
+    const id = "row1final";
+    await writeFile(join(collection, "final.md"), `---\nid: ${id}\ntitle: Draft\nrating: 4\n---\nBody\n`);
 
-    const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/reading", stableKey: null });
-    const children = await workspace.editor.children(parent.ref);
+    const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/reading", stableKey: null });
+    const children = await workspace.nodes.children(parent.ref);
     const row = children.items.find((item) => item.ref.path === "/reading/final");
     expect(row?.properties).toEqual({ title: "Draft", rating: 4, id: id! });
     expect(row?.diagnostics ?? []).toEqual([]);
-    const snapshot = await workspace.editor.snapshot({ tree: workspace.tree, path: "/reading/final", stableKey: null });
+    const snapshot = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/reading/final", stableKey: null });
     expect(snapshot.capabilities.properties?.writable).toBe(true);
   });
 
@@ -125,14 +122,14 @@ describe("workspace service", () => {
     await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
-    const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
+    const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
     expect(parent.capabilities.children?.backing).toMatchObject({ type: "collection-file", format: "json" });
     expect(parent.capabilities.children?.writable).toBe(false);
-    const children = await workspace.editor.children(parent.ref);
+    const children = await workspace.nodes.children(parent.ref);
     expect(children.items.map((item) => item.ref.path)).toEqual(["/rolled/a", "/rolled/b"]);
 
     const key = canonicalStableKey([["id", "b"]]);
-    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled/stale-name", stableKey: key });
+    const row = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/rolled/stale-name", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/rolled/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.content).toBeUndefined();
@@ -150,44 +147,44 @@ describe("workspace service", () => {
     database.query("insert into items values (?, ?), (?, ?)").run("b", "Second", "a", "First");
     database.close();
 
-    const container = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
+    const container = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
     expect(container.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "subtree" });
-    const tables = await workspace.editor.children(container.ref);
+    const tables = await workspace.nodes.children(container.ref);
     expect(tables.items).toContainEqual(expect.objectContaining({
       ref: expect.objectContaining({ path: "/database/items", stableKey: null }),
       capabilities: expect.objectContaining({ children: expect.objectContaining({ total: 2 }) }),
     }));
 
-    const table = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
+    const table = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
     expect(table.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "children" });
-    const rows = await workspace.editor.children(table.ref);
+    const rows = await workspace.nodes.children(table.ref);
     expect(rows.items.map((item) => item.ref.path)).toEqual(["/database/items/a", "/database/items/b"]);
 
     const key = canonicalStableKey([["id", "b"]]);
-    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
+    const row = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/database/items/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.properties?.writable).toBe(true);
   });
 
   test("reports body state and unambiguous child identity", async () => {
-    const notes = await workspace.editor.snapshot({ tree: "local", path: "/notes", stableKey: null });
+    const notes = await workspace.nodes.snapshot({ tree: "local", path: "/notes", stableKey: null });
     expect(notes.content?.representation?.state).toBe("stored");
     expect(notes.content?.representation?.origin).toBe("sibling");
     expect(notes.ref.stableKey).toBeNull();
 
     await writeFile(join(root, "folder", "_index.md"), "About this folder\n");
-    const materialized = await workspace.editor.snapshot({ tree: "local", path: "/folder", stableKey: null });
+    const materialized = await workspace.nodes.snapshot({ tree: "local", path: "/folder", stableKey: null });
     expect(materialized.content?.representation?.state).toBe("stored");
     expect(materialized.content?.representation?.origin).toBe("index");
 
     await mkdir(join(root, "plain"));
-    const implicit = await workspace.editor.snapshot({ tree: "local", path: "/plain", stableKey: null });
+    const implicit = await workspace.nodes.snapshot({ tree: "local", path: "/plain", stableKey: null });
     expect(implicit.content?.representation?.state).toBe("implicit");
     expect(implicit.content?.representation?.origin).toBeUndefined();
     expect(nodeDocument(implicit)?.blocks).toEqual([]);
 
-    const listing = await workspace.editor.children({ tree: "local", path: "/", stableKey: null });
+    const listing = await workspace.nodes.children({ tree: "local", path: "/", stableKey: null });
     const child = listing.items.find((item) => item.ref.path === "/notes");
     expect(child?.ref.stableKey).toBeNull();
     expect(listing.items.find((item) => item.ref.path === "/plain")?.ref.stableKey).toBeNull();
@@ -203,9 +200,9 @@ describe("workspace service", () => {
       await mkdir(join(duplicateRoot, "same"));
       await writeFile(join(duplicateRoot, "same", "child.md"), "Child\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const rootNode = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/", stableKey: null });
-      expect((await duplicateWorkspace.editor.children(rootNode.ref)).items.filter((child) => child.ref.path === "/same")).toHaveLength(1);
-      const same = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
+      const rootNode = await duplicateWorkspace.nodes.snapshot({ tree: duplicateWorkspace.tree, path: "/", stableKey: null });
+      expect((await duplicateWorkspace.nodes.children(rootNode.ref)).items.filter((child) => child.ref.path === "/same")).toHaveLength(1);
+      const same = await duplicateWorkspace.nodes.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(nodeKind(same)).toBe("directory");
       expect(nodeDocument(same)?.bodySource).toBe("Leaf\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
@@ -213,7 +210,7 @@ describe("workspace service", () => {
 
       await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const duplicate = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
+      const duplicate = await duplicateWorkspace.nodes.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(nodeDocument(duplicate)?.bodySource).toBe("Directory\n");
       expect(duplicate.diagnostics.some((item) => item.code === "shadowed-body")).toBe(true);
     } finally {
