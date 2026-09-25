@@ -171,8 +171,15 @@ nonzero, records `needs-sync`, and leaves the daemon and private state available
 for another `finish`. SIGINT and SIGTERM make the daemon attempt the same final
 sync, but only explicit `finish` provides the complete verification contract.
 
-Bundles remain active until revoked. Their safe local registry contains labels
-and device IDs, never credentials or placements:
+On a Mac, Canopy's Share panel makes the same bundle for the tree it shows:
+**Use with an agent…** places that one tree at its canonical name, shows the
+string once with Copy and Share, and lists the tree's bundles with **Revoke**.
+Like every bundle, its credential is an account device, so the string reaches
+everything the account can; the placement only chooses what is checked out.
+
+Bundles remain active until revoked. Their safe local registry, shared by the
+CLI and Canopy, contains labels, device IDs, and placed TreeIDs, never
+credentials or placement paths:
 
 ```sh
 arbor cloud bundle list

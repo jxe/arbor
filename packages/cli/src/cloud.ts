@@ -36,6 +36,8 @@ export interface SafeCloudBundleRecord {
   account: string;
   configurationTree: string;
   deviceID: string;
+  /** The placed TreeIDs, so a tree's Share panel can list the bundles that place it. */
+  trees?: string[];
   revokedAt?: string;
 }
 
@@ -244,7 +246,8 @@ export async function loadCloudBundles(): Promise<SafeCloudBundleRecord[]> {
     if (!Array.isArray(value)) throw new Error("Cloud bundle registry must be a list");
     return value.map((candidate, index): SafeCloudBundleRecord => {
       const item = record(candidate, `cloud bundle registry entry ${index + 1}`);
-      exactFields(item, ["bundleID", "label", "createdAt", "origin", "account", "configurationTree", "deviceID", "revokedAt"], `cloud bundle registry entry ${index + 1}`);
+      exactFields(item, ["bundleID", "label", "createdAt", "origin", "account", "configurationTree", "deviceID", "trees", "revokedAt"], `cloud bundle registry entry ${index + 1}`);
+      if (item.trees !== undefined && !Array.isArray(item.trees)) throw new Error(`Cloud bundle registry entry ${index + 1} trees must be a list`);
       const origin = normalizedOrigin(item.origin, `cloud bundle registry entry ${index + 1} origin`);
       const account = nonempty(item.account, `cloud bundle registry entry ${index + 1} account`);
       if (new URL(account).origin !== origin) throw new Error(`Cloud bundle registry entry ${index + 1} account belongs to another Canopy`);
@@ -256,6 +259,7 @@ export async function loadCloudBundles(): Promise<SafeCloudBundleRecord[]> {
         account,
         configurationTree: treeID(item.configurationTree, `cloud bundle registry entry ${index + 1} configuration tree`),
         deviceID: nonempty(item.deviceID, `cloud bundle registry entry ${index + 1} device ID`),
+        ...(item.trees === undefined ? {} : { trees: (item.trees as unknown[]).map((tree, treeIndex) => treeID(tree, `cloud bundle registry entry ${index + 1} tree ${treeIndex + 1}`)) }),
         ...(item.revokedAt === undefined ? {} : { revokedAt: nonempty(item.revokedAt, `cloud bundle registry entry ${index + 1} revocation time`) }),
       };
     });

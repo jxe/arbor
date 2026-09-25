@@ -861,6 +861,7 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
     }
     if (!configuration.currentDevice.administrator) {
       throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
+      trees: placements.map((placement) => placement.treeID),
     }
     if (configuration.devices[record.deviceID]) {
       await editAccountConfigurationYAML(

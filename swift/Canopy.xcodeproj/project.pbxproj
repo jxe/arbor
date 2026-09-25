@@ -7,37 +7,45 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		59C81C6495AC026C9B5B8A42 /* CanopyAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */; };
-		7595ECF9722146EF2DF49C67 /* ArborSyncAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */; };
+		0D3970C10F88B262AE6647D7 /* CanopyDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61C6D30F9B7B42B7A7B28759 /* CanopyDirectoryView.swift */; };
+		1D4AAA42D1BE1CF50DCFFF76 /* ArborSyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DA7FC4CE2BE58C8A624F1A /* ArborSyncLoopbackServices.swift */; };
+		20B18496E7355A25A206E2C2 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 250C69BEE5F81134EA927B12 /* AppIcon-perspective-trapezoid-v5-1024.png */; };
 		29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */; };
-		2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */; };
-		30566E514B280F135A088116 /* CanopyStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */; };
+		300F77E20E9A82BDFAAC6839 /* CanopyVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24147AA554059A8BBCCEBD1 /* CanopyVisits.swift */; };
 		427E0873C0581985EA701162 /* CanopyWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 12FFE5432D368FA63265D3F9 /* CanopyWorkingTree */; };
+		53C7DB00A390A24ECA1A78E1 /* CanopySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C769B8905CF5425F6DC015 /* CanopySaveDiagnostics.swift */; };
+		5B70A02E075BBA36A2961D49 /* AppIcon-crescent-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = DC2633EF3288951E3D6ADE41 /* AppIcon-crescent-v5-1024.png */; };
 		6273F793669EF942DAC61667 /* CanopyAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2EF794B989CD4145528451 /* CanopyAppTests.swift */; };
+		635E4CA611A72DE953B32C10 /* CanopyAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72B145AF034A3A48639FE7A2 /* CanopyAgentBundle.swift */; };
 		645A5216EF21B992B6586D6F /* OverstoryClient in Frameworks */ = {isa = PBXBuildFile; productRef = 5AE724436B4B61FB18E2499B /* OverstoryClient */; };
-		82BBE45599931E74BF01509C /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 298FAA2528B2406F083D24E1 /* QuagmireExtras */; };
+		68FE5D310EDC8B6328470B25 /* CanopySupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83511AC72EACA7BD4DC62F35 /* CanopySupportDirectories.swift */; };
+		6DF4465E82C02EF3255AAE72 /* ArborSyncLoopbackServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532D92E05A1AE1E055C5F7C4 /* ArborSyncLoopbackServicesTests.swift */; };
+		746C219D99870DBA940C8E7D /* AppIcon-woodland-island-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 8BDAF6C6FFE317E257ECA2BE /* AppIcon-woodland-island-v5-1024.png */; };
 		846874AF6C0B4F543C2F8E60 /* CanopyEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 4745C7CE25C3B47CE1C7FDFA /* CanopyEditor */; };
-		84C2E25C29E59E77B48491D7 /* CanopyVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */; };
-		9FD968ED949F3EF597E23F69 /* CanopyDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */; };
+		851BC83856868F3BD1A48B45 /* AppIcon-oblique-overstory-v4-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = EAE87785A7770B69DC923AAB /* AppIcon-oblique-overstory-v4-1024.png */; };
+		8DCDB741BF06B97547EEE0A5 /* CanopyAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448AE0016EFF205E275DFEAE /* CanopyAppModel.swift */; };
+		8EA435BD48CFEF15D43B9655 /* CanopyConflictReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C10C660C2B115336195C08 /* CanopyConflictReview.swift */; };
+		9F35786C066BFD808D13A5EB /* AppIcon-oblique-grove-v3-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 31EE603769B4BE560DBD78B8 /* AppIcon-oblique-grove-v3-1024.png */; };
 		A3694563A13E7FD1C1DDEA32 /* CanopyAppKit in Frameworks */ = {isa = PBXBuildFile; productRef = 60F1A9943FFCB9EC206C3015 /* CanopyAppKit */; };
 		A43136ECFC4D2D39871A02E9 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 89061AE65E245F330BB42FFA /* Overstory */; };
 		ADFBF13A9572E8EC9F2FBC2A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7178057AF35C3F14D9ADB06 /* Assets.xcassets */; };
-		B733490C08AF612381651350 /* CanopyConflictReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */; };
+		B4B48106C6F216DD3C28C720 /* ArborSyncRESTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E459198923E2764ACA783D /* ArborSyncRESTClient.swift */; };
+		B99BC685D3B32A14A2F5B71E /* CanopyDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C592A153E97B6215090143F8 /* CanopyDirectory.swift */; };
+		BEA99A15395CE0FB07FBC148 /* CanopyNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0840DD02CA904E38B0CE75D /* CanopyNetworkLogView.swift */; };
+		C331B64089472B024C92D2F6 /* CanopyStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A387B8C27F845AE53EE1065D /* CanopyStyle.swift */; };
 		C54947C0138F2B4151C527DB /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = C796D9E8C38165521C40F7CB /* OverstoryObjectStore */; };
-		C8A3D6F3250D2896E4D8A2FC /* CanopyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31651AC411F40A49C39CA50 /* CanopyApp.swift */; };
-		C8FDEB921284112F4837E8AA /* CanopyDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */; };
-		D04DEF93C13612B18F18C8D3 /* CanopySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */; };
-		D2933F943634F0E9ABA20CD7 /* CanopyRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D86631369060ED5B812AC5 /* CanopyRootView.swift */; };
-		D9F15BCF282E14AFF67DC6D0 /* CanopyNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */; };
+		CCD6E7BC6E241FD89CC9DED8 /* CanopyRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50530078C45A03B4FBABA60 /* CanopyRootView.swift */; };
+		CEB56B5DC075AE6781DB2754 /* CanopyAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C028883DE8FCCE0809F342F /* CanopyAccountService.swift */; };
+		D971988117B9EDBD54CAC98A /* ArborSyncAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5150A7E38FCE4B2B20A21040 /* ArborSyncAccountService.swift */; };
+		DE59926E0AD522EFC915FBA4 /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 298FAA2528B2406F083D24E1 /* QuagmireExtras */; };
+		DE775909CF9A509711A88389 /* CanopyDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75203129D9CE0C5F8DFB3992 /* CanopyDailyDriverViews.swift */; };
+		DF5ACAF5735BB94F5A83EEAB /* ArborSyncClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F85574A2E54CC5CD3B9816A /* ArborSyncClientTests.swift */; };
 		DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */; };
-		E5D6C0A84A97D0677205A1A1 /* CanopyDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */; };
-		E6D54BC465AC7BE111DD3D8A /* CanopySupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */; };
-		A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */; };
-		C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */; };
-		3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */; };
-		07B0F233694FFCD76F89A4C5 /* ArborSyncRESTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */; };
-		0AEF6F15D2A3AC1ADB4A26B0 /* ArborSyncClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */; };
-		F9AA601B0C56DC4B2A16A26C /* ArborSyncLoopbackServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */; };
+		E17DC47D7CEE4EA2291663EC /* ArborSyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4EE618DBD1B1352EF05FA3 /* ArborSyncProtocol.swift */; };
+		E6FF4938D179D3C6B6EFB76F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 7B53B4F3AE5322ED019404E7 /* README.md */; };
+		EBC89B7613CB1A897C5A4783 /* ArborSyncProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 109DAD2FFFD590B49CB15BDA /* ArborSyncProcessSupervisor.swift */; };
+		F34F872A318F68578F79DF62 /* CanopyAgentBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28213991E0FA76C342894CC1 /* CanopyAgentBundleTests.swift */; };
+		FF568E178A2DF814666C96EC /* CanopyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 772D5AB52613A7AE6B468D5D /* CanopyApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,41 +59,49 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAccountService.swift; sourceTree = "<group>"; };
-		AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncAccountService.swift; sourceTree = "<group>"; };
+		00C10C660C2B115336195C08 /* CanopyConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyConflictReview.swift; sourceTree = "<group>"; };
 		0FB6B346C13D17D474A125B8 /* CanopyAppKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyAppKit; path = Packages/CanopyAppKit; sourceTree = SOURCE_ROOT; };
+		109DAD2FFFD590B49CB15BDA /* ArborSyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProcessSupervisor.swift; sourceTree = "<group>"; };
+		250C69BEE5F81134EA927B12 /* AppIcon-perspective-trapezoid-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-perspective-trapezoid-v5-1024.png"; sourceTree = "<group>"; };
+		28213991E0FA76C342894CC1 /* CanopyAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAgentBundleTests.swift; sourceTree = "<group>"; };
+		2F4EE618DBD1B1352EF05FA3 /* ArborSyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProtocol.swift; sourceTree = "<group>"; };
+		31EE603769B4BE560DBD78B8 /* AppIcon-oblique-grove-v3-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-grove-v3-1024.png"; sourceTree = "<group>"; };
 		3600BDEB02C0A0FF8C51027E /* CanopyAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CanopyAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySupportDirectories.swift; sourceTree = "<group>"; };
+		448AE0016EFF205E275DFEAE /* CanopyAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAppModel.swift; sourceTree = "<group>"; };
+		5150A7E38FCE4B2B20A21040 /* ArborSyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncAccountService.swift; sourceTree = "<group>"; };
+		532D92E05A1AE1E055C5F7C4 /* ArborSyncLoopbackServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServicesTests.swift; sourceTree = "<group>"; };
 		5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyOnboarding.swift; sourceTree = "<group>"; };
-		5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAppModel.swift; sourceTree = "<group>"; };
-		63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDailyDriverViews.swift; sourceTree = "<group>"; };
+		61C6D30F9B7B42B7A7B28759 /* CanopyDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectoryView.swift; sourceTree = "<group>"; };
+		6F85574A2E54CC5CD3B9816A /* ArborSyncClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncClientTests.swift; sourceTree = "<group>"; };
+		72B145AF034A3A48639FE7A2 /* CanopyAgentBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAgentBundle.swift; sourceTree = "<group>"; };
 		735CCC72D03126B470BA6A7E /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
+		75203129D9CE0C5F8DFB3992 /* CanopyDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDailyDriverViews.swift; sourceTree = "<group>"; };
 		771CDE2BBE024CC560A40090 /* CanopyEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyEditor; path = Packages/CanopyEditor; sourceTree = SOURCE_ROOT; };
+		772D5AB52613A7AE6B468D5D /* CanopyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyApp.swift; sourceTree = "<group>"; };
 		79D8023DB37FB8EA588574AC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		7B53B4F3AE5322ED019404E7 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		7C028883DE8FCCE0809F342F /* CanopyAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAccountService.swift; sourceTree = "<group>"; };
 		7E4A99041840C4BBDD074CCF /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
+		83511AC72EACA7BD4DC62F35 /* CanopySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySupportDirectories.swift; sourceTree = "<group>"; };
+		8BDAF6C6FFE317E257ECA2BE /* AppIcon-woodland-island-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-woodland-island-v5-1024.png"; sourceTree = "<group>"; };
 		8C2EF794B989CD4145528451 /* CanopyAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyAppTests.swift; sourceTree = "<group>"; };
-		9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyNetworkLogView.swift; sourceTree = "<group>"; };
-		A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectory.swift; sourceTree = "<group>"; };
+		A0840DD02CA904E38B0CE75D /* CanopyNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyNetworkLogView.swift; sourceTree = "<group>"; };
+		A387B8C27F845AE53EE1065D /* CanopyStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyStyle.swift; sourceTree = "<group>"; };
 		A980429037927AAD251E5695 /* OverstoryObjectStore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryObjectStore; path = Packages/OverstoryObjectStore; sourceTree = SOURCE_ROOT; };
 		B49F28900BE6CA94197C436C /* Overstory */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Overstory; path = Packages/Overstory; sourceTree = SOURCE_ROOT; };
 		B9AA8EED2BAA87F332CE3C54 /* Canopy.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Canopy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2C769B8905CF5425F6DC015 /* CanopySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySaveDiagnostics.swift; sourceTree = "<group>"; };
 		C547423AF5AE67289A5AFC3A /* CanopyWorkingTree */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyWorkingTree; path = Packages/CanopyWorkingTree; sourceTree = SOURCE_ROOT; };
+		C592A153E97B6215090143F8 /* CanopyDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectory.swift; sourceTree = "<group>"; };
 		CD6D072E434F11F7B408005D /* Canopy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Canopy.entitlements; sourceTree = "<group>"; };
-		CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyVisits.swift; sourceTree = "<group>"; };
-		D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyStyle.swift; sourceTree = "<group>"; };
-		D5D86631369060ED5B812AC5 /* CanopyRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyRootView.swift; sourceTree = "<group>"; };
 		D7178057AF35C3F14D9ADB06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyConflictReview.swift; sourceTree = "<group>"; };
+		D7E459198923E2764ACA783D /* ArborSyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncRESTClient.swift; sourceTree = "<group>"; };
+		DC2633EF3288951E3D6ADE41 /* AppIcon-crescent-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-crescent-v5-1024.png"; sourceTree = "<group>"; };
+		E50530078C45A03B4FBABA60 /* CanopyRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyRootView.swift; sourceTree = "<group>"; };
 		E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingIntents.swift; sourceTree = "<group>"; };
-		F31651AC411F40A49C39CA50 /* CanopyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyApp.swift; sourceTree = "<group>"; };
-		F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopySaveDiagnostics.swift; sourceTree = "<group>"; };
-		FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyDirectoryView.swift; sourceTree = "<group>"; };
-		1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServices.swift; sourceTree = "<group>"; };
-		502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProcessSupervisor.swift; sourceTree = "<group>"; };
-		17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProtocol.swift; sourceTree = "<group>"; };
-		3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncRESTClient.swift; sourceTree = "<group>"; };
-		FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncClientTests.swift; sourceTree = "<group>"; };
-		6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServicesTests.swift; sourceTree = "<group>"; };
+		E9DA7FC4CE2BE58C8A624F1A /* ArborSyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServices.swift; sourceTree = "<group>"; };
+		EAE87785A7770B69DC923AAB /* AppIcon-oblique-overstory-v4-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-overstory-v4-1024.png"; sourceTree = "<group>"; };
+		F24147AA554059A8BBCCEBD1 /* CanopyVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyVisits.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,7 +115,7 @@
 				A43136ECFC4D2D39871A02E9 /* Overstory in Frameworks */,
 				645A5216EF21B992B6586D6F /* OverstoryClient in Frameworks */,
 				846874AF6C0B4F543C2F8E60 /* CanopyEditor in Frameworks */,
-				82BBE45599931E74BF01509C /* QuagmireExtras in Frameworks */,
+				DE59926E0AD522EFC915FBA4 /* QuagmireExtras in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -109,11 +125,24 @@
 		0989501A1F2E52AE6806DF88 /* CanopyAppTests */ = {
 			isa = PBXGroup;
 			children = (
-				FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */,
-				6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */,
+				6F85574A2E54CC5CD3B9816A /* ArborSyncClientTests.swift */,
+				532D92E05A1AE1E055C5F7C4 /* ArborSyncLoopbackServicesTests.swift */,
+				28213991E0FA76C342894CC1 /* CanopyAgentBundleTests.swift */,
 				8C2EF794B989CD4145528451 /* CanopyAppTests.swift */,
 			);
 			path = CanopyAppTests;
+			sourceTree = "<group>";
+		};
+		25FC0B3E9FAF67FA1ABB2C76 /* ArborSync */ = {
+			isa = PBXGroup;
+			children = (
+				5150A7E38FCE4B2B20A21040 /* ArborSyncAccountService.swift */,
+				E9DA7FC4CE2BE58C8A624F1A /* ArborSyncLoopbackServices.swift */,
+				109DAD2FFFD590B49CB15BDA /* ArborSyncProcessSupervisor.swift */,
+				2F4EE618DBD1B1352EF05FA3 /* ArborSyncProtocol.swift */,
+				D7E459198923E2764ACA783D /* ArborSyncRESTClient.swift */,
+			);
+			path = ArborSync;
 			sourceTree = "<group>";
 		};
 		31ADE558ACA2D25A80799E62 /* Products */ = {
@@ -125,39 +154,29 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		6B4877ADFB09A22A0138B811 /* ArborSync */ = {
-			isa = PBXGroup;
-			children = (
-				AF5333E5FE995291B51AEFF4 /* ArborSyncAccountService.swift */,
-				1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */,
-				502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */,
-				17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */,
-				3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */,
-			);
-			path = ArborSync;
-			sourceTree = "<group>";
-		};
 		404307C0C3D6429F59D48BE1 /* CanopyApp */ = {
 			isa = PBXGroup;
 			children = (
-				6B4877ADFB09A22A0138B811 /* ArborSync */,
-				F1E47DA771677CC3C1ED6C32 /* CanopyAccountService.swift */,
-				F31651AC411F40A49C39CA50 /* CanopyApp.swift */,
-				5DF9A72F8CB82A8A3F5EC1B6 /* CanopyAppModel.swift */,
-				E51EAD9F6E342793374FFDE7 /* CanopyConflictReview.swift */,
-				63ADE18E12FC8CF3509598EC /* CanopyDailyDriverViews.swift */,
-				A6EE529EFC6F562AFAF2BFEA /* CanopyDirectory.swift */,
-				FA0CCAA6D6E950AEB2DE8F91 /* CanopyDirectoryView.swift */,
-				9D4B197CF4BF9FFD2DDBFFB1 /* CanopyNetworkLogView.swift */,
-				D5D86631369060ED5B812AC5 /* CanopyRootView.swift */,
-				F488507EF84786EB0AE2DD22 /* CanopySaveDiagnostics.swift */,
-				D298D8D253A6A0EA05B37B19 /* CanopyStyle.swift */,
-				48039FE93406AB42D265FBD9 /* CanopySupportDirectories.swift */,
+				25FC0B3E9FAF67FA1ABB2C76 /* ArborSync */,
+				B9C6D01EB64BF55C571DD853 /* IconPreviews */,
 				7E4A99041840C4BBDD074CCF /* arborsync.entitlements */,
-				CFF4B4A512DB429ABAB9F439 /* CanopyVisits.swift */,
 				D7178057AF35C3F14D9ADB06 /* Assets.xcassets */,
 				CD6D072E434F11F7B408005D /* Canopy.entitlements */,
+				7C028883DE8FCCE0809F342F /* CanopyAccountService.swift */,
+				72B145AF034A3A48639FE7A2 /* CanopyAgentBundle.swift */,
+				772D5AB52613A7AE6B468D5D /* CanopyApp.swift */,
+				448AE0016EFF205E275DFEAE /* CanopyAppModel.swift */,
+				00C10C660C2B115336195C08 /* CanopyConflictReview.swift */,
+				75203129D9CE0C5F8DFB3992 /* CanopyDailyDriverViews.swift */,
+				C592A153E97B6215090143F8 /* CanopyDirectory.swift */,
+				61C6D30F9B7B42B7A7B28759 /* CanopyDirectoryView.swift */,
+				A0840DD02CA904E38B0CE75D /* CanopyNetworkLogView.swift */,
 				5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */,
+				E50530078C45A03B4FBABA60 /* CanopyRootView.swift */,
+				C2C769B8905CF5425F6DC015 /* CanopySaveDiagnostics.swift */,
+				A387B8C27F845AE53EE1065D /* CanopyStyle.swift */,
+				83511AC72EACA7BD4DC62F35 /* CanopySupportDirectories.swift */,
+				F24147AA554059A8BBCCEBD1 /* CanopyVisits.swift */,
 				79D8023DB37FB8EA588574AC /* Info.plist */,
 				E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */,
 			);
@@ -172,6 +191,19 @@
 				D9786E3CB2E36531B366E446 /* Packages */,
 				31ADE558ACA2D25A80799E62 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		B9C6D01EB64BF55C571DD853 /* IconPreviews */ = {
+			isa = PBXGroup;
+			children = (
+				DC2633EF3288951E3D6ADE41 /* AppIcon-crescent-v5-1024.png */,
+				31EE603769B4BE560DBD78B8 /* AppIcon-oblique-grove-v3-1024.png */,
+				EAE87785A7770B69DC923AAB /* AppIcon-oblique-overstory-v4-1024.png */,
+				250C69BEE5F81134EA927B12 /* AppIcon-perspective-trapezoid-v5-1024.png */,
+				8BDAF6C6FFE317E257ECA2BE /* AppIcon-woodland-island-v5-1024.png */,
+				7B53B4F3AE5322ED019404E7 /* README.md */,
+			);
+			path = IconPreviews;
 			sourceTree = "<group>";
 		};
 		D9786E3CB2E36531B366E446 /* Packages */ = {
@@ -284,7 +316,13 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5B70A02E075BBA36A2961D49 /* AppIcon-crescent-v5-1024.png in Resources */,
+				9F35786C066BFD808D13A5EB /* AppIcon-oblique-grove-v3-1024.png in Resources */,
+				851BC83856868F3BD1A48B45 /* AppIcon-oblique-overstory-v4-1024.png in Resources */,
+				20B18496E7355A25A206E2C2 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */,
+				746C219D99870DBA940C8E7D /* AppIcon-woodland-island-v5-1024.png in Resources */,
 				ADFBF13A9572E8EC9F2FBC2A /* Assets.xcassets in Resources */,
+				E6FF4938D179D3C6B6EFB76F /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -317,8 +355,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0AEF6F15D2A3AC1ADB4A26B0 /* ArborSyncClientTests.swift in Sources */,
-				F9AA601B0C56DC4B2A16A26C /* ArborSyncLoopbackServicesTests.swift in Sources */,
+				DF5ACAF5735BB94F5A83EEAB /* ArborSyncClientTests.swift in Sources */,
+				6DF4465E82C02EF3255AAE72 /* ArborSyncLoopbackServicesTests.swift in Sources */,
+				F34F872A318F68578F79DF62 /* CanopyAgentBundleTests.swift in Sources */,
 				6273F793669EF942DAC61667 /* CanopyAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -327,25 +366,26 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				59C81C6495AC026C9B5B8A42 /* CanopyAccountService.swift in Sources */,
-				C8A3D6F3250D2896E4D8A2FC /* CanopyApp.swift in Sources */,
-				2FD3E4FC804EF4C5A2455FE0 /* CanopyAppModel.swift in Sources */,
-				B733490C08AF612381651350 /* CanopyConflictReview.swift in Sources */,
-				9FD968ED949F3EF597E23F69 /* CanopyDailyDriverViews.swift in Sources */,
-				E5D6C0A84A97D0677205A1A1 /* CanopyDirectory.swift in Sources */,
-				C8FDEB921284112F4837E8AA /* CanopyDirectoryView.swift in Sources */,
-				D9F15BCF282E14AFF67DC6D0 /* CanopyNetworkLogView.swift in Sources */,
-				D2933F943634F0E9ABA20CD7 /* CanopyRootView.swift in Sources */,
-				D04DEF93C13612B18F18C8D3 /* CanopySaveDiagnostics.swift in Sources */,
-				30566E514B280F135A088116 /* CanopyStyle.swift in Sources */,
-				E6D54BC465AC7BE111DD3D8A /* CanopySupportDirectories.swift in Sources */,
-				7595ECF9722146EF2DF49C67 /* ArborSyncAccountService.swift in Sources */,
-				A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */,
-				C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */,
-				3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */,
-				07B0F233694FFCD76F89A4C5 /* ArborSyncRESTClient.swift in Sources */,
-				84C2E25C29E59E77B48491D7 /* CanopyVisits.swift in Sources */,
+				D971988117B9EDBD54CAC98A /* ArborSyncAccountService.swift in Sources */,
+				1D4AAA42D1BE1CF50DCFFF76 /* ArborSyncLoopbackServices.swift in Sources */,
+				EBC89B7613CB1A897C5A4783 /* ArborSyncProcessSupervisor.swift in Sources */,
+				E17DC47D7CEE4EA2291663EC /* ArborSyncProtocol.swift in Sources */,
+				B4B48106C6F216DD3C28C720 /* ArborSyncRESTClient.swift in Sources */,
+				CEB56B5DC075AE6781DB2754 /* CanopyAccountService.swift in Sources */,
+				635E4CA611A72DE953B32C10 /* CanopyAgentBundle.swift in Sources */,
+				FF568E178A2DF814666C96EC /* CanopyApp.swift in Sources */,
+				8DCDB741BF06B97547EEE0A5 /* CanopyAppModel.swift in Sources */,
+				8EA435BD48CFEF15D43B9655 /* CanopyConflictReview.swift in Sources */,
+				DE775909CF9A509711A88389 /* CanopyDailyDriverViews.swift in Sources */,
+				B99BC685D3B32A14A2F5B71E /* CanopyDirectory.swift in Sources */,
+				0D3970C10F88B262AE6647D7 /* CanopyDirectoryView.swift in Sources */,
+				BEA99A15395CE0FB07FBC148 /* CanopyNetworkLogView.swift in Sources */,
 				DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */,
+				CCD6E7BC6E241FD89CC9DED8 /* CanopyRootView.swift in Sources */,
+				53C7DB00A390A24ECA1A78E1 /* CanopySaveDiagnostics.swift in Sources */,
+				C331B64089472B024C92D2F6 /* CanopyStyle.swift in Sources */,
+				68FE5D310EDC8B6328470B25 /* CanopySupportDirectories.swift in Sources */,
+				300F77E20E9A82BDFAAC6839 /* CanopyVisits.swift in Sources */,
 				29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

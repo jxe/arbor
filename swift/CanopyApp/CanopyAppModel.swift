@@ -727,6 +727,109 @@ final class CanopyWorkspaceState {
         return try await localHostDevices(configurationTree: configurationTree)
     }
 
+    /// The unrevoked agent bundles this Mac's registry holds that place `tree`.
+    func agentBundles(tree: String) throws -> [CanopyCloudBundleRecord] {
+        try CanopyCloudBundleRegistry.standard.load()
+            .filter { $0.revokedAt == nil && $0.trees?.contains(tree) == true }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Make an `arbor cloud start` bundle that places only `tree`, as
+    /// `arbor cloud bundle create` does: a new non-administrator device on the
+    /// tree's account whose credential exists only in the returned string.
+    func createAgentBundle(tree: String, label requestedLabel: String) async throws -> (record: CanopyCloudBundleRecord, bundle: String) {
+        let label = requestedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...100).contains(label.count) else {
+            throw ProtocolValidationError.invalidValue("Name the agent in 1 to 100 characters")
+        }
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        guard let overview = localArborSyncOverview,
+              let configurationTree = overview.trees.first(where: { $0.id == tree })?.configurationTree,
+              let account = overview.accounts.first(where: { $0.configurationTree == configurationTree }),
+              account.credentialAvailable,
+              let origin = account.canopy.flatMap(URL.init(string:)),
+              let scheme = origin.scheme, let host = origin.host(),
+              let handle = account.handle, let profileTree = account.profileTree else {
+            throw ProtocolValidationError.invalidValue("The current tree has no connected Canopy account on this Mac")
+        }
+        guard isLocalAccountAdministrator(account) else {
+            throw ProtocolValidationError.invalidValue("This Mac needs administrator access to make an agent code")
+        }
+        guard let arborsync = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
+        let client = ProtocolClient(
+            origin: origin,
+            credentialProvider: try await accountService.credentialProvider(configurationTree: configurationTree)
+        )
+        let descriptor = try await client.descriptor(tree: tree).tree
+        guard descriptor.access == "write" else {
+            throw ProtocolValidationError.invalidValue("This account cannot edit the tree, so an agent could not either")
+        }
+        guard let canonicalURL = descriptor.httpURL, let canonicalPath = descriptor.canonicalPath else {
+            throw ProtocolValidationError.invalidValue("The tree has no canonical URL to place it by")
+        }
+        let accountID = try await client.account().account.id
+        let bundleID = CanopyCloudBundle.newBundleID()
+        let deviceID = try generateArborID(prefix: "dv")
+        let credential = CanopyCloudBundle.newCredential()
+        let createdAt = ISO8601DateFormatter.cloudBundle.string(from: Date())
+        // The CLI accepts only a normalized origin, which the stored spelling need not be.
+        let canopy = "\(scheme)://\(host)" + (origin.port.map { ":\($0)" } ?? "")
+        let accountURL = canopy + "/~" + handle
+        let bundle = try CanopyCloudBundle.encode(CanopyCloudBundlePayload(
+            bundleID: bundleID,
+            label: label,
+            createdAt: createdAt,
+            origin: canopy,
+            account: accountURL,
+            accountID: accountID,
+            configurationTree: configurationTree,
+            profileTree: profileTree,
+            deviceID: deviceID,
+            credential: credential,
+            placements: [.init(
+                treeID: tree,
+                canonicalURL: canonicalURL,
+                relativePath: CanopyCloudBundle.relativePath(canonicalPath: canonicalPath)
+            )]
+        ))
+        let offer = try await client.createPairing()
+        _ = try await ProtocolClient(origin: origin).claimPairing(
+            id: offer.id,
+            secret: offer.secret,
+            device: ProtocolPairingDevice(id: deviceID, label: label, credentialDigest: CanopyCloudBundle.credentialDigest(credential))
+        )
+        let record = CanopyCloudBundleRecord(
+            bundleID: bundleID,
+            label: label,
+            createdAt: createdAt,
+            origin: canopy,
+            account: accountURL,
+            configurationTree: configurationTree,
+            deviceID: deviceID,
+            trees: [tree]
+        )
+        try CanopyCloudBundleRegistry.standard.save(record)
+        // Pull the new device into devices.yaml so Account lists it and revocation finds it.
+        try? await arborsync.synchronize(configurationTree: configurationTree)
+        _ = try? await localHostDevices(configurationTree: configurationTree)
+        return (record, bundle)
+    }
+
+    /// Remove an agent bundle's device from its account, as `arbor cloud
+    /// bundle revoke` does, then record the revocation in the registry.
+    func revokeAgentBundle(_ record: CanopyCloudBundleRecord) async throws {
+        if let arborsync = arborsyncClient {
+            try await arborsync.synchronize(configurationTree: record.configurationTree)
+        }
+        let devices = try AccountConfigurationYAML.devices(
+            from: readAccountConfigurationFile(record.configurationTree, named: "devices.yaml")
+        )
+        if devices[record.deviceID] != nil {
+            _ = try await deauthorizeLocalHostDevice(configurationTree: record.configurationTree, deviceID: record.deviceID)
+        }
+        try CanopyCloudBundleRegistry.standard.markRevoked(bundleID: record.bundleID, at: Date())
+    }
+
     private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
         guard let overview = localArborSyncOverview,

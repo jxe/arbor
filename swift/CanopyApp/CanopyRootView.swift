@@ -2737,6 +2737,13 @@ private struct CanopySharePanel: View {
     /// The access a group made from this panel receives once it exists.
     @State private var newGroupAccess = CanopyTreeAccess.read
 
+#if os(macOS)
+    @State private var agentBundles: [CanopyCloudBundleRecord] = []
+    @State private var agentPage = false
+    /// Whether the pushed agent page shows a created code, which needs more height.
+    @State private var agentPageShowsCode = false
+    @State private var revokingAgent: CanopyCloudBundleRecord?
+#endif
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -2773,6 +2780,15 @@ private struct CanopySharePanel: View {
                 }
             }
 #if os(iOS)
+#if os(macOS)
+            .navigationDestination(isPresented: $agentPage) {
+                if case let .tracked(access) = presentation {
+                    CanopyAgentBundlePage(workspace: workspace, access: access, showsCode: $agentPageShowsCode) { record in
+                        agentBundles.insert(record, at: 0)
+                    }
+                }
+            }
+#endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -2798,6 +2814,23 @@ private struct CanopySharePanel: View {
             }
         }
         .task { await load() }
+#if os(macOS)
+        .confirmationDialog(
+            "Revoke \(revokingAgent?.label ?? "agent code")?",
+            isPresented: Binding(
+                get: { revokingAgent != nil },
+                set: { if !$0 { revokingAgent = nil } }
+            ),
+            presenting: revokingAgent
+        ) { record in
+            Button("Revoke Agent Code", role: .destructive) {
+                Task { await revoke(record) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Machines using this code lose access to the account on their next request. Files they already downloaded stay on them.")
+        }
+#endif
         .onChange(of: selectedAccountID) { _, id in
             guard case let .promotable(path, accounts) = presentation,
                   let account = accounts.first(where: { $0.id == id }) else { return }
@@ -2814,10 +2847,12 @@ private struct CanopySharePanel: View {
     private var fittedMacHeight: CGFloat {
         let messageHeight: CGFloat = message == nil ? 0 : 52
         switch presentation {
+        if agentPage { return agentPageShowsCode ? 580 : 340 }
         case .tracked(let access):
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
-            return min(640, max(300, 190 + CGFloat(rows) * 62 + messageHeight))
+            let agents: CGFloat = 96 + CGFloat(agentBundles.count) * 44
+            return min(720, max(300, 190 + CGFloat(rows) * 62 + agents + messageHeight))
         case .promotable(_, let accounts):
             return accounts.isEmpty ? 300 + messageHeight : 430 + messageHeight
         case nil:
@@ -2888,7 +2923,52 @@ private struct CanopySharePanel: View {
                 .disabled(busy || !access.canEdit)
         } header: { Text("Scoped and app permissions") }
     }
+#if os(macOS)
+        Section {
+            ForEach(agentBundles) { record in
+                agentRow(record, canEdit: access.canEdit)
+            }
+            Button("Use with an agent…", systemImage: "terminal") { agentPage = true }
+                .disabled(busy || !access.canEdit)
+        } header: {
+            Text("Agents")
+        } footer: {
+            Text("An agent code lets a coding agent's cloud machine check out this tree with `arbor cloud start`.")
+        }
+#endif
+    }
 
+#if os(macOS)
+    private func agentRow(_ record: CanopyCloudBundleRecord, canEdit: Bool) -> some View {
+        HStack(spacing: 12) {
+            accessIcon(systemName: "terminal", tint: .teal)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(record.label)
+                if let created = record.created {
+                    Text("Agent code · created \(created.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            Button("Revoke", role: .destructive) { revokingAgent = record }
+                .disabled(busy || !canEdit)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func revoke(_ record: CanopyCloudBundleRecord) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await workspace.revokeAgentBundle(record)
+            agentBundles.removeAll { $0.bundleID == record.bundleID }
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+
+#endif
     private var canCreateGroup: Bool {
 #if os(macOS)
         workspace.groupCreationAccount != nil
@@ -3102,6 +3182,11 @@ private struct CanopySharePanel: View {
             presentation = value
             message = nil
             if case let .promotable(path, accounts) = value, let first = accounts.first {
+#if os(macOS)
+            if case let .tracked(access) = value {
+                agentBundles = try workspace.agentBundles(tree: access.tree)
+            }
+#endif
                 selectedAccountID = first.id
                 canonicalURL = suggestedCanonical(path: path, account: first)
             }
@@ -3180,6 +3265,158 @@ private struct CanopySharePanel: View {
 }
 
 private struct CanopyDevicesHeader: View {
+#if os(macOS)
+/// Pushed from the Share panel: make an agent code for one tree and show it
+/// once, with how to use it. A macOS popover draws no navigation bar or
+/// toolbar items, so the page draws its own back button and actions.
+private struct CanopyAgentBundlePage: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: CanopyWorkspaceState
+    let access: NativeTreeAccessPresentation
+    @Binding var showsCode: Bool
+    let created: (CanopyCloudBundleRecord) -> Void
+    @State private var label = ""
+    @State private var bundle: String?
+    @State private var relativePath = "tree"
+    @State private var busy = false
+    @State private var copied = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.title3.weight(.semibold))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.borderless)
+                .help("Back to Share")
+                .accessibilityLabel("Back to Share")
+                .disabled(busy)
+                Text("Use with an Agent")
+                    .font(.title2.bold())
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+            Divider()
+            Form {
+                if let bundle {
+                    code(bundle)
+                } else {
+                    request
+                }
+                if let message {
+                    Section { Text(message).foregroundStyle(.red) }
+                }
+            }
+            Divider()
+            HStack {
+                Spacer()
+                if bundle == nil {
+                    Button("Create Agent Code") { Task { await create() } }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(busy || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else {
+                    Button("Done") { dismiss() }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(12)
+        }
+        .navigationBarBackButtonHidden(true)
+        // Escape goes back to Share rather than closing the popover.
+        .onExitCommand { if !busy { dismiss() } }
+        .onAppear {
+            if label.isEmpty { label = "Agent for \(treeName)" }
+        }
+        .onDisappear { showsCode = false }
+    }
+
+    private var treeName: String {
+        URL(string: access.canonical).map(\.lastPathComponent).flatMap { $0.isEmpty || $0 == "/" ? nil : $0 } ?? "this tree"
+    }
+
+    @ViewBuilder private var request: some View {
+        Section {
+            TextField("Name", text: $label)
+                .disabled(busy)
+        } footer: {
+            Text("The name appears in this panel and in your account's devices, so you can tell agent codes apart and revoke the right one.")
+        }
+        Section {
+            Label {
+                Text("The code places only \(treeName) on the agent's machine, but it signs in as a device of your account. Anyone who has it can read and change everything your account can until you revoke it.")
+            } icon: {
+                Image(systemName: "key.fill").foregroundStyle(.orange)
+            }
+            if busy { ProgressView("Creating agent code…") }
+        }
+    }
+
+    @ViewBuilder private func code(_ bundle: String) -> some View {
+        Section {
+            Label {
+                Text("This code is a secret. Keep it in your agent's secret store, never in a repository, prompt, or chat. Canopy shows it only this once.")
+            } icon: {
+                Image(systemName: "key.fill").foregroundStyle(.orange)
+            }
+            ScrollView {
+                Text(bundle)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 72)
+            HStack {
+                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(bundle) }
+                ShareLink(item: bundle) { Label("Share…", systemImage: "square.and.arrow.up") }
+                Spacer()
+            }
+        } header: {
+            Text("Agent code")
+        }
+        Section {
+            Text("On the agent's machine, set `ARBOR_CLOUD_BUNDLE` to the code, then:")
+            Text(verbatim: "arbor cloud start --root /workspace")
+                .font(.callout.monospaced())
+                .textSelection(.enabled)
+            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `arbor cloud finish --root /workspace` syncs its last changes.")
+        } header: {
+            Text("How to use it")
+        } footer: {
+            Text("Revoke the code from the Share panel when the agent no longer needs it.")
+        }
+    }
+
+    private func create() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let result = try await workspace.createAgentBundle(tree: access.tree, label: label)
+            relativePath = CanopyCloudBundle.relativePath(canonicalPath: URL(string: access.canonical)?.path ?? "")
+            bundle = result.bundle
+            showsCode = true
+            message = nil
+            created(result.record)
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func copy(_ bundle: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(bundle, forType: .string)
+        // Clipboard managers skip items marked concealed (nspasteboard.org).
+        pasteboard.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        copied = true
+    }
+}
+#endif
+
     var title = "Devices"
     var showsAddAccount = true
     let addAccount: () -> Void
