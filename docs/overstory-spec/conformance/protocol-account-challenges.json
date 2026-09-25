@@ -36,6 +36,25 @@
         "issuedAt": 1,
         "expiresAt": 300001
       }
+    },
+    {
+      "name": "invitation-code",
+      "request": {
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "inviteCode": "abcdefghijklmnopqrstuv"
+      },
+      "response": {
+        "version": 1,
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://community.example",
+        "account": "https://community.example/~alice",
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1,
+        "expiresAt": 300001
+      }
     }
   ]
 }

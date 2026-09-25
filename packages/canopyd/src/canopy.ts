@@ -94,7 +94,7 @@ interface RootProfile {
   type: "person" | "group" | null;
   members: RootProfileFacts["members"];
   /** Community reservations: structured handles plus legacy `/~handle` locators. */
-  reservations: ReadonlyMap<string, { profileTree?: string }>;
+  reservations: ReadonlyMap<string, { profileTree?: string; inviteDigest?: string }>;
   /** Group membership for access: the Profile TreeID each member locator names. */
   profiles: ReadonlySet<string>;
   /** Group membership for access by a legacy `/~handle` locator alone. */
@@ -571,16 +571,21 @@ export class HostDaemon implements AsyncDisposable {
     account?: string;
     profileTree: string;
     configurationTree: string;
+    inviteCode?: string;
   }): AccountChallenge {
+    if (input.inviteCode && !/^[A-Za-z0-9_-]{22}$/.test(input.inviteCode)) throw new Error("Invitation code is invalid");
+    const inviteDigest = input.inviteCode ? `sha256:${sha256(input.inviteCode)}` : null;
     const matches = input.account === undefined
-      ? [...this.communityReservations()].filter(([, value]) => value.profileTree === input.profileTree)
+      ? [...this.communityReservations()].filter(([, value]) => inviteDigest
+        ? value.inviteDigest === inviteDigest : value.profileTree === input.profileTree)
       : [];
     if (input.account === undefined && matches.length !== 1) {
       throw new Error(matches.length ? "Several reservations match this identity; enter an exact account URL" : "This community has not reserved an account for this identity");
     }
     const account = input.account ?? `${input.origin}/~${matches[0]![0]}`;
     const reservation = this.accountReservation(account);
-    if (!reservation?.profileTree || reservation.profileTree !== input.profileTree) {
+    if (!reservation || (reservation.profileTree && reservation.profileTree !== input.profileTree)
+      || (!reservation.profileTree && (!reservation.inviteDigest || reservation.inviteDigest !== inviteDigest))) {
       throw new Error("Account challenge requires an exact profile reservation");
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
@@ -722,7 +727,7 @@ export class HostDaemon implements AsyncDisposable {
     );
   }
 
-  accountReservation(locator: string): { handle: string; profileTree?: string } | null {
+  accountReservation(locator: string): { handle: string; profileTree?: string; inviteDigest?: string } | null {
     let url: URL;
     try { url = new URL(locator); } catch { return null; }
     const host = (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value;
@@ -1008,6 +1013,7 @@ export class HostDaemon implements AsyncDisposable {
     challenge: AccountChallenge;
     publicKey: string;
     signature: string;
+    inviteCode?: string;
     deviceID: string;
     deviceLabel: string;
     credentialDigest: string;
@@ -1050,6 +1056,12 @@ export class HostDaemon implements AsyncDisposable {
     if (!this.communityReservations().has(input.handle)) {
       throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
     }
+    if (reservation.profileTree && reservation.profileTree !== input.profileTree) {
+      throw new Error("Account reservation names a different profile TreeID");
+    }
+    const invitation = reservation.inviteDigest
+      ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
+      : null;
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
     const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
     this.validateCurrentHostAccountPaths(input.handle, config);
@@ -1093,8 +1105,48 @@ export class HostDaemon implements AsyncDisposable {
         this.access.set(this.community().id, "profile", input.profileTree, "write");
         this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       }
+      if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
     })();
+    if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
+  }
+
+  /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
+  private async prepareInvitationClaim(handle: string, digest: string, code: string | undefined, profileTree: string) {
+    if (!code || !/^[A-Za-z0-9_-]{22}$/.test(code) || `sha256:${sha256(code)}` !== digest) {
+      throw new Error("Invitation code is invalid");
+    }
+    const community = this.community();
+    const directory = decodeProtocolDirectory(await this.objects.load(community.ref));
+    const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
+    if (index < 0) throw new ServerFaultError("Community profile has no root document");
+    const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
+    const newline = source.includes("\r\n") ? "\r\n" : "\n";
+    const lines = source.split(newline);
+    const end = lines.indexOf("---", 1);
+    const matches: Array<{ start: number; count: number }> = [];
+    const handleLine = new RegExp(`^handle: ["']?${handle}["']?$`);
+    const digestLine = new RegExp(`^inviteDigest: ["']?${digest}["']?$`);
+    for (let i = 1; i < end - 1; i++) {
+      if (lines[i]?.trim().match(new RegExp(`^- handle: ["']?${handle}["']?$`))
+        && lines[i + 1]?.trim().match(digestLine)) matches.push({ start: i, count: 2 });
+      if (lines[i]?.trim() === "-" && lines[i + 1]?.trim().match(handleLine)
+        && lines[i + 2]?.trim().match(digestLine)) matches.push({ start: i, count: 3 });
+    }
+    if (matches.length !== 1) throw new Error("Invitation entry changed; ask the administrator to renew it");
+    const match = matches[0]!;
+    const indent = lines[match.start]!.match(/^\s*/)?.[0] ?? "  ";
+    lines.splice(match.start, match.count, `${indent}- profile: ${JSON.stringify(`arbor://${profileTree}/`)}`, `${indent}  handle: ${JSON.stringify(handle)}`);
+    const bytes = new TextEncoder().encode(lines.join(newline));
+    const file = hashObject(bytes);
+    const nextDirectory = encodeProtocolDirectory({
+      ...directory,
+      entries: directory.entries.map((entry, i) => i === index ? { name: entry.name, file } : entry),
+    });
+    const root = hashObject(nextDirectory);
+    const generated = new Map<ObjectHash, Uint8Array>([[file, bytes], [root, nextDirectory]]);
+    await this.validateGraph(root, generated, community.ref);
+    return this.prepareParentAdvance({ parent: community, nextRoot: root, generated });
   }
 
   /** Attach the transition from the candidate root to the accepted root whenever the two differ. */
@@ -2134,7 +2186,7 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** Current-Canopy allocation policy: the community's member handles reserve /~handle. */
-  private communityReservations(): ReadonlyMap<string, { profileTree?: string }> {
+  private communityReservations(): ReadonlyMap<string, { profileTree?: string; inviteDigest?: string }> {
     return this.rootProfile(this.community().id).reservations;
   }
 
@@ -2291,8 +2343,17 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Enable exactly the accounts the accepted community root lists; callers run this inside their transaction. */
   private reconcileCommunityAccounts(community: RootProfileFacts | null): void {
-    const members = [...memberReservations(community?.members ?? []).keys()];
-    this.db.run("UPDATE accounts SET enabled = handle IN (SELECT value FROM json_each(?))", [JSON.stringify(members)]);
+    const members = [...memberReservations(community?.members ?? [])].map(([handle, reservation]) => ({
+      handle,
+      profileTree: reservation.profileTree ?? null,
+      legacy: !reservation.profileTree && !reservation.inviteDigest,
+    }));
+    this.db.run(`UPDATE accounts SET enabled = EXISTS (
+      SELECT 1 FROM json_each(?) AS member
+      WHERE json_extract(member.value, '$.handle') = accounts.handle
+      AND (json_extract(member.value, '$.profileTree') = accounts.profile_tree
+        OR json_extract(member.value, '$.legacy') = 1)
+    )`, [JSON.stringify(members)]);
   }
 
   private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>, acceptedBasis?: ObjectHash): Promise<void> {

@@ -256,10 +256,10 @@ public actor ProtocolClient {
         return try value.validated()
     }
 
-    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String) async throws -> ProtocolAccountChallenge {
+    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
             path: "/.arbor/account-challenges",
-            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree),
+            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode),
             authorized: false
         )
         return try value.validated()
@@ -617,6 +617,7 @@ private struct AccountChallengeRequest: Encodable {
     var account: String?
     var profileTree: String
     var configurationTree: String
+    var inviteCode: String?
 }
 private struct PairingClaimBody: Encodable {
     var secret: String

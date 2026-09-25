@@ -326,7 +326,8 @@ are same-user loopback operations with the same credential boundary described
 above. Backup bodies must never be logged.
 
 Account bootstrap accepts either a community origin or an exact account URL in
-`account`. It stores the resolved URL from the signed challenge in its durable
+`account`, plus an optional `inviteCode` for a pending community invitation.
+It stores the resolved URL and code from the signed challenge in its private durable
 pending claim and resumes the same claim after interruption.
 Preparations do not install account checkout files until the host accepts the
 claim. `POST /v1/bootstrap/accounts/cancel` abandons only a preparation that has

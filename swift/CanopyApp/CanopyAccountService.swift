@@ -109,7 +109,7 @@ protocol CanopyAccountService: Sendable {
     /// Claim `account` (an account URL on a Canopy) with this device's profile
     /// identity, resuming a pending claim for it. The data home names its own
     /// device and ignores `deviceLabel`.
-    func claimAccount(_ account: String, deviceLabel: String) async throws
+    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws
     func cancelPendingClaim() async throws
     /// Claim a pairing offer (a `PairingPayload` as JSON). The data home names
     /// its own device and ignores `deviceLabel`.
@@ -121,6 +121,9 @@ protocol CanopyAccountService: Sendable {
 }
 
 extension CanopyAccountService {
+    func claimAccount(_ account: String, deviceLabel: String) async throws {
+        try await claimAccount(account, deviceLabel: deviceLabel, inviteCode: nil)
+    }
     func accounts() async throws -> [CanopyAccount] { try await state().accounts }
 
     /// A protocol client for `account`'s Canopy with its credential.
@@ -172,12 +175,12 @@ struct KeychainAccountService: CanopyAccountService {
         throw CanopyAccountServiceError.unsupported(.backupIdentity)
     }
 
-    func claimAccount(_ account: String, deviceLabel: String) async throws {
+    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws {
         guard let url = URL(string: account.trimmingCharacters(in: .whitespacesAndNewlines)),
               let origin = Self.origin(of: url) else {
             throw CanopyAccountServiceError.invalidAccount("Enter the account URL on its Canopy")
         }
-        _ = try await NativeAccountService(origin: origin).claimAccount(account: url, label: deviceLabel)
+        _ = try await NativeAccountService(origin: origin).claimAccount(account: url, label: deviceLabel, inviteCode: inviteCode)
     }
 
     func cancelPendingClaim() async throws {

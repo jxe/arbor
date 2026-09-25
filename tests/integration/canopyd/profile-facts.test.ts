@@ -206,3 +206,14 @@ test("the community's accounts reconcile only when its members change", async ()
   expect(facts(ids.community).members.map((member: { handle?: string }) => member.handle)).toContain("carol");
   expect(bobEnabled()).toBe(1);
 });
+
+test("a pending invitation does not reactivate an existing account with the same handle", async () => {
+  const current = await index(ids.community);
+  const bob = `  -\n    profile: ${JSON.stringify(`arbor://${ids.bobProfile}/`)}\n    handle: "bob"`;
+  expect(current).toContain(bob);
+  const pending = `  - handle: bob\n    inviteDigest: sha256:${"a".repeat(64)}`;
+  await edit(ids.community, { "_index.md": current.replace(bob, pending) });
+  expect((db.query("SELECT enabled FROM accounts WHERE handle = 'bob'").get() as { enabled: number }).enabled).toBe(0);
+  expect(running.canopy.accountReservation(`${new URL(running.url).origin}/~bob`)?.inviteDigest)
+    .toBe(`sha256:${"a".repeat(64)}`);
+});

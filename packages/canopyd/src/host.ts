@@ -338,8 +338,8 @@ export async function serveHost(options: {
           return json(canopy.createPairing(requireAccount(authentication)), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
-          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
+          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
+          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
             throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
           }
           return json(canopy.createAccountChallenge({
@@ -347,6 +347,7 @@ export async function serveHost(options: {
             account: body.account,
             profileTree: body.profileTree,
             configurationTree: body.configurationTree,
+            inviteCode: body.inviteCode as string | undefined,
           }), 201);
         }
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
@@ -407,6 +408,7 @@ export async function serveHost(options: {
             challenge?: AccountChallenge;
             publicKey?: unknown;
             signature?: unknown;
+            inviteCode?: unknown;
             device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
             configuration?: { root?: unknown; objects?: unknown };
           };
@@ -416,6 +418,7 @@ export async function serveHost(options: {
           if (
             !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
             || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
+            || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
             || typeof body.device.credentialDigest !== "string" || !body.configuration
           ) throw new Error("Account join requires an exact community reservation, generated identities, credential digest, and initial configuration");
@@ -431,6 +434,7 @@ export async function serveHost(options: {
             challenge: body.challenge,
             publicKey: body.publicKey,
             signature: body.signature,
+            inviteCode: body.inviteCode as string | undefined,
             deviceID: body.device.id,
             deviceLabel: body.device.label,
             credentialDigest: body.device.credentialDigest,

@@ -34,12 +34,13 @@ export function accountHandler(service: LocalAccountService) {
       return json({ cancelled: true });
     }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts") {
-      const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown };
+      const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown; inviteCode?: unknown };
       if (
         typeof body.account !== "string" || typeof body.path !== "string"
         || (body.displayName !== undefined && typeof body.displayName !== "string")
+        || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
       ) throw new ProtocolError("invalid-request", "Account bootstrap requires an account locator and local profile path", 400);
-      return json(await service.claimHostAccount(body.account, body.path, body.displayName as string | undefined), 201);
+      return json(await service.claimHostAccount(body.account, body.path, body.displayName as string | undefined, body.inviteCode as string | undefined), 201);
     }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings/claim") {
       const body = await request.json() as { payload?: unknown };

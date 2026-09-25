@@ -7,12 +7,28 @@ import SwiftUI
 struct CanopyMacLaunchView: View {
     let workspace: CanopyWorkspaceState
     @State private var ready = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    @State private var joinAccount: String?
+    @State private var joinCode: String?
+    @State private var showingJoin = false
 
     var body: some View {
-        if ready {
-            CanopyRootView(workspace: workspace)
-        } else {
-            CanopyMacOnboarding(workspace: workspace, resumeExisting: true) { ready = true }
+        Group {
+            if ready {
+                CanopyRootView(workspace: workspace)
+            } else {
+                CanopyMacOnboarding(workspace: workspace, resumeExisting: true, initialCommunity: joinAccount, initialCode: joinCode) { ready = true }
+            }
+        }
+        .onOpenURL { url in
+            guard url.scheme == "canopy", url.host == "join",
+                  let account = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "account" })?.value,
+                  let target = URL(string: account), target.scheme == "https" || target.host == "127.0.0.1" else { return }
+            joinAccount = account
+            joinCode = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "code" })?.value
+            showingJoin = ready
+        }
+        .sheet(isPresented: $showingJoin) {
+            CanopyMacOnboarding(workspace: workspace, addingAccount: true, initialCommunity: joinAccount, initialCode: joinCode) { showingJoin = false }
         }
     }
 }
@@ -23,6 +39,8 @@ struct CanopyMacOnboarding: View {
     let workspace: CanopyWorkspaceState
     var resumeExisting = false
     var addingAccount = false
+    var initialCommunity: String?
+    var initialCode: String?
     let complete: () -> Void
     @State private var state: CanopyAccountState?
     @State private var connected = false
@@ -31,6 +49,7 @@ struct CanopyMacOnboarding: View {
     @State private var busy = false
     @State private var message: String?
     @State private var community = ""
+    @State private var inviteCode = ""
     @State private var pairingCode = ""
     @State private var treeChoices: [ProtocolTreeDescriptor] = []
     @State private var treeOrigin: URL?
@@ -122,11 +141,14 @@ struct CanopyMacOnboarding: View {
                             } else {
                                 TextField("https://community.example", text: $community)
                             }
+                            SecureField("Invitation code (if you have one)", text: $inviteCode)
                             Button(state.pendingClaim == nil ? "Connect" : "Resume Connection") {
                                 run { service in
                                     let target = state.pendingClaim?.account ?? community.trimmingCharacters(in: .whitespacesAndNewlines)
                                     let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
-                                    try await service.claimAccount(target, deviceLabel: Self.deviceLabel)
+                                    try await service.claimAccount(target, deviceLabel: Self.deviceLabel,
+                                        inviteCode: inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                            ? nil : inviteCode.trimmingCharacters(in: .whitespacesAndNewlines))
                                     try await reload()
                                     if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
                                         try await chooseTrees(account)
@@ -164,6 +186,11 @@ struct CanopyMacOnboarding: View {
                     Button(addingAccount ? "Done" : "Continue with Local Files", action: complete)
                 } else {
                     Section("Set up your identity") {
+                        if initialCommunity != nil {
+                            Text("Create your identity to join this Canopy. Your invitation link will stay ready here.")
+                                .foregroundStyle(.secondary)
+                            Text(initialCommunity ?? "").font(.caption.monospaced()).textSelection(.enabled)
+                        }
                         Button("Create Identity") {
                             run { service in try await service.createIdentity(); try await reload() }
                         }
@@ -183,7 +210,13 @@ struct CanopyMacOnboarding: View {
         .formStyle(.grouped)
         .frame(minWidth: 520, minHeight: 480)
         .disabled(busy)
-        .task { await load() }
+        .task {
+            if let initialCommunity { community = initialCommunity }
+            if let initialCode { inviteCode = initialCode }
+            await load()
+        }
+        .onChange(of: initialCommunity) { _, value in if let value { community = value } }
+        .onChange(of: initialCode) { _, value in if let value { inviteCode = value } }
     }
 
     private func load() async {

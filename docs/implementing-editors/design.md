@@ -89,6 +89,15 @@ An unresolved URL for a reserved canopyd account renders with a **Claim** action
 
 Community and group profiles remain authored trees rather than a separate account/group database. Each structured `members` entry requires `profile: arbor://<TreeID>/`; an optional bare `handle` is current-canopyd policy that also reserves `/~handle` for that identity. Overstory clients show one person per row in a **Members** sheet (**People** on the community tree) that adds and removes entries without flattening the YAML array. Removing a community member asks first, because it disables any account allocated by that entry; removing an ordinary group member is an ordinary, undoable page edit.
 
+On the community profile, **Add a person** can instead generate a random
+one-time code and write a pending `handle` plus `inviteDigest` entry. The sheet
+shows a `canopy://join?account=…&code=…` link containing the account URL and
+code once, for the
+administrator to share after the invitation syncs. Opening that link on a Mac enters Canopy onboarding:
+it uses an available local identity or prompts the recipient to create one,
+then claims the account. The code does not enter the authored profile in plain
+text. After claim, the host replaces the pending entry with the Profile TreeID.
+
 The **People** view is the account-scoped directory for name-based sharing. It
 combines community members, members of readable groups, and profiles already
 named by the account's access rules; shows people and groups separately; and

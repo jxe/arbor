@@ -58,6 +58,20 @@ struct CanopyAppTests {
         )
         #expect(direct.contains("  - profile: \"arbor://\(personTree)/\"\n    handle: \"direct-person\"\n"))
         #expect(CanopyProfileDocument.parse(direct)?.memberHandlesByProfile["arbor://\(personTree)/"] == "direct-person")
+        let invitation = try CanopyProfileDocument.addingInvitation(
+            handle: "~invited-person",
+            digest: "sha256:" + String(repeating: "a", count: 64),
+            to: groupSource
+        )
+        #expect(invitation.contains("  - handle: \"invited-person\"\n    inviteDigest: \"sha256:"))
+        let pending = try #require(CanopyProfileDocument.parse(invitation))
+        #expect(pending.memberHandles.contains("invited-person"))
+        #expect(pending.members.contains { $0.handle == "invited-person" && $0.treeID == nil })
+        #expect(throws: (any Error).self) {
+            try CanopyProfileDocument.addingInvitation(handle: "invited-person", digest: "sha256:" + String(repeating: "b", count: 64), to: invitation)
+        }
+        let removedInvitation = try CanopyProfileDocument.removingMember(profile: "invite:sha256:" + String(repeating: "a", count: 64), from: invitation)
+        #expect(!removedInvitation.contains("inviteDigest"))
         #expect(throws: (any Error).self) {
             try CanopyProfileDocument.addingMember(
                 profileTree: "tr_" + String(repeating: "b", count: 52),
@@ -1305,7 +1319,7 @@ private actor RecordingAccountService: CanopyAccountService {
     func createIdentity() {}
     func restoreIdentity(backup _: Data) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
     func backupIdentity(to _: URL) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
-    func claimAccount(_: String, deviceLabel _: String) {}
+    func claimAccount(_: String, deviceLabel _: String, inviteCode _: String?) {}
     func cancelPendingClaim() throws { throw CanopyAccountServiceError.unsupported(.cancelPendingClaim) }
     func claimPairing(_: Data, deviceLabel _: String) -> CanopyPairingClaim {
         CanopyPairingClaim(configurationTree: nil, confirmationCode: nil)

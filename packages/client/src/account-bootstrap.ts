@@ -23,6 +23,7 @@ interface PendingAccountClaimBootstrap {
   challenge?: AccountChallenge;
   publicKey?: string;
   signature?: string;
+  inviteCode?: string;
 }
 
 const bootstrapSnapshot = decodeTreeSnapshotJSON;
@@ -41,6 +42,7 @@ async function claimAccountProfileBootstrap(
   accountLocator: string,
   inputPath: string,
   displayName?: string,
+  inviteCode?: string,
 ): Promise<MutationReceipt["effects"]> {
   let accountURL: URL;
   try {
@@ -94,6 +96,10 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "A different account bootstrap is already pending in this data home", 409);
     }
     credential = await new HostAccountStore(pending.configurationTree).provisionalCredential();
+    if (inviteCode && pending.inviteCode && inviteCode !== pending.inviteCode) {
+      throw new ProtocolError("conflict", "A different invitation code is already pending for this account", 409);
+    }
+    if (inviteCode && !pending.inviteCode) pending.inviteCode = inviteCode;
     if (!credential || `sha256:${sha256(credential)}` !== pending.credentialDigest) {
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
@@ -162,6 +168,7 @@ async function claimAccountProfileBootstrap(
         configurationTree,
         deviceID,
         credentialDigest: `sha256:${sha256(credential)}`,
+        ...(inviteCode ? { inviteCode } : {}),
         files,
         configuration: persistableBootstrapSnapshot(await resolveSnapshot(await snapshotDirectory(staging))),
       };
@@ -182,6 +189,7 @@ async function claimAccountProfileBootstrap(
       account: pending.account === origin ? undefined : pending.account,
       profileTree: pending.profileTree,
       configurationTree: pending.configurationTree,
+      inviteCode: pending.inviteCode,
     });
     if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
       throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
@@ -203,6 +211,7 @@ async function claimAccountProfileBootstrap(
       account: pending.account,
       profileTree: pending.profileTree,
       configurationTree: pending.configurationTree,
+      inviteCode: pending.inviteCode,
       challenge: pending.challenge!,
       publicKey: pending.publicKey!,
       signature: pending.signature!,
@@ -219,6 +228,7 @@ async function claimAccountProfileBootstrap(
       account: pending.account === origin ? undefined : pending.account,
       profileTree: pending.profileTree,
       configurationTree: pending.configurationTree,
+      inviteCode: pending.inviteCode,
     });
     if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
       throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
@@ -278,9 +288,10 @@ export async function claimHostAccountBootstrap(
   accountLocator: string,
   inputPath: string,
   displayName?: string,
+  inviteCode?: string,
 ): Promise<MutationReceipt["effects"]> {
   return withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"),
-    () => claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName));
+    () => claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName, inviteCode));
 }
 
 /** Only preparations which have never been submitted can be abandoned. */

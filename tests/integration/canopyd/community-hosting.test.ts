@@ -22,7 +22,7 @@ let sandbox: string;
 let running: Awaited<ReturnType<typeof serveHost>>;
 let owner: ProtocolClient;
 
-type CommunityMember = string | { profile?: string; handle?: string };
+type CommunityMember = string | { profile?: string; handle?: string; inviteDigest?: string };
 
 async function profileFolder(name: string, kind: "person" | "group", members: CommunityMember[] = []): Promise<string> {
   const path = join(sandbox, name);
@@ -32,7 +32,7 @@ async function profileFolder(name: string, kind: "person" | "group", members: Co
     `type: ${kind}`,
     ...(kind === "group" ? ["members:", ...members.flatMap((member) => typeof member === "string"
       ? [`  - ${JSON.stringify(member)}`]
-      : ["  -", ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []), ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : [])])] : []),
+      : ["  -", ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []), ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []), ...(member.inviteDigest ? [`    inviteDigest: ${JSON.stringify(member.inviteDigest)}`] : [])])] : []),
     "---",
     "",
     `# ${name}`,
@@ -75,6 +75,63 @@ afterAll(async () => {
 });
 
 describe("client-generated profile and account-configuration bootstrap", () => {
+  test("an invitation code claims a community slot and replaces it with the proven Profile TreeID", async () => {
+    const origin = new URL(running.url).origin;
+    const handle = "invited-person";
+    const inviteCode = "abcdefghijklmnopqrstuv";
+    const digest = `sha256:${sha256(inviteCode)}`;
+    const community = running.canopy.community();
+    const head = await owner.descriptor(community.id);
+    const snapshot = await owner.snapshot(community.id, head.tree.root);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
+    const source = new TextDecoder().decode(snapshot.objects.get(index)!);
+    const pending = `  - handle: ${JSON.stringify(handle)}\n    inviteDigest: ${JSON.stringify(digest)}`;
+    const bytes = new TextEncoder().encode(source.replace("members:\n", `members:\n${pending}\n`));
+    const file = hashObject(bytes);
+    const rootBytes = encodeProtocolDirectory({
+      type: "directory",
+      entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry),
+    });
+    const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [file, bytes], [hashObject(rootBytes), rootBytes]]) };
+    await owner.submitUpdate(community.id, head.tree.update, candidate, { ifCurrent: head.tree.update });
+    expect(running.canopy.accountReservation(`${origin}/~${handle}`)?.inviteDigest).toBe(digest);
+
+    const identity = testProfileIdentity();
+    const configurationTree = generateArborID("tr");
+    const deviceID = generateArborID("dv");
+    const credential = "invited-person-device-credential";
+    const client = new ProtocolClient(running.url);
+    const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, configurationTree, inviteCode });
+    expect(challenge.account).toBe(`${origin}/~${handle}`);
+    const request = {
+      account: challenge.account,
+      profileTree: identity.profileTree,
+      configurationTree,
+      challenge,
+      publicKey: identity.publicKey,
+      signature: identity.sign(challenge),
+      device: { id: deviceID, label: "Invited Mac", credentialDigest: `sha256:${sha256(credential)}` as const },
+      configuration: snapshotAccountConfig({
+        account: { canopy: origin, profile: identity.profileTree },
+        resources: { [identity.profileTree]: { canonical: `${origin}/~${handle}`, access: [] } },
+        devices: { [deviceID]: { id: deviceID, label: "Invited Mac", administrator: true } },
+      }),
+    };
+    await expect(client.joinAccount({ ...request, inviteCode: "wrong-code" })).rejects.toThrow("Invitation code is invalid");
+    expect(running.canopy.accountByHandle(handle)).toBeNull();
+    const claimed = await client.joinAccount({ ...request, inviteCode });
+    expect(claimed.account.profileTree).toBe(identity.profileTree);
+    expect((await client.joinAccount({ ...request, inviteCode })).account.id).toBe(claimed.account.id);
+    const accepted = await owner.descriptor(community.id);
+    const acceptedSnapshot = await owner.snapshot(community.id, accepted.tree.root);
+    const acceptedRoot = decodeProtocolDirectory(acceptedSnapshot.objects.get(acceptedSnapshot.root)!);
+    const acceptedIndex = acceptedRoot.entries.find((entry) => entry.name === "_index.md")!.file!;
+    const acceptedSource = new TextDecoder().decode(acceptedSnapshot.objects.get(acceptedIndex)!);
+    expect(acceptedSource).toContain(`profile: ${JSON.stringify(`arbor://${identity.profileTree}/`)}`);
+    expect(acceptedSource).not.toContain(digest);
+  });
+
   test("does not expose the legacy snapshot-upload claim route", async () => {
     const response = await fetch(`${running.url}/.arbor/claims/alice`, { method: "PUT" });
     expect(response.status).toBe(404);
@@ -316,6 +373,27 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       expect(new Set(pluralAccounts.map((account) => account.handle))).toEqual(new Set(["charlie", "charlie-two"]));
       configurationTrees.push(pluralAccounts.find((account) => account.configurationTree !== configurationTree)!.configurationTree);
       expect(await readFile(join(home, "placements.yaml"), "utf8")).toBe(retainedPlacements);
+
+      const code = "ZYXWVUTSRQPONMLKJIHGFE";
+      const invitedCommunity = await owner.descriptor(running.canopy.community().id);
+      const invitedSource = await profileFolder("community-with-code", "group", [
+        { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
+        { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
+        { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
+        { profile: `arbor://${localProfileTree}/`, handle: "charlie" },
+        { profile: `arbor://${localProfileTree}/`, handle: "charlie-two" },
+        { handle: "charlie-invited", inviteDigest: `sha256:${sha256(code)}` },
+      ]);
+      const invitedNested = new Map(running.canopy.list()
+        .filter((tree) => tree.parentTree === invitedCommunity.tree.id && tree.canonicalPath)
+        .map((tree) => [join(invitedSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
+      await owner.submitUpdate(invitedCommunity.tree.id, invitedCommunity.tree.update,
+        await resolveSnapshot(await snapshotDirectory(invitedSource, invitedNested)));
+      await new LocalAccountService({ trees: service.trees, events: service.events })
+        .claimHostAccount(new URL(running.url).origin, profilePath, "Charlie", code);
+      const invitedAccounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
+      expect(invitedAccounts.map((account) => account.handle)).toContain("charlie-invited");
+      configurationTrees.push(invitedAccounts.find((account) => account.handle === "charlie-invited")!.configurationTree);
     } finally {
       await service[Symbol.asyncDispose]();
       await Promise.all(configurationTrees.map((configurationTree) => new HostAccountStore(configurationTree).remove()));

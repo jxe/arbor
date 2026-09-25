@@ -60,7 +60,7 @@ for membership without hosting, a distinguished home host, a separate
 principal, or account roles. Device administration is the one authority bit in
 the configuration graph.
 
-Every structured `members` entry requires the stable `profile` locator, and
+Every claimed structured `members` entry requires the stable `profile` locator, and
 membership, including membership used by access rules, is decided by that
 Profile TreeID alone. A host may define further per-member fields for its own
 account allocation, such as [canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) `handle`, which
@@ -68,6 +68,17 @@ reserves an account for exactly that profile; they never establish identity or
 membership. The person can create the profile tree locally first and share its
 raw TreeID locator with the host's administrator. A scalar member locator is
 legacy input compatibility, not the normative authored form.
+
+canopyd also accepts a pending community invitation with `handle` and
+`inviteDigest: sha256:<hex>` in place of `profile`. It reserves the account
+address but is not yet a member for access purposes. The administrator gives
+the prospective member a 22-character base64url code generated from 16 random
+bytes; the SHA-256 digest of its UTF-8 text is authored there. The invitation
+remains valid until claimed or removed from the community profile.
+On a successful signed claim, canopyd replaces that entry with the claimant's
+`profile` locator and retains its handle. This pending form is host allocation
+policy, not a group membership identity; other group profiles continue to name
+members by Profile TreeID.
 
 ### 1.1 Beginning a person identity
 
@@ -114,14 +125,16 @@ PUT /.arbor/accounts
 
 The community administrator first records an exact structured member containing
 the person's public profile TreeID and the host's local allocation for it
-(canopyd's `handle`). The person may
-send that public TreeID by any ordinary channel; no claim secret is needed. A
+(canopyd's `handle`), or a pending invitation with a code digest and handle.
+The person may send that public TreeID by any ordinary channel. An invited
+person instead receives the code and creates their profile identity locally. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.
 
 The challenge request contains `profileTree`, `configurationTree`, and an
-optional `account` URL. If `account` is omitted, the host resolves the unique
-community reservation for that profile identity. No match is an unassigned
+optional `account` URL or invitation code. If `account` is omitted, the host
+resolves the unique community reservation for that profile identity or code.
+No match is an unassigned
 membership; several matches require an explicit account URL. An already-claimed
 reservation retains the existing already-claimed response. Resolution does not
 require the community profile to be publicly readable and grants no authority.
@@ -131,12 +144,12 @@ origin and any explicitly requested account before signing.
 
 Before account creation, the host returns a random, single-use, short-lived
 challenge bound to its normalized origin, the complete allocated account URL,
-the reserved profile TreeID, and the proposed configuration TreeID. The client
+the challenged profile TreeID, and the proposed configuration TreeID. The client
 signs the canonical CBOR encoding of the complete challenge with the profile
 private key. The account-claim body carries the challenge, raw public key, and
 Ed25519 signature alongside the proposed device and configuration data. The
 host verifies the challenge and expiry, hashes the supplied public key to the
-reserved profile TreeID, and verifies the signature locally. It contacts no
+challenged profile TreeID, and verifies the signature locally. It contacts no
 other host.
 
 The account-claim body names the host-allocated account locator, that existing
@@ -147,9 +160,13 @@ path. The server validates the reservation and configuration, then atomically
 creates the host account, private configuration tree, credential binding,
 accepted update, first administrator, and any declared-tree reservations. It
 does not create, copy, locate, or host the profile tree. Exact retry is
-idempotent; a different attempt after success returns `already-claimed`. No
-response returns a raw device credential. The exact profile TreeID in the
-administrator-authored member reservation selects who may claim, while the
+idempotent; a different attempt after success returns `already-claimed`. For
+a pending invitation, the body also supplies its code. The host verifies the
+digest and advances the community profile to an accepted root with that entry
+replaced by the proven Profile TreeID in the same commit. No
+response returns a raw device credential. An exact profile reservation selects
+who may claim; an invitation code permits its holder to bind the pending slot
+to their identity. The
 profile-key signature proves control of that identity. Exact replay of one
 successful claim is idempotent; an altered, expired, already-consumed, or
 wrong-target challenge fails closed.

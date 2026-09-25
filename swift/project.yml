@@ -53,6 +53,9 @@ targets:
       path: CanopyApp/Info.plist
       properties:
         CFBundleDisplayName: Canopy
+        CFBundleURLTypes:
+          - CFBundleURLName: org.nxhx.Arbor.join
+            CFBundleURLSchemes: [canopy]
         LSMultipleInstancesProhibited: true
         LSApplicationCategoryType: public.app-category.productivity
         NSCameraUsageDescription: Scan one-time Canopy device-pairing QR codes.

@@ -21,25 +21,25 @@ export function leadingHandle(path: string): string | undefined {
 }
 
 /** The Profile TreeID an `arbor://<TreeID>/` member locator names. */
-export function profileLocatorTree(locator: string): string | undefined {
-  return PROFILE_LOCATOR.exec(locator)?.[1];
+export function profileLocatorTree(locator: string | undefined): string | undefined {
+  return locator ? PROFILE_LOCATOR.exec(locator)?.[1] : undefined;
 }
 
 /** The handle a legacy scalar member's `/~handle` locator names. */
-export function legacyMemberHandle(member: { profile: string; legacy?: true }): string | undefined {
-  return member.legacy ? LEGACY_HANDLE_LOCATOR.exec(member.profile)?.[1] : undefined;
+export function legacyMemberHandle(member: { profile?: string; legacy?: true }): string | undefined {
+  return member.legacy && member.profile ? LEGACY_HANDLE_LOCATOR.exec(member.profile)?.[1] : undefined;
 }
 
 /** The handles a group's members reserve on this Canopy: each structured
  * handle, with the Profile TreeID its locator names, and each legacy
  * `/~handle` locator's handle, which names no profile. */
-export function memberReservations(members: RootProfileFacts["members"]): Map<string, { profileTree?: string }> {
-  const reservations = new Map<string, { profileTree?: string }>();
+export function memberReservations(members: RootProfileFacts["members"]): Map<string, { profileTree?: string; inviteDigest?: string }> {
+  const reservations = new Map<string, { profileTree?: string; inviteDigest?: string }>();
   for (const member of members) {
     const handle = member.handle ?? legacyMemberHandle(member);
     if (!handle) continue;
     const profileTree = member.legacy ? undefined : profileLocatorTree(member.profile);
-    reservations.set(handle, profileTree ? { profileTree } : {});
+    reservations.set(handle, profileTree ? { profileTree } : member.inviteDigest ? { inviteDigest: member.inviteDigest } : {});
   }
   return reservations;
 }
@@ -47,7 +47,7 @@ export function memberReservations(members: RootProfileFacts["members"]): Map<st
 export interface RootProfileFacts {
   version: 3;
   type: "person" | "group" | null;
-  members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  members: Array<{ profile?: string; handle?: string; inviteDigest?: string; legacy?: true }>;
   displayName?: string;
   headingTitle?: string;
   description?: string;
@@ -121,9 +121,11 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
     const candidate = value as Record<string, unknown>;
     const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile : undefined;
     const handle = typeof candidate.handle === "string" && HANDLE.test(candidate.handle) ? candidate.handle : undefined;
-    if (!profile) return [];
-    if (Object.keys(candidate).some((key) => key !== "profile" && key !== "handle")) return [];
-    return [{ profile, ...(handle ? { handle } : {}) }];
+    const inviteDigest = typeof candidate.inviteDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(candidate.inviteDigest)
+      ? candidate.inviteDigest : undefined;
+    if (!(profile && !inviteDigest) && !(handle && inviteDigest && !profile)) return [];
+    if (Object.keys(candidate).some((key) => key !== "profile" && key !== "handle" && key !== "inviteDigest")) return [];
+    return [{ ...(profile ? { profile } : {}), ...(handle ? { handle } : {}), ...(inviteDigest ? { inviteDigest } : {}) }];
   });
   const displayName = validateProfileDisplayName(frontmatter.displayName);
   const headingTitle = type === "group"

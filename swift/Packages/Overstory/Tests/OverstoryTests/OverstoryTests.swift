@@ -534,19 +534,20 @@ struct UpdateProtocolTests {
     @Test("Community-address and exact-account requests share the account-bound challenge")
     func accountChallengeFixtures() async throws {
         struct Case: Decodable { var request: Request; var response: ProtocolAccountChallenge }
-        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String }
+        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String; var inviteCode: String? }
         struct Fixture: Decodable { var cases: [Case] }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
         for item in fixture.cases {
             let response = try JSONEncoder().encode(item.response)
             await HostURLProtocolStub.state.install { _, _ in (201, response) }
             let client = ProtocolClient(origin: URL(string: item.response.origin)!, session: protocolStubSession())
-            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree)
+            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree, inviteCode: item.request.inviteCode)
             #expect(challenge == item.response)
             let captured = await HostURLProtocolStub.state.snapshot()
             let sent = try JSONDecoder().decode(Request.self, from: #require(captured.bodies.first))
             #expect(sent.account == item.request.account)
             #expect(sent.profileTree == item.request.profileTree)
+            #expect(sent.inviteCode == item.request.inviteCode)
         }
     }
 

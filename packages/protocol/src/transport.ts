@@ -86,6 +86,7 @@ export interface ExistingProfileAccountRequest {
   challenge: AccountChallenge;
   publicKey: string;
   signature: string;
+  inviteCode?: string;
   device: { id: string; label: string; credentialDigest: `sha256:${string}` };
   configuration: TreeSnapshot;
 }
@@ -229,6 +230,7 @@ export class ProtocolClient {
     account?: string;
     profileTree: TreeID;
     configurationTree: TreeID;
+    inviteCode?: string;
   }): Promise<AccountChallenge> {
     const response = await this.checked(await this.request("/.arbor/account-challenges", {
       method: "POST",
@@ -249,6 +251,7 @@ export class ProtocolClient {
         challenge: input.challenge,
         publicKey: input.publicKey,
         signature: input.signature,
+        ...(input.inviteCode ? { inviteCode: input.inviteCode } : {}),
         device: input.device,
         configuration: encodeTreeSnapshotJSON(input.configuration),
       }),

@@ -35,8 +35,8 @@ export class LocalAccountService {
     return token;
   }
 
-  async claimHostAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
-    try { return await claimHostAccountBootstrap(this.deps, account, inputPath, displayName); }
+  async claimHostAccount(account: string, inputPath: string, displayName?: string, inviteCode?: string): Promise<MutationReceipt["effects"]> {
+    try { return await claimHostAccountBootstrap(this.deps, account, inputPath, displayName, inviteCode); }
     catch (error) {
       if (error instanceof ProtocolHTTPError) {
         throw new ProtocolError(error.status === 409 ? "conflict" : "invalid-request", error.message, error.status);

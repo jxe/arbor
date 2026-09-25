@@ -998,6 +998,7 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
     public var challenge: ProtocolAccountChallenge
     public var publicKey: String
     public var signature: String
+    public var inviteCode: String?
     public var device: ProtocolPairingDevice
     public var configuration: ProtocolSnapshot
 
@@ -1008,6 +1009,7 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
         challenge: ProtocolAccountChallenge,
         publicKey: String,
         signature: String,
+        inviteCode: String? = nil,
         device: ProtocolPairingDevice,
         configuration: ProtocolSnapshot
     ) {
@@ -1017,6 +1019,7 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
         self.challenge = challenge
         self.publicKey = publicKey
         self.signature = signature
+        self.inviteCode = inviteCode
         self.device = device
         self.configuration = configuration
     }

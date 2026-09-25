@@ -2266,6 +2266,18 @@ final class CanopyAppModel {
         await workspace.refreshDirectory(force: true)
     }
 
+    func addProfileInvitation(handle: String, digest: String) async throws {
+        guard currentReference.path == "/", let binding, workspace.isCommunityMembershipTree else {
+            throw ProtocolValidationError.invalidValue("Open the Canopy community profile before inviting a person")
+        }
+        let snapshot = try await binding.snapshot()
+        try await binding.replaceSource(try CanopyProfileDocument.addingInvitation(
+            handle: handle, digest: digest, to: snapshot.source
+        ))
+        await workspace.syncNow()
+        await workspace.refreshDirectory(force: true)
+    }
+
     func removeProfileMember(profile: String) async throws {
         guard currentReference.path == "/", let binding else {
             throw ProtocolValidationError.invalidValue("Open the group home page before removing a member")

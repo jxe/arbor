@@ -119,8 +119,10 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/bootstrap/accounts/cancel", body: [:])
     }
 
-    func claimAccount(account: String, path: String) async throws {
-        try await onboardingPost("/v1/bootstrap/accounts", body: ["account": account, "path": path])
+    func claimAccount(account: String, path: String, inviteCode: String? = nil) async throws {
+        var body = ["account": account, "path": path]
+        if let inviteCode { body["inviteCode"] = inviteCode }
+        try await onboardingPost("/v1/bootstrap/accounts", body: body)
     }
 
     private func onboardingPost(_ path: String, body: [String: Any]) async throws {

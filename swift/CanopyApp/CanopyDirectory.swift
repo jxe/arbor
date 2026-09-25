@@ -132,29 +132,12 @@ struct CanopyProfileDocument: Equatable {
         let lines = envelope.lines
         guard let kindValue = scalar(named: "type", in: lines),
               let kind = Kind(rawValue: kindValue) else { return nil }
-        var handlesByProfile: [String: String] = [:]
-        var currentMemberProfile: String?
-        let members = Set(lines.compactMap { line -> String? in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let field = trimmed.hasPrefix("- ") ? String(trimmed.dropFirst(2)) : trimmed
-            guard field.hasPrefix("profile:") else { return nil }
-            let value = decodeScalar(String(field.dropFirst("profile:".count)))
-            currentMemberProfile = value
-            return value
-        })
-        currentMemberProfile = nil
-        let handles = Set(lines.compactMap { line -> String? in
-            guard line.first?.isWhitespace == true else { return nil }
-            let field = line.trimmingCharacters(in: .whitespaces)
-            if field.hasPrefix("- profile:") {
-                currentMemberProfile = decodeScalar(String(field.dropFirst("- profile:".count)))
-                return nil
-            }
-            guard field.hasPrefix("handle:") else { return nil }
-            let value = decodeScalar(String(field.dropFirst("handle:".count)))
-            if let currentMemberProfile, let value { handlesByProfile[currentMemberProfile] = value }
-            return value
-        })
+        let authoredMembers = envelope.memberEntries()?.entries.map(\.member) ?? []
+        let members = Set(authoredMembers.filter { !$0.profile.hasPrefix("invite:") }.map(\.profile))
+        let handles = Set(authoredMembers.compactMap(\.handle))
+        let handlesByProfile = authoredMembers.reduce(into: [String: String]()) { result, member in
+            if let handle = member.handle, !member.profile.hasPrefix("invite:") { result[member.profile] = handle }
+        }
         return CanopyProfileDocument(
             kind: kind,
             displayName: scalar(named: "displayName", in: lines),
@@ -163,7 +146,7 @@ struct CanopyProfileDocument: Equatable {
             memberProfiles: members,
             memberHandles: handles,
             memberHandlesByProfile: handlesByProfile,
-            members: envelope.memberEntries()?.entries.map(\.member) ?? []
+            members: authoredMembers
         )
     }
 
@@ -298,6 +281,26 @@ struct CanopyProfileDocument: Equatable {
         return envelope.source
     }
 
+    static func addingInvitation(handle rawHandle: String, digest: String, to source: String) throws -> String {
+        guard let profile = parse(source), profile.kind == .group else {
+            throw ProtocolValidationError.invalidValue("This document is not a group profile")
+        }
+        var handle = rawHandle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if handle.hasPrefix("~") { handle.removeFirst() }
+        guard handle.range(of: #"^[a-z0-9][a-z0-9-]{0,62}$"#, options: .regularExpression) != nil else {
+            throw ProtocolValidationError.invalidValue("Enter a handle using lowercase letters, numbers, and hyphens")
+        }
+        guard digest.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
+            throw ProtocolValidationError.invalidValue("Invalid invitation digest")
+        }
+        guard !profile.memberHandles.contains(handle) else {
+            throw ProtocolValidationError.invalidValue("~\(handle) is already reserved on this Canopy")
+        }
+        var envelope = try requiredFrontmatter(source)
+        try envelope.appendInvitation(handle: handle, digest: digest)
+        return envelope.source
+    }
+
     private static func scalar(named name: String, in lines: [String]) -> String? {
         let matches = lines.compactMap { line -> String? in
             guard !(line.first?.isWhitespace ?? false),
@@ -402,7 +405,8 @@ struct CanopyProfileDocument: Equatable {
                         scalar = CanopyProfileDocument.decodeScalar(field)
                     }
                 }
-                guard let profile = fields["profile"] ?? scalar else { return nil }
+                guard let profile = fields["profile"] ?? scalar ?? fields["inviteDigest"].map({ "invite:\($0)" }),
+                      fields["inviteDigest"] == nil || fields["handle"] != nil else { return nil }
                 return (start..<stop, Member(profile: profile, handle: fields["handle"]))
             }
             return (header, entries)
@@ -437,6 +441,25 @@ struct CanopyProfileDocument: Equatable {
                 insertion += 1
             }
             lines.insert(contentsOf: memberLines, at: insertion)
+        }
+
+        mutating func appendInvitation(handle: String, digest: String) throws {
+            let matches = lines.indices.filter { !(lines[$0].first?.isWhitespace ?? false) && lines[$0].hasPrefix("members:") }
+            guard matches.count <= 1 else { throw ProtocolValidationError.invalidValue("The profile contains more than one members field") }
+            let memberLines = ["  - handle: \(try Self.quoted(handle))", "    inviteDigest: \(try Self.quoted(digest))"]
+            guard let index = matches.first else {
+                lines.append("members:")
+                lines.append(contentsOf: memberLines)
+                return
+            }
+            let inline = String(lines[index].dropFirst("members:".count)).trimmingCharacters(in: .whitespaces)
+            if inline == "[]" {
+                lines.replaceSubrange(index...index, with: ["members:"] + memberLines)
+            } else if inline.isEmpty {
+                lines.insert(contentsOf: memberLines, at: index + 1)
+            } else {
+                throw ProtocolValidationError.invalidValue("This members layout cannot be edited safely")
+            }
         }
 
         static func memberLines(profile: String, handle: String?) throws -> [String] {

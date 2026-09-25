@@ -29,6 +29,11 @@ The spec leaves placement to each host; this is canopyd's policy.
 - **Accounts.** A community `members` entry's `handle` reserves `/~handle`
   for exactly that entry's person Profile TreeID; that person claims the
   account with their profile key ([accounts §1.2](../../overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+  A pending `handle` plus `inviteDigest` reserves the address without granting
+  membership. A claimant presents the matching random code and proves their
+  newly created Profile TreeID with the same profile-key signature. Claim
+  replaces the pending entry with that Profile TreeID in the accepted
+  community root.
   Removing the entry disables the account. An account's profile tree, once
   hosted, is the tree at `/~handle`.
 - **Paths an account may declare.** Any path below its own `/~handle`. An

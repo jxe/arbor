@@ -34,6 +34,7 @@ public struct PendingAccountClaim: Codable, Equatable, Sendable {
     public var challenge: ProtocolAccountChallenge
     public var publicKey: String
     public var signature: String
+    public var inviteCode: String?
 }
 
 public struct NativeHostAccount: Codable, Equatable, Sendable, Identifiable {
@@ -543,6 +544,7 @@ public actor NativeAccountService {
     public func claimAccount(
         account: URL,
         label: String,
+        inviteCode: String? = nil,
         identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
     ) async throws -> NativeHostAccount {
         guard sameOrigin(account, origin), account.query == nil, account.fragment == nil else {
@@ -560,6 +562,13 @@ public actor NativeAccountService {
                 throw ProtocolValidationError.invalidValue("A different claim is already pending for this account")
             }
             pending = stored
+            if let inviteCode, let existing = pending.inviteCode, existing != inviteCode {
+                throw ProtocolValidationError.invalidValue("A different invitation code is already pending for this account")
+            }
+            if pending.inviteCode == nil, let inviteCode {
+                pending.inviteCode = inviteCode
+                try await credentials.savePendingAccount(pending)
+            }
         } else {
             let configurationTree = try generatedID(prefix: "tr")
             let deviceID = try generatedID(prefix: "dv")
@@ -572,13 +581,17 @@ public actor NativeAccountService {
                 label: cleanLabel
             )
             let challenge = try await wire.createAccountChallenge(
-                account: account.absoluteString,
+                account: account.path.isEmpty || account.path == "/" ? nil : account.absoluteString,
                 profileTree: identity.profileTree,
-                configurationTree: configurationTree
+                configurationTree: configurationTree,
+                inviteCode: inviteCode
             )
             let signed = try await identityStore.sign(challenge)
+            guard let claimedAccount = URL(string: challenge.account), sameOrigin(claimedAccount, origin) else {
+                throw ProtocolValidationError.invalidValue("Account challenge named another Canopy")
+            }
             pending = PendingAccountClaim(
-                account: account,
+                account: claimedAccount,
                 profileTree: identity.profileTree,
                 configurationTree: configurationTree,
                 deviceID: deviceID,
@@ -588,7 +601,8 @@ public actor NativeAccountService {
                 configuration: configuration,
                 challenge: challenge,
                 publicKey: signed.identity.publicKey,
-                signature: signed.signature
+                signature: signed.signature,
+                inviteCode: inviteCode
             )
             try await credentials.savePendingAccount(pending)
         }
@@ -600,6 +614,7 @@ public actor NativeAccountService {
                 challenge: claim.challenge,
                 publicKey: claim.publicKey,
                 signature: claim.signature,
+                inviteCode: claim.inviteCode,
                 device: ProtocolPairingDevice(id: claim.deviceID, label: claim.deviceLabel, credentialDigest: claim.credentialDigest),
                 configuration: claim.configuration
             )
@@ -611,9 +626,10 @@ public actor NativeAccountService {
             // canopyd reports an expired challenge only as an invalid request with this message.
             where error.code == "invalid-request" && error.message?.localizedCaseInsensitiveContains("challenge is expired") == true {
             let challenge = try await wire.createAccountChallenge(
-                account: account.absoluteString,
+                account: pending.account.absoluteString,
                 profileTree: pending.profileTree,
-                configurationTree: pending.configurationTree
+                configurationTree: pending.configurationTree,
+                inviteCode: pending.inviteCode
             )
             let signed = try await identityStore.sign(challenge)
             pending.challenge = challenge
@@ -636,7 +652,7 @@ public actor NativeAccountService {
             deviceID: pending.deviceID
         )
         try await credentials.saveAccount(stored)
-        try await credentials.forgetPendingAccount(account: account)
+        try await credentials.forgetPendingAccount(account: pending.account)
         self.configurationTree = pending.configurationTree
         return stored
     }

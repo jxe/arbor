@@ -6,6 +6,7 @@ import Overstory
 import Quagmire
 import QuagmireExtras
 import SwiftUI
+import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -2736,7 +2737,6 @@ private struct CanopySharePanel: View {
     @State private var newGroup: CanopyNewGroupRequest?
     /// The access a group made from this panel receives once it exists.
     @State private var newGroupAccess = CanopyTreeAccess.read
-
 #if os(macOS)
     @State private var agentBundles: [CanopyCloudBundleRecord] = []
     @State private var agentPage = false
@@ -2744,6 +2744,7 @@ private struct CanopySharePanel: View {
     @State private var agentPageShowsCode = false
     @State private var revokingAgent: CanopyCloudBundleRecord?
 #endif
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -2779,7 +2780,6 @@ private struct CanopySharePanel: View {
                     }
                 }
             }
-#if os(iOS)
 #if os(macOS)
             .navigationDestination(isPresented: $agentPage) {
                 if case let .tracked(access) = presentation {
@@ -2789,6 +2789,7 @@ private struct CanopySharePanel: View {
                 }
             }
 #endif
+#if os(iOS)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -2813,7 +2814,6 @@ private struct CanopySharePanel: View {
                 Task { await change(access, target: .profile(locator: tree), permission: newGroupAccess) }
             }
         }
-        .task { await load() }
 #if os(macOS)
         .confirmationDialog(
             "Revoke \(revokingAgent?.label ?? "agent code")?",
@@ -2831,6 +2831,7 @@ private struct CanopySharePanel: View {
             Text("Machines using this code lose access to the account on their next request. Files they already downloaded stay on them.")
         }
 #endif
+        .task { await load() }
         .onChange(of: selectedAccountID) { _, id in
             guard case let .promotable(path, accounts) = presentation,
                   let account = accounts.first(where: { $0.id == id }) else { return }
@@ -2846,8 +2847,8 @@ private struct CanopySharePanel: View {
 #if os(macOS)
     private var fittedMacHeight: CGFloat {
         let messageHeight: CGFloat = message == nil ? 0 : 52
-        switch presentation {
         if agentPage { return agentPageShowsCode ? 580 : 340 }
+        switch presentation {
         case .tracked(let access):
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
@@ -2922,7 +2923,6 @@ private struct CanopySharePanel: View {
             Button("Manage app permissions…") { permissionEditor = true }
                 .disabled(busy || !access.canEdit)
         } header: { Text("Scoped and app permissions") }
-    }
 #if os(macOS)
         Section {
             ForEach(agentBundles) { record in
@@ -2967,8 +2967,9 @@ private struct CanopySharePanel: View {
         } catch {
             message = error.localizedDescription
         }
-
+    }
 #endif
+
     private var canCreateGroup: Bool {
 #if os(macOS)
         workspace.groupCreationAccount != nil
@@ -3181,12 +3182,12 @@ private struct CanopySharePanel: View {
             let value = try await workspace.sharePresentation(for: currentNode)
             presentation = value
             message = nil
-            if case let .promotable(path, accounts) = value, let first = accounts.first {
 #if os(macOS)
             if case let .tracked(access) = value {
                 agentBundles = try workspace.agentBundles(tree: access.tree)
             }
 #endif
+            if case let .promotable(path, accounts) = value, let first = accounts.first {
                 selectedAccountID = first.id
                 canonicalURL = suggestedCanonical(path: path, account: first)
             }
@@ -3264,7 +3265,6 @@ private struct CanopySharePanel: View {
 
 }
 
-private struct CanopyDevicesHeader: View {
 #if os(macOS)
 /// Pushed from the Share panel: make an agent code for one tree and show it
 /// once, with how to use it. A macOS popover draws no navigation bar or
@@ -3417,6 +3417,7 @@ private struct CanopyAgentBundlePage: View {
 }
 #endif
 
+private struct CanopyDevicesHeader: View {
     var title = "Devices"
     var showsAddAccount = true
     let addAccount: () -> Void
@@ -4596,9 +4597,14 @@ private struct CanopyProfileWidget: View {
                     profile: profile,
                     workspace: workspace,
                     reservesHostHandle: workspace.isCommunityMembershipTree,
+                    canopyOrigin: workspace.directory.first(where: { $0.id == model.currentReference.tree.rawValue && $0.isCommunityProfile })?.origin.absoluteString,
                     prefill: prefill,
                     add: {
                         try await model.addProfileMember(treeID: $0, handle: $1)
+                        reloadAfterDismiss = true
+                    },
+                    invite: {
+                        try await model.addProfileInvitation(handle: $0, digest: $1)
                         reloadAfterDismiss = true
                     },
                     remove: {
@@ -4828,11 +4834,16 @@ private struct CanopyProfileMembersSheet: View {
     let profile: CanopyProfileDocument
     let workspace: CanopyWorkspaceState
     let reservesHostHandle: Bool
+    let canopyOrigin: String?
     let prefill: String?
     let add: (String, String) async throws -> Void
+    let invite: (String, String) async throws -> Void
     let remove: (String) async throws -> Void
     @State private var treeID = ""
     @State private var handle = ""
+    @State private var inviteByCode = false
+    @State private var issuedCode: String?
+    @State private var issuedLink: String?
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
@@ -4862,7 +4873,12 @@ private struct CanopyProfileMembersSheet: View {
                     }
                 }
                 Section(reservesHostHandle ? "Add a person" : "Add a member") {
-                    TextField("TreeID (tr_…)", text: $treeID)
+                    if reservesHostHandle {
+                        Toggle("Invite with a code", isOn: $inviteByCode)
+                    }
+                    if !inviteByCode || !reservesHostHandle {
+                        TextField("TreeID (tr_…)", text: $treeID)
+                    }
                     if reservesHostHandle {
                         HStack(spacing: 4) {
                             Text("~").foregroundStyle(.secondary)
@@ -4870,14 +4886,30 @@ private struct CanopyProfileMembersSheet: View {
                         }
                     }
                     Text(reservesHostHandle
-                        ? "This reserves the handle on this Canopy for the person’s Profile TreeID; it does not copy or relocate their profile."
+                        ? (inviteByCode
+                            ? "The person can claim this handle with the code, without sending you their Profile TreeID. The code is shown once."
+                            : "This reserves the handle on this Canopy for the person’s Profile TreeID; it does not copy or relocate their profile.")
                         : "The TreeID is the member’s stable profile identity.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button(reservesHostHandle ? "Add Person" : "Add Member") { Task { await submit() } }
-                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    Button(inviteByCode && reservesHostHandle ? "Create Invitation" : reservesHostHandle ? "Add Person" : "Add Member") { Task { await submit() } }
+                        .disabled(busy || issuedCode != nil || (!inviteByCode && treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             || (reservesHostHandle
                                 && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+                if let issuedCode {
+                    Section("Invitation code") {
+                        if let issuedLink {
+                            Text(issuedLink).font(.caption.monospaced()).textSelection(.enabled)
+                            ShareLink("Share Join Link", item: issuedLink)
+                            Button("Copy Join Link") { canopyCopyToPasteboard(issuedLink) }
+                        }
+                        Text(issuedCode).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                        Text([.current, .autoMerged].contains(workspace.syncPresentation.state)
+                            ? "Share this link now. It contains the one-time code and will not be shown here again."
+                            : "The invitation is still syncing. Share the link when Sync Status shows Current; it will not be shown here again.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Section("Suggestions from People") {
                     ForEach(people) { person in
@@ -4926,6 +4958,7 @@ private struct CanopyProfileMembersSheet: View {
         }
         .frame(minWidth: 440, minHeight: 420)
         .onAppear {
+            inviteByCode = reservesHostHandle && prefill == nil
             guard let prefill, let person = workspace.directory.first(where: { $0.entry.profile == prefill }) else {
                 if let prefill { treeID = prefill }
                 return
@@ -4986,9 +5019,29 @@ private struct CanopyProfileMembersSheet: View {
     private func submit() async {
         busy = true
         do {
-            try await add(treeID, handle)
+            if reservesHostHandle && inviteByCode {
+                guard let canopyOrigin else {
+                    throw ProtocolValidationError.invalidValue("Refresh People to obtain this Canopy’s address before creating an invitation")
+                }
+                let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
+                let code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+                    .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+                let digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
+                let account = canopyOrigin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    + "/~" + handle.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "~"))
+                var link = URLComponents()
+                link.scheme = "canopy"
+                link.host = "join"
+                link.queryItems = [URLQueryItem(name: "account", value: account), URLQueryItem(name: "code", value: code)]
+                guard let linkURL = link.url else { throw ProtocolValidationError.invalidValue("This Canopy address cannot form an invitation link") }
+                try await invite(handle, digest)
+                issuedCode = code
+                issuedLink = linkURL.absoluteString
+            } else {
+                try await add(treeID, handle)
+            }
             busy = false
-            dismiss()
+            if issuedCode == nil { dismiss() }
         } catch {
             busy = false
             message = error.localizedDescription
