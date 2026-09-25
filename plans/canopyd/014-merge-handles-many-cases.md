@@ -107,7 +107,12 @@ merge with a note) or **review**.
    "Intro." while I delete that full stop. If my edit arrives first the anchor
    cannot be found, so that order reviews while the other merges. Anchor a
    transfer by piece identity with a side (after this piece, before that one) so
-   a neighbouring edit does not remove it: **merge** in both orders.
+   a neighbouring edit does not remove it: **merge** in both orders. The same
+   holds for a move anchored on material an earlier move in the change carried
+   into another document (Move to Document of blocks apart from each other):
+   the engine executes it, but a peer's edit to that text reconciles only when
+   the peer arrives first (`tests/unit/canopyd-merge/source-moves.test.ts`).
+   Native copies such a selection until it merges in both orders.
 2. **Two moves of the same text.** You move a paragraph up, I move it down. A
    real choice: **review**, presented as "moved here, or here" rather than byte
    ranges through the portable [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review).
@@ -126,7 +131,10 @@ merge with a note) or **review**.
    [Filesystem 025](../filesystem/025-folder-link-healing.md) heals links after
    folder moves.
 6. **Richer lists.** Moves and insertions in ordered lists, nested items (moved
-   with their children), multi-line and loose items: **merge**. When a move
+   with their children, or re-indented under a new parent, which Native now
+   states as a move plus edits to leading spaces), multi-line and loose items:
+   **merge**. A moved item of a nested list beside an edit to its text reviews
+   today (`tests/unit/canopyd-merge/source-moves.test.ts`). When a move
    leaves ordered-list numbers out of sequence, **note**; renumbering would write
    bytes neither side wrote.
 7. **Task items.** One side ticks the box, the other edits the text: **merge**.

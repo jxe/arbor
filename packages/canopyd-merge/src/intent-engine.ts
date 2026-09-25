@@ -952,8 +952,22 @@ class Engine {
             : { anchor: { observed: clone(node.pieces), offset: range[0] } }),
         };
       } else {
-        const target = await this.selection(operation.at, basis, state),
-          destination = state.nodes[target.node];
+        const target = await this.selection(operation.at, basis, state);
+        let destination = state.nodes[target.node];
+        // An anchor on material an earlier operation carried into another
+        // entry lands beside it there, as a source selection is found.
+        if (target.selected.length && destination?.parent !== null) {
+          const realm = this.realms(state);
+          const holders = Object.values(state.nodes).filter(
+            (n) =>
+              n.active &&
+              realm(n.id) === realm(target.node) &&
+              n.kind === "file" &&
+              n.pieces?.some((p) => target.selected.some((q) => intersect(p, q)))
+          );
+          if (holders.length === 1) destination = holders[0];
+          else if (holders.length > 1) return fail("Anchor spans multiple current entries");
+        }
         if (!destination?.active) return fail("Destination entry was removed");
         // A transfer changes its destination too; the exact-basis path compares
         // only the nodes it captured.

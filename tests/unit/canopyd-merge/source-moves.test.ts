@@ -177,3 +177,59 @@ test("ambiguous placements are declined for the full evaluator, not guessed", as
   for (const { moves, edits } of cases) expect(() => arrangeSources(files, moves, edits)).toThrow();
   expect(() => arrangeSources(files, [{ source: span("A\n\n"), anchor: span("A\n\n"), side: "after" }], [])).toThrow("inside its source");
 });
+
+/** Move to Document as the Native client states it: one span leaves a page
+ * and lands after another page's last block, which gains the blank line it
+ * needs. With `chained`, a second span lands after the first, anchored on the
+ * material the first carried into the other page. */
+async function moveToDocument(f: Fixture, chained: boolean) {
+  const origin = "Stays\n\nFirst moved\n\nKept\n\nSecond moved\n\n", destination = "Target\n";
+  const root = f.tree({ "a.md": origin, "b.md": destination });
+  const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", origin, [0, 0]), text: "" }], "start"))).result;
+  const first = at(origin, "First moved\n\n"), second = at(origin, "Second moved\n\n"), end = encoder.encode(destination).length;
+  const operations: SourceOperation[] = [
+    { key: "move-0-0", kind: "moveSource", source: f.ref("/a.md", origin, first), at: f.ref("/b.md", destination, [0, end]), side: "after" },
+    ...(chained ? [{ key: "move-0-1", kind: "moveSource" as const, source: f.ref("/a.md", origin, second), at: f.ref("/a.md", origin, first), side: "after" as const }] : []),
+    { key: "edit-0-0", kind: "editSource", source: f.ref("/b.md", destination, [end - 1, end]), text: "\n\n", lineage: [{ source: f.ref("/b.md", destination, [end - 1, end]), range: [0, 1] }] },
+  ];
+  const a = chained ? "Stays\n\nKept\n\n" : "Stays\n\nKept\n\nSecond moved\n\n";
+  const b = "Target\n\nFirst moved\n\n" + (chained ? "Second moved\n\n" : "");
+  const peer = f.request(basis, f.tree({ "a.md": origin.replace("First moved", "First PEER"), "b.md": destination }), [
+    { key: "peer", kind: "editSource", source: f.ref("/a.md", origin, at(origin, "moved")), text: "PEER" },
+  ], "peer");
+  return { basis, transfer: f.request(basis, f.tree({ "a.md": a, "b.md": b }), operations, "transfer"), peer, a, b };
+}
+
+test.each([false, true])("Move to Document takes both fast paths (chained %p)", async (chained) => {
+  const f = new Fixture();
+  const { transfer, a, b } = await moveToDocument(f, chained);
+  const plain = await checkPlainTrace(transfer.incoming.trace!, async hash => f.objects.get(hash)!);
+  expect(plain).toMatchObject({ plain: true });
+  expect([...(plain as { touched: string[] }).touched].sort()).toEqual(["/a.md", "/b.md"]);
+  const result = await differential(f, transfer);
+  expect(engineDiagnostics.path).toBe(1);
+  expect(f.content(result.result.object, "a.md")).toBe(a);
+  expect(f.content(result.result.object, "b.md")).toBe(b);
+});
+
+for (const reverse of [false, true])
+  test(`a peer edit follows paragraphs Move to Document carried into another page${reverse ? ", peer second" : ""}`, async () => {
+    for (const chained of [false, true]) {
+      const f = new Fixture();
+      const { transfer, peer, a, b } = await moveToDocument(f, chained);
+      const first = await f.run(reverse ? transfer : peer);
+      const second = reverse ? peer : transfer;
+      second.current = first.result;
+      const merged = await differential(f, second);
+      if (chained && !reverse) {
+        // Arriving after the peer, a second move anchored on carried material
+        // is executed but not reconciled (canopyd 014): both sides are kept
+        // as a choice. Arriving first, the peer's edit follows it.
+        expect(merged.decisions).toHaveLength(1);
+        continue;
+      }
+      expect(merged.decisions).toEqual([]);
+      expect(f.content(merged.result.object, "b.md")).toBe(b.replace("First moved", "First PEER"));
+      expect(f.content(merged.result.object, "a.md")).toBe(a);
+    }
+  });
