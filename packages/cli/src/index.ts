@@ -861,6 +861,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       account: payload.account,
       configurationTree: payload.configurationTree,
       deviceID,
+      trees: placements.map((placement) => placement.treeID),
     });
     console.error(`Created reusable cloud bundle ${bundleID} (${placements.length} placement${placements.length === 1 ? "" : "s"}).`);
     console.log(encoded);
@@ -897,7 +898,6 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
     }
     if (!configuration.currentDevice.administrator) {
       throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
-      trees: placements.map((placement) => placement.treeID),
     }
     if (configuration.devices[record.deviceID]) {
       await editAccountConfigurationYAML(
