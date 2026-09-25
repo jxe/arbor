@@ -131,6 +131,7 @@ struct CanopySidebarSearchRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
+    var opensThroughListSelection = false
     var acceptsBlockDrop = true
     var movePage: (() -> Void)?
     let open: () -> Void
@@ -139,47 +140,24 @@ struct CanopySidebarSearchRow: View {
         let titleParts = canopySidebarTitleParts(result.title)
         let contextPath = canopySidebarContextPath(result.reference.path)
 
-        Button(action: open) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                if let emoji = titleParts.emoji {
-                    Text(emoji)
-                        .font(.system(size: 18))
-                        // Emoji can draw wider than the alignment column. Keep their
-                        // intrinsic size without moving the title or widening its gap.
-                        .fixedSize()
-                        .frame(width: 20)
-                } else {
-                    Image(systemName: "text.page")
-                        .font(.system(size: 18))
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(titleParts.text)
-                        .foregroundStyle(CanopySidebarPalette.foreground(colorScheme))
+        Group {
 #if os(macOS)
-                        .font(.system(size: 14))
-#endif
-                        .lineLimit(1)
-                    if let contextPath {
-                        Text(contextPath)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                    }
+            if opensThroughListSelection {
+                rowLabel(titleParts: titleParts, contextPath: contextPath)
+                    .onTapGesture(perform: open)
+            } else {
+                Button(action: open) {
+                    rowLabel(titleParts: titleParts, contextPath: contextPath)
                 }
-                Spacer(minLength: 4)
-                if showsBacklinkCount {
-                    Text("\(result.backlinkCount)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, contextPath == nil ? 2.5 : 0)
-            .contentShape(.rect)
+#else
+            Button(action: open) {
+                rowLabel(titleParts: titleParts, contextPath: contextPath)
+            }
+            .buttonStyle(.plain)
+#endif
         }
-        .buttonStyle(.plain)
         .canopyBlockDropDestination(
             acceptsBlockDrop ? CanopyDocumentReferenceCodec.encode(result.reference) : nil
         )
@@ -190,6 +168,50 @@ struct CanopySidebarSearchRow: View {
                 Button("Move Page…", systemImage: "folder", action: movePage)
             }
         }
+    }
+
+    private func rowLabel(
+        titleParts: (emoji: String?, text: String),
+        contextPath: String?
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if let emoji = titleParts.emoji {
+                Text(emoji)
+                    .font(.system(size: 18))
+                    // Emoji can draw wider than the alignment column. Keep their
+                    // intrinsic size without moving the title or widening its gap.
+                    .fixedSize()
+                    .frame(width: 20)
+            } else {
+                Image(systemName: "text.page")
+                    .font(.system(size: 18))
+                    .frame(width: 20)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titleParts.text)
+                    .foregroundStyle(CanopySidebarPalette.foreground(colorScheme))
+#if os(macOS)
+                    .font(.system(size: 14))
+#endif
+                    .lineLimit(1)
+                if let contextPath {
+                    Text(contextPath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            Spacer(minLength: 4)
+            if showsBacklinkCount {
+                Text("\(result.backlinkCount)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, contextPath == nil ? 2.5 : 0)
+        .contentShape(.rect)
     }
 }
 

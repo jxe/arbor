@@ -303,17 +303,17 @@ private extension View {
 
 /// Sizes the sidebar search's toolbar item to the titlebar over the sidebar:
 /// the sidebar's width less the window buttons' reach (none in full screen)
-/// and a trailing margin. A toolbar item keeps its ideal width, and a width
-/// held in SwiftUI state lands a layout pass after the split view resizes,
-/// which pushes the item into the overflow menu when the sidebar narrows. So
-/// the width is an AppKit constraint on the item's view, updated as the split
-/// view resizes.
+/// and the space AppKit needs to lay out the item without overflowing it. A
+/// toolbar item keeps its ideal width, and a width held in SwiftUI state lands
+/// a layout pass after the split view resizes, which pushes the item into the
+/// overflow menu when the sidebar narrows. So the width is an AppKit constraint
+/// on the item's view, updated as the split view resizes.
 private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
     func makeNSView(context: Context) -> SizerView { SizerView() }
     func updateNSView(_ view: SizerView, context: Context) { view.resize() }
 
     final class SizerView: NSView {
-        private static let trailingMargin: CGFloat = 32
+        private static let toolbarLayoutAllowance: CGFloat = 32
         private static let minimumWidth: CGFloat = 60
 
         private var observers: [NSObjectProtocol] = []
@@ -358,7 +358,10 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             let collapsed = splitView.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1
             if item.isHidden != collapsed { item.isHidden = collapsed }
             guard !collapsed else { return }
-            let width = max(Self.minimumWidth, sidebar.frame.width - buttonsInset(in: window) - Self.trailingMargin)
+            let width = max(
+                Self.minimumWidth,
+                sidebar.frame.width - buttonsInset(in: window) - Self.toolbarLayoutAllowance
+            )
             if view !== itemView {
                 widthConstraint?.isActive = false
                 let constraint = view.widthAnchor.constraint(equalToConstant: width)
@@ -1223,6 +1226,10 @@ struct CanopyRootView: View {
             ToolbarItem {
                 sidebarPagesHeader
                     .frame(maxWidth: .infinity)
+                    // AppKit reserves more room after this item than before it.
+                    // Use part of the toolbar layout allowance to center the
+                    // visible search controls without increasing the item width.
+                    .offset(x: 10)
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -1514,11 +1521,12 @@ struct CanopyRootView: View {
 #endif
             .scrollContentBackground(.hidden)
 #if os(macOS)
-            .onChange(of: sidebarListSelection) { _, selection in
-                // Arrow keys in the focused sidebar move the selection; follow it.
-                guard let selection, selection != model.currentReference.identity,
-                      let result = model.searchResults.first(where: { $0.id == selection }) else { return }
-                Task { await model.navigate(to: .reference(result.reference)) }
+            .onKeyPress(.return) {
+                guard let selection = sidebarListSelection,
+                      let result = model.searchResults.first(where: { $0.id == selection })
+                else { return .ignored }
+                openFromSidebar(.reference(result.reference))
+                return .handled
             }
             .onChange(of: model.currentReference.identity, initial: true) { _, identity in
                 let visible = model.searchResults.contains { $0.id == identity }
@@ -1587,6 +1595,7 @@ struct CanopyRootView: View {
             CanopySidebarSearchRow(
                 result: result,
                 showsBacklinkCount: showsBacklinkCount,
+                opensThroughListSelection: true,
                 acceptsBlockDrop: !isCurrent(.reference(result.reference)),
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }

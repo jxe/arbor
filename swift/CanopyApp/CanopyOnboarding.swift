@@ -208,7 +208,7 @@ struct CanopyMacOnboarding: View {
             if reconciliation == .chooseExisting, let identity = state?.identity, let legacy {
                 legacyConflict = UserDefaults.standard.string(forKey: "onboarding.legacy.\(identity.profileTree)") != legacy.profileTree
             }
-            if resumeExisting, !legacyConflict, state?.pendingClaim == nil, state?.pendingPairing == nil,
+            if resumeExisting, !legacyConflict, state?.pendingClaim == nil, state?.pendingPairingOrigin == nil,
                state?.identity != nil,
                (state?.accounts.contains(where: { $0.credentialAvailable }) == true || FileManager.default.fileExists(atPath: CanopySupportDirectories.nativePlacement.path)) {
                 complete()
