@@ -933,7 +933,7 @@ a superseded, merged, or replayed result is applied with the same code that
 applies a watch frame. A result whose projected root equals the candidate returns none, including
 metadata-only acceptance. Its accepted identity still must be applied.
 
-A rejected reconciliation uses the shared `ArborError` envelope with
+A rejected reconciliation uses the shared `OverstoryError` envelope with
 `details.kind: "server-update" | "account-configuration"`. Its details include
 `completed`, the ordered successful prefix results; `failedIndex`; the current
 `AcceptedUpdate`; the logical base and candidate roots; structured conflict
@@ -973,7 +973,7 @@ been applied.
 A conflict and every other error use the shared envelope:
 
 ```ts
-type ArborError<TDetails = unknown> = {
+type OverstoryError<TDetails = unknown> = {
   error: string;
   message: string;
   retryable: boolean;

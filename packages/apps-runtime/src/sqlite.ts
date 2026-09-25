@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { posix } from "node:path";
 import type {
-  ArborUser,
+  OverstoryUser,
   CountExpression,
   OrderExpression,
   PredicateExpression,
@@ -51,7 +51,7 @@ export interface ProfileDependency {
 
 export interface QueryExecutionOptions<Input = unknown> {
   input?: Input;
-  user?: ArborUser | null;
+  user?: OverstoryUser | null;
 }
 
 export interface ExecutedStatement {
@@ -73,7 +73,7 @@ export interface QueryExecution<Result> {
 interface ExecutionContext {
   database: Database;
   input: unknown;
-  user: ArborUser | null;
+  user: OverstoryUser | null;
   statements: ExecutedStatement[];
   queryPlans: Array<{ sql: string; details: string[] }>;
   profileDependencies: Map<string, ProfileDependency>;

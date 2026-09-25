@@ -293,7 +293,7 @@ operations and live output, not merely the initial HTTP request.
 Executable documents do not define their own password, login-code, or session model. The host resolves the existing Overstory account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
 ```ts
-type ArborUser = null | {
+type OverstoryUser = null | {
   profile: TreeID
   community: TreeID
 }

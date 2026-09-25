@@ -108,7 +108,7 @@ and mutation requests use the protocol's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
 digest ([access control §1](../overstory-spec/05-access-control.md#1-subjects-and-rules)).
 
-Every non-2xx JSON error uses the protocol's `ArborError` envelope with
+Every non-2xx JSON error uses the protocol's `OverstoryError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
 `permission-denied`, `not-found`, `conflict`, `read-only`,
 `unsupported-operation`, `resync-required`, `rate-limited`, `quota-exceeded`,

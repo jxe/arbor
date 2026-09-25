@@ -2,7 +2,7 @@ import { stableJSONString, type QueryHandleRef, type QueryStreamEvent, type Quer
 import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 
 export type { MountedQuery } from "./live-stream.ts";
-import type { ArborUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
+import type { OverstoryUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
 import type { ResolvedArborSource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
 import { SQLiteStoreBroker, type SQLiteRowChange, type SQLiteStoreChange } from "./observer.ts";
@@ -23,7 +23,7 @@ interface RelationSensitivity {
 interface QuerySensitivity {
   relations: Map<string, RelationSensitivity>;
   input: unknown;
-  user: ArborUser | null;
+  user: OverstoryUser | null;
 }
 
 function refKey(ref: QueryHandleRef): string {
@@ -89,7 +89,7 @@ function visitPlan(schema: StoreSchema, relation: string, plan: SelectionPlan, r
   }
 }
 
-function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user: ArborUser | null): QuerySensitivity {
+function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user: OverstoryUser | null): QuerySensitivity {
   const relations = new Map<string, RelationSensitivity>();
   visitPlan(schema, plan.relation, plan, relations, true);
   return { relations, input, user };
@@ -212,7 +212,7 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
     }
   }
 
-  stream(request: QueryStreamRequest, context: { signal: AbortSignal; user: ArborUser | null }): ReadableStream<QueryStreamEvent> {
+  stream(request: QueryStreamRequest, context: { signal: AbortSignal; user: OverstoryUser | null }): ReadableStream<QueryStreamEvent> {
     if (stableJSONString(request.document) !== stableJSONString(this.document)) throw new Error("The mounted document version is not active");
     if (!Array.isArray(request.queries)) throw new Error("queries must be an array");
     const ids = new Set<string>();

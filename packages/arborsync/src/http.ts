@@ -1,4 +1,4 @@
-import type { ArborErrorCode, ArborError } from "@overstory/protocol";
+import type { OverstoryErrorCode, OverstoryError } from "@overstory/protocol";
 import { ProtocolError } from "@overstory/protocol";
 
 export function json(value: unknown, status = 200): Response {
@@ -6,10 +6,10 @@ export function json(value: unknown, status = 200): Response {
 }
 
 export function errorResponse(
-  code: ArborErrorCode,
+  code: OverstoryErrorCode,
   message: string,
   status: number,
-  details: Partial<Omit<ArborError, "error" | "message">> = {},
+  details: Partial<Omit<OverstoryError, "error" | "message">> = {},
 ): Response {
   const normalized = (() => {
     switch (code) {
@@ -39,7 +39,7 @@ export function errorResponse(
     ...(tree ? { tree } : {}),
     ...(path ? { path } : {}),
     ...(normalizedDetails === undefined ? {} : { details: normalizedDetails }),
-  } satisfies ArborError, status);
+  } satisfies OverstoryError, status);
 }
 
 export function assertSameOrigin(request: Request, url: URL): void {

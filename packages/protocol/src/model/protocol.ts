@@ -404,7 +404,7 @@ export interface WorkspaceChange {
 
 export type WorkspaceEvent = ObservationEvent<MutationEffectKind | "diagnostic", WorkspaceChange>;
 
-export type ArborErrorCode =
+export type OverstoryErrorCode =
   | "invalid-request"
   | "unauthenticated"
   | "permission-denied"
@@ -420,8 +420,8 @@ export type ArborErrorCode =
   | (string & {});
 
 /** The single error envelope shared by the Overstory protocol and the local REST surface. */
-export interface ArborError<TDetails = unknown> {
-  error: ArborErrorCode;
+export interface OverstoryError<TDetails = unknown> {
+  error: OverstoryErrorCode;
   message: string;
   retryable: boolean;
   tree?: TreeRef;

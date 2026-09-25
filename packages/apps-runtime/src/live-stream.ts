@@ -1,5 +1,5 @@
 import { semanticRequestDigest, type Hash, type QueryStreamEvent } from "@overstory/protocol";
-import type { ArborUser, QueryHandle } from "./authoring.ts";
+import type { OverstoryUser, QueryHandle } from "./authoring.ts";
 
 export interface MountedQuery {
   id: string;
@@ -13,7 +13,7 @@ export type QueryStreamError = Extract<QueryStreamEvent, { error: unknown }>["er
 
 export interface LiveQueryContext {
   signal: AbortSignal;
-  user: ArborUser | null;
+  user: OverstoryUser | null;
 }
 
 /**

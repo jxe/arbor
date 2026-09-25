@@ -2,7 +2,7 @@ import { compareUTF8, stableKeyFromProperties } from "@overstory/protocol";
 
 export { compareUTF8 };
 import type {
-  ArborUser,
+  OverstoryUser,
   PredicateExpression,
   QueryCardinality,
   QueryPlan,
@@ -34,7 +34,7 @@ export class QueryUserRequiredError extends Error {
 
 export interface QueryValueContext {
   input: unknown;
-  user: ArborUser | null;
+  user: OverstoryUser | null;
 }
 
 export function parameterValue(input: unknown, path: readonly string[]): unknown {

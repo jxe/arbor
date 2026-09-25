@@ -1,7 +1,7 @@
 import { parentNodePath, type ChildrenPage, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@overstory/protocol";
 import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 import type {
-  ArborUser,
+  OverstoryUser,
   QueryHandle,
 } from "./authoring.ts";
 import {
@@ -59,7 +59,7 @@ export class NodeQueryEngine {
 
   async execute<Result, Input>(
     handle: QueryHandle<Result, Input>,
-    options: { input?: Input; user?: ArborUser | null } = {},
+    options: { input?: Input; user?: OverstoryUser | null } = {},
   ): Promise<NodeQueryExecution<Result>> {
     validatePortableNodePlan(handle.plan);
     const input = await validateQueryInput(handle.schema, options.input);

@@ -1,4 +1,4 @@
-import type { ArborErrorCode, NodeResponse } from "./protocol.ts";
+import type { OverstoryErrorCode, NodeResponse } from "./protocol.ts";
 
 /**
  * One protocol-level failure with the Local Arbor REST status it maps to.
@@ -7,7 +7,7 @@ import type { ArborErrorCode, NodeResponse } from "./protocol.ts";
  */
 export class ProtocolError extends Error {
   constructor(
-    public code: ArborErrorCode,
+    public code: OverstoryErrorCode,
     message: string,
     public status: number,
     public details: Partial<{

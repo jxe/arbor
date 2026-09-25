@@ -144,7 +144,7 @@ export type ResultOf<Handle> = Handle extends QueryHandle<infer Result, any>
     ? Awaited<Result>
     : never;
 
-export interface ArborUser {
+export interface OverstoryUser {
   profile: string;
 }
 

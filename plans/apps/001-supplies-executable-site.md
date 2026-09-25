@@ -124,7 +124,7 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
 5. Add explicit canopyd activation for a reviewed tree/ref, manifest, private
    data grants, resource ceilings, and last-known-good version. Sharing source
    alone never executes it.
-6. Resolve canopyd sessions to `ArborUser`, serve enabled documents at ordinary
+6. Resolve canopyd sessions to `OverstoryUser`, serve enabled documents at ordinary
    canonical paths, and invalidate affected subscriptions on identity changes
    or revocation.
 7. Add two-context browser tests covering SSR/hydration, disclosure, required

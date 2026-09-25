@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
-  ArborError,
+  OverstoryError,
   WorkspaceEvent,
 } from "@overstory/protocol";
 import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
@@ -60,7 +60,7 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
 describe("REST v1 protocol fixtures", () => {
   test("decode the shared status and unknown error values", async () => {
     const status = await json<ArborSyncStatus>("status.json");
-    const error = await json<ArborError>("error.json");
+    const error = await json<OverstoryError>("error.json");
     expect(error.error).toBe("future-error-code");
     expect(status).toEqual({
       service: "arborsync",
@@ -94,7 +94,7 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("covers every current error code, cursor shape, and the control routes' fixtures", async () => {
-    const errors = await json<ArborError[]>("errors.json");
+    const errors = await json<OverstoryError[]>("errors.json");
     const cursors = await json<{ current: string; foreignEpoch: string; malformed: string }>("cursors.json");
     expect(errors.map((value) => value.error)).toContain("internal-error");
     expect(errors.at(-1)?.error).toBe("future-error-code");
@@ -165,7 +165,7 @@ describe("REST v1 protocol fixtures", () => {
         accountConfigurationDescriptor: TreeDescriptor;
         remoteTreeDescriptor: RemoteTreeDescriptor;
         accessEntries: AccessEntry[];
-        error: ArborError;
+        error: OverstoryError;
         resolution: { ref: unknown; enclosingTree: TreeDescriptor; historical: boolean; observedThrough: string };
       };
       invalid: Array<{ name: string; value: unknown }>;
@@ -201,7 +201,7 @@ describe("REST v1 protocol fixtures", () => {
         response: { status: number; body?: Record<string, unknown>; bodyBase64?: string; frame?: string; headers?: Record<string, string>; contentType?: string };
       }>;
     }>("protocol-endpoints.json");
-    const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
+    const wireErrors = await conformanceJSON<OverstoryError[]>("errors.json");
     const merges = JSON.parse(await readFile(join(canopyFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;

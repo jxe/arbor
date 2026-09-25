@@ -5,7 +5,7 @@ import {
   PublicMutationError,
   relationNameOf,
   sourceOf,
-  type ArborUser,
+  type OverstoryUser,
   type MutationHandle,
   type NodeSetHandle,
   type StandardSchemaV1,
@@ -290,7 +290,7 @@ export class SQLiteMutationBroker {
       handle: MutationHandleRef;
       mutationID: string;
       input: unknown;
-      user: ArborUser | null;
+      user: OverstoryUser | null;
       sources: readonly ResolvedArborSource[];
     },
   ): Promise<MutationResultReceipt<Result>> {
@@ -388,7 +388,7 @@ export class RegisteredMutationRuntime implements MutationCallRuntime {
     for (const entry of entries) this.handles.set(refKey(entry.ref), { handle: entry.handle, sources: entry.sources });
   }
 
-  call(request: MutationCallRequest, context: { user: ArborUser | null }): Promise<MutationResultReceipt> {
+  call(request: MutationCallRequest, context: { user: OverstoryUser | null }): Promise<MutationResultReceipt> {
     if (stableJSONString(request.document) !== stableJSONString(this.document)) {
       throw new MutationCallError({ code: "conflict", message: "The mounted document version is not active", retryable: false });
     }

@@ -1,5 +1,5 @@
 import type {
-  ArborError,
+  OverstoryError,
   LocalTreeDescriptor,
   LocalAccountSummary,
   LocatorResolution,
@@ -11,8 +11,8 @@ import type {
 import { parseSSEStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
 
 export type {
-  ArborErrorCode,
-  ArborError,
+  OverstoryErrorCode,
+  OverstoryError,
   EventCursor,
   LocalTreeDescriptor,
   LocatorResolution,
@@ -40,10 +40,10 @@ export interface ArborSyncStatus {
 }
 
 export class ArborSyncError extends Error {
-  readonly payload: ArborError;
+  readonly payload: OverstoryError;
   constructor(
     public status: number,
-    public value: ArborError,
+    public value: OverstoryError,
   ) {
     super(value.message);
     this.name = "ArborSyncError";
@@ -220,8 +220,8 @@ export class ArborSyncRESTClient {
   }
 
   private async throwResponse(response: Response): Promise<never> {
-    let envelope: ArborError;
-    try { envelope = await response.json() as ArborError; }
+    let envelope: OverstoryError;
+    try { envelope = await response.json() as OverstoryError; }
     catch {
       envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }

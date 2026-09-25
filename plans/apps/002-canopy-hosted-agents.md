@@ -69,7 +69,7 @@ The generic conversation surface is supplied by Overstory. Authored agents do no
 The canopyd starts one bounded conversation run from the compiled agent version and authenticated visitor context.
 
 1. Resolve and pin the agent document revision and compiled handle versions.
-2. Establish the caller's safe `ArborUser | null` projection and verify that the selected agent is executable for that caller.
+2. Establish the caller's safe `OverstoryUser | null` projection and verify that the selected agent is executable for that caller.
 3. Evaluate declared initial context handles using the same query runner and disclosure rules as executable documents.
 4. Give the model the authored prompt, safe user context, query results, and declared tool schemas.
 5. Validate each tool call against the compiled handle input schema and invoke it as the current Overstory user.

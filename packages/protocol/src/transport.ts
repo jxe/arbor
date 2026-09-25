@@ -13,7 +13,7 @@ import type {
 import {
   parseSSEStream,
   type AccessEntry,
-  type ArborError,
+  type OverstoryError,
   type EventCursor,
   type LocatorResolution,
   type RemoteTreeDescriptor,
@@ -51,7 +51,7 @@ export class ProtocolUpdateConflict extends Error {
 
 export class ProtocolUnsupportedOperation extends Error {
   readonly retryable = false;
-  constructor(readonly result: ArborError) {
+  constructor(readonly result: OverstoryError) {
     super(result.message);
     this.name = "ProtocolUnsupportedOperation";
   }
@@ -182,8 +182,8 @@ export class ProtocolClient {
   private async checked(response: Response): Promise<Response> {
     if (response.ok) return response;
     const body = await response.text();
-    let envelope: ArborError | undefined;
-    try { envelope = JSON.parse(body) as ArborError; } catch {}
+    let envelope: OverstoryError | undefined;
+    try { envelope = JSON.parse(body) as OverstoryError; } catch {}
     throw new ProtocolHTTPError(response.status, `${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
   }
 
@@ -370,7 +370,7 @@ export class ProtocolClient {
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
     if (response.status === 422) {
-      const body = await response.clone().json() as ArborError;
+      const body = await response.clone().json() as OverstoryError;
       if (body.error === "unsupported-operation" && body.retryable === false) throw new ProtocolUnsupportedOperation(body);
     }
     if (response.status === 409) {
