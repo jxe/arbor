@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { parseMarkdown, plainMarkdownTitle, decodeProtocolDirectory, type ObjectHash } from "@overstory/protocol";
+import type { EntryChanges } from "./updates/entry-metadata.ts";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
 /** A Canopy-local account handle, the name in `/~handle`. */
@@ -77,11 +78,34 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
  * `type` and each authored profile locator / Canopy-local handle. String
  * members remain a v1 shorthand; structured members keep identity separate
  * from this Canopy's allocation policy.
- * Canopy caches these by immutable root hash so authorization never reparses
- * mutable state; the offline migration rebuilds the same cache.
+ * canopyd stores them per tree (`profile_facts`) so authorization never
+ * reparses mutable state; migration 020 rebuilt the rows for every head.
  */
 export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
-  const none: RootProfileFacts = { version: 3, type: null, members: [] };
+  return (await readRootProfile(root, load)).facts;
+}
+
+/** A root's profile as canopyd reads it for its tree: the facts, and what
+ * decides whether a later update must recompute them. */
+export interface RootProfileRead {
+  facts: RootProfileFacts;
+  /** The root `_index.md` file object, or null when the root has none. */
+  indexHash: ObjectHash | null;
+  /** The avatar path the frontmatter declares, whether or not a file is there. */
+  avatarPath: string | null;
+}
+
+/** The root `_index.md` file object, read from the root directory alone. */
+export async function rootIndexHash(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ObjectHash | null> {
+  const directory = decodeProtocolDirectory(await load(root));
+  if (directory.type !== "directory") return null;
+  return directory.entries.find((entry) => entry.name === "_index.md")?.file ?? null;
+}
+
+/** `rootProfileFacts` with the root `_index.md` hash and the declared avatar
+ * path. It parses `_index.md` once. */
+export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileRead> {
+  const none: RootProfileRead = { facts: { version: 3, type: null, members: [] }, indexHash: null, avatarPath: null };
   const directory = decodeProtocolDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
@@ -126,30 +150,78 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     } catch {}
   }
   return {
-    version: 3,
-    type,
-    members,
-    ...(displayName ? { displayName } : {}),
-    ...(headingTitle ? { headingTitle } : {}),
-    ...(description !== undefined ? { description } : {}),
-    ...(avatar ? { avatar } : {}),
+    facts: {
+      version: 3,
+      type,
+      members,
+      ...(displayName ? { displayName } : {}),
+      ...(headingTitle ? { headingTitle } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(avatar ? { avatar } : {}),
+    },
+    indexHash: index.file,
+    avatarPath: avatarPath ?? null,
   };
 }
 
-/** A root's stored profile facts (`meta` key `profile:<root>`), or null. Only
- * accepted person and group profile roots have a row, written with their
- * acceptance; migration 016 rebuilt the rows for every current head. */
-export function storedProfileFacts(db: Database, root: ObjectHash): RootProfileFacts | null {
-  const row = db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-  return row ? JSON.parse(row.value) as RootProfileFacts : null;
+/** A tree's stored profile: its row of `profile_facts`. */
+export interface StoredProfile {
+  /** The head's root `_index.md` object the facts were read from. */
+  indexHash: ObjectHash;
+  /** The avatar path the frontmatter declares, even when no file is there, so
+   * adding, changing or removing that file recomputes the facts. */
+  avatarPath: string | null;
+  facts: RootProfileFacts;
 }
 
-/** Store a profile root's facts, inside the transaction that accepts it. A
- * root that declares neither person nor group gets no row. */
-export function recordProfileFacts(db: Database, root: ObjectHash, facts: RootProfileFacts | null): void {
-  if (!facts?.type) return;
+/** The row a root's profile stores: none unless it declares a type. */
+export function storedProfileOf(read: RootProfileRead): StoredProfile | null {
+  return read.facts.type && read.indexHash
+    ? { indexHash: read.indexHash, avatarPath: read.avatarPath, facts: read.facts }
+    : null;
+}
+
+const PROFILE_INDEX_PATH = "/_index.md";
+
+/** Whether an accepted update must recompute its tree's profile: its entry
+ * changes set or remove the root `_index.md`, or the avatar file the stored
+ * row declares. A tree without a row declares no type, so only a change to
+ * its `_index.md` can make it a profile. */
+export function profileChanged(row: StoredProfile | null, changes: EntryChanges): boolean {
+  const paths = new Set([PROFILE_INDEX_PATH, ...(row?.avatarPath ? [`/${row.avatarPath}`] : [])]);
+  return changes.set.some((change) => paths.has(change.path)) || changes.removed.some((path) => paths.has(path));
+}
+
+/** The `profile_facts` table: one row per tree whose head declares
+ * `type: person` or `type: group`. `createHostSchema` and migration 020
+ * create it. */
+export function createProfileFactsTable(db: Database): void {
+  db.run(`
+    CREATE TABLE profile_facts (
+      tree_id TEXT PRIMARY KEY REFERENCES trees(id),
+      index_hash TEXT NOT NULL,
+      avatar_path TEXT,
+      facts TEXT NOT NULL
+    ) WITHOUT ROWID
+  `);
+}
+
+/** A tree's stored profile, or null: only a tree whose head declares a type has one. */
+export function readStoredProfile(db: Database, tree: string): StoredProfile | null {
+  const row = db.query("SELECT index_hash, avatar_path, facts FROM profile_facts WHERE tree_id = ?").get(tree) as
+    { index_hash: ObjectHash; avatar_path: string | null; facts: string } | null;
+  return row ? { indexHash: row.index_hash, avatarPath: row.avatar_path, facts: JSON.parse(row.facts) as RootProfileFacts } : null;
+}
+
+/** Store or remove a tree's profile, inside the transaction that accepts its head. */
+export function writeStoredProfile(db: Database, tree: string, row: StoredProfile | null): void {
+  if (!row) {
+    db.run("DELETE FROM profile_facts WHERE tree_id = ?", [tree]);
+    return;
+  }
   db.run(
-    "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    [`profile:${root}`, JSON.stringify(facts)],
+    `INSERT INTO profile_facts (tree_id, index_hash, avatar_path, facts) VALUES (?, ?, ?, ?)
+     ON CONFLICT(tree_id) DO UPDATE SET index_hash = excluded.index_hash, avatar_path = excluded.avatar_path, facts = excluded.facts`,
+    [tree, row.indexHash, row.avatarPath, JSON.stringify(row.facts)],
   );
 }

@@ -13,7 +13,6 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 |---|---|
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
-| canopyd [018](soon/018-profile-facts-per-tree.md) | Profile facts stored once per tree (migration 020) |
 
 ## Remaining outcomes
 
