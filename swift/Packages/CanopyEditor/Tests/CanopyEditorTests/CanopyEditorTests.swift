@@ -684,6 +684,42 @@ struct CanopyEditorTests {
     }
 
     @MainActor
+    @Test("Copy and append to another page report failures and leave the destination untouched")
+    func copyFailuresAreReported() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let destination = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let destinationSession = try await provider.openDocument(destination)
+        let before = try await destinationSession.snapshot()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/origin")
+        let session = RecordingAdmissionSession(snapshot: .init(reference: reference, source: "# Origin\n\nMoved text.\n", contentRevision: "r1"))
+        // The session names a newer source than the one the editor's blocks were read from.
+        await session.setCopyOrigin(.init(path: "/origin", source: "# Origin\n\nChanged elsewhere.\n"))
+        let binding = try await CanopyDocumentBinding.open(reference: reference, session: session)
+        var errors: [String] = []
+        let host = CanopyEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            reportError: { errors.append($0) }
+        )
+        let target = CanopyDocumentReferenceCodec.encode(destination)
+
+        let copied = try #require(binding.document.children.last)
+        #expect(!(await host.copyToDocument(target, blocks: [copied], from: binding.document)))
+        #expect(errors == ["Couldn't copy blocks: this page changed while copying. Try again."])
+        #expect(try await destinationSession.snapshot() == before)
+        #expect(await session.admissionCount() == 0)
+
+        errors.removeAll()
+        let missing = DocumentReference("arbor://tr_sample/page/missing?path=/missing")
+        #expect(!(await host.appendToDocument(missing, [.paragraph(text: "copy")])))
+        #expect(errors.count == 1)
+        #expect(errors.first?.hasPrefix("Couldn't add blocks") == true)
+        await destinationSession.close()
+        await binding.close()
+    }
+
+    @MainActor
     @Test("Page creation links exact titles, recovers retries, and disambiguates filename collisions")
     func pageCreationRecovery() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
@@ -1540,6 +1576,10 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
         intents.append(intent)
         return try admit(patch: intent.patch)
     }
+
+    private var copyOrigin: WorkspaceCopyDocument?
+    func setCopyOrigin(_ origin: WorkspaceCopyDocument?) { copyOrigin = origin }
+    func copyDocument() -> WorkspaceCopyDocument? { copyOrigin }
 
     func admissionCount() -> Int { admissions }
     func admittedPatches() -> [WorkspaceDocumentPatch] { patches }

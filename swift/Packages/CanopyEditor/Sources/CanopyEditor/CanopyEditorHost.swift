@@ -614,11 +614,21 @@ public final class CanopyEditorHost: EditorHost {
     }
 
     public func copyToDocument(_ reference: DocumentReference, blocks: [Block], from document: Document) async -> Bool {
-        guard document === binding.document, let destination = workspaceReference(for: reference) else { return false }
+        guard document === binding.document else {
+            Self.diagnosticLog.error("copy requested from a document this host does not bind")
+            return false
+        }
+        guard let destination = workspaceReference(for: reference) else {
+            errorAction("Couldn't copy blocks: the destination page is not in this workspace")
+            return false
+        }
         // Freeze identity and source before suspension. Never infer a copy from
         // matching text in another page after the user changes the selection.
         await binding.flush()
-        guard binding.lastError == nil else { return false }
+        if let error = binding.lastError {
+            errorAction("Couldn't copy blocks: this page has changes that are not saved yet (\(error.localizedDescription))")
+            return false
+        }
         let ledger = binding.ledger
         guard destination.tree == binding.reference.tree else {
             return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
@@ -627,7 +637,15 @@ public final class CanopyEditorHost: EditorHost {
             guard let origin = try await binding.session.copyDocument() else {
                 return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
             }
-            guard origin.source == ledger.source else { return false }
+            // The copy names this page's source as the session holds it. When
+            // that is not the source the selected blocks were read from, their
+            // bytes cannot be proven; copying them as new text would silently
+            // drop the copy the user asked for.
+            guard origin.source == ledger.source else {
+                Self.diagnosticLog.notice("copy refused: session source \(EditorSourceID.of(origin.source), privacy: .public) differs from editor source \(EditorSourceID.of(ledger.source), privacy: .public)")
+                errorAction("Couldn't copy blocks: this page changed while copying. Try again.")
+                return false
+            }
             let copies = blocks.map { $0.withFreshIDs() }
             var mapping: [BlockID: BlockID] = [:]
             func map(_ source: Block, _ copy: Block) {
@@ -650,13 +668,18 @@ public final class CanopyEditorHost: EditorHost {
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
-        guard let decoded = workspaceReference(for: reference) else { return false }
+        guard let decoded = workspaceReference(for: reference) else {
+            errorAction("Couldn't add blocks: the destination page is not in this workspace")
+            return false
+        }
         do {
             _ = try await withDocumentSession(decoded) { session in
                 try await admitBlockEdit(in: session) { $0 += blocks }
             }
             return true
         } catch {
+            Self.diagnosticLog.notice("append to \(decoded.path, privacy: .private) failed: \(String(describing: error), privacy: .public)")
+            errorAction("Couldn't add blocks to \(decoded.path): \(error.localizedDescription)")
             return false
         }
     }
