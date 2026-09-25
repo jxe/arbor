@@ -11,7 +11,7 @@ numbers are separate from migration numbers: this is not migration 014.)
   link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function
   moves) is implemented and not deployed; see [status](../../status.md), the
   [transfer rules](../../docs/architecture/canopyd/merge-tool.md#transfers) and
-  the [release gate](../verification/release-and-soak.md#server-refinements).
+  the [release gate](../release-and-soak.md#server-refinements).
   Everything below is a menu. Promote an item into `soon/` when a real edit has
   asked for it.
 
@@ -67,7 +67,7 @@ syntax, and would become merges or merges with a note.
   clients can show without knowing the rule: a short message, the affected range
   or path, and whether someone has seen it. Specify it in §7, carry it in the
   log entry's decision evidence, and show it in the editor's margin beside
-  [Native 010](../swift/010-inline-choice-context.md)'s choices. Until clients
+  choices from the portable [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review). Until clients
   show notes, a merge with a note behaves as a plain merge.
 - **Say the three outcomes in the spec.** Add the three constraints and three
   outcomes to source intent §7 as what any merge tool may do. The spec should
@@ -110,7 +110,7 @@ merge with a note) or **review**.
    a neighbouring edit does not remove it: **merge** in both orders.
 2. **Two moves of the same text.** You move a paragraph up, I move it down. A
    real choice: **review**, presented as "moved here, or here" rather than byte
-   ranges (with [Native 010](../swift/010-inline-choice-context.md)).
+   ranges through the portable [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review).
 3. **A move and a delete.** You move a paragraph while I delete it. Deleting
    loses your move, so **review**, which is today's behaviour. Keep it.
 
@@ -222,5 +222,5 @@ Per candidate: tests in both arrival orders giving one result, a case that must
 still go to review, a replay check, the rule's revision bumped, the
 [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)
 updated, and the release gate recorded in
-[release and soak](../verification/release-and-soak.md#server-refinements)
+[release and soak](../release-and-soak.md#server-refinements)
 before any client relies on it.

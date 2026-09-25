@@ -59,12 +59,13 @@ undo stack after restart is separate from retaining already-authored undo reques
   discard captured operations. Preserve local work and expose a problem if it cannot be encoded.
 - canopyd executes and reconciles the operations. Its existing support must cover every emitted
   form before client release. Server policy belongs to [canopyd 014](../canopyd/014-merge-handles-many-cases.md);
-  conflict review belongs to [Native 010](../swift/010-inline-choice-context.md).
+  accepted-choice review is already implemented and is not owned by this plan; see
+  [status](../../status.md#implemented).
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.
 
 Browser integration belongs to [Web 025](../canopy-web/025-arbor-web.md) (formerly Web 023).
-Installation of already-built work belongs to [release verification](../verification/release-and-soak.md).
+Installation of already-built work belongs to [release verification](../release-and-soak.md).
 Neither is unfinished Native command capture in this plan.
 
 ## Done for each selected command

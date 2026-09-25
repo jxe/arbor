@@ -4,7 +4,7 @@ How a client of the daemon presents a placed folder whose changes the host
 refused. The daemon's route is described in
 [the Arbor Sync REST API](../implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-held-changes);
 the Canopy app's review of accepted-state choices is a different surface,
-described in [Native 010](../../plans/swift/010-inline-choice-context.md).
+defined by the [accepted-state review contract](../overstory-spec/09-client-synchronization.md#accepted-state-review).
 
 `sync: "conflict"` means the host refused the folder's latest request. The
 refused changes, and every change made on top of them, are held in the

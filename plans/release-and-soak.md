@@ -7,8 +7,9 @@ Source implementation status is distinct from installed/deployed behavior.
 
 ## Native release and hands-on review
 
-Owners: Native [008](../soon/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
-[010](../swift/010-inline-choice-context.md) for review behavior.
+Owner: Native [008](soon/008-complete-native-move-copy-undo-capture.md) for operation capture.
+The accepted-choice review behavior is implemented and summarized in [status](../status.md#implemented);
+this checklist retains only its hands-on gate.
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and accepted-choice
   review when Joe can quit both apps. Verify the exact selected revision and destination server
@@ -19,13 +20,13 @@ Owners: Native [008](../soon/008-complete-native-move-copy-undo-capture.md) for 
 - [ ] Complete 010's macOS/iPhone hands-on gate: layout, typing, focus, selection, scrolling,
   keyboard routing, VoiceOver, large text and installed review-draft recovery.
 
-Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/architecture/arborsync/data-home.md), [editor sources](../../docs/implementing-editors/editor-source.md), and [Native 010](../swift/010-inline-choice-context.md).
+Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../docs/architecture/arborsync/data-home.md), [editor sources](../docs/implementing-editors/editor-source.md), and [client design](../docs/implementing-editors/design.md#synchronization-conflicts-and-devices).
 Passing builds and automated tests do not establish interactive acceptance.
 
 ## Native 011 Mac gates
 
-Native 011 is closed in source (see [status](../../status.md#native-011-account-service--2026-09-25)
-and [the folds](../../status.md#native-011-daemon-client-folds--2026-09-24)); these gates are what
+Native 011 is closed in source (see [status](../status.md#native-011-account-service--2026-09-25)
+and [the folds](../status.md#native-011-daemon-client-folds--2026-09-24)); these gates are what
 remains of it. The client folds, route removals and the shared account service were made on Linux
 without a Swift toolchain; none of these has run.
 
@@ -60,7 +61,7 @@ without a Swift toolchain; none of these has run.
 ## Overstory identifier rename Mac gates
 
 The 2026-09-24 identifier and UI-copy rename (see
-[status](../../status.md#overstory-identifiers-and-ui-copy--2026-09-24)) renamed every Swift
+[status](../status.md#overstory-identifiers-and-ui-copy--2026-09-24)) renamed every Swift
 `Wire*`, host-meaning `Canopy*` and app/editor `Arbor*` type and 31 Swift files without a Swift
 toolchain; none of these has run.
 
@@ -74,7 +75,7 @@ toolchain; none of these has run.
 ## Collection schema Mac gates
 
 Declarative collection schemas (Apps 007; see
-[status](../../status.md#declarative-collection-schemas--2026-09-24)) changed these Swift files
+[status](../status.md#declarative-collection-schemas--2026-09-24)) changed these Swift files
 without a Swift toolchain; none of them has compiled. There is nothing to convert: no
 collections existed before `schema.cddl`, so no inventory or cutover remains.
 
@@ -91,7 +92,7 @@ collections existed before `schema.cddl`, so no inventory or cutover remains.
 
 ## Server refinements
 
-Owner: canopyd [014](../canopyd/014-merge-handles-many-cases.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
+Owner: canopyd [014](canopyd/014-merge-handles-many-cases.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the subsequent Markdown
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.
@@ -146,9 +147,9 @@ without claiming to prove the original incident's exact cause.
 
 ## Compatibility windows remain separate
 
-[Cleanup 001](../cleanups/001-pageid-stable-key-cutoff.md) retains its own data audit,
+[Cleanup 001](soon/001-pageid-stable-key-cutoff.md) retains its own data audit,
 operator decision and backup conditions. A date passing does not close that window.
-Cleanup 002 closed on 2026-09-21; its evidence is in [status](../../status.md#v1-account-and-local-state-cutoff--2026-09-21).
+Cleanup 002 closed on 2026-09-21; its evidence is in [status](../status.md#v1-account-and-local-state-cutoff--2026-09-21).
 
 When a gate passes, record exact revision/date/evidence in its owning checkpoint, then remove
 that completed checkbox here. Do not keep finished release steps as an evergreen executor plan.

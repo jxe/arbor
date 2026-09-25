@@ -35,8 +35,8 @@ Today the app reads that state and shows nothing actionable.
    the overview.
 3. Reword the configuration-tree refusal to point at that entry.
 4. Keep `conflicted: true` (accepted alternatives) visually distinct: it is
-   ordinary accepted state, reviewed through Native
-   [010](010-inline-choice-context.md).
+   ordinary accepted state, reviewed through the portable
+   [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review).
 
 ## Verify
 

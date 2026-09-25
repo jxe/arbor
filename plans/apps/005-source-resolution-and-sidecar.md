@@ -22,7 +22,7 @@ the supported scoped snapshot subset, and implement exact provider enforcement
 before exposing the operation, resolution and whole-object/watch projection forms
 that currently reject; never substitute broad read or write access to make them
 work. The consent, revocation and configuration-conflict soak is in
-[release and soak](../verification/release-and-soak.md#manual-recipes-retained-from-the-deleted-checkpoints)
+[release and soak](../release-and-soak.md#manual-recipes-retained-from-the-deleted-checkpoints)
 and still applies before enabling a real application.
 
 The outcome is an independently shippable **headless HTTP execution sidecar**.

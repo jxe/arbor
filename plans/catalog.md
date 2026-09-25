@@ -6,7 +6,7 @@ near-term work live in `soon/` but are listed here under their owner, marked **S
 Historical identifiers are recorded in each moved plan. Number gaps do not imply missing work or ordering.
 Old P1/P2 labels are workstream assessments, not current global priorities.
 
-[Release and verification](verification/release-and-soak.md) owns remaining installation, deployment,
+[Release and verification](release-and-soak.md) owns remaining installation, deployment,
 manual acceptance and soak gates. Check current source/tests before executing any older plan.
 
 ## Native clients
@@ -17,8 +17,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 006 — Place trees sparsely on iOS](swift/006-sparse-ios-placement.md) — **PLANNED · M.** Place an iOS tree by walking its spine (directories and Markdown) object by object, as catch-up already does, instead of downloading one whole snapshot; resume by keeping what arrived, and state what an unfetched file does offline.
 - [Native 008 — Complete native move, copy, and undo capture](soon/008-complete-native-move-copy-undo-capture.md) — **SOON · FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
 - [Native 012 — Show held folders in the Mac app](swift/012-show-held-folders.md) — **NOT STARTED.** List placed folders whose changes the host refused and offer Discard Refused Changes through `POST /v1/held/discard`.
-- [Native 010 — Show accepted choices in their editor context](swift/010-inline-choice-context.md) — **IMPLEMENTED, NOT INSTALLED.** The hands-on release gate, then alternatives shown in their sentence or block, tinted affected blocks (a Quagmire highlight), and placement of choices retained in their own context.
-- **Choice review extensions** — candidates split from Native 010 on 2026-09-24; promote one when a real review needs it. Safe binary previews and export, richer directory browsing and format-specific collection reconstruction; richer long-source comparison (beyond 4,000 lines it falls back to raw source) and visual checks of whitespace and line-ending differences; a compatible freshness policy so unrelated accepted updates need not force renewed review (host and client together); wider fault injection across review persistence, submission, installation, retirement, authorization changes and cancellation; explanations of verified moves, copies and deletions; rule-provided combination previews; bulk resolution and offline review.
+- **Choice review extensions** — promote one only when a real review needs it. Safe binary previews and export, richer directory browsing and format-specific collection reconstruction; richer long-source comparison (beyond 4,000 lines it falls back to raw source) and visual checks of whitespace and line-ending differences; a compatible freshness policy so unrelated accepted updates need not force renewed review (host and client together); wider fault injection across review persistence, submission, installation, retirement, authorization changes and cancellation; explanations of verified moves, copies and deletions; rule-provided combination previews; bulk resolution and offline review.
 
 ## Web client
 
@@ -31,7 +30,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
 - [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](soon/005-ignore-policy.md) — **SOON · P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
-- [Filesystem 011 — Keep independent filesystem writes moving after a rejection](filesystem/011-independent-writes-after-rejection.md) — **NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
+- [Filesystem 011 — Keep independent filesystem writes moving after a rejection](soon/011-independent-writes-after-rejection.md) — **SOON · NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 - [Filesystem 025 — Heal links after folder moves, then remove the old editor write path](filesystem/025-folder-link-healing.md) — **P2 · PLANNED · M.** Moves made in a placed folder (Finder, `git mv`, agents) are never healed since the daemon editor path went; add a byte-preserving source-level healer shared with Swift, heal stable-key backlinks after a watcher move, then delete `scheduleLinkHealing`, `WorkspaceFS.writeMarkdown`/`mutate` and the unused mutation types.
 
@@ -40,7 +39,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `canopyd/` — Merge policy, retained state, accepted history, provenance and hosted-tree configuration.
 
 - [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
-- [canopyd 005 — Configure each hosted tree in its own configuration tree](canopyd/005-tree-configuration-trees.md) — **P3 · PROPOSED, not decided.** Move a tree's address, access rules and administrators (person or group profiles) out of each account's `trees.yaml` into a private per-tree configuration tree, making ownership explicit and allowing co-administration and group-owned trees; eight open questions first.
+- [canopyd 005 — Configure each hosted tree in its own configuration tree](soon/005-tree-configuration-trees.md) — **SOON · P3 · PROPOSED, not decided.** Move a tree's address, access rules and administrators (person or group profiles) out of each account's `trees.yaml` into a private per-tree configuration tree, making ownership explicit and allowing co-administration and group-owned trees; eight open questions first.
 - [canopyd 006 — Record who submitted each update and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; after canopyd 007.** Record a safe actor on each accepted update, replace the public `subject` with it, and compute current-line blame over the `document_versions` rows; versions from before the migration 016 squash show an unknown actor.
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
 - [canopyd 014 — The merge handles many cases brilliantly](canopyd/014-merge-handles-many-cases.md) — **P3 · IDEAS AND CANDIDATES.** The first transfer round (Markdown list/table/link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function moves) is implemented, not deployed. Sets the constraints (lose nothing, keep the syntax, keep the meaning as far as possible) and three outcomes (merge, merge with a note, review), biased away from review; then 34 candidates across anchors, Markdown, structured data, code, new formats and presentation. First: portable notes in source intent §7, and a count of what reaches review. Open: bump the rule revisions the first round changed.
@@ -82,25 +81,14 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
 
-## Testing and CI
-
-`testing/` — Maintained automated gates and conditional test isolation.
-
-- [Testing 001 — Run maintained gates in CI](testing/001-ci.md) — **P2 · TODO.** Cover TypeScript, browser, protocol, performance, and Swift; Testing 002 should land first if the repeated parallel lane is not stable.
-- [Testing 002 — Make parallel integration tests independent](testing/002-parallel-integration-isolation.md) — **DEFERRED · LOW PRIORITY.** Revisit only if shared process-global fixture state causes recurring failures or blocks CI.
-
 ## Verification
 
-`verification/` — Evidence and acceptance checks for implemented behavior, separate from feature work.
-
-- [Release and soak](verification/release-and-soak.md): remaining installs, deployments, hands-on checks and dated ordinary-use observation.
+[Release and soak](release-and-soak.md) owns remaining installs, deployments, hands-on checks and dated ordinary-use observation, separate from feature work.
 
 ## Compatibility cutoffs
 
-`cleanups/` — Gated compatibility removal and simplification of locator identity surfaces.
-
-- [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
-- [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
+- [Cleanup 001 — Retire the PageID-shaped stable-key bridge](soon/001-pageid-stable-key-cutoff.md) — **SOON · WAITING** for its read-only data audit and an explicitly closed compatibility window.
+- [Cleanup 005 — Unify locator identity surfaces](soon/005-locator-identity-surfaces.md) — **SOON · P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
 
 ## Product Completion
 

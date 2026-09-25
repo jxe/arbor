@@ -11,22 +11,26 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 
 | Plan | What it does |
 |---|---|
+| Cleanup [001](soon/001-pageid-stable-key-cutoff.md) | Close the PageID-shaped stable-key compatibility window |
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
+| Cleanup [005](soon/005-locator-identity-surfaces.md) | Give locator identity one grammar across surfaces |
+| canopyd [005](soon/005-tree-configuration-trees.md) | Decide and design per-tree configuration and co-administration |
 | Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
+| Filesystem [011](soon/011-independent-writes-after-rejection.md) | Keep independent writes moving after a rejected change |
 
 ## Remaining outcomes
 
 | Outcome | What remains | Start here |
 |---|---|---|
-| Extend Native editing and conflict review | Additional move/copy/undo cases and accepted choices shown in their editor context; the core capture, sync and review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md) and [010](swift/010-inline-choice-context.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
+| Extend Native editing | Additional move/copy/undo cases; the core capture, sync and accepted-choice review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Make the merge handle many more cases | Lose nothing, keep the syntax, approach the meaning; merge or merge with a note far more often than asking for review: anchors that agree in both orders, cross-document links, new keys and arrays in JSON/YAML, code moves and imports, and formats such as BibTeX and notebooks | canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Show held folders in the Mac app | List placed folders whose changes the host refused and offer Discard Refused Changes | Native [012](swift/012-show-held-folders.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
-| Make Overstory applications executable | Headless sidecar with resource policy → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow. Declarative collection schemas are implemented; their Swift edits await the [Mac gates](verification/release-and-soak.md#collection-schema-mac-gates) | Apps [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
-| Make sharing easier | Safe access links and coherent group management; name-based sharing, the directory, and avatar profiles are implemented. Proposed, undecided: per-tree configuration with co-administrators and group-owned trees | Security [004](security/004-access-link-secrets.md), canopyd [005](canopyd/005-tree-configuration-trees.md), [product design](catalog.md#product-completion) |
+| Make Overstory applications executable | Headless sidecar with resource policy → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow. Declarative collection schemas are implemented; their Swift edits await the [Mac gates](release-and-soak.md#collection-schema-mac-gates) | Apps [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
+| Make sharing easier | Safe access links and coherent group management; name-based sharing, the directory, and avatar profiles are implemented. Proposed, undecided: per-tree configuration with co-administrators and group-owned trees | Security [004](security/004-access-link-secrets.md), canopyd [005](soon/005-tree-configuration-trees.md), [product design](catalog.md#product-completion) |
 | Browse document history and authorship | Show accepted document versions, restore an earlier version as a new edit, and explain who contributed current lines | canopyd [007](canopyd/007-document-history-routes-and-restore.md) and [006](canopyd/006-line-provenance.md) |
 | Bound storage and improve slow paths | Run the object collector live, bound document-version history, then measure before packing; sparse iOS placement and targeted performance work | canopyd [017](canopyd/017-collect-objects-live.md), [001](canopyd/001-pack-object-storage.md), Native [006](swift/006-sparse-ios-placement.md), [performance candidates](catalog.md#hardening-efficiency-polish-etc) |
-| Strengthen safety and delivery | Ignore policy, link healing for folder moves, URL/response/secret boundaries, CI; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [CI](catalog.md#testing-and-ci), [ignore policy](soon/005-ignore-policy.md), [folder link healing](filesystem/025-folder-link-healing.md), [cleanups](catalog.md#compatibility-cutoffs) |
+| Strengthen safety and delivery | Ignore policy, link healing for folder moves, and URL/response/secret boundaries; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [ignore policy](soon/005-ignore-policy.md), [folder link healing](filesystem/025-folder-link-healing.md), [compatibility cutoffs](catalog.md#compatibility-cutoffs) |
 
 ## Release and verify what is already built
 
@@ -34,17 +38,16 @@ Source publication is installed, the merge authority is deployed, and substantia
 move/copy/undo capture plus accepted-choice review are implemented. Their remaining release
 and hands-on checks are separate from the extensions above; see [current status](../status.md).
 
-[Release and verification](verification/release-and-soak.md) collects the outstanding installation,
+[Release and verification](release-and-soak.md) collects the outstanding installation,
 deployment, manual acceptance and soak checks. It separates those checks from new feature work.
-[Filesystem 011](filesystem/011-independent-writes-after-rejection.md) owns the implementation
+[Filesystem 011](soon/011-independent-writes-after-rejection.md) owns the implementation
 change for independent writes after rejection. Verification checklists do not authorize deployment.
 
 ## Parked and conditional work
 
-The [catalog](catalog.md) retains Postgres, external-agent CLI access, representation and locator work,
+The [catalog](catalog.md) retains Postgres, external-agent CLI access, representation work,
 non-tree disk editing, collection projection and smaller polish candidates. They are available to
-select, not an implied commitment to execute them all. Parallel-test isolation
-remains deferred.
+select, not an implied commitment to execute them all.
 
 Account/device recovery is a separate product-design question in the catalog. Editor crash
 recovery already has an implementation; neither is what the document-history row means.
@@ -64,9 +67,6 @@ contracts remain in [open questions](open-questions.md).
 | `apps/` | Executable documents, runtime authority and hosted agents |
 | `postgres/` | Providers, projections and representation equivalence |
 | `security/` | Input, rendering, authorization and sharing boundaries |
-| `testing/` | Implement CI and test isolation |
-| `verification/` | Manual acceptance and release/soak checks |
-| `cleanups/` | Compatibility cutoffs, locator simplification, and identifier renames |
 
 The [catalog](catalog.md) follows this layout. Completed plans are deleted; git history keeps
 them, and each active plan records any identifier it inherited.
