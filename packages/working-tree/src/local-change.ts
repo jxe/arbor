@@ -399,3 +399,17 @@ export function validateLocalChanges(records: LocalChange[], tree: string): void
     prior.set(record.change, record);
   }
 }
+
+/** The request that publishes `through`: its chain of records back to an
+ * accepted basis, oldest first. A settled record repeats without objects or
+ * deltas. The change log and a preview of an unretained change both use it. */
+export function localChangeRequest(records: readonly LocalChange[], through: string, settled: ReadonlySet<string> = new Set()): { base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } } {
+  const byChange = new Map(records.map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
+  let current = through;
+  for (;;) {
+    const record = byChange.get(current); if (!record) throw new Error("Missing authored dependency");
+    updates.unshift(settled.has(current) ? { ...record.update, objects: [], deltas: [] } : record.update);
+    if (record.basis.kind === "accepted") return { base: { root: record.basis.root, update: record.basis.update }, request: { base: record.basis.update, updates } };
+    current = record.basis.change;
+  }
+}

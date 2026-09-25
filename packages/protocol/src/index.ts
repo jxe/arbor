@@ -25,6 +25,7 @@ export * from "./updates/apply.ts";
 export * from "./updates/delta.ts";
 export * from "./updates/tree-diff.ts";
 export * from "./updates/transition-payload.ts";
+export * from "./updates/describe.ts";
 export * from "./updates/source-trace.ts";
 export * from "./updates/source-moves.ts";
 export * from "./transport.ts";

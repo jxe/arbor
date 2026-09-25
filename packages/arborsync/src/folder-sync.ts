@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -20,6 +21,8 @@ import {
 } from "@overstory/protocol";
 import { materializeTree } from "@overstory/fs";
 import {
+  equal,
+  localChangeRequest,
   snapshotJSON,
   UpdateCoordinator,
   UpdateValidationError,
@@ -134,12 +137,18 @@ export class FolderSync implements AcceptedTree {
   private rescan = false;
   private watch?: { abort: AbortController; done: Promise<void>; key: string };
   private closed = false;
+  private readonly pausedPath: string;
+  private paused: boolean;
+  /** The change the last preview prepared; the next scan of the same folder sends exactly it. */
+  private previewed?: LocalChange;
 
   constructor(readonly tree: string, stateRoot: string, private readonly host: FolderSyncHost, options: { pollIntervalMs?: number } = {}) {
     // Folder records are sparse (directories and new files), so the log keeps
     // every object it names rather than leaning on a folder that keeps changing.
     this.log = new ChangeLog(tree, stateRoot);
     this.knownPath = join(stateRoot, "sync", "folder.json");
+    this.pausedPath = join(stateRoot, "sync", "paused.json");
+    this.paused = existsSync(this.pausedPath);
     const transport: UpdateTransport = {
       submitUpdates: async (tree, request) => (await this.client()).submitUpdates(tree, request),
       descriptor: async (tree) => (await this.client()).descriptor(tree),
@@ -148,8 +157,13 @@ export class FolderSync implements AcceptedTree {
     };
     this.coordinator = new UpdateCoordinator(tree, this.log, new FileControlStore(stateRoot), transport, this, {
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
-      onState: (state) => { if (state.kind !== "unplaced") host.setSyncState(folderSyncState(state)); },
+      onState: (state) => { if (state.kind !== "unplaced") this.report(folderSyncState(state)); },
     });
+  }
+
+  /** A paused folder reports `paused` unless its changes are held. */
+  private report(state: NonNullable<LocalTreeDescriptor["sync"]>): void {
+    this.host.setSyncState(this.paused && state !== "conflict" ? "paused" : state);
   }
 
   private async client(): Promise<ProtocolClient> {
@@ -264,6 +278,7 @@ export class FolderSync implements AcceptedTree {
     const placement = this.host.placement();
     if (!placement?.ref || !placement.update) return;
     await this.coordinator.start();
+    if (this.paused) return this.report(folderSyncState(this.coordinator.state));
     const appended = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known) return false;
@@ -271,10 +286,13 @@ export class FolderSync implements AcceptedTree {
       if (lazy.root === known.root) return false;
       if (placement.access !== "write") {
         // A read-only placement cannot publish; its edits wait, visibly.
-        this.host.setSyncState("conflict");
+        this.report("conflict");
         return false;
       }
-      const change = await this.prepare(known, lazy);
+      const previewed = this.previewed;
+      this.previewed = undefined;
+      const change = previewed && equal(previewed.basis, known.basis) && previewed.candidate.root === lazy.root
+        ? previewed : await this.prepare(known, lazy);
       await this.log.retain(change);
       await this.saveKnown({ root: lazy.root, basis: { kind: "authored", change: change.change } });
       return true;
@@ -372,7 +390,7 @@ export class FolderSync implements AcceptedTree {
         conflicted: current.tree.conflicted, access: current.tree.access === "none" ? "read" : current.tree.access });
       await this.saveKnown({ root: current.tree.root, basis: { kind: "accepted", root: current.tree.root, update: current.tree.update } });
     });
-    this.host.setSyncState("idle");
+    this.report("idle");
   }
 
   // MARK: Watching
@@ -417,6 +435,50 @@ export class FolderSync implements AcceptedTree {
       await sleep(backoff, signal);
       backoff = Math.min(backoff * 2, MAX_WATCH_BACKOFF_MS);
     }
+  }
+
+  // MARK: Pausing
+
+  get isPaused(): boolean { return this.paused; }
+
+  /** Stop publishing the folder's changes, durably; accepted updates still arrive. */
+  async pause(): Promise<void> {
+    await mkdir(dirname(this.pausedPath), { recursive: true, mode: 0o700 });
+    const file = await open(this.pausedPath, "w", 0o600);
+    try { await file.writeFile(JSON.stringify({ paused: true })); await file.sync(); } finally { await file.close(); }
+    this.paused = true;
+    this.report(folderSyncState(this.coordinator.state));
+  }
+
+  /** Publish again, starting with what the folder holds now. */
+  async resume(): Promise<void> {
+    await rm(this.pausedPath, { force: true });
+    this.paused = false;
+    this.report(folderSyncState(this.coordinator.state));
+    await this.scan();
+  }
+
+  /**
+   * The request the next publication would send, retaining nothing: the
+   * log's unsettled chain and, when the folder differs from what it last
+   * held, the change a scan would append, assembled as the change log
+   * assembles a request. Null when nothing is pending.
+   */
+  async preview(): Promise<ReturnType<typeof localChangeRequest> | null> {
+    const placement = this.host.placement();
+    if (!placement?.ref || !placement.update) return null;
+    const change = await this.host.withWorkspaceIO(async () => {
+      const known = await this.loadKnown();
+      if (!known || placement.access !== "write") return undefined;
+      const lazy = await this.host.scan();
+      if (lazy.root === known.root) return undefined;
+      return this.previewed = await this.prepare(known, lazy);
+    });
+    const records = await this.log.retained();
+    const unsettled = new Set((await this.coordinator.pendingChanges()).map((record) => record.change));
+    const settled = new Set(records.filter((record) => !unsettled.has(record.change)).map((record) => record.change));
+    const through = change?.change ?? await this.log.nextPublication(settled);
+    return through ? localChangeRequest(change ? [...records, change] : records, through, settled) : null;
   }
 
   // MARK: Operations

@@ -158,8 +158,9 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   name: string;
   osPath?: string;
   placement: "placed" | "replica" | "remote";
-  /** `conflict`: the host refused the folder's changes; they are held until discarded. */
-  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  /** `conflict`: the host refused the folder's changes; they are held until discarded.
+   * `paused`: a person paused publishing the folder's changes; accepted updates still arrive. */
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error" | "paused";
   missing?: boolean;
 }
 
