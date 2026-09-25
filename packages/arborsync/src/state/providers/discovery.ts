@@ -59,4 +59,3 @@ export async function detectProjection(directory: string): Promise<ProjectionDef
   }
   return { provider: "markdown", markdownPaths, ...(schemaPath ? { schemaPath } : {}), diagnostics };
 }
-

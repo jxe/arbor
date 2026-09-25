@@ -360,4 +360,3 @@ function rejectCycles(order: RuleNode[]): void {
   const first = order.find((rule) => cyclic.has(rule.name));
   if (first) throw schemaFailure("rule-cycle", `Rule ${first.name} refers to itself`, first.location);
 }
-

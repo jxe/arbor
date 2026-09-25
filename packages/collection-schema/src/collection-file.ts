@@ -263,4 +263,3 @@ export function encodeWireCollectionFile(
   }
   return new TextEncoder().encode(source);
 }
-
