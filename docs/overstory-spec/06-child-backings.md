@@ -165,7 +165,10 @@ row = {
 Interpreting a collection never executes authored code. The schema is data: a
 conforming implementation parses and checks it under the profile's finite
 limits and validates rows against it without inserting defaults, removing
-fields, or transforming values.
+fields, or transforming values. A row may carry members the schema does not
+declare: its Markdown frontmatter keys, JSON or JSONL object members, or CSV
+columns beyond `row`'s. They are accepted and preserved exactly
+([§2.4.4](#244-value-validation)); declared members are validated strictly.
 
 `overstory-child-name` is an optional deterministic logical-name rule for
 compact backings. It names one required, text-only member of `row`; omission
@@ -173,14 +176,15 @@ derives the name from the primary key. The selected value must be one valid
 logical `Name`.
 
 `overstory-primary-key` is required for mutation and durable row references. It
-names one or more required `row` members in tuple order. Omitting it leaves CSV and
+names one or more declared required `row` members in tuple order. Omitting it leaves CSV and
 JSON/JSONL rows as read-only positional projections; Markdown rows may use their
-durable `id` identity when the schema explicitly includes `id`. A key field is
-immutable under an ordinary row update.
+durable `id` identity as their key when the schema explicitly declares `id`.
+An undeclared `id` frontmatter key, such as the durable page ID a client adds
+when a page moves, is an ordinary preserved member. A key field is immutable
+under an ordinary row update.
 
-A directory containing both `schema.cddl` and a retired `schema.ts` is
-ambiguous and is not interpreted as a collection; see
-[§2.5](#25-retired-version-1-schemats-collections) for `schema.ts` alone.
+Only `schema.cddl` selects a collection schema. Any other file, including one
+named `schema.ts`, is an ordinary file with no collection meaning.
 
 `_store.csv` uses its header for property names. `_store.json` is one top-level
 JSON array whose elements are row objects; an ordinarily named `something.json`
@@ -219,9 +223,9 @@ The descriptor fields have these meanings:
 
 | Fields | Meaning |
 |---|---|
-| `version`, `type` | Select this descriptor contract. Version 2 selects `schema.cddl`; version 1 is the retired `schema.ts` contract ([§2.5](#25-retired-version-1-schemats-collections)). |
+| `version`, `type` | Select this descriptor contract: version 1, `collection-file`. Any other version is invalid. |
 | `format`, `source` | Select the physical collection file and parser for its exact bytes. |
-| `schemaSource` | Select the physical schema file used to interpret the rows: exactly `schema.cddl` in version 2. |
+| `schemaSource` | Select the physical schema file used to interpret the rows: exactly `schema.cddl`. |
 | `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source, comments and metadata included. |
 | `childSetHash` | Commit to the validated logical children derived from the collection file and schema. |
 
@@ -229,7 +233,7 @@ The descriptor version and the schema profile version
 (`overstory-schema-version`) are distinct. A descriptor version selects the
 schema file and this validation procedure; the profile version, inside the
 fingerprinted source, selects the schema language. A conforming authority
-validates a version-2 descriptor in this order:
+validates a descriptor in this order:
 
 1. Require `source` and `schemaSource` to name two ordinary file entries in
    the same directory, and require `source` to agree with `format`.
@@ -316,8 +320,10 @@ logical path plus its `arbor-key` identity suffix.
 `schema.cddl` is written in [CDDL (RFC 8610)](https://www.rfc-editor.org/rfc/rfc8610.html).
 This section defines the Overstory collection schema profile, version 1: a
 strict subset of CDDL syntax interpreted over JSON values, plus three reserved
-metadata rules. Every accepted source is valid RFC 8610 CDDL, but the
-metadata interpretation is an Overstory convention, not part of RFC 8610.
+metadata rules and the open-row convention. Every accepted source is valid RFC
+8610 CDDL, but the metadata interpretation and the open `row` map
+([§2.4.4](#244-value-validation)) are Overstory conventions, not part of RFC
+8610.
 Valid CDDL outside the subset is rejected with a diagnostic, never ignored or
 approximated. The [`collection-schemas.json`](conformance/collection-schemas.json)
 vectors bind this section.
@@ -349,9 +355,9 @@ The lexical syntax is RFC 8610's, restricted as follows.
   (`$name`) extension points are rejected.
 - The prelude types are `bool`, `true`, `false`, `null`, `nil` (a synonym for
   `null`), `tstr`, `text` (a synonym for `tstr`), `int`, `uint`, `nint`, and
-  `number`. Every other prelude name, including `any`, `bstr`, `bytes`,
-  `float`, `float16`, `float32`, `float64`, and `undefined`, is rejected, and
-  no rule may be named after a prelude type.
+  `number`. Every other prelude name, including `any` (outside the open-map
+  entry below), `bstr`, `bytes`, `float`, `float16`, `float32`, `float64`, and
+  `undefined`, is rejected, and no rule may be named after a prelude type.
 - A text literal is a double-quoted string using JSON escapes (`\"`, `\\`,
   `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX` with paired surrogates). Its
   value must be valid Unicode and at most 4,096 UTF-8 bytes. Single-quoted and
@@ -368,8 +374,11 @@ The lexical syntax is RFC 8610's, restricted as follows.
 - A map is `{ entries }`. Each entry is `key: type`, optionally preceded by
   `?`; `key` is a bareword or a text literal and names a string member.
   Entries are separated by optional commas, and a trailing comma is allowed.
-  Member names are unique within a map. Other occurrence indicators, `=>`
-  keys, computed or nontext keys, and group entries are rejected.
+  Member names are unique within a map. A map may also contain, at most once
+  and in any position, the open-map entry `* tstr => any` (`text` may replace
+  `tstr`), which admits undeclared members ([§2.4.4](#244-value-validation)).
+  Other occurrence indicators, other `=>` keys, computed or nontext keys, and
+  group entries are rejected.
 - An array is `[* type]` or `[+ type]`: a homogeneous array with zero-or-more
   or one-or-more elements of `type`. Any other array group, including a
   fixed-length tuple, is rejected.
@@ -377,9 +386,9 @@ The lexical syntax is RFC 8610's, restricted as follows.
   reference, a reference cycle (direct or indirect), and a reference to a
   metadata rule are rejected. Unreferenced rules are allowed and checked.
 
-The rule `row` is required and must be defined directly as a map. Its members
-in source order are the collection's declared columns; that order is the
-generated-column and CSV-encoding order.
+The rule `row` is required and must be defined directly as a map. Its declared
+members in source order are the collection's declared columns; that order is
+the generated-column and CSV-encoding order.
 
 #### 2.4.3 Metadata rules
 
@@ -417,17 +426,29 @@ exactly its parsed values.
 - A numeric literal matches an equal number. An integer range matches an
   integer within its bounds; a number range matches any finite number within
   its bounds.
-- A map matches a JSON object whose members are all declared: an undeclared
-  member is invalid (records are closed), a required member must be present,
-  and an optional member is either absent or present with a valid value.
-  `null` is a value, not absence.
+- A map matches a JSON object in which every required member is present and
+  every present declared member is valid; an optional member is either absent
+  or present with a valid value, and `null` is a value, not absence. A closed
+  map, one without the open-map entry, also requires every member to be
+  declared: an undeclared member is invalid. An open map, one with
+  `* tstr => any`, accepts undeclared members with any JSON value without
+  examining them.
+- **Open rows.** By Overstory convention the `row` map is always open: rows
+  are validated as if `row` ended with `* tstr => any`, whether or not the
+  source writes that entry. Under plain RFC 8610 the two forms are equivalent;
+  a `:` member key implies a cut, so a declared member with an invalid value
+  never falls through to the open entry. Undeclared members are preserved
+  exactly in the row's properties, the child-set hash, and every re-encoding.
+  Nested maps keep ordinary CDDL semantics: they are closed unless they declare
+  `* tstr => any`. The primary key and child name still name declared
+  required members.
 - An array type matches a JSON array whose elements all match, with at least
   one element for `+`.
 - A choice matches a value that matches any alternative.
 
 Diagnostics name a stable code and a JSON Pointer to the failing value. Their
-order is deterministic: declared members in declaration order, then
-undeclared members in their order in the value. A failed choice reports the
+order is deterministic: declared members in declaration order, then a closed
+map's undeclared members in their order in the value. A failed choice reports the
 choice itself rather than every alternative.
 
 #### 2.4.5 CSV cell conversion
@@ -436,8 +457,10 @@ A CSV cell is text, so `_store.csv` converts each cell to a value using its
 column's declared type before validation. JSON and JSONL rows already contain
 typed values and are never converted.
 
-Each header name must be a distinct `row` member; an undeclared or repeated
-header name makes the file invalid. Every `row` member's type, after removing
+Header names must be distinct; a repeated header name makes the file invalid.
+A header name that is not a declared `row` member is an undeclared column: it
+converts as if declared `? name: tstr`, so a nonempty cell is its exact text
+and an empty cell is absence. Every declared `row` member's type, after removing
 `null`, must admit exactly one scalar class: text (`tstr` and text literals),
 number (numeric types, ranges, and numeric literals), or boolean (`bool`,
 `true`, `false`). A schema with a map, array, or mixed-class member cannot
@@ -452,11 +475,13 @@ govern `_store.csv`. A cell converts as follows:
    without surrounding whitespace, and converts to that number.
 4. A nonempty boolean-class cell must be exactly `true` or `false`.
 
-The converted row is then validated as in §2.4.4. Encoding writes the column
-order of `row` and each value's text: numbers use their shortest round-trip
+The converted row is then validated as in §2.4.4. Encoding writes the declared
+column order of `row`, then undeclared members in the order they first appear
+across the rows, and each value's text: numbers use their shortest round-trip
 JSON number text, and absence and `null` write an empty cell. A value that would not
-convert back to itself, such as the empty string in an optional text column,
-cannot be written to `_store.csv` and rejects the write.
+convert back to itself, such as the empty string in an optional text column or
+any nontext or empty undeclared value, cannot be written to `_store.csv` and
+rejects the write.
 
 #### 2.4.6 Resource limits
 
@@ -486,33 +511,6 @@ collection-file, row-count, and schema-byte quotas of
 A later profile version may add syntax only with bounded semantics,
 conformance vectors, and a compatibility assessment; an implementation that
 does not know a profile version rejects the schema.
-
-### 2.5 Retired version-1 `schema.ts` collections
-
-Version-1 descriptors selected an executable `schema.ts`. They are retired:
-their objects, bytes, and hashes remain valid and retrievable, and version-1
-descriptors still decode, but no conforming authority interprets them, and no
-client creates them. An authority:
-
-- rejects, with `422 unsupported-operation`, a candidate whose graph contains
-  a version-1 descriptor; an update from a current state that still contains
-  version-1 collections is therefore accepted only when its candidate replaces
-  all of them, which is how a converted tree is submitted;
-- does not project rows from a version-1 collection in its current state and
-  answers such a read with `422 unsupported-operation`;
-- treats a merge involving a version-1 collection as a
-  `collection-file-schema-conflict`.
-
-Retained roots stay readable as exact objects and snapshot bundles. Logical
-row projection of a retained version-1 root was never a supported read, so
-retirement removes no promised history operation. A local collection
-whose directory still contains `schema.ts` reports an explicit diagnostic and
-is not interpreted. When it also contains a collection file, the local tree
-refuses to produce a snapshot rather than silently submitting the directory
-as ordinary files; expanded Markdown rows carry no descriptor and remain
-ordinary authored files on the wire. Converting such a collection is an
-authored change to `schema.cddl` made offline; see the reference
-implementation's migration notes for its converter.
 
 ## 3. SQLite
 

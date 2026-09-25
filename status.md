@@ -46,7 +46,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status` | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
-| Declarative collection schemas: `schema.cddl` in the Overstory CDDL profile, version-2 collection descriptors (TypeScript and Swift), schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; canopyd acceptance and projection, the merge rules and Arbor Sync providers use the pure `@overstory/collection-schema` package, and QuickJS is no longer a dependency. Retired version-1 `schema.ts` collections still decode byte-exactly but are never interpreted: `422 unsupported-operation` at the host, `collection-file-schema-conflict` in merges, `legacy-collection-schema` locally, and a `schema.ts` collection file refuses to snapshot | implemented, not deployed or installed: the Swift model edits are unverified (no Swift toolchain where they were made); [migration 021](packages/canopyd/migrations/021-cddl-collection-schemas/README.md) converts authored trees and has run on disposable copies only; **no operator inventory, conversion of real data, or cutover** (waits for Joe's go-ahead) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4–2.5](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile) |
+| Declarative collection schemas: `schema.cddl` in the Overstory CDDL profile, one collection descriptor version (1, naming `schema.cddl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; canopyd acceptance and projection, the merge rules and Arbor Sync providers use the pure `@overstory/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | implemented, not deployed or installed; the Swift model edits are unverified (no Swift toolchain where they were made; [Mac gates](plans/verification/release-and-soak.md#collection-schema-mac-gates)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/canopyd/migrations/016-squash-history/README.md` at `d15ddce`) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
@@ -182,36 +182,39 @@ Apps 007 is implemented and tested, not deployed or installed. A collection's `s
 checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile)
 by `@overstory/collection-schema`, which executes no code and has no
 filesystem or network access; `apps-runtime` lost its QuickJS sandbox and its
-QuickJS, Zod and `csv-parse` dependencies. Evidence:
+QuickJS, Zod and `csv-parse` dependencies. Rows are open (2026-09-25, Joe's
+decision): the `row` map accepts undeclared members, Markdown frontmatter keys
+and CSV columns, as if it ended with `* tstr => any`, and preserves them exactly;
+declared members, the primary key and the child name stay strict, and nested
+maps are closed unless they declare `* tstr => any`. No collections existed
+anywhere, so descriptor version 1 names `schema.cddl`, there is no retired
+`schema.ts` policy or converter, and a `schema.ts` is an ordinary file.
+Evidence:
 
 - `tests/unit/collection-schema.test.ts` passes every
   [`collection-schemas.json`](docs/overstory-spec/conformance/collection-schemas.json)
-  vector: syntax, metadata, values, CSV conversion and encoding, malformed
+  vector: syntax (including the open-map entry and its rejections), metadata,
+  values (undeclared row members accepted, closed nested maps rejecting them),
+  CSV conversion and encoding (undeclared columns as optional text), malformed
   UTF-8, budgets (tokens, nodes, rules, depth through references, expanded
   size, choices, members, source bytes, row and collection steps), numeric
-  edges and deterministic diagnostics. Every accepted vector also parses in the
-  independent `cddl` 0.23.0 parser ([coverage notes](docs/architecture/collection-schema/README.md#parser-choice)).
+  edges and deterministic diagnostics. The accepted vectors of the first
+  implementation also parse in the independent `cddl` 0.23.0 parser
+  ([coverage notes](docs/architecture/collection-schema/README.md#parser-choice)).
 - `tests/unit/collection-schema-types.test.ts` typechecks generated
-  declarations without authored modules or Zod;
-  `tests/unit/collection-schema-boundary.test.ts` checks manifests, the lockfile
-  and the bundled module closures of canopyd, the merge worker, `tree-merge`,
-  Arbor Sync and `arbor`, and runs acceptance decoding, projection, merge and
-  local reads with QuickJS made unavailable.
+  declarations, including the open row's index signature, without authored
+  modules or Zod; `tests/unit/collection-schema-boundary.test.ts` checks
+  manifests, the lockfile and the bundled module closures of canopyd, the merge
+  worker, `tree-merge`, Arbor Sync and `arbor`, and runs acceptance decoding,
+  projection, merge and local reads with QuickJS made unavailable.
 - Host, merge and provider tests: `snapshot-acceptance` (valid and invalid
-  CDDL collection updates, a recomputed child-set hash, version-1 candidates
-  rejected as unsupported, public projection), `graph-validation` (an unproven
-  version-1 basis collection is revalidated), `wire-projection-collections`,
-  `tree-merge/update-merge` (typed CSV rows merge and re-encode; a version-1
-  side is a schema conflict), `collections` and `workspace` (CSV text keys stay
-  exact, undeclared columns and members reject instead of being stripped,
-  retired and ambiguous schemas, database backings, generated types).
-- The retained-history policy is [§2.5](docs/overstory-spec/06-child-backings.md#25-retired-version-1-schemats-collections):
-  retained objects and bytes are unchanged and readable; the host never
-  projected rows of non-current roots, so no promised history read changes;
-  a current state's version-1 collections are converted by an ordinary update
-  after [migration 021](packages/canopyd/migrations/021-cddl-collection-schemas/README.md)
-  rewrites the working tree, which proves row identity per collection and
-  blocks on transforms, refinements, defaults and values Zod had normalized.
+  CDDL collection updates, a recomputed child-set hash, an undeclared member
+  stored byte-exactly, public projection), `projection-collections`,
+  `tree-merge/update-merge` (typed CSV rows and undeclared CSV columns merge and
+  re-encode), `collections` and `workspace` (CSV text keys stay exact,
+  undeclared columns, members and frontmatter are preserved, a page ID minted
+  by a move needs no declaration, `schema.ts` is ordinary, database backings,
+  generated types).
 - Measurements, against the retired sandbox's 214 ms cold compile and 44 µs
   per row: 4.5 ms and 0.8 µs for an ordinary schema; profile-maximal inputs and
   the bounded cache are in [the architecture](docs/architecture/collection-schema/README.md#measurements).

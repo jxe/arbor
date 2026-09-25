@@ -474,8 +474,7 @@ object read cache.
 Install workspace dependencies with `bun install`. Collection-file rows are decoded and
 re-encoded through the pure `collection-schema` package under the profile's bounded
 parse and validation budgets; the sidecar executes no authored schema and has no QuickJS
-or Zod dependency for collections. A merge that involves a retired version-1
-(`schema.ts`) collection reports `collection-file-schema-conflict`.
+or Zod dependency for collections.
 
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint

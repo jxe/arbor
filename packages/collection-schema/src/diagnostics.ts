@@ -64,7 +64,6 @@ export type ValueDiagnosticCode =
   | "missing-member"
   | "invalid-text"
   | "budget-exceeded"
-  | "csv-unknown-column"
   | "csv-duplicate-column"
   | "csv-invalid-cell"
   | "csv-invalid-row"

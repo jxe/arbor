@@ -9,6 +9,7 @@ overstory-primary-key = ["id"]
 status = "draft" / "done"
 point = { x: number, y: number }
 tag-name = tstr
+meta = { ? title: tstr, * tstr => any }
 row = {
   id: tstr,
   status: status,
@@ -20,6 +21,7 @@ row = {
   tags: [* tag-name],
   path: [+ point],
   "display name": text,
+  ? meta: meta,
 }
 `;
 
@@ -27,7 +29,8 @@ const expected = [
   "type Row_status = \"draft\" | \"done\";",
   "type Row_tag_name = string;",
   "type Row_point = { \"x\": number; \"y\": number; };",
-  "type Row = { \"id\": string; \"status\": Row_status; \"note\"?: string; \"maybe\": string | null; \"count\": number; \"answer\": 42; \"flag\": boolean; \"tags\": Array<Row_tag_name>; \"path\": [Row_point, ...Array<Row_point>]; \"display name\": string; };",
+  "type Row_meta = { \"title\"?: string; [member: string]: unknown; };",
+  "type Row = { \"id\": string; \"status\": Row_status; \"note\"?: string; \"maybe\": string | null; \"count\": number; \"answer\": 42; \"flag\": boolean; \"tags\": Array<Row_tag_name>; \"path\": [Row_point, ...Array<Row_point>]; \"display name\": string; \"meta\"?: Row_meta; [member: string]: unknown; };",
 ].join("\n");
 
 describe("generated collection declarations", () => {
@@ -47,13 +50,22 @@ describe("generated collection declarations", () => {
       await writeFile(join(directory, "use.ts"), [
         'const valid: Row = { id: "a", status: "done", maybe: null, count: 3, answer: 42, flag: true, tags: [], path: [{ x: 1, y: 2 }], "display name": "A" };',
         'const noted: Row = { ...valid, note: "optional" };',
+        "// Rows are open: undeclared members of any type are allowed.",
+        'const extended: Row = { ...valid, color: "red", rank: 1, nested: { deep: [null] } };',
+        'const described: Row = { ...valid, meta: { title: "T", anything: [1] } };',
+        "// @ts-expect-error declared members keep their types",
+        'const badTitle: Row = { ...valid, meta: { title: 1 } };',
+        "// @ts-expect-error nested maps without * tstr => any stay closed",
+        "const extraPoint: Row = { ...valid, path: [{ x: 1, y: 2, z: 3 }] };",
+        "// @ts-expect-error a declared optional member keeps its type",
+        "const badNote: Row = { ...valid, note: 1 };",
         "// @ts-expect-error status is a closed literal union",
         'const badStatus: Row = { ...valid, status: "archived" };',
         "// @ts-expect-error a non-empty array needs one element",
         "const emptyPath: Row = { ...valid, path: [] };",
         "// @ts-expect-error maybe is required even though it admits null",
         "const { maybe: _omitted, ...missing } = valid; const missingMaybe: Row = missing;",
-        "export { valid, noted, badStatus, emptyPath, missingMaybe };",
+        "export { valid, noted, extended, described, badTitle, extraPoint, badNote, badStatus, emptyPath, missingMaybe };",
         "",
       ].join("\n"));
       const tsc = join(import.meta.dir, "../../node_modules/typescript/bin/tsc");

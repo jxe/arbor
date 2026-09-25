@@ -126,7 +126,7 @@ row = {
 }
 ```
 
-This is how Notion turns page properties into a database.
+Declared properties are checked; any others a page carries are kept as they are. This is how Notion turns page properties into a database.
 
 **Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbor Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 

@@ -272,11 +272,6 @@ export async function collectionFileRowsV1(
     context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
     return { ...candidate, mergedRows: 0 };
   }
-  // A retired version-1 (schema.ts) collection is never interpreted (spec 06 §2.5).
-  if (base.descriptor.version !== 2 || candidate.descriptor.version !== 2 || current.descriptor.version !== 2) {
-    context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
-    return { ...candidate, mergedRows: 0 };
-  }
   let mergedRows = 0;
   try {
     const decode = async (value: CollectionFileMergeInput) => decodeProtocolCollectionFile(
@@ -325,7 +320,7 @@ export async function collectionFileRowsV1(
     };
   } catch (error) {
     if (error instanceof ProtocolCollectionFileError) {
-      context.conflicts.push({ path, reason: error.kind === "schema" || error.kind === "unsupported" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
+      context.conflicts.push({ path, reason: error.kind === "schema" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
       return { ...candidate, mergedRows: 0 };
     }
     throw error;

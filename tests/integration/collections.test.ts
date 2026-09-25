@@ -189,7 +189,7 @@ describe("file-backed collections", () => {
     await expect(new ProjectionProviderHost().descriptor(nullable)).rejects.toThrow("invalid-primary-key");
   });
 
-  test("keeps CSV text keys exact and rejects undeclared columns instead of stripping them", async () => {
+  test("keeps CSV text keys exact and preserves undeclared columns as text", async () => {
     const directory = join(root, "typed-csv");
     await mkdir(directory);
     await writeFile(join(directory, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["code"]\nrow = { code: tstr, qty: uint, ? note: tstr, active: bool }\n');
@@ -202,29 +202,28 @@ describe("file-backed collections", () => {
     ]);
     expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toMatchObject({ format: "csv" });
 
-    await writeFile(join(directory, "_store.csv"), "code,qty,active,extra\n001,2,true,ignored\n");
-    const unknown = await providers.descriptor(directory);
-    expect(unknown?.diagnostics?.[0]).toMatchObject({ code: "csv-unknown-column", field: "extra" });
-    expect(unknown?.editable).toBe(false);
-    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toBeNull();
+    await writeFile(join(directory, "_store.csv"), "code,qty,active,extra\n001,2,true,kept\n010,0,false,\n");
+    const extended = await providers.descriptor(directory);
+    expect(extended?.diagnostics ?? []).toEqual([]);
+    const rows = await childrenOf(providers, directory, "/typed-csv");
+    expect(rows.items.map((item) => [item.ref.path, item.properties, item.diagnostics])).toEqual([
+      ["/typed-csv/001", { code: "001", qty: 2, active: true, extra: "kept" }, []],
+      ["/typed-csv/010", { code: "010", qty: 0, active: false }, []],
+    ]);
+    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toMatchObject({ format: "csv" });
     await providers[Symbol.asyncDispose]();
   });
 
-  test("never interprets a retired schema.ts, alone or beside schema.cddl", async () => {
-    const legacy = join(root, "legacy");
-    await mkdir(legacy);
-    await writeFile(join(legacy, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"] as const;\n');
-    await writeFile(join(legacy, "_store.json"), '[{"id":"one"}]\n');
-    expect((await detectProjection(legacy))?.diagnostics[0]?.code).toBe("legacy-collection-schema");
-    const providers = new ProjectionProviderHost();
-    const page = await childrenOf(providers, legacy, "/legacy");
-    expect(page.items).toEqual([]);
-    await expect(providers.collectionFileDescriptor(legacy, "_store.json")).rejects.toThrow("convert this collection to schema.cddl");
+  test("a schema.ts is an ordinary file, never a collection schema", async () => {
+    const directory = join(root, "script-beside-rows");
+    await mkdir(directory);
+    await writeFile(join(directory, "schema.ts"), "export const schema = {};\n");
+    expect(await detectProjection(directory)).toBeNull();
 
-    await writeFile(join(legacy, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr }\n');
-    expect((await detectProjection(legacy))?.diagnostics[0]?.code).toBe("ambiguous-collection-schema");
-    await expect(providers.collectionFileDescriptor(legacy, "_store.json")).rejects.toThrow("remove schema.ts");
-    await providers[Symbol.asyncDispose]();
+    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { title: tstr }\n");
+    await writeFile(join(directory, "one.md"), "---\ntitle: One\n---\n");
+    const definition = await detectProjection(directory);
+    expect(definition).toMatchObject({ provider: "markdown", diagnostics: [], markdownPaths: [join(directory, "one.md")] });
   });
 
   test("schema.cddl does not govern a database backing", async () => {
@@ -243,6 +242,22 @@ describe("file-backed collections", () => {
     await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { id: tstr .size 3 }\n");
     await writeFile(join(directory, "_store.json"), "[]\n");
     await expect(new ProjectionProviderHost().descriptor(directory)).rejects.toThrow("unsupported-syntax at 2:18");
+  });
+
+  test("accepts and preserves undeclared Markdown frontmatter, including a page id", async () => {
+    const directory = join(root, "markdown-open");
+    await mkdir(directory);
+    await writeFile(join(directory, "schema.cddl"), 'overstory-schema-version = 1\nrow = { title: tstr, ? meta: { ? tag: tstr } }\n');
+    await writeFile(join(directory, "one.md"), "---\nid: pg123\ntitle: One\nrating: 4\ntags: [a, b]\n---\nBody\n");
+    await writeFile(join(directory, "two.md"), "---\ntitle: Two\nmeta:\n  tag: x\n  extra: y\n---\n");
+    const page = await childrenOf(new ProjectionProviderHost(), directory, "/markdown-open", null, 20);
+    expect(page.items.map((item) => [item.ref.path, item.properties, item.diagnostics.map((diagnostic) => diagnostic.code)])).toEqual([
+      ["/markdown-open/one", { id: "pg123", title: "One", rating: 4, tags: ["a", "b"] }, []],
+      // Nested maps stay closed unless they declare * tstr => any.
+      ["/markdown-open/two", { title: "Two", meta: { tag: "x", extra: "y" } }, ["unknown-member"]],
+    ]);
+    // Declaring no `id` keeps rows without an id-derived stable key.
+    expect((await new ProjectionProviderHost().descriptor(directory))?.identityRule).toBeUndefined();
   });
 
   test("keeps Markdown identity in the same property map as record fields", async () => {
@@ -302,8 +317,15 @@ describe("file-backed collections", () => {
       .rejects.toMatchObject({ code: "invalid-write" });
     await expect(prepareWrite(collections, target!, target!.revision, { id: "one", title: 7, count: 1 }, "bad-schema"))
       .rejects.toMatchObject({ code: "invalid-write" });
-    await expect(prepareWrite(collections, target!, target!.revision, { id: "one", title: "One", count: 1, extra: true }, "unknown-member"))
-      .rejects.toMatchObject({ code: "invalid-write", message: expect.stringContaining("extra") });
+    await expect(prepareWrite(collections, target!, target!.revision, { id: "one", title: "One" }, "missing-member"))
+      .rejects.toMatchObject({ code: "invalid-write", message: expect.stringContaining("count") });
+    expect(await readFile(path, "utf8")).toBe(original);
+
+    // An undeclared member is accepted and written exactly.
+    const extended = await prepareWrite(collections, target!, target!.revision, { id: "one", title: "One", count: 1, extra: { kept: [true] } }, "undeclared-member");
+    if (extended.storage !== "provider") throw new Error("Expected a provider-owned write");
+    expect(extended.write.properties).toEqual({ id: "one", title: "One", count: 1, extra: { kept: [true] } });
+    await extended.write.abort();
     expect(await readFile(path, "utf8")).toBe(original);
 
     const beforeAbort = await readdir(directory);

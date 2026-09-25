@@ -214,13 +214,6 @@ export class ProjectionReadSession {
     return this.provider.page(this.definition, treePath, cursor, limit, table);
   }
 }
-/** A local collection file still governed by the retired schema.ts; it cannot be snapshotted until converted. */
-export class LegacyCollectionSchemaError extends Error {
-  constructor(readonly directory: string, detail: string) {
-    super(`${directory}: ${detail}`);
-    this.name = "LegacyCollectionSchemaError";
-  }
-}
 /** Durable owner of projection discovery, the provider registry, and driver lifecycles. */
 export class ProjectionProviderHost implements AsyncDisposable {
   private readonly drivers: ProjectionProvider[];
@@ -250,10 +243,6 @@ export class ProjectionProviderHost implements AsyncDisposable {
   async collectionFileDescriptor(directory: string, sourceName: string) {
     const definition = await detectProjection(directory);
     if (!definition) return null;
-    // A retired schema.ts collection file must not be submitted as ordinary
-    // files, which would silently drop its collection interpretation.
-    const retired = definition.diagnostics.find((item) => item.code === "legacy-collection-schema" || item.code === "ambiguous-collection-schema");
-    if (retired && definition.provider !== "markdown") throw new LegacyCollectionSchemaError(directory, retired.message);
     const provider = this.provider(definition.provider);
     return provider.collectionFileDescriptor ? provider.collectionFileDescriptor(definition, sourceName) : null;
   }

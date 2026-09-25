@@ -54,6 +54,24 @@ toolchain; none of these has run.
 - [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Canopy is up
   to date, and the camera, microphone and speech permission prompts.
 
+## Collection schema Mac gates
+
+Declarative collection schemas (Apps 007; see
+[status](../../status.md#declarative-collection-schemas--2026-09-24)) changed these Swift files
+without a Swift toolchain; none of them has compiled. There is nothing to convert: no
+collections existed before `schema.cddl`, so no inventory or cutover remains.
+
+- `swift/Packages/Overstory/Sources/Overstory/ProtocolObjects.swift`: descriptor version 1
+  requires `schemaSource` `schema.cddl`.
+- `swift/Packages/Overstory/Tests/OverstoryTests/OverstoryTests.swift`: eight shared invalid
+  object vectors.
+- `swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/UpdateCoordinatorTests.swift`:
+  the collection-file descriptor round trip uses `schema.cddl`.
+
+- [ ] `swift test --package-path swift/Packages/Overstory` and
+  `swift test --package-path swift/Packages/CanopyWorkingTree`, then `bun run test:protocol`
+  on a Mac; fix any compile error in place without changing the contract.
+
 ## Server refinements
 
 Owner: canopyd [014](../soon/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.

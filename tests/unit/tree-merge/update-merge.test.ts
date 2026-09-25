@@ -220,22 +220,24 @@ describe("reference Canopy merge fixtures", () => {
     expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 10 }, { id: "002", count: 2, note: "y" }]);
   });
 
-  test("a merge involving a retired version-1 collection is a schema conflict, never an evaluation", async () => {
-    const objects = new Map<string, Uint8Array>();
-    const legacy = (title: string) => {
-      const source = stored({ type: "file", bytes: new TextEncoder().encode(`[{"id":"a","title":"${title}"}]\n`) }, objects);
-      const schema = stored({ type: "file", bytes: new TextEncoder().encode('import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"];\n') }, objects);
-      return stored({
-        type: "directory",
-        entries: [{ name: "_store.json", file: source }, { name: "schema.ts", file: schema }],
-        childrenSource: {
-          version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.ts",
-          schemaFingerprint: schema as `sha256:${string}`, childSetHash: source as `sha256:${string}`,
-        },
-      }, objects);
-    };
-    const result = await mergeProtocolTrees(legacy("A"), legacy("Candidate"), legacy("Remote"), async (hash) => objects.get(hash)!);
-    expect(result.conflicts).toEqual([expect.objectContaining({ reason: "collection-file-schema-conflict" })]);
+  test("undeclared row members and CSV columns merge and survive re-encoding", async () => {
+    const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: int }\n';
+    const [base, candidate, remote] = await Promise.all([
+      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,red\n002,2,\n"),
+      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,blue\n002,2,\n"),
+      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,red\n002,3,green\n"),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([]);
+    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
+    const rootObject = decodeProtocolDirectory(load(result.root));
+    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
+    const descriptor = rootObject.childrenSource!;
+    const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
+    expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,color\n001,1,blue\n002,3,green\n");
+    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
+    expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 1, color: "blue" }, { id: "002", count: 3, color: "green" }]);
   });
 
   test("divergent changes to one stable row conflict", async () => {

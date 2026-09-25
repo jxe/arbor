@@ -11,7 +11,6 @@ import {
 } from "@overstory/protocol";
 import {
   decodeProtocolCollectionFile,
-  unsupportedLegacyCollection,
   type DecodedProtocolCollectionFile,
   type ProtocolCollectionFileRow,
 } from "@overstory/collection-schema";
@@ -54,8 +53,6 @@ export class ProtocolProjection {
   async collectionFile(directory: ProtocolDirectory): Promise<DecodedProtocolCollectionFile | null> {
     const descriptor = directory.childrenSource;
     if (!descriptor) return null;
-    // Retired version-1 collections are an explicit unsupported read, never ordinary files.
-    if (descriptor.version !== 2) throw unsupportedLegacyCollection();
     const sourceHash = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
     const schemaHash = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.file;
     if (!sourceHash || !schemaHash) throw new Error("Collection-file sources are missing");

@@ -134,9 +134,9 @@ null stable key remain path-identified.
 
 - `schema.cddl` declares a collection child schema, stable key, and optional
   logical-name rule in the declarative profile specified by
-  [child backings](06-child-backings.md#24-collection-schema-profile). A
-  retired `schema.ts` collection schema is no longer interpreted
-  ([child backings §2.5](06-child-backings.md#25-retired-version-1-schemats-collections)).
+  [child backings](06-child-backings.md#24-collection-schema-profile). No
+  other file name selects a collection schema; a `schema.ts`, for example, is
+  an ordinary file.
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
   `_store.yaml` select child/store representation behavior specified by
   [child backings](06-child-backings.md). `_store.yaml` is driver-dispatched; its filename does

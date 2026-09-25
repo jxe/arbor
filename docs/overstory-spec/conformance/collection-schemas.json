@@ -121,12 +121,31 @@
             "quantity": 5,
             "extra": true
           },
-          "diagnostics": [
-            {
-              "code": "unknown-member",
-              "path": "/extra"
-            }
-          ]
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a1",
+            "slug": "first",
+            "title": "First",
+            "quantity": 5,
+            "": "empty key",
+            "nested": {
+              "anything": [
+                1,
+                "two",
+                null,
+                {
+                  "deep": true
+                }
+              ]
+            },
+            "list": [],
+            "nothing": null,
+            "ratio": 1.5,
+            "quantity ": "a different key"
+          },
+          "diagnostics": []
         },
         {
           "value": {
@@ -192,10 +211,6 @@
             {
               "code": "out-of-range",
               "path": "/quantity"
-            },
-            {
-              "code": "unknown-member",
-              "path": "/extra"
             }
           ]
         },
@@ -875,6 +890,120 @@
       }
     },
     {
+      "name": "open-maps",
+      "source": "overstory-schema-version = 1\n; Nested maps are closed unless they declare * tstr => any.\nmeta = { ? title: tstr, * tstr => any }\npoint = { x: number, y: number }\nrow = {\n  id: tstr,\n  meta: meta,\n  ? point: point,\n  ? loose: { * text => any, },\n  * tstr => any\n}\n",
+      "accept": {
+        "columns": [
+          "id",
+          "meta",
+          "point",
+          "loose"
+        ],
+        "primaryKey": null,
+        "childName": null
+      },
+      "values": [
+        {
+          "value": {
+            "id": "a",
+            "meta": {}
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a",
+            "meta": {
+              "title": "T",
+              "tags": [
+                "x"
+              ],
+              "n": 1
+            },
+            "loose": {
+              "": null,
+              "k": {
+                "v": []
+              }
+            }
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "a",
+            "meta": {
+              "title": 1,
+              "other": "kept"
+            }
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/meta/title"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a",
+            "meta": {
+              "title": null
+            }
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/meta/title"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a",
+            "meta": {},
+            "point": {
+              "x": 1,
+              "y": 2,
+              "z": 3
+            }
+          },
+          "diagnostics": [
+            {
+              "code": "unknown-member",
+              "path": "/point/z"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "a",
+            "meta": []
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/meta"
+            }
+          ]
+        },
+        {
+          "value": {
+            "meta": {
+              "extra": 1
+            },
+            "extra": 2
+          },
+          "diagnostics": [
+            {
+              "code": "missing-member",
+              "path": "/id"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "csv-cell-policy",
       "source": "overstory-schema-version = 1\noverstory-primary-key = [\"code\"]\nrow = {\n  code: tstr,\n  ? note: tstr,\n  score: number / null,\n  ? level: uint,\n  active: bool,\n  label: tstr,\n}\n",
       "accept": {
@@ -1042,12 +1171,7 @@
               "label",
               "extra"
             ],
-            "diagnostics": [
-              {
-                "code": "csv-unknown-column",
-                "path": "/extra"
-              }
-            ]
+            "diagnostics": []
           },
           {
             "header": [
@@ -1105,6 +1229,176 @@
               {
                 "code": "csv-unrepresentable-value",
                 "path": "/note"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "csv-undeclared-columns",
+      "source": "overstory-schema-version = 1\noverstory-primary-key = [\"code\"]\nrow = { code: tstr, count: number }\n",
+      "accept": {
+        "columns": [
+          "code",
+          "count"
+        ],
+        "primaryKey": [
+          "code"
+        ],
+        "childName": null
+      },
+      "csv": {
+        "header": [
+          "color",
+          "code",
+          "count",
+          "note"
+        ],
+        "rows": [
+          {
+            "cells": [
+              "red",
+              "001",
+              "2",
+              "x,y"
+            ],
+            "value": {
+              "code": "001",
+              "count": 2,
+              "color": "red",
+              "note": "x,y"
+            }
+          },
+          {
+            "cells": [
+              "",
+              "002",
+              "3",
+              "7"
+            ],
+            "value": {
+              "code": "002",
+              "count": 3,
+              "note": "7"
+            }
+          },
+          {
+            "cells": [
+              "blue",
+              "003",
+              "4"
+            ],
+            "value": {
+              "code": "003",
+              "count": 4,
+              "color": "blue"
+            }
+          },
+          {
+            "cells": [
+              "blue",
+              "004",
+              "four",
+              ""
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-invalid-cell",
+                "path": "/count"
+              }
+            ]
+          }
+        ],
+        "headers": [
+          {
+            "header": [
+              "code",
+              "count",
+              "color",
+              "note"
+            ],
+            "diagnostics": []
+          },
+          {
+            "header": [
+              "code",
+              "count",
+              "note",
+              "note"
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-duplicate-column",
+                "path": "/note"
+              }
+            ]
+          }
+        ],
+        "encode": [
+          {
+            "rows": [
+              {
+                "code": "001",
+                "count": 2,
+                "color": "red"
+              },
+              {
+                "code": "002",
+                "count": 3,
+                "note": "x,y"
+              },
+              {
+                "code": "003",
+                "count": 4
+              }
+            ],
+            "text": "code,count,color,note\n001,2,red,\n002,3,,\"x,y\"\n003,4,,\n"
+          },
+          {
+            "rows": [
+              {
+                "code": "001",
+                "count": 2,
+                "rank": 1
+              }
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-unrepresentable-value",
+                "path": "/rank"
+              }
+            ]
+          },
+          {
+            "rows": [
+              {
+                "code": "001",
+                "count": 2,
+                "note": ""
+              }
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-unrepresentable-value",
+                "path": "/note"
+              }
+            ]
+          },
+          {
+            "rows": [
+              {
+                "code": "001",
+                "count": 2,
+                "tags": [
+                  "a"
+                ]
+              }
+            ],
+            "diagnostics": [
+              {
+                "code": "csv-unrepresentable-value",
+                "path": "/tags"
               }
             ]
           }
@@ -1425,6 +1719,51 @@
         "code": "unsupported-syntax",
         "line": 2,
         "column": 9
+      }
+    },
+    {
+      "name": "open-entry-text-value",
+      "source": "overstory-schema-version = 1\nrow = { a: tstr, * tstr => tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 18
+      }
+    },
+    {
+      "name": "open-entry-one-or-more",
+      "source": "overstory-schema-version = 1\nrow = { + tstr => any }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "name": "open-entry-nontext-key",
+      "source": "overstory-schema-version = 1\nrow = { * int => any }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "name": "open-entry-choice-value",
+      "source": "overstory-schema-version = 1\nrow = { * tstr => any / tstr }\n",
+      "reject": {
+        "code": "unsupported-syntax",
+        "line": 2,
+        "column": 23
+      }
+    },
+    {
+      "name": "open-entry-twice",
+      "source": "overstory-schema-version = 1\nrow = { a: { * tstr => any, * tstr => any } }\n",
+      "reject": {
+        "code": "duplicate-member",
+        "line": 2,
+        "column": 29
       }
     },
     {

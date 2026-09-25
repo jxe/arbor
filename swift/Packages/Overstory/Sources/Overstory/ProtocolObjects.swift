@@ -1,13 +1,8 @@
 import CryptoKit
 import Foundation
 
-/// Version 2 selects the declarative `schema.cddl`. Version 1 selected the
-/// retired executable `schema.ts`; it still decodes so retained objects keep
-/// their exact bytes and hashes, but nothing interprets it.
+/// Version 1 selects the declarative `schema.cddl` (spec 06 §2.1).
 public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
-    /// The schema file each descriptor version selects.
-    public static let schemaSources: [Int: String] = [1: "schema.ts", 2: "schema.cddl"]
-
     public var version: Int
     public var type: String
     public var format: String
@@ -17,7 +12,7 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
     public var childSetHash: String
 
     public init(
-        version: Int = 2,
+        version: Int = 1,
         type: String = "collection-file",
         format: String,
         source: String,
@@ -196,11 +191,11 @@ public enum ProtocolObjectCodec {
             if let tree = entry.tree, tree.isEmpty { throw ProtocolValidationError.invalidValue("Nested tree ID is empty") }
         }
         if let childrenSource {
-            guard let schemaSource = ProtocolCollectionFileDescriptor.schemaSources[childrenSource.version],
+            guard childrenSource.version == 1,
                   childrenSource.type == "collection-file",
                   ["csv", "json", "jsonl"].contains(childrenSource.format),
                   childrenSource.source == "_store.\(childrenSource.format)",
-                  childrenSource.schemaSource == schemaSource else {
+                  childrenSource.schemaSource == "schema.cddl" else {
                 throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
             }
             try validateObjectHash(childrenSource.schemaFingerprint)

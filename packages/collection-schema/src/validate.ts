@@ -114,6 +114,8 @@ function check(node: Check, value: unknown, path: Path, context: Context, collec
           if (!collect) return false;
         }
       }
+      // An open map accepts and preserves undeclared members without examining them.
+      if (node.open) return valid;
       for (const key of Object.keys(value)) {
         step(context);
         if (node.byName.has(key)) continue;

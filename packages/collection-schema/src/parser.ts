@@ -12,7 +12,8 @@ export type TypeNode =
   | { kind: "text"; value: string; location: SourceLocation }
   | { kind: "number"; value: number; numberKind: "int" | "decimal"; location: SourceLocation }
   | { kind: "range"; low: number; high: number; inclusive: boolean; integer: boolean; location: SourceLocation }
-  | { kind: "map"; members: MemberNode[]; location: SourceLocation }
+  /** `open`: the map declares the explicit `* tstr => any` entry. */
+  | { kind: "map"; members: MemberNode[]; open: boolean; location: SourceLocation }
   | { kind: "array"; element: ChoiceNode; nonEmpty: boolean; location: SourceLocation };
 
 export interface MemberNode {
@@ -177,13 +178,23 @@ export function parseProfileWithSize(source: string): { rules: RuleNode[]; nodes
     }
   }
 
-  function map(open: Token, depth: number): TypeNode {
-    nest(open, depth);
+  function map(start: Token, depth: number): TypeNode {
+    nest(start, depth);
     const members: MemberNode[] = [];
     const names = new Set<string>();
+    let open = false;
     while (!is(peek(), "}")) {
       let token = peek();
       if (token.kind === "eof") unexpected(token);
+      if (openEntry()) {
+        if (open) throw schemaFailure("duplicate-member", "The map declares * tstr => any more than once", token.location);
+        next(); next(); next(); next();
+        node(token.location);
+        open = true;
+        if (!is(peek(), ",") && !is(peek(), "}")) unsupported(peek(), "A * tstr => any entry followed by anything but , or }");
+        if (is(peek(), ",")) next();
+        continue;
+      }
       let optional = false;
       if (is(token, "?")) {
         next();
@@ -211,7 +222,15 @@ export function parseProfileWithSize(source: string): { rules: RuleNode[]; nodes
       if (is(peek(), ",")) next();
     }
     next();
-    return { kind: "map", members, location: open.location };
+    return { kind: "map", members, open, location: start.location };
+  }
+
+  /** The one supported computed-key entry: exactly `* tstr => any` (or `* text => any`). */
+  function openEntry(): boolean {
+    const key = peek(1);
+    const value = peek(3);
+    return is(peek(), "*") && key.kind === "ident" && (key.value === "tstr" || key.value === "text")
+      && is(peek(2), "=>") && value.kind === "ident" && value.value === "any";
   }
 
   function array(open: Token, depth: number): TypeNode {

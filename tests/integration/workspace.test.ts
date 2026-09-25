@@ -59,7 +59,8 @@ describe("workspace service", () => {
     const generated = await readFile(declarationPath, "utf8");
     // Declarations come from the declarative schema: no authored module or Zod import.
     expect(generated).not.toContain("import");
-    expect(generated).toContain('type Schema0 = { "title": string; };');
+    // Rows are open (spec 06 §2.4.4), so the row type admits undeclared members.
+    expect(generated).toContain('type Schema0 = { "title": string; [member: string]: unknown; };');
     expect(generated).toContain('"/typed": Collection<Schema0>;');
   });
 
@@ -87,6 +88,25 @@ describe("workspace service", () => {
     expect(row.capabilities.properties?.writable).toBe(true);
     expect(row.capabilities.content?.writable).toBe(true);
     expect(nodeDocument(row)?.bodySource).toBe("Row body.\n");
+  });
+
+  test("keeps an automatically minted page id on a Markdown row without declaring it", async () => {
+    const collection = join(root, "reading");
+    await mkdir(collection);
+    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\nrow = { title: tstr }\n');
+    await writeFile(join(collection, "draft.md"), "---\ntitle: Draft\nrating: 4\n---\nBody\n");
+    // A path change mints a durable page id into the row's frontmatter.
+    await workspace.fs.mutate({ operations: [{ op: "rename", path: "/reading/draft", name: "final" }] });
+    const id = /^id: (\S+)$/m.exec(await readFile(join(collection, "final.md"), "utf8"))?.[1];
+    expect(id).toBeString();
+
+    const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/reading", stableKey: null });
+    const children = await workspace.editor.children(parent.ref);
+    const row = children.items.find((item) => item.ref.path === "/reading/final");
+    expect(row?.properties).toEqual({ title: "Draft", rating: 4, id: id! });
+    expect(row?.diagnostics ?? []).toEqual([]);
+    const snapshot = await workspace.editor.snapshot({ tree: workspace.tree, path: "/reading/final", stableKey: null });
+    expect(snapshot.capabilities.properties?.writable).toBe(true);
   });
 
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {

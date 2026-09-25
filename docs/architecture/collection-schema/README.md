@@ -12,8 +12,10 @@ of any package.
 
 ## Pieces
 
-- `lexer.ts`, `parser.ts`: the profile grammar only. Valid CDDL outside the
-  profile (control operators, generics, group choices, `=>` keys, tuples,
+- `lexer.ts`, `parser.ts`: the profile grammar only. The one `=>` form
+  accepted is the open-map entry `* tstr => any` (or `* text => any`), parsed
+  as a flag on its map rather than as a member. Valid CDDL outside the
+  profile (control operators, generics, group choices, other `=>` keys, tuples,
   tags, byte strings, sockets, hexadecimal numbers) is rejected with
   `unsupported-syntax` at its source location, never skipped. Token,
   syntax-node, rule, nesting, choice, member and literal-size limits are
@@ -21,17 +23,29 @@ of any package.
 - `compile.ts`: rule resolution, prelude checks, cycle rejection (Tarjan, first
   cyclic rule in source order), expanded depth and size through references,
   the metadata rules, and the runtime check graph. Literal-only choices compile
-  to one set lookup; literal checks and keys are interned.
+  to one set lookup; literal checks and keys are interned. The compiled `row`
+  check is always open; a nested map is open only when its source declares
+  `* tstr => any`.
 - `validate.ts`: a decision, never a normalization. Row and collection-file
-  step budgets are counted per type visit and examined object member; paths
-  are materialized as JSON Pointers only for diagnostics.
+  step budgets are counted per type visit and examined object member; an open
+  map's undeclared members are accepted without being examined, so a row's
+  cost depends on its declared shape. Paths are materialized as JSON Pointers
+  only for diagnostics.
 - `csv.ts`: schema-directed cell conversion and the round-trip-checked CSV
-  encoder (§2.4.5).
+  encoder (§2.4.5). An undeclared column converts as an optional text member;
+  the encoder appends undeclared members after the declared columns in order
+  of first appearance and rejects any it could not read back unchanged.
 - `collection-file.ts`: source decoding for CSV, JSON and JSONL, the
-  version-2 wire decoder used by canopyd acceptance and projection and by the
+  descriptor decoder used by canopyd acceptance and projection and by the
   merge rules, and the canonical child-set hash (keys ordered by UTF-8 bytes).
+  Undeclared members are ordinary properties there: they enter the child-set
+  hash and every re-encoding.
 - `typescript.ts`: static declarations for Arbor Sync's generated
-  `tree.gen.d.ts`; no authored module or Zod import is emitted.
+  `tree.gen.d.ts`; no authored module or Zod import is emitted. An open map,
+  the row always, renders with the index signature `[member: string]: unknown`:
+  it admits every declared member's type, keeps declared members' types and
+  required-ness checked, and needs no intersection type, so generated
+  declarations typecheck under `--strict --exactOptionalPropertyTypes`.
 - `cache.ts`: a content-addressed LRU keyed by the SHA-256 of the exact
   schema bytes, bounded by entry count (64) and summed syntax nodes (262,144).
   A failed compilation is thrown and never cached.
@@ -63,20 +77,21 @@ vector is otherwise-valid CDDL; it does parse the control-operator, `/=`, `//`,
 
 | Consumer | Uses |
 |---|---|
-| canopyd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache`; version-1 descriptors are `422 unsupported-operation`, and in the accepted basis they are left unproven so only a candidate that replaces them is accepted |
-| canopyd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile`; a version-1 collection read is `422 unsupported-operation` |
-| `tree-merge` (`collection-file-rows-v1`) | decode and encode; any version-1 side is a `collection-file-schema-conflict` |
-| Arbor Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, version-2 descriptors; a directory with `schema.ts` reports `legacy-collection-schema` (or `ambiguous-collection-schema` beside `schema.cddl`), and a `schema.ts` collection file refuses to snapshot |
+| canopyd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
+| canopyd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile` |
+| `tree-merge` (`collection-file-rows-v1`) | decode and encode |
+| Arbor Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, collection descriptors |
 | Arbor Sync generated types | `collectionTypeDeclarations` |
 
 Database backings keep their introspected schemas; `schema.cddl` beside
 `_store.sqlite3` or `_store.postgres` is a mixed-backing diagnostic. No
 schema-file table selection existed to replace.
 
-The retired `schema.ts` is interpreted only by the offline converter,
-[migration 021](../../../packages/canopyd/migrations/021-cddl-collection-schemas/README.md),
-which imports the trusted authored module with the checkout's development Zod
-and proves row identity before writing `schema.cddl`.
+There is one collection descriptor version: version 1 names `schema.cddl`. No
+collections existed before this profile, so nothing reads, converts or
+reports the executable `schema.ts` it replaced; a file of that name is an
+ordinary file, and beside a collection file it is one more entry that the
+collection-file directory contract rejects like any other.
 
 `tests/unit/collection-schema-boundary.test.ts` checks manifests and the
 lockfile, bundles each shipped entrypoint (canopyd, the merge worker,

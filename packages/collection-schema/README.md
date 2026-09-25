@@ -7,7 +7,8 @@ and the collection-file codec built on it.
 - `compileCollectionSchema(bytes)`: parse and check one `schema.cddl`, or throw
   a `CollectionSchemaError` whose first diagnostic has a code and location.
 - `validateRow(schema, value)`: a pure decision with deterministic JSON Pointer
-  diagnostics; it never changes the value.
+  diagnostics; it never changes the value. The row map is open: undeclared
+  members are accepted and preserved, while declared members validate strictly.
 - `csvRowValue`, `csvHeaderDiagnostics`, `encodeCsvRows`: schema-directed CSV
   cells and the round-trip-checked encoder.
 - `decodeCollectionFileSource`, `decodeProtocolCollectionFile`,

@@ -30,12 +30,13 @@ hashes, collection-file child-set hashes, and schema fingerprints) uses this enc
 [child backings §2.4](../06-child-backings.md#24-collection-schema-profile):
 accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
-diagnostics as JSON Pointers; exact CSV encodings; malformed-UTF-8 sources; and
+diagnostics as JSON Pointers, including accepted undeclared row members and
+CSV columns; exact CSV encodings; malformed-UTF-8 sources; and
 generated sources and values at each limit. Generated parts repeat a template,
 replacing `{i}` and `{i+1}`; a `{"$repeat": v, "count": n}` value is an
 array of n copies. `node-model.json` and `protocol-objects.json` carry
-version-2 descriptors plus the retired version-1 form, which still decodes, and
-invalid version/schema-file pairings.
+version-1 descriptors naming `schema.cddl` and invalid version and schema-file
+pairings.
 
 `client-state-machines.json` freezes the transition scenarios of the one
 client synchronization machine, `working-tree-updates` (`UpdateMachine` in

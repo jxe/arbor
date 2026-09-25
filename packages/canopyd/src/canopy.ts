@@ -25,7 +25,7 @@ import {
   type AccessLevel,
 } from "@overstory/protocol";
 import { resourceRuleFromLegacy } from "@overstory/protocol";
-import { CollectionSchemaCache, decodeProtocolCollectionFile, unsupportedLegacyCollection } from "@overstory/collection-schema";
+import { CollectionSchemaCache, decodeProtocolCollectionFile } from "@overstory/collection-schema";
 import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
@@ -2212,7 +2212,7 @@ export class HostDaemon implements AsyncDisposable {
     // acceptedBasis comes from the server's current tree, never from worker or
     // client assertions. A staged proof is only inherited once that root has
     // actually become accepted (and therefore durable).
-    const decode = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+    const collection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
       const source = directory.childrenSource!;
       const loadFile = async (name: string) => {
         const target = directory.entries.find(entry => entry.name === name)?.file;
@@ -2221,21 +2221,9 @@ export class HostDaemon implements AsyncDisposable {
       };
       decodeProtocolCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
     };
-    // Retired version-1 (schema.ts) collections are never interpreted
-    // (spec 06 §2.5). A candidate containing one is an unsupported operation;
-    // one left in the accepted basis stays unproven, so an update is accepted
-    // only when its candidate replaces every such collection.
-    const collection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
-      if (directory.childrenSource!.version !== 2) throw new UpdateProtocolError("unsupported-operation", unsupportedLegacyCollection().message);
-      await decode(directory, load);
-    };
-    const basisCollection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
-      if (directory.childrenSource!.version !== 2) return "unproven" as const;
-      await decode(directory, load);
-    };
     let basis = acceptedBasis ? this.validatedGraphs.get(acceptedBasis) : undefined;
     if (acceptedBasis && !basis)
-      basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), basisCollection);
+      basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), collection);
     // An object the candidate takes from the store outside its accepted basis
     // is one no client sent; freshen it so a concurrent object collection
     // cannot remove it before the accepted row names it.

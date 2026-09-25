@@ -143,7 +143,7 @@ test("changed collections are revalidated while unchanged siblings inherit their
           { name: "schema.cddl", file: f.file("schema") },
         ],
         childrenSource: {
-          version: 2,
+          version: 1,
           type: "collection-file",
           format: "json",
           source: "_store.json",
@@ -167,40 +167,4 @@ test("changed collections are revalidated while unchanged siblings inherit their
   expect(checks).toBe(1);
   await validateGraphChange(make("new"), f.load, new Map(), check, basis);
   expect(checks).toBe(2);
-});
-
-test("an unproven basis collection lends no proof, so a candidate keeping it is revalidated", async () => {
-  const f = fixture();
-  const retired = f.put(
-    encodeProtocolDirectory({
-      type: "directory",
-      entries: [
-        { name: "_store.json", file: f.file("rows") },
-        { name: "schema.ts", file: f.file("legacy") },
-      ],
-      childrenSource: {
-        version: 1,
-        type: "collection-file",
-        format: "json",
-        source: "_store.json",
-        schemaSource: "schema.ts",
-        schemaFingerprint: f.file("legacy") as `sha256:${string}`,
-        childSetHash: f.file("set") as `sha256:${string}`,
-      },
-    }),
-  );
-  const rootWith = (extra: string) => f.dir([{ name: "people", directory: retired }, { name: "note", file: f.file(extra) }]);
-  const basisRoot = rootWith("before");
-  const basis = await validateGraphChange(basisRoot, f.load, new Map(), async () => "unproven" as const);
-  expect(basis.objects.has(retired)).toBe(false);
-  expect(basis.objects.has(basisRoot)).toBe(true);
-  // A candidate that keeps the retired collection reaches the candidate validator again.
-  await expect(validateGraphChange(rootWith("after"), f.load, new Map(), async () => {
-    throw new Error("retired collection");
-  }, basis)).rejects.toThrow("retired collection");
-  // A candidate that replaces it validates without consulting the retired object.
-  const converted = f.dir([{ name: "note", file: f.file("after") }]);
-  await validateGraphChange(converted, f.load, new Map(), async () => {
-    throw new Error("unexpected collection");
-  }, basis);
 });

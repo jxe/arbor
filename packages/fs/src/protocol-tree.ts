@@ -163,7 +163,7 @@ export async function snapshotDirectory(
         if (description) {
           if (childrenSource) throw new Error(`Directory has more than one collection file: ${directory}`);
           childrenSource = {
-            version: 2,
+            version: 1,
             type: "collection-file",
             source: entry.name as CollectionFileDescriptor["source"],
             schemaSource: "schema.cddl",

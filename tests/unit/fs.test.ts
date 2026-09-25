@@ -146,7 +146,7 @@ describe("@overstory/fs logical nodes", () => {
     expect(await readFile(join(root, "duplicate.md"), "utf8")).toBe("Sibling\n");
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder/child"], destination: "/destination" }] })).rejects.toThrow("Destination already exists");
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder"], destination: "/folder" }] })).rejects.toThrow("itself");
-    await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/schema.ts" }] })).rejects.toThrow("Invalid workspace name");
+    await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/schema.cddl" }] })).rejects.toThrow("Invalid workspace name");
     await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/named.md" }] })).rejects.toThrow("do not include .md");
   });
 

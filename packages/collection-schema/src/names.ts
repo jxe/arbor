@@ -3,7 +3,7 @@ import type { ChildNameRule } from "./compile.ts";
 
 /** Names that select a directory's representation and never name a row. */
 export const RESERVED_CHILD_NAMES: ReadonlySet<string> = new Set([
-  "_index.md", "schema.cddl", "schema.ts", "_store.csv", "_store.json", "_store.jsonl",
+  "_index.md", "schema.cddl", "_store.csv", "_store.json", "_store.jsonl",
   "_store.sqlite3", "_store.yaml",
 ]);
 

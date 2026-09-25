@@ -76,25 +76,16 @@ export interface ChildrenPage {
   observedThrough: EventCursor;
 }
 
-interface CollectionFileDescriptorFields {
+/** Version 1 selects the declarative `schema.cddl` (spec 06 §2.1). */
+export interface CollectionFileDescriptor {
+  version: 1;
   type: "collection-file";
   format: "csv" | "json" | "jsonl";
   source: "_store.csv" | "_store.json" | "_store.jsonl";
+  schemaSource: "schema.cddl";
   schemaFingerprint: Hash;
   childSetHash: Hash;
 }
-
-/**
- * Version 2 selects the declarative `schema.cddl`. Version 1 selected an
- * executable `schema.ts`; it still decodes so retained objects keep their exact
- * bytes and hashes, but it is retired and never interpreted.
- */
-export type CollectionFileDescriptor =
-  | (CollectionFileDescriptorFields & { version: 2; schemaSource: "schema.cddl" })
-  | (CollectionFileDescriptorFields & { version: 1; schemaSource: "schema.ts" });
-
-/** The schema file each descriptor version selects. */
-export const COLLECTION_SCHEMA_SOURCES = { 1: "schema.ts", 2: "schema.cddl" } as const;
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const LEGACY_NODE_FIELDS = ["tree", "path", "kind", "pageID", "collection", "document", "children"] as const;
@@ -327,25 +318,21 @@ export function decodeChildrenPage(value: unknown): ChildrenPage {
 
 export function decodeCollectionFileDescriptor(value: unknown): CollectionFileDescriptor {
   const source = object(value, "childrenSource");
-  if (source.version !== 1 && source.version !== 2) throw new TypeError("childrenSource.version must be 1 or 2");
+  if (source.version !== 1) throw new TypeError("childrenSource.version must be 1");
   if (source.type !== "collection-file") throw new TypeError("childrenSource.type is invalid");
   if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
   const format = source.format as "csv" | "json" | "jsonl";
   if (source.source !== `_store.${format}`) throw new TypeError("childrenSource.source does not match its format");
-  const schemaSource = COLLECTION_SCHEMA_SOURCES[source.version];
-  if (source.schemaSource !== schemaSource) {
-    throw new TypeError(`childrenSource.schemaSource must be ${schemaSource} in version ${source.version}`);
-  }
-  const fields = {
-    type: "collection-file" as const,
+  if (source.schemaSource !== "schema.cddl") throw new TypeError("childrenSource.schemaSource must be schema.cddl");
+  return {
+    version: 1,
+    type: "collection-file",
     format,
     source: source.source as CollectionFileDescriptor["source"],
+    schemaSource: "schema.cddl",
     schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
     childSetHash: hash(source.childSetHash, "childrenSource.childSetHash"),
   };
-  return source.version === 2
-    ? { version: 2, ...fields, schemaSource: "schema.cddl" }
-    : { version: 1, ...fields, schemaSource: "schema.ts" };
 }
 
 /**

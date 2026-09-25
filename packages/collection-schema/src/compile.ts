@@ -12,7 +12,8 @@ export type Check =
   | { kind: "int"; min: number; max: number }
   | { kind: "number"; min: number; max: number; exclusiveMax: boolean }
   | { kind: "number-literal"; value: number }
-  | { kind: "map"; members: CheckMember[]; byName: ReadonlyMap<string, CheckMember> }
+  /** An open map admits undeclared string keys with any JSON value (`* tstr => any`, and always at `row`). */
+  | { kind: "map"; members: CheckMember[]; byName: ReadonlyMap<string, CheckMember>; open: boolean }
   | { kind: "array"; element: Check; nonEmpty: boolean }
   | { kind: "choice"; alternatives: Check[]; literals: ReadonlySet<string> | null };
 
@@ -265,7 +266,7 @@ export function compileCollectionSchema(input: Uint8Array | string): CollectionS
           : { kind: "number", min: node.low, max: node.high, exclusiveMax: !node.inclusive };
         case "map": {
           const built = node.members.map((member) => ({ name: member.name, optional: member.optional, check: build(member.type) }));
-          return { kind: "map", members: built, byName: new Map(built.map((member) => [member.name, member])) };
+          return { kind: "map", members: built, byName: new Map(built.map((member) => [member.name, member])), open: node.open };
         }
         case "array": return { kind: "array", element: build(node.element), nonEmpty: node.nonEmpty };
         case "name": {
@@ -279,7 +280,9 @@ export function compileCollectionSchema(input: Uint8Array | string): CollectionS
     if (alternatives.length === 1) return alternatives[0]!;
     return { kind: "choice", alternatives, literals: null };
   };
-  const row = build(rowType) as Extract<Check, { kind: "map" }>;
+  // Overstory convention (spec 06 §2.4.4): the root row map is always open,
+  // as if it ended with `* tstr => any`. Nested maps keep their written form.
+  const row = { ...(build(rowType) as Extract<Check, { kind: "map" }>), open: true };
 
   const csvColumns = rowMap.members.map((member): CsvColumn => {
     const kinds = classes(member.type);

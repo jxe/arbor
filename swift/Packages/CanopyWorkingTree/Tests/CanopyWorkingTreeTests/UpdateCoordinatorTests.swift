@@ -156,28 +156,21 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test(
-        "Native materialization preserves exact protocol collection-file descriptors, including retired version 1",
-        arguments: [
-            (2, "schema.cddl", "overstory-schema-version = 1\nrow = { id: tstr }\n"),
-            (1, "schema.ts", "export const schema = value\n"),
-        ]
-    )
-    func collectionFileDescriptorRoundTrip(version: Int, schemaName: String, schemaText: String) async throws {
+    @Test("Native materialization preserves exact protocol collection-file descriptors")
+    func collectionFileDescriptorRoundTrip() async throws {
         try await withTemporaryRoot { root in
             let source = try ProtocolObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
-            let schema = try ProtocolObjectCodec.object(.file(Data(schemaText.utf8)))
+            let schema = try ProtocolObjectCodec.object(.file(Data("overstory-schema-version = 1\nrow = { id: tstr }\n".utf8)))
             let descriptor = ProtocolCollectionFileDescriptor(
-                version: version,
                 format: "json",
                 source: "_store.json",
-                schemaSource: schemaName,
+                schemaSource: "schema.cddl",
                 schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
                 childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try ProtocolObjectCodec.object(.directory([
                 .init(name: "_store.json", file: source.hash),
-                .init(name: schemaName, file: schema.hash),
+                .init(name: "schema.cddl", file: schema.hash),
             ], childrenSource: descriptor))
             let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(

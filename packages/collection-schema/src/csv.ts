@@ -15,21 +15,24 @@ export function csvSchemaDiagnostic(schema: CollectionSchema): ValueDiagnostic |
   } : null;
 }
 
-/** File-level header checks: every header is a distinct declared member. */
-export function csvHeaderDiagnostics(schema: CollectionSchema, header: readonly string[]): ValueDiagnostic[] {
-  const declared = new Set(schema.columns);
+/**
+ * File-level header checks: header names are distinct. An undeclared column is
+ * allowed; it converts as if declared `? name: tstr` (spec 06 §2.4.5).
+ */
+export function csvHeaderDiagnostics(_schema: CollectionSchema, header: readonly string[]): ValueDiagnostic[] {
   const seen = new Set<string>();
   const diagnostics: ValueDiagnostic[] = [];
   for (const name of header) {
     if (seen.has(name)) {
       diagnostics.push({ code: "csv-duplicate-column", path: pointer("", name), message: `CSV column ${JSON.stringify(name)} appears more than once` });
-    } else if (!declared.has(name)) {
-      diagnostics.push({ code: "csv-unknown-column", path: pointer("", name), message: `CSV column ${JSON.stringify(name)} is not a declared row member` });
     }
     seen.add(name);
   }
   return diagnostics;
 }
+
+/** How an undeclared column converts: an optional text member. */
+const UNDECLARED: Omit<CsvColumn, "name"> = { optional: true, nullable: false, scalar: "text" };
 
 type Cell = { absent: true } | { absent: false; value: JSONValue };
 
@@ -80,6 +83,12 @@ export function csvRowValue(
       value[column.name] = cell.value;
     }
   }
+  const declared = new Set(schema.columns);
+  for (const [name, position] of positions) {
+    if (declared.has(name)) continue;
+    const text = cells[position] ?? "";
+    if (text !== "") value[name] = text;
+  }
   if (diagnostics.length) return { diagnostics };
   const validation = validateRow(schema, value, budget);
   return validation.length ? { diagnostics: validation } : { value, diagnostics: [] };
@@ -107,16 +116,21 @@ function quote(text: string): string {
 }
 
 /**
- * Encode rows in `row` column order. Every cell must convert back to its
- * value exactly; otherwise the write is rejected rather than changing data.
+ * Encode rows in `row` column order, followed by undeclared members in order
+ * of first appearance. Every cell must convert back to its value exactly;
+ * otherwise the write is rejected rather than changing data.
  */
 export function encodeCsvRows(schema: CollectionSchema, rows: readonly Readonly<Record<string, JSONValue>>[]): string {
   const unrepresentable = csvSchemaDiagnostic(schema);
   if (unrepresentable) throw new CsvEncodeError(unrepresentable);
-  const lines = [schema.columns.map(quote).join(",")];
+  const declared = new Set(schema.columns);
+  const extra = new Set<string>();
+  for (const row of rows) for (const name of Object.keys(row)) if (!declared.has(name)) extra.add(name);
+  const columns = [...schema.csvColumns, ...[...extra].map((name): CsvColumn => ({ name, ...UNDECLARED }))];
+  const lines = [columns.map((column) => quote(column.name)).join(",")];
   for (const row of rows) {
     const cells: string[] = [];
-    for (const column of schema.csvColumns) {
+    for (const column of columns) {
       const present = Object.hasOwn(row, column.name);
       const value = present ? row[column.name] : undefined;
       const text = cellText(value);

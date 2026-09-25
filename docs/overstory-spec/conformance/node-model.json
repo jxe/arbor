@@ -158,7 +158,7 @@
   ],
   "collectionFiles": [
     {
-      "version": 2,
+      "version": 1,
       "type": "collection-file",
       "format": "csv",
       "source": "_store.csv",
@@ -167,7 +167,7 @@
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
-      "version": 2,
+      "version": 1,
       "type": "collection-file",
       "format": "json",
       "source": "_store.json",
@@ -176,7 +176,7 @@
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
-      "version": 2,
+      "version": 1,
       "type": "collection-file",
       "format": "jsonl",
       "source": "_store.jsonl",
@@ -185,35 +185,14 @@
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   ],
-  "retiredCollectionFiles": [
-    {
-      "version": 1,
-      "type": "collection-file",
-      "format": "json",
-      "source": "_store.json",
-      "schemaSource": "schema.ts",
-      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    }
-  ],
   "invalidCollectionFiles": [
-    { "name": "version-2-schema-ts", "value":
-      {
-        "version": 2,
-        "type": "collection-file",
-        "format": "json",
-        "source": "_store.json",
-        "schemaSource": "schema.ts",
-        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      } },
-    { "name": "version-1-schema-cddl", "value":
+    { "name": "schema-ts", "value":
       {
         "version": 1,
         "type": "collection-file",
         "format": "json",
         "source": "_store.json",
-        "schemaSource": "schema.cddl",
+        "schemaSource": "schema.ts",
         "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       } },

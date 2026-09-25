@@ -6,7 +6,7 @@ import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { serveHost } from "@overstory/canopyd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
-import { ProtocolClient, ProtocolUnsupportedOperation, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { collectionChildSetHash } from "@overstory/collection-schema";
 
@@ -124,7 +124,7 @@ async function collection(basis: string, name: string) {
     const value = decodeProtocolDirectory(objects.get(basis)!);
     value.entries = value.entries.filter(e => e.name === "_index.md");
     value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.cddl", file: file(source) });
-    value.childrenSource = { version: 2, type: "collection-file", source: "_store.json", schemaSource: "schema.cddl",
+    value.childrenSource = { version: 1, type: "collection-file", source: "_store.json", schemaSource: "schema.cddl",
       ...((await stores.collectionFileDescriptor(local, "_store.json"))!) };
     return directory(value);
   } finally { await stores[Symbol.asyncDispose](); await rm(local, { recursive: true, force: true }); }
@@ -400,13 +400,13 @@ test("health checks only the database while integrity audits history in one shar
   expect(await integrity.json()).toEqual({ status: "ok" });
 });
 
-test("the host validates declarative collections itself and treats retired schema.ts collections as unsupported", async () => {
+test("the host validates declarative collections itself and preserves undeclared row members", async () => {
   const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: uint }\n';
   const people = (rows: Array<Record<string, unknown>>, declared = rows) => directory({
     type: "directory",
     entries: [{ name: "_store.json", file: file(`${JSON.stringify(rows)}\n`) }, { name: "schema.cddl", file: file(schema) }],
     childrenSource: {
-      version: 2, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
+      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
       schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
       childSetHash: collectionChildSetHash(declared.map((row) => ({ key: `[["id",${JSON.stringify(row.id)}]]`, name: String(row.id), properties: row }))),
     },
@@ -415,20 +415,10 @@ test("the host validates declarative collections itself and treats retired schem
   await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: -1 }]) } })))).rejects.toThrow();
   await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }], [{ id: "a", count: 2 }]) } })))).rejects.toThrow();
 
-  const legacySource = 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"];\n';
-  const legacy = directory({
-    type: "directory",
-    entries: [{ name: "_store.json", file: file("[]\n") }, { name: "schema.ts", file: file(legacySource) }],
-    childrenSource: {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.ts",
-      schemaFingerprint: hashObject(new TextEncoder().encode(legacySource)) as Hash, childSetHash: collectionChildSetHash([]),
-    },
-  });
-  const rejected = submit(snapshot(change(root, { legacy: { directory: legacy } })));
-  await expect(rejected).rejects.toBeInstanceOf(ProtocolUnsupportedOperation);
-  await expect(rejected).rejects.toThrow("schema.cddl");
+  // An undeclared member is accepted, but a declared member keeps its type.
+  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: "1", note: "x" }]) } })))).rejects.toThrow();
 
-  const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }]) } })));
+  const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1, note: { kept: [true] } }]) } })));
   expect(accepted.root).not.toBe(root);
   const readPage = async () => {
     const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${token}`, accept: "text/html" } });
@@ -443,5 +433,5 @@ test("the host validates declarative collections itself and treats retired schem
   expect(await readPage()).toBe(before);
   const stored = decodeProtocolDirectory(await client.object(tree, decodeProtocolDirectory(await client.object(tree, accepted.root)).entries.find(e => e.name === "people")!.directory!));
   const store = stored.entries.find(e => e.name === "_store.json")!.file!;
-  expect(new TextDecoder().decode(await client.object(tree, store))).toBe('[{"id":"a","count":1}]\n');
+  expect(new TextDecoder().decode(await client.object(tree, store))).toBe('[{"id":"a","count":1,"note":{"kept":[true]}}]\n');
 });

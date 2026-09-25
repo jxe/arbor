@@ -9,7 +9,9 @@ const PRELUDE_TYPES: Record<string, string> = {
 /**
  * Static TypeScript declarations for one compiled schema: `type <name>` for
  * `row` plus one alias per referenced named rule. Output depends only on the
- * schema source, so regeneration is byte-identical.
+ * schema source, so regeneration is byte-identical. An open map (`row`
+ * always, and any map declaring `* tstr => any`) carries the index signature
+ * `[member: string]: unknown`, which admits every declared member's type.
  */
 export function collectionTypeDeclarations(schema: CollectionSchema, name: string): string {
   // Compiled schemas keep no syntax tree; the accepted source re-parses cheaply.
@@ -42,6 +44,11 @@ export function collectionTypeDeclarations(schema: CollectionSchema, name: strin
   visit(row);
 
   const render = (choice: ChoiceNode): string => choice.alternatives.map(renderNode).join(" | ");
+  const renderMap = (node: Extract<TypeNode, { kind: "map" }>, open: boolean): string => {
+    const members = node.members.map((member) => `${JSON.stringify(member.name)}${member.optional ? "?" : ""}: ${render(member.type)};`);
+    if (open) members.push("[member: string]: unknown;");
+    return members.length ? `{ ${members.join(" ")} }` : "{}";
+  };
   const renderNode = (node: TypeNode): string => {
     switch (node.kind) {
       case "name": return Object.hasOwn(PRELUDE_TYPES, node.name) ? PRELUDE_TYPES[node.name]! : aliases.get(node.name)!;
@@ -51,13 +58,11 @@ export function collectionTypeDeclarations(schema: CollectionSchema, name: strin
       case "array": return node.nonEmpty
         ? `[${render(node.element)}, ...Array<${render(node.element)}>]`
         : `Array<${render(node.element)}>`;
-      case "map": return node.members.length
-        ? `{ ${node.members.map((member) => `${JSON.stringify(member.name)}${member.optional ? "?" : ""}: ${render(member.type)};`).join(" ")} }`
-        : "{}";
+      case "map": return renderMap(node, node.open);
     }
   };
   return [
     ...ordered.map((rule) => `type ${aliases.get(rule)!} = ${render(rules.get(rule)!)};`),
-    `type ${name} = ${render(row)};`,
+    `type ${name} = ${renderMap(row.alternatives[0] as Extract<TypeNode, { kind: "map" }>, true)};`,
   ].join("\n");
 }

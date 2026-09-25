@@ -260,7 +260,7 @@ type ProtocolDirectory = {
 };
 
 type CollectionFileDescriptor = {
-  version: 2; // version 1, with schemaSource "schema.ts", is retired
+  version: 1;
   type: "collection-file";
   format: "csv" | "json" | "jsonl";
   source: "_store.csv" | "_store.json" | "_store.jsonl";
@@ -270,12 +270,10 @@ type CollectionFileDescriptor = {
 };
 ```
 
-In a directory object the descriptor has exactly these seven fields. Version 2 requires
-`schemaSource: "schema.cddl"`. A version-1 descriptor, identical except for
-`version: 1` and `schemaSource: "schema.ts"`, still decodes so that retained
-objects keep their exact bytes and hashes, but it is not interpreted
-([retired version-1 collections](06-child-backings.md#25-retired-version-1-schemats-collections)).
-Any other version is invalid.
+In a directory object the descriptor has exactly these seven fields, with
+`version: 1` and `schemaSource: "schema.cddl"`
+([file-backed collections](06-child-backings.md#21-accepted-overstory-representation)).
+Any other version or schema source is invalid.
 
 A directory entry either addresses another Overstory object by hash or marks a
 nested Overstory tree boundary by TreeID. A snapshot walk stops at such a boundary:

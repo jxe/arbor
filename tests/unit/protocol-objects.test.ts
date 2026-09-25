@@ -164,8 +164,7 @@ describe("canonical tree objects", () => {
       "dual-target",
       "entry-with-hash-key",
       "file-and-directory",
-      "collection-file-version-2-schema-ts",
-      "collection-file-version-1-schema-cddl",
+      "collection-file-schema-ts",
       "collection-file-unknown-version",
       "noncanonical-cbor",
     ]);
@@ -214,7 +213,7 @@ describe("canonical tree objects", () => {
         type: "collection-file",
         format: "json",
         source: "_store.json",
-        schemaSource: "schema.ts",
+        schemaSource: "schema.cddl",
         schemaFingerprint: hash,
         childSetHash: hash,
       },
@@ -224,14 +223,14 @@ describe("canonical tree objects", () => {
       entries: [
         { name: "_store.json", file: hash },
         { name: "extra.md", file: hash },
-        { name: "schema.ts", file: hash },
+        { name: "schema.cddl", file: hash },
       ],
       childrenSource: {
         version: 1,
         type: "collection-file",
         format: "json",
         source: "_store.json",
-        schemaSource: "schema.ts",
+        schemaSource: "schema.cddl",
         schemaFingerprint: hash,
         childSetHash: hash,
       },
@@ -275,7 +274,7 @@ describe("canonical tree objects", () => {
       const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
       const descriptor = object.childrenSource!;
-      expect(descriptor).toEqual(expect.objectContaining({ version: 2, type: "collection-file", format: "json", schemaSource: "schema.cddl" }));
+      expect(descriptor).toEqual(expect.objectContaining({ version: 1, type: "collection-file", format: "json", schemaSource: "schema.cddl" }));
       const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
       const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
       expect(sourceHash).not.toBe(schemaHash);
@@ -329,14 +328,24 @@ describe("canonical tree objects", () => {
     }
   });
 
-  test("refuses to snapshot a retired schema.ts collection file as ordinary files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-wire-legacy-collection-"));
+  test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-wire-schema-ts-"));
     const collections = new ProjectionProviderHost();
+    const describe = (directory: string, name: string) => collections.collectionFileDescriptor(directory, name);
     try {
-      await writeFile(join(root, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"];\n');
+      // Without schema.cddl, _store.json and schema.ts are ordinary files.
+      await writeFile(join(root, "schema.ts"), "export const schema = {};\n");
       await writeFile(join(root, "_store.json"), '[{"id":"one"}]\n');
-      await expect(snapshotDirectory(root, new Map(), [], (directory, name) =>
-        collections.collectionFileDescriptor(directory, name))).rejects.toThrow("convert this collection to schema.cddl");
+      const plain = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
+      const object = decodeProtocolDirectory(plain.objects.get(plain.root)!);
+      if (object.type !== "directory") throw new Error("Expected a directory");
+      expect(object.childrenSource).toBeUndefined();
+      expect(object.entries.map((entry) => entry.name)).toEqual(["_store.json", "schema.ts"]);
+
+      // Beside a collection file it is one more immediate entry, which a
+      // collection-file directory rejects like any other.
+      await writeFile(join(root, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr }\n');
+      await expect(snapshotDirectory(root, new Map(), [], describe)).rejects.toThrow("mixes immediate-child backings");
     } finally {
       await collections[Symbol.asyncDispose]();
       await rm(root, { recursive: true, force: true });

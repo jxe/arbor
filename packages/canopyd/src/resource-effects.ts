@@ -6,7 +6,7 @@ export interface ResourceEffect {
 }
 const BUDGET = 100000, MAX_DEPTH = 256;
 /** Reserved formats can conceal row/property/schema effects. Never infer narrow authority. */
-const opaque = (name: string) => name.startsWith("_") || name === "schema.cddl" || name === "schema.ts" || name === "schema.sql";
+const opaque = (name: string) => name.startsWith("_") || name === "schema.cddl" || name === "schema.sql";
 /** Conservative physical tree diff. Boundaries and opaque property stores require broad write. */
 export async function resourceEffects(
   before: ObjectHash,

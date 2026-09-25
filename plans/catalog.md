@@ -57,14 +57,13 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Executable applications
 
-`apps/` — CDDL collection schemas → sidecar/source resolution with resource policy → durable authoring/compiler → Supplies; hosted agents follow.
+`apps/` — Sidecar/source resolution with resource policy → durable authoring/compiler → Supplies; hosted agents follow.
 
 - [Apps 001 — Run the Supplies tree locally, natively, and on canopyd](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003–006**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the adapted [`examples/supplies`](../examples/supplies) corpus as executable documents in local Canopy for the web, signed macOS Overstory, and its canonical canopyd website.
 - [Apps 002 — Host authored conversational interfaces over compiled Overstory handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Overstory users, and canopyd execution. Agents reuse the same compiled query/mutation handles and authenticated Overstory-user context rather than introducing a separate data/runtime framework.
 - [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after the implemented 007 and authority prerequisites of 004.** Extract the headless HTTP runtime, prove failure independence and a QuickJS-free daemon graph; browser hosting follows in 001/003.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
-- [Apps 007 — CDDL collection schemas](soon/007-cddl-collection-schemas.md) — **SOON · P1 · IMPLEMENTED; Swift unverified, cutover unauthorized.** The bounded CDDL profile, version-2 descriptors, retired-version-1 policy and QuickJS removal are implemented; remaining: compile and test the Swift edits on macOS, then the operator inventory and cutover through migration 021.
 
 ## Postgres
 
@@ -143,7 +142,7 @@ before promoting one; an old audit finding is not proof of a current implementat
   - **Provider-specific materialization controls** — **NEEDS DESIGN.** Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan.
   - **Web-editor boundary.** Structural undo, exact reorder restoration, pointer lifecycle, keyboard access, context-menu focus, bounded history, and scroll restoration stay together in the completed Web 005 plan (deleted; see git history).
 - **Security** — Alpha-stage injection, authorization, secret-handling, hostile-input, sandboxing, and trust-boundary work.
-  - **Isolate canopyd application-code execution** — **OWNED by Apps 007 and 005.** Remove executable collection schemas through CDDL first, then extract application execution into the authenticated, quota-bound HTTP sidecar. Hostile-code sandboxing remains a separate trust-boundary decision.
+  - **Isolate canopyd application-code execution** — **OWNED by Apps 005.** Executable collection schemas are gone (Apps 007, declarative CDDL, implemented); extract application execution into the authenticated, quota-bound HTTP sidecar. Hostile-code sandboxing remains a separate trust-boundary decision.
   - **Validate directory-entry names on every Overstory client read path** — **REVERIFY.** Reject empty, dot, parent, and separator-bearing names before materialization; reuse the server graph invariant and add hostile-object fixtures.
   - **Replace prose-derived authorization status** — **REVERIFY.** canopyd/Overstory responses should classify authorization failures with typed errors rather than English-text matching; coordinate with Security 003 if both touch the response helper.
   - **Object reachability authorization** — owned by the canopyd object-reachability candidate under Speed below. Its access and invalidation tests must prove that the optimization cannot widen access.

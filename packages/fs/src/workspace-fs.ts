@@ -44,7 +44,7 @@ import {
 } from "./types.ts";
 import { ensureContainedPath, resolveTreePath, toTreePath } from "@overstory/protocol/path";
 
-const RESERVED = new Set(["schema.cddl", "schema.ts", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
+const RESERVED = new Set(["schema.cddl", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;
 const EMPTY_REVISION = revisionOf("");
 

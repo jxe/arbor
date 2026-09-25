@@ -156,7 +156,7 @@ export interface DecodedProtocolCollectionFile {
 
 export class ProtocolCollectionFileError extends Error {
   constructor(
-    readonly kind: "schema" | "constraint" | "source" | "unsupported",
+    readonly kind: "schema" | "constraint" | "source",
     message: string,
   ) {
     super(message);
@@ -164,16 +164,8 @@ export class ProtocolCollectionFileError extends Error {
   }
 }
 
-/** Retired version-1 descriptors select an executable schema.ts; nothing interprets them. */
-export function unsupportedLegacyCollection(): ProtocolCollectionFileError {
-  return new ProtocolCollectionFileError(
-    "unsupported",
-    "This collection uses a retired version-1 schema.ts descriptor; convert it to schema.cddl before it can be read or updated",
-  );
-}
-
 /**
- * Validate a version-2 collection-file directory exactly as spec 06 §2.1
+ * Validate a collection-file directory exactly as spec 06 §2.1
  * orders it, and return its logical rows. Never executes authored code.
  */
 export function decodeProtocolCollectionFile(
@@ -182,7 +174,6 @@ export function decodeProtocolCollectionFile(
   schemaBytes: Uint8Array,
   schemas: CollectionSchemaCache = sharedCollectionSchemaCache,
 ): DecodedProtocolCollectionFile {
-  if (descriptor.version !== 2) throw unsupportedLegacyCollection();
   if (sourceBytes.byteLength > 16 * 1024 * 1024) {
     throw new ProtocolCollectionFileError("source", "Collection file exceeds the 16 MiB validation limit");
   }

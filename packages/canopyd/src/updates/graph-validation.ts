@@ -27,13 +27,10 @@ export async function validateGraphChange(
   validateCollection: (
     directory: ProtocolDirectory,
     load: (hash: string) => Promise<Uint8Array>,
-  ) => Promise<void | "unproven">,
+  ) => Promise<void>,
   basis?: ValidatedGraph,
 ): Promise<ValidatedGraph> {
   const objects = new Map<string, ValidatedObject>();
-  // Collections a validator leaves unproven are walked but never lend their
-  // proof to a later graph, so a candidate that keeps one revalidates it.
-  const unproven = new Set<string>();
   const pending: Reference[] = [{ hash: root, kind: "directory" }];
   const reads = new Map<string, Uint8Array>();
   const read = async (hash: string) => {
@@ -76,13 +73,12 @@ export async function validateGraphChange(
           const target = protocolEntryObject(entry);
           if (target) children.push(target);
         }
-        if (directory.childrenSource && (await validateCollection(directory, read)) === "unproven") unproven.add(hash);
+        if (directory.childrenSource) await validateCollection(directory, read);
       }
       proof = { kind, children };
     }
     objects.set(hash, proof);
     for (const child of proof.children) pending.push(child);
   }
-  for (const hash of unproven) objects.delete(hash);
   return { root, objects };
 }
