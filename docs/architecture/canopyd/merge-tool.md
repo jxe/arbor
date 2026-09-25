@@ -74,6 +74,14 @@ invalid element never accepts a prefix. At acceptance, an element accepted exact
 authored on the entry before it becomes the next element's base; any other is carried in
 `prefix`. A preflight answer is reused only for a verbatim question.
 
+When a batch extends an already accepted prefix, canopyd rechecks that prefix's
+retained traces for plainness before allowing the new tail to use the fast path.
+A receipt alone is insufficient: the earlier acceptance may have required causal
+execution. Plain prefixes therefore avoid an unnecessary sidecar question for the
+tail, while reordered lineage, resolutions, and other non-plain prefixes still
+require causal preflight. A fully receipted retry returns its receipts without
+rechecking traces or asking the sidecar.
+
 ### Snapshots
 
 A snapshot (a candidate with `trace: null`) that equals the head's root or its own base
