@@ -7,7 +7,7 @@ Source implementation status is distinct from installed/deployed behavior.
 
 ## Native release and hands-on review
 
-Owner: Native [008](soon/008-complete-native-move-copy-undo-capture.md) for operation capture.
+Owner: Native [008](swift/008-copies-with-changes-and-compound-undo.md) for operation capture.
 The accepted-choice review behavior is implemented and summarized in [status](../status.md#implemented);
 this checklist retains only its hands-on gate.
 

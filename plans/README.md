@@ -7,7 +7,7 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 ## Soon
 
 Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's identifier
-(Native 008 is still Native 008) and its entry in the [catalog](catalog.md), marked **SOON**.
+(Filesystem 011 is still Filesystem 011) and its entry in the [catalog](catalog.md), marked **SOON**.
 
 | Plan | What it does |
 |---|---|
@@ -15,14 +15,13 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | Cleanup [005](soon/005-locator-identity-surfaces.md) | Give locator identity one grammar across surfaces |
 | canopyd [005](soon/005-tree-configuration-trees.md) | Decide and design per-tree configuration and co-administration |
-| Native [008](soon/008-complete-native-move-copy-undo-capture.md) | Remaining move, copy and compound-undo capture |
 | Filesystem [011](soon/011-independent-writes-after-rejection.md) | Keep independent writes moving after a rejected change |
 
 ## Remaining outcomes
 
 | Outcome | What remains | Start here |
 |---|---|---|
-| Extend Native editing | Additional move/copy/undo cases; the core capture, sync and accepted-choice review paths are already implemented | Native [008](soon/008-complete-native-move-copy-undo-capture.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
+| Extend Native editing | Copies with changes, paste and inline provenance, and compound undo; capture, block moves, Move to Document, sync and accepted-choice review are implemented | Native [008](swift/008-copies-with-changes-and-compound-undo.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Make the merge handle many more cases | Lose nothing, keep the syntax, approach the meaning; merge or merge with a note far more often than asking for review: anchors that agree in both orders, cross-document links, new keys and arrays in JSON/YAML, code moves and imports, and formats such as BibTeX and notebooks | canopyd [014](canopyd/014-merge-handles-many-cases.md) |
 | Show held folders in the Mac app | List placed folders whose changes the host refused and offer Discard Refused Changes | Native [012](swift/012-show-held-folders.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
@@ -74,8 +73,8 @@ them, and each active plan records any identifier it inherited.
 ## Planning rules
 
 - A plan moves into `soon/` when chosen and keeps its identifier. A new plan's number must not
-  collide with a plan of the same owner in `soon/` (Native 008 lives there, so the next Native
-  plan is not 008).
+  collide with a plan of the same owner in `soon/` (Filesystem 011 lives there, so the next
+  Filesystem plan is not 011).
 - Keep one owner for each remaining task. Link to it from dependencies instead of copying its checklist.
 - Active plans describe remaining work. Delete implemented or superseded executor documents
   after recording their evidence in `status.md`; transfer unfinished gates explicitly.
