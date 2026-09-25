@@ -1264,7 +1264,14 @@ export class HostDaemon implements AsyncDisposable {
               }
             }
           } else plainSoFar = false;
-        } else plainSoFar = false;
+        } else {
+          // Receipts prove acceptance, not that the author's candidate chain
+          // is plain (acceptance may have merged it). Recheck the retained
+          // trace so an ordinary accepted prefix does not force its new tail
+          // through the sidecar, while causal prefixes still do.
+          plainSoFar &&= update.trace !== null && !update.resolves.length &&
+            await this.fastForward(root, update, open, objects);
+        }
         preflight.prefix.push(await this.candidate(treeID, update, []));
         root = update.candidate;
       }

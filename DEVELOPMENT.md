@@ -4,7 +4,7 @@ This document describes how to work on the repository: setup, what each director
 
 ## Requirements and setup
 
-The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the parallel test suite; pinned in `.bun-version`, `package.json` `packageManager`, and `packages/canopyd/deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses exactly Bun 1.4.2 (pinned in `.bun-version`, `package.json` `packageManager`, and `packages/canopyd/deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
@@ -176,4 +176,3 @@ ARBOR_DATA_HOME="$test_state" bun run arborsync "$test_root" --port 4317
 ```
 
 Open `http://127.0.0.1:4317`. Check local navigation, extensionless Markdown URLs, child-link ordering, properties, exact-source edits, undo/redo, external file reconciliation, responsive navigation, and read-only collection rows. For remote presentation, open a public canonical URL through `arbor open` and directly in a regular browser; HTML and `Accept: text/markdown` should describe the same complete operational document without exposing private representation files.
-

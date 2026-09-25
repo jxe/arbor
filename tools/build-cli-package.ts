@@ -21,9 +21,9 @@ const source = JSON.parse(await readFile(join(root, "packages/cli/package.json")
 await writeFile(join(output, "package.json"), JSON.stringify({
   name: source.name, version: source.version, description: source.description,
   type: "module", bin: { arbor: "bin/arbor.js", arborsync: "bin/arborsync.js" },
-  files: ["bin", "README.md"], engines: { bun: ">=1.3.14" },
+  files: ["bin", "README.md"], engines: { bun: ">=1.4.2" },
   os: ["darwin", "linux"], cpu: ["arm64", "x64"],
   dependencies: { "@parcel/watcher": "2.5.1" },
 }, null, 2) + "\n");
-await writeFile(join(output, "README.md"), `# Arbor CLI\n\nRequires Bun 1.3.14 or newer.\n\nRun \`bunx --bun --package @overstory/cli@${source.version} arbor status\`.\n\nFor an isolated agent session, set ARBOR_CLOUD_BUNDLE and run \`arbor cloud start\`, then \`arbor cloud finish\`. Ordinary sync commands require an ArborSync service; use \`arbor daemon install\` on macOS or run \`arborsync --control\` under a Linux service manager.\n`);
+await writeFile(join(output, "README.md"), `# Arbor CLI\n\nRequires Bun 1.4.2 or newer.\n\nRun \`bunx --bun --package @overstory/cli@${source.version} arbor status\`.\n\nFor an isolated agent session, set ARBOR_CLOUD_BUNDLE and run \`arbor cloud start\`, then \`arbor cloud finish\`. Ordinary sync commands require an ArborSync service; use \`arbor daemon install\` on macOS or run \`arborsync --control\` under a Linux service manager.\n`);
 console.log(output);

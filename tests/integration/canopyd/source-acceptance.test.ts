@@ -124,6 +124,43 @@ test("a move on the head fast-forwards without the sidecar and replays; a diverg
   expect(new TextDecoder().decode((await client.snapshot(tree, merged.root)).objects.get(note))).toBe("B para\r\n\r\nA PEER\r\n\r\n");
   await running.canopy.verifyIntegrity();
 });
+
+test("an accepted plain prefix keeps its new tail off the sidecar, including after restart", async () => {
+  const first = await edit("ABC");
+  const accepted = await client.submitUpdates(tree, { base, updates: [first] });
+  const next = await edit("XYZ", first.candidate);
+  await stop();
+  let workers = 0;
+  await start({ onTiming: phase => { if (phase === "worker-process") workers++; } });
+  // Settled prefixes need not resend their objects. Their stored traces must
+  // still establish plainness, independently of the receipt's accepted root.
+  const extended = await client.submitUpdates(tree, { base, updates: [{ ...first, objects: [], deltas: [] }, next] });
+  expect(extended.results[0]!.update.id).toBe(accepted.results[0]!.update.id);
+  expect(extended.results[1]!.update.root).toBe(next.candidate);
+  expect(workers).toBe(0);
+  expect(records()).toHaveLength(2);
+});
+
+test("an accepted reordered-lineage prefix still sends its new tail through causal preflight", async () => {
+  const first = await edit("cab");
+  const operation = first.trace![0]!.operations[0]!;
+  if (operation.kind !== "editSource") throw new Error("Expected source edit");
+  operation.lineage = [
+    { source: { ...operation.source, range: [2, 3] }, range: [0, 1] },
+    { source: { ...operation.source, range: [0, 2] }, range: [1, 3] },
+  ];
+  const accepted = await client.submitUpdates(tree, { base, updates: [first] });
+  const next = await edit("XYZ", first.candidate);
+  await stop();
+  let workers = 0;
+  await start({ onTiming: phase => { if (phase === "worker-process") workers++; } });
+  const extended = await client.submitUpdates(tree, { base, updates: [{ ...first, objects: [], deltas: [] }, next] });
+  expect(extended.results[0]!.update.id).toBe(accepted.results[0]!.update.id);
+  expect(extended.results[1]!.update.root).toBe(next.candidate);
+  expect(workers).toBeGreaterThan(0);
+  expect(records()).toHaveLength(2);
+});
+
 test("concurrent range edits retain both accepted alternatives", async () => {
   const a = await edit("AAA"), b = await edit("BBB");
   const results = await Promise.allSettled([client.submitUpdates(tree, { base, updates: [a] }), client.submitUpdates(tree, { base, updates: [b] })]);

@@ -44,6 +44,10 @@ public actor UpdateCoordinator {
     /// Submissions on the network. A submission never blocks the worker: a
     /// hanging attempt must not stop its own ambiguous extension or a catch-up.
     private var submissions: [String: Task<Void, Never>] = [:]
+    /// A watch can acknowledge a request before its POST returns. Leave its
+    /// apply off the worker until that submission supplies the response (or
+    /// fails, in which case apply retrieves the durable receipts).
+    private var deferredApply: (digest: String, result: UpdateMachine.AuthorityResult)?
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var timers: [UpdateMachine.Timer: Task<Void, Never>] = [:]
 
@@ -287,6 +291,13 @@ public actor UpdateCoordinator {
 
     private func submissionFinished(_ id: String) {
         submissions[id] = nil
+        if let deferred = deferredApply, deferred.digest == id {
+            deferredApply = nil
+            if !closed, control.attempt?.digest == id,
+               case let .acceptedPendingApply(_, request, _) = machine.phase, request?.id == id {
+                queue.append(.effect(.apply(deferred.result)))
+            }
+        }
         startWorker()
     }
 
@@ -347,6 +358,10 @@ public actor UpdateCoordinator {
         }
         do {
             var stashed = submission.flatMap { $0.digest == attempt.digest ? $0 : nil }
+            if stashed == nil, submissions[attempt.digest] != nil {
+                deferredApply = (attempt.digest, result)
+                return
+            }
             if stashed == nil {
                 // Watch evidence or a restart: replaying the exact durable
                 // request obtains the host's stored response.
@@ -616,6 +631,7 @@ public actor UpdateCoordinator {
 
     public func close() {
         closed = true
+        deferredApply = nil
         localView = nil
         for timer in timers.values { timer.cancel() }
         timers = [:]

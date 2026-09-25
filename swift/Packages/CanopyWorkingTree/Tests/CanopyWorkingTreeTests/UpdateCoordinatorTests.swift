@@ -789,6 +789,52 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    @Test("Watch acceptance reuses the in-flight POST, replaying only if its response is lost", arguments: [false, true])
+    func watchBeforePostResponse(lost: Bool) async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_watch_before_post"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let gate = FirstRequestGate()
+            let transport = acceptingTransport(tree: tree, initial: initial) { call in
+                if call == 1 {
+                    await gate.hold()
+                    if lost { throw InjectedSyncCrash() }
+                }
+            }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"), transport: transport
+            )
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            try await admitAppend(session, "Local\n")
+            try await waitUntil { await gate.waiting }
+            let frozen = try #require(await transport.requests.first)
+            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: frozen.body)
+            let candidate = try #require(request.updates.last?.candidate)
+            let observation = Task {
+                try await coordinator.observe(.init(
+                    id: "up_1",
+                    tree: .init(id: tree, kind: "ordinary", root: candidate, access: "write", canonical: nil, update: "up_1"),
+                    requestDigest: frozen.requestDigest, transitions: []
+                ))
+            }
+            try await waitUntil { await coordinator.syncState.kind == "accepted-pending-apply" }
+            // Keep the response withheld while the watch's apply effect runs.
+            // A second POST here would wait behind the same acceptance on the host.
+            try await Task.sleep(for: .milliseconds(50))
+            let countBeforeResponse = await transport.requests.count
+            await gate.release()
+            let presentation = try await observation.value
+            #expect(countBeforeResponse == 1)
+            #expect(presentation.state == .current)
+            #expect(await transport.requests.count == (lost ? 2 : 1))
+            #expect(await transport.requests.last?.body == frozen.body)
+            #expect(try await workingTree.heads().acceptedRoot == candidate)
+            #expect(try await pendingChanges(root, tree: tree).isEmpty)
+        }
+    }
+
     @Test("A change appended while its predecessor is in flight publishes on the settled chain")
     func localTail() async throws {
         try await withTemporaryRoot { root in

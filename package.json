@@ -4,7 +4,7 @@
   "private": true,
   "description": "Overstory: a shared tree protocol, its reference host canopyd, the Arbor local tools, and the Canopy browsers.",
   "type": "module",
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.2",
   "workspaces": [
     "packages/*",
     "examples/*"
@@ -59,7 +59,7 @@
   },
   "devDependencies": {
     "@noble/hashes": "^2.2.0",
-    "@types/bun": "1.3.10",
+    "@types/bun": "1.4.2",
     "@vitejs/plugin-react": "5.1.4",
     "typescript": "5.9.3",
     "vite": "7.3.1",
