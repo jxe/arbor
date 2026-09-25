@@ -111,6 +111,13 @@ export class UpdateCoordinator {
   private readonly submissions = new Map<string, Promise<void>>();
   private readonly timers = new Map<"trailing" | "max" | "poll", ReturnType<typeof setTimeout>>();
   private idleWaiters: Array<() => void> = [];
+  /**
+   * A watch can acknowledge a request before its POST returns. That apply
+   * waits off the worker until the submission supplies the response (or
+   * fails, and apply retrieves the stored receipts), so the request is never
+   * sent twice.
+   */
+  private deferredApply?: { digest: string; result: AuthorityResult };
   /** The validated response of the persisted attempt, kept for the `apply` it leads to. */
   private submission?: { digest: string; response: UpdateResponse; current: Current };
   /** The latest watch event, kept for the `catchUp` its cursor names. */
@@ -280,10 +287,7 @@ export class UpdateCoordinator {
           // Leave the worker first: a submission never blocks it.
           await Promise.resolve();
           await this.submit(effect.request);
-        })().finally(() => {
-          this.submissions.delete(id);
-          this.startWorker();
-        });
+        })().finally(() => this.submissionFinished(id));
         this.submissions.set(id, running);
         return;
       }
@@ -298,6 +302,19 @@ export class UpdateCoordinator {
       case "cancelTimers":
         return;
     }
+  }
+
+  private submissionFinished(id: string): void {
+    this.submissions.delete(id);
+    const deferred = this.deferredApply;
+    if (deferred?.digest === id) {
+      this.deferredApply = undefined;
+      if (!this.closed && this.control.attempt?.digest === id
+          && this.machine.kind === "accepted-pending-apply" && this.machine.request?.id === id) {
+        this.queue.push({ kind: "effect", effect: { type: "apply", result: deferred.result } });
+      }
+    }
+    this.startWorker();
   }
 
   private async persistRequest(tip: LocalTip, extended?: PreparedRequest): Promise<void> {
@@ -360,7 +377,7 @@ export class UpdateCoordinator {
   }
 
   /** Install an accepted decision for the persisted attempt, settle the changes it carried, and report the installed state. */
-  private async apply(_result: AuthorityResult): Promise<void> {
+  private async apply(result: AuthorityResult): Promise<void> {
     const attempt = this.control.attempt;
     if (!attempt) {
       // A previous pass already applied and cleared this attempt.
@@ -369,6 +386,10 @@ export class UpdateCoordinator {
     }
     try {
       let stashed = this.submission?.digest === attempt.digest ? this.submission : undefined;
+      if (!stashed && this.submissions.has(attempt.digest)) {
+        this.deferredApply = { digest: attempt.digest, result };
+        return;
+      }
       if (!stashed) {
         // Watch evidence or a restart: replaying the exact durable request obtains the host's stored response.
         const response = await this.transport.submitUpdates(this.tree, attemptRequest(attempt));
@@ -628,6 +649,7 @@ export class UpdateCoordinator {
 
   close(): void {
     this.closed = true;
+    this.deferredApply = undefined;
     for (const timer of [...this.timers.keys()]) this.cancel(timer);
     this.resumeIdle();
   }

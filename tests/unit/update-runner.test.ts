@@ -136,3 +136,56 @@ for (const scenario of fixture.scenarios) test(`runner vector: ${scenario.name}`
     await rm(stateRoot, { recursive: true, force: true });
   }
 });
+
+/** Holds the first POST until released, as `FirstRequestGate` does for Swift. */
+class GatedHost extends VectorHost {
+  sent = 0;
+  held?: UpdateRequest;
+  private release!: () => void;
+  private readonly gate = new Promise<void>((resolve) => { this.release = resolve; });
+  open(): void { this.release(); }
+  override async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
+    this.sent += 1;
+    if (this.sent === 1) {
+      this.held = request;
+      await this.gate;
+    }
+    return super.submitUpdates(tree, request);
+  }
+}
+
+for (const lost of [false, true]) test(`watch acceptance reuses the in-flight POST${lost ? ", replaying only when its response is lost" : ""}`, async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-watch-before-post-"));
+  const initial = snapshot("# Note\n\nBase\n");
+  const host = new GatedHost(initial, [lost ? "acceptThenFail" : "accept"]);
+  const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial", cursor: "up_initial" }, snapshot: initial });
+  const log = new ChangeLog(TREE, stateRoot);
+  const coordinator = new UpdateCoordinator(TREE, log, new FileControlStore(stateRoot), host, working,
+    { publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000 });
+  try {
+    await appendSource(coordinator, log, working, "/note.md", (source) => ({ offset: new TextEncoder().encode(source).length, length: 0, replacement: "Local\n" }));
+    const syncing = coordinator.syncOnce().catch(() => {});
+    while (!host.held) await Bun.sleep(5);
+    // The host has not answered; its watch already reports the request accepted.
+    const candidate = host.held.updates.at(-1)!.candidate;
+    const observation = coordinator.observe({
+      kind: "tree.update", cursor: "up_1" as never, tree: TREE,
+      descriptor: { id: TREE, kind: "ordinary", root: candidate, access: "write", canonical: null, update: "up_1", conflicted: false } as never,
+      transitions: [], requestDigest: updateRequestDigests(TREE, host.held).at(-1) as never,
+    });
+    while (coordinator.state.kind !== "accepted-pending-apply") await Bun.sleep(5);
+    await Bun.sleep(50);
+    expect(host.sent).toBe(1);
+    host.open();
+    const presentation = await observation;
+    await syncing;
+    expect(presentation.state).toBe("current");
+    expect(host.sent).toBe(lost ? 2 : 1);
+    expect(host.requests.at(-1)).toEqual(host.held);
+    expect(await coordinator.pendingChanges()).toEqual([]);
+    expect((await working.accepted())?.root).toBe(candidate);
+  } finally {
+    coordinator.close();
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});

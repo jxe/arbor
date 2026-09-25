@@ -90,9 +90,8 @@ test("a folder edit to a large Markdown file submits a delta against the accepte
     await recording(async (requests) => {
       await writeFile(join(folder, "large.md"), source);
       await daemon.synchronizeNow();
-      // The coordinator may repeat an attempt; a repeat is the same request.
-      expect(requests.length).toBeGreaterThan(0);
-      for (const request of requests) expect(request).toEqual(requests[0]!);
+      // One publication is one request, even when the watch reports it before the response.
+      expect(requests).toHaveLength(1);
       expect(requests[0]!.updates).toHaveLength(1);
       const [update] = requests[0]!.updates;
       expect(update!.deltas.map((delta) => delta.result)).toEqual([file]);
@@ -116,8 +115,9 @@ test("a change chained on an unsettled change sends its objects whole", async ()
       await writeFile(join(folder, "large.md"), second);
       offline(false);
       await daemon.synchronizeNow();
-      const chain = requests.find((request) => request.updates.length === 2)!;
-      expect(chain).toBeDefined();
+      expect(requests).toHaveLength(1);
+      const chain = requests[0]!;
+      expect(chain.updates).toHaveLength(2);
       const [head, chained] = chain.updates;
       expect(head!.deltas.map((delta) => delta.result)).toContain(hashObject(new TextEncoder().encode(first)));
       expect(chained!.deltas).toEqual([]);

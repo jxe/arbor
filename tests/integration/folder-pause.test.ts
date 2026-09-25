@@ -141,9 +141,8 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
     expect(await arbor(daemon.url, ["resume", folder])).toBe(`Resumed ${folder} (${tree})\n`);
     await daemon.client.synchronizeNow();
     await waitFor(async () => await accepted() === edited);
-    // The coordinator may repeat an attempt; every attempt is the pending body.
-    expect(requests.length).toBeGreaterThan(0);
-    for (const request of requests) expect(request).toEqual(body);
+    // Resume sends exactly the pending body, once.
+    expect(requests).toEqual([body]);
     await waitFor(async () => await daemon.sync() === "idle");
     expect((await daemon.client.pending(tree)).request).toBeNull();
   } finally {
