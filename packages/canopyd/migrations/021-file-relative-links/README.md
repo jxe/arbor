@@ -40,6 +40,13 @@ The latest canopyd backup (`.backups/railway/20260925T071420Z`) holds no
 base64url key tokens. `~/.arbor` holds them only in the Mac working tree's
 change-log object copies, which are content snapshots and need no rewrite.
 
+## Live run, 2026-09-25
+
+- **Before starting:** todos was idle at update 5001. The backup is in `.backups/file-relative-links/20260925T110900Z/`: `todos.tar` (sha256 `83bff82e…`), the authored manifests before and after, and `pending.json`, the exact request that was published. The receipt is `~/.arbor/.state/migration/file-relative-links-20260925T110917Z/`.
+- **The rewrite:** the dry run matched the rehearsal. 135 links in 21 files were rewritten, and the manifest diff named exactly those 21 files. With link destinations blanked, the before and after text of every file was identical. It was accepted as update 5002, whose root `sha256:0c8061fb…` equals the reviewed candidate.
+- **Step 9:** update 5003 (`sha256:82a297bb…`) repointed 15 dangling links to the only page with a matching name.
+- **Left for Joe:** `P-I`, three `Untitled-4.md` links, `Untitled-2.md`, and the missing image in `Plan-meditation-for-tomorrow.md`.
+
 ## Runbook
 
 Joe confirms each step.

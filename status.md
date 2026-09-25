@@ -97,8 +97,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## File-relative Markdown links and readable key tokens — 2026-09-25
 
-Implemented; not deployed, installed, or run against the todos tree
-([Cleanup 001](plans/soon/001-file-relative-links-and-pageid-cutoff.md)). A
+Deployed (canopyd build `20d068ea`), Arbor Sync restarted and the Mac and iOS apps rebuilt on 2026-09-25; the todos tree was rewritten the same day ([Cleanup 001](plans/soon/001-file-relative-links-and-pageid-cutoff.md)). Hands-on checks on the Mac and iPhone are pending. A
 relative link in Markdown resolves from the directory holding its source file
 and names the target's body file (`Calendar.md`, `x/_index.md`), so Obsidian
 and other Markdown readers follow it; a stable key is the readable token
@@ -117,7 +116,7 @@ format 2 and rebuilds from older files. Evidence: the shared vectors
 (`tests/unit/logical-url.test.ts`, `directory-document.test.ts`) and Swift
 (`LogicalURLTests`, `CanopyWorkingTreeTests`, `CanopyEditorTests`);
 `tests/unit/canopyd/public-page.test.ts`; `tests/integration/workspace.test.ts`.
-The todos rewrite is [migration 021](packages/canopyd/migrations/021-file-relative-links/README.md).
+The todos rewrite is [migration 021](packages/canopyd/migrations/021-file-relative-links/README.md): update 5002 rewrote 135 links in 21 files, verified before publishing with `arbor pending` (every change was inside a link destination), and update 5003 repointed 15 already-dangling links by hand. Five links with no matching page are left for Joe.
 
 ## Arbor Sync folder deltas, pause and pending — 2026-09-25
 
