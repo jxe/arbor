@@ -428,6 +428,7 @@ Until Phase 3 runs, links in todos are partly broken. That is accepted.
    Save `--json` beside the backup, and diff the authored manifests.
 7. `arbor resume <todos>`. The update number advances, the placement returns to idle, and the root matches the pending candidate.
 8. Check that on the Mac, iPhone and canopyd pages, links, rows and backlinks resolve.
+9. Fix by hand, with Joe, the links the rewrite reports as dangling (mostly root `_index.md` rows naming pages that moved deeper).
 
 **Rollback:**
 - before step 7: `--revert` (or restore the tar) while paused;

@@ -57,6 +57,12 @@ Joe confirms each step.
    Save the `--json` output beside the backup, and diff the authored manifests.
 7. `arbor resume <placement>`. The update number advances, the placement returns to idle, and the new root equals the pending candidate.
 8. Check links, rows and backlinks on the Mac, the iPhone and the canopyd pages.
+9. With Joe, fix by hand the links the rewrite reports as dangling. The rehearsal found 20:
+   - 16 rows in the root `_index.md` name pages that now live deeper, such as `Activism-essay` (now `March-Out-My-Work/Activism-essay.md`). Point each at its current file, or delete it.
+   - 4 are elsewhere: `Untitled-4.md` twice (its fragment already stripped), plus `Untitled-2.md` and `Advisory-Structure.md`.
+   - `Plan-meditation-for-tomorrow.md` also has a missing image.
+
+   Edit in Canopy or Obsidian. Each fix publishes as an ordinary edit.
 
 **Rollback.** Before step 7, `--revert` the receipt (or restore the tar) while
 the placement is still paused. After step 7, `--revert` publishes as an
