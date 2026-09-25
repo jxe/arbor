@@ -13,7 +13,7 @@ For multi-machine synchronization, outage, and conflict testing rather than a si
 
 ## Railway
 
-The repository already contains `packages/canopyd/deploy/Dockerfile.canopyd` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. canopyd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral canopyd state.
+The repository already contains `packages/canopyd/deploy/Dockerfile.canopyd` and `railway.toml`. Railway builds that image with the same pinned Bun 1.4.2 as the workspace, checks `/`, supplies `PORT`, and restarts a failed process. canopyd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral canopyd state.
 
 1. Push this Overstory branch to a GitHub repository that Railway can access.
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.
@@ -258,7 +258,7 @@ For an existing canopyd:
    installed account-configuration checkout.
 5. Package the way production does: copy the Dockerfile's package payload to
    an isolated directory, install with frozen production-only dependencies
-   under Bun 1.3.14, run the merge worker outside the checkout, and push one
+   under Bun 1.4.2, run the merge worker outside the checkout, and push one
    real merge through canopyd's response and closure validation before
    building the Linux image.
 6. Only after those rehearsals, deploy the exact tested commit and verify the

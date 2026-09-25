@@ -306,7 +306,7 @@ options. Railway/VPS deployment procedures belong in
 
 ## Running with bunx
 
-Install Bun first (the release is tested with Bun 1.3.14). The CLI package keeps
+Install Bun first (the release is tested with Bun 1.4.2). The CLI package keeps
 Bun as a runtime prerequisite; it does not include another runtime or require Node.
 Version-pinned examples, once that package version is published:
 

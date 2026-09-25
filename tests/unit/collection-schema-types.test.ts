@@ -69,7 +69,7 @@ describe("generated collection declarations", () => {
         "",
       ].join("\n"));
       const tsc = join(import.meta.dir, "../../node_modules/typescript/bin/tsc");
-      const result = Bun.spawnSync([process.execPath, tsc, "--noEmit", "--strict", "--exactOptionalPropertyTypes", "--lib", "es2023", join(directory, "tree.gen.d.ts"), join(directory, "use.ts")], {
+      const result = Bun.spawnSync([process.execPath, tsc, "--noEmit", "--strict", "--exactOptionalPropertyTypes", "--lib", "es2023,dom", join(directory, "tree.gen.d.ts"), join(directory, "use.ts")], {
         stdout: "pipe", stderr: "pipe",
       });
       expect(`${result.stdout.toString()}${result.stderr.toString()}`).toBe("");
