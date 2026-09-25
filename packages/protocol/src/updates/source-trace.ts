@@ -1,5 +1,6 @@
 import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
 import type { AuthoredOperation, MaterialRef } from "./authored-contract.ts";
+import { arrangeSources, UnsupportedSourceMove, type SourceReplacement } from "./source-moves.ts";
 
 type Edit = Extract<AuthoredOperation, { kind: "editSource" }>;
 /** Validated creation coordinates; bind these to (tree, change, operation) on commit. */
@@ -71,7 +72,17 @@ export async function executeExactSourceEdits(
   const groups = new Map<string, Array<{ selected: Selection; text: Uint8Array; index: number }>>();
   const evidence: SourceEditEvidence[] = [];
   const keys = new Set<string>();
+  // Moves precede every edit in a frame this executes, so each edit is stated
+  // over basis material wherever the frame's moves put it.
+  const moves: Array<{ source: Selection; anchor: Selection; side: "before" | "after" }> = [];
   for (const operation of operations) {
+    if (operation.kind === "moveSource") {
+      if (groups.size) throw new UnsupportedSourceEdit("A move after an edit requires causal source execution");
+      if (keys.has(operation.key)) invalid("duplicate operation key");
+      keys.add(operation.key);
+      moves.push({ source: await select(operation.source), anchor: await select(operation.at), side: operation.side });
+      continue;
+    }
     if (operation.kind !== "editSource") throw new UnsupportedSourceEdit(`Operation ${operation.kind} is not enabled in exact source execution`);
     const edit: Edit = operation;
     if (keys.has(edit.key)) invalid("duplicate operation key");
@@ -98,28 +109,42 @@ export async function executeExactSourceEdits(
     groups.set(selected.path, group);
     evidence.push({ operation: edit.key, path: selected.path, source: { object: selected.object, range: selected.range }, text: edit.text, lineage });
   }
-  const generated = new Map<ObjectHash, Uint8Array>();
-  const replacements = new Map<string, ObjectHash>();
+  const files = new Map<string, Uint8Array>();
+  for (const selection of [...moves.flatMap(m => [m.source, m.anchor]), ...[...groups.values()].flat().map(e => e.selected)]) {
+    const known = files.get(selection.path);
+    if (known && known !== selection.bytes && !Buffer.from(known).equals(Buffer.from(selection.bytes))) invalid("one path names two basis objects");
+    files.set(selection.path, selection.bytes);
+  }
+  const replacements: SourceReplacement[] = [];
   for (const [path, edits] of groups) {
     edits.sort((a, b) => a.selected.range[0] - b.selected.range[0] || a.index - b.index);
-    const chunks: Uint8Array[] = [];
     let cursor = 0, priorStart = -1;
     for (const { selected, text } of edits) {
       if (selected.range[0] < cursor || selected.range[0] === priorStart) throw new UnsupportedSourceEdit("Overlapping or same-anchor edits require causal source execution");
-      chunks.push(selected.bytes.subarray(cursor, selected.range[0]), text);
+      replacements.push({ path, range: selected.range, text });
       priorStart = selected.range[0]; cursor = selected.range[1];
     }
-    chunks.push(edits[0]!.selected.bytes.subarray(cursor));
-    const bytes = new Uint8Array(Buffer.concat(chunks)), hash = hashObject(bytes);
-    generated.set(hash, bytes); replacements.set(path, hash);
+  }
+  let arranged: Map<string, Uint8Array>;
+  try {
+    arranged = arrangeSources(files, moves.map(m => ({ source: { path: m.source.path, range: m.source.range }, anchor: { path: m.anchor.path, range: m.anchor.range }, side: m.side })), replacements);
+  } catch (error) {
+    if (error instanceof UnsupportedSourceMove) throw new UnsupportedSourceEdit(error.message);
+    throw error;
+  }
+  const generated = new Map<ObjectHash, Uint8Array>();
+  const replacementObjects = new Map<string, ObjectHash>();
+  for (const [path, bytes] of arranged) {
+    const hash = hashObject(bytes);
+    generated.set(hash, bytes); replacementObjects.set(path, hash);
   }
   async function rebuild(hash: ObjectHash, path: string): Promise<ObjectHash> {
     const directory = decodeProtocolDirectory(await read(hash));
     let changed = false;
     for (const entry of directory.entries) {
       const child = path + "/" + entry.name;
-      if (![...replacements.keys()].some(p => p === child || p.startsWith(child + "/"))) continue;
-      const next = entry.file ? replacements.get(child)! : entry.directory ? await rebuild(entry.directory, child) : undefined;
+      if (![...replacementObjects.keys()].some(p => p === child || p.startsWith(child + "/"))) continue;
+      const next = entry.file ? replacementObjects.get(child)! : entry.directory ? await rebuild(entry.directory, child) : undefined;
       if (next && next !== (entry.file ?? entry.directory)) {
         if (entry.file) entry.file = next; else entry.directory = next;
         changed = true;
@@ -182,8 +207,9 @@ export async function validateSourceTrace(
 
 
 /** Whether a trace is plain enough for an authority to accept on the current
- * head without a merge: every frame's operations are `editSource` over basis
- * material (as `executeExactSourceEdits` executes them) or `addEntry` of a new
+ * head without a merge: every frame's operations are `moveSource` and then
+ * `editSource` over basis material (as `executeExactSourceEdits` executes
+ * them) or `addEntry` of a new
  * name into a basis directory, and each frame reproduces its own `after`
  * exactly. `touched` names each edited file and each added entry; the caller
  * decides whether an open decision concerns one. Anything else is a
@@ -206,6 +232,11 @@ export async function checkPlainTrace(
         if (keys.has(operation.key)) return { plain: false, reason: "duplicate operation key" };
         keys.add(operation.key);
         if (operation.kind === "editSource") edits.push(operation);
+        else if (operation.kind === "moveSource") {
+          edits.push(operation);
+          for (const ref of [operation.source, operation.at])
+            if (ref.material.kind === "basis") touched.add(ref.material.path + (ref.within?.length ? "/" + ref.within.join("/") : ""));
+        }
         else if (operation.kind === "addEntry") additions.push(operation);
         else return { plain: false, reason: `operation ${operation.kind}` };
       }

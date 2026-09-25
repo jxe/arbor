@@ -100,6 +100,30 @@ test("a plain edit on the head fast-forwards without the sidecar; divergent head
   expect(records()).toHaveLength(count);
   await running.canopy.verifyIntegrity();
 });
+test("a move on the head fast-forwards without the sidecar and replays; a divergent peer edit follows it", async () => {
+  const text = "A para\r\n\r\nB para\r\n\r\n";
+  const prose = await edit(text, root, [0, 5]);
+  const accepted = (await client.submitUpdates(tree, {base, updates: [prose]})).results[0]!.update;
+  await stop();
+  let workers = 0;
+  await start({onTiming: (phase) => { if (phase === "worker-process") workers++; }});
+  const file = decodeProtocolDirectory(objects.get(prose.candidate)!).entries.find(e => e.name === "note.md")!.file!;
+  const span = (needle: string): [number, number] => { const start = text.indexOf(needle); return [start, start + needle.length]; };
+  const ref = (range: [number, number]) => ({ material: { kind: "basis" as const, path: "/note.md", object: file }, range });
+  const operations = [{ key: "move", kind: "moveSource" as const, source: ref(span("A para\r\n\r\n")), at: ref(span("B para\r\n\r\n")), side: "after" as const }];
+  const executed = await executeExactSourceEdits(prose.candidate, operations, async hash => objects.get(hash)!);
+  for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
+  const move: CandidateUpdate = { change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: prose.candidate, after: executed.root, operations }], resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+  const peer = await edit("PEER", prose.candidate, span("para"));
+  const moved = (await client.submitUpdates(tree, {base: accepted.id, updates: [move]})).results[0]!.update;
+  expect(moved.root).toBe(move.candidate);
+  expect(workers).toBe(0);
+  const merged = (await client.submitUpdates(tree, {base: accepted.id, updates: [peer]})).results[0]!.update;
+  expect(merged.conflicted).toBe(false);
+  const note = decodeProtocolDirectory((await client.snapshot(tree, merged.root)).objects.get(merged.root)!).entries.find(e => e.name === "note.md")!.file!;
+  expect(new TextDecoder().decode((await client.snapshot(tree, merged.root)).objects.get(note))).toBe("B para\r\n\r\nA PEER\r\n\r\n");
+  await running.canopy.verifyIntegrity();
+});
 test("concurrent range edits retain both accepted alternatives", async () => {
   const a = await edit("AAA"), b = await edit("BBB");
   const results = await Promise.allSettled([client.submitUpdates(tree, { base, updates: [a] }), client.submitUpdates(tree, { base, updates: [b] })]);

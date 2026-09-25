@@ -955,6 +955,9 @@ class Engine {
         const target = await this.selection(operation.at, basis, state),
           destination = state.nodes[target.node];
         if (!destination?.active) return fail("Destination entry was removed");
+        // A transfer changes its destination too; the exact-basis path compares
+        // only the nodes it captured.
+        if (validatedBasisObject && !Object.hasOwn(before, destination.id)) before[destination.id] = clone(destination);
         let targetPieces = await this.text(destination);
         const atRange = this.locate(
           targetPieces,
@@ -2822,7 +2825,7 @@ class Engine {
     const request = this.request;
     // Decline reasons are diagnostics only (see engineDiagnostics.decline):
     // 1 divergent or stateless basis, 2 alternatives/resolutions, 3 no operations,
-    // 4 non-basis or lineage-bearing operation, 5 non-editable state, 6 decisions,
+    // 4 non-basis or unsupported operation, 5 non-editable state, 6 decisions,
     // 7 change already recorded, 8 trace not rooted at the basis.
     const decline = (reason: number) => { engineDiagnostics.decline = reason; return undefined; };
     if (!request.base.state || request.base.state !== request.current.state ||
@@ -2831,9 +2834,15 @@ class Engine {
     const trace = request.incoming.trace;
     const operations = traceOperations(request.incoming);
     if (!operations.length) return decline(3);
+    // Basis moves and ordered lineage rearrange only material live in this
+    // exact basis, so they cannot bring back anything a retained deletion cut.
+    // Operation and alternative references can reach hidden material, and
+    // copies create new origins beside decisions; both take the full evaluator.
+    const basisRef = (ref: { material: { kind: string } }) => ref.material.kind === "basis";
     if (!operations.every(op =>
-          op.kind === "editSource" ? op.source.material.kind === "basis" && !op.lineage?.length
-          : op.kind === "addEntry" && op.destination.parent.material.kind === "basis")) return decline(4);
+          op.kind === "editSource" ? basisRef(op.source) && (op.lineage ?? []).every(l => basisRef(l.source))
+          : op.kind === "moveSource" ? basisRef(op.source) && basisRef(op.at)
+          : op.kind === "addEntry" && basisRef(op.destination.parent))) return decline(4);
     if (trace[0]!.before !== request.base.object) return decline(8);
     // Snapshot and imported states do not establish that historical deletions
     // have already been applied. Their next edit uses the full evaluator first.

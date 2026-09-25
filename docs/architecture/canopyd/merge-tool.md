@@ -57,8 +57,9 @@ accepted root, the bindings, the rules), so a sidecar can ask it again later.
 ### Fast-forward
 
 A traced update authored directly on the head is accepted by canopyd without a question
-when every frame's operations are `editSource` over basis material or `addEntry` of a new
-name into a basis directory, canopyd reproduces every frame's `after` exactly
+when every frame's operations are `moveSource` and then `editSource` over basis material,
+or `addEntry` of a new name into a basis directory, canopyd reproduces every frame's
+`after` exactly
 (`checkPlainTrace` in `@overstory/protocol`, beside `composeSourceEdits`), it resolves
 nothing, and no open decision concerns what it touches: a decision about the root, the
 edited file or an added entry, or a folder containing one. Open decisions carry over,
@@ -66,6 +67,14 @@ each entry choice's alternative roots rebased onto the new root. Anything canopy
 check goes to the sidecar, which remains the authority on validity; the fast path never
 rejects. Each fall-through is logged with its reason (`Fast-forward fell through: ...`)
 and counted in the request's timings (`fast-forward-miss`).
+
+A move lands beside basis material that stays in place, or beside the whole source
+of an earlier move in the frame, and an edit inside moved material edits it where it
+lands (`arrangeSources` in `@overstory/protocol`). A placement whose order basis
+coordinates do not decide (two moves beside one anchor, an insertion at a moved span's
+edge) falls through. The sidecar's own exact-basis path accepts the same basis moves
+and ordered lineage; operation and alternative references, copies and entry
+operations take its full evaluator.
 
 A batch is checked before anything in it is accepted: plain elements are checked by
 canopyd, each on the one before it, and any other traced element is asked of the sidecar
