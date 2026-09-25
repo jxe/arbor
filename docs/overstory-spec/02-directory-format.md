@@ -2,7 +2,7 @@
 *Part of the [Overstory spec](README.md): one human-editable filesystem/Markdown
 projection of the [Overstory data model](01-tree-operations.md).*
 
-*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions).*
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes, and which directory entries are tree content. References: stable keys ([locators](03-locators.md)) and the [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions).*
 
 ## 1. Projection boundary
 
@@ -178,3 +178,53 @@ its interpretation and validation are defined by
 - `.state` is forbidden in an account-configuration graph as specified by [configuration](04-accounts-and-devices.md).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.
+
+## 7. Tree membership and ignore files
+
+Not every entry in a placed directory is tree content. An entry that one of the
+rules below excludes is not a node, is not part of any snapshot, and is never
+published. Writing accepted state into the directory never overwrites or
+deletes it. It stays an opaque placement file: it remains on disk and
+local tools may open it, but it belongs to that placement, not to the tree.
+
+**Mandatory exclusions.** These are never tree content, whatever an ignore file
+says: directories named `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, or
+`DerivedData` and everything beneath them; write and transaction temporaries
+(names containing `.arbor-write-` or `.arbor-txn-`); a cloud provider's
+placeholder for an evicted file, such as iCloud's `.name.icloud`, which stands
+for its logical file; symbolic links; and the root of a nested tree mounted in
+the directory, whose content belongs to that tree.
+
+**Ignore files.** `.arborignore` is the portable spelling of an ignore file.
+`.gitignore` is read with the same meaning for compatibility. Each applies from
+the directory that contains it downward and uses Git's pattern grammar: blank
+lines, `#` comments, backslash escapes, unescaped trailing spaces removed, `!`
+negation, a trailing `/` for directories only, a leading or inner `/` anchoring
+the pattern to the file's directory, and `*`, `?`, bracket expressions, and
+`**`. Paths are matched with `/` separators, case-sensitively, one Unicode
+character at a time. A rule in a deeper file overrides one in a shallower
+file, `.arborignore` overrides `.gitignore` beside it, and within a file the
+last matching rule decides. As in Git, an entry beneath an excluded directory
+cannot be re-included, and ignore files inside an excluded directory are not
+read. An ignore file that is not valid UTF-8 contributes no rules. An
+implementation reports that locally, naming the file but never its contents,
+and continues.
+
+Ignore files are themselves ordinary tree content. They are published like any
+other file, and no rule excludes them except by excluding a directory that
+contains them. Only these files decide membership: `.git/info/exclude`,
+`core.excludesFile`, a global Git ignore file, and Git's index are never
+consulted, because they are private to one machine and would make the same
+directory yield different trees on different devices.
+
+**Tracked entries.** Rules keep new local content out of a tree; they do not
+take out content already in it. A path in the tree the directory last held is
+*tracked*: it stays tree content even when a rule matches it, so its local
+edits are published and accepted changes to it are written. It leaves the tree
+only through an explicit deletion, local or accepted. After that, a local file
+at that path that a rule matches is untracked and stays in the directory,
+unpublished. A directory placed for the first time has nothing tracked, so its
+rules apply before its first snapshot. Editing an ignore file therefore never
+deletes anything from a tree, and writing accepted state never deletes
+untracked content that the directory's rules, before or after the write,
+exclude.

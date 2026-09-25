@@ -29,7 +29,8 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
-- [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](soon/005-ignore-policy.md) — **SOON · P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
+- **`arbor untrack`** — candidate. Ignore rules keep new content out but never untrack a path the folder already published ([status](../status.md#ignored-filesystem-content-filesystem-005--2026-09-25)); today the recipe is to move the file out, let the deletion sync, and move it back. One command could publish the deletion while leaving the bytes in place. The bytes stay in accepted history either way, so a leaked secret must still be rotated.
+- **Ignored paths in the Mac app's publish view** — Native candidate. Mark which local paths the folder's ignore rules keep out, and which ignored paths it still tracks, in "what it would publish".
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 
 ## canopyd authority, storage and history

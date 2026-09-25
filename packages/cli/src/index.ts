@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type AccountConfigurationSnapshot, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type AccountConfigurationSnapshot, type ObjectHash, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
-import { materializeTree, snapshotDirectory } from "@overstory/fs";
+import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
@@ -1051,7 +1051,10 @@ async function cloudPlacementsReady(
     const remote = (await wire.descriptor(target.treeID)).tree;
     if (remote.access !== "write") return { ready: false, reason: `${target.relativePath} lost write access` };
     if (descriptor.update !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
-    const localSnapshot = await snapshotDirectory(target.path); // roots only
+    // Roots only; the folder's ignored, untracked content is not part of its tree.
+    const skip = membershipSkip(await loadIgnorePolicy(target.path),
+      trackedEntries(remote.root as ObjectHash, (hash) => wire.object(target.treeID, hash)));
+    const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip);
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from Canopy` };
   }
   return { ready: true };

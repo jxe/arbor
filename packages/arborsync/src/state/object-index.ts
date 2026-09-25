@@ -50,6 +50,13 @@ export class ObjectIndex {
     this.database.prepare("DELETE FROM objects WHERE path = ?").run(absolute);
   }
 
+  /** Forget directory rows at `absolute` and beneath it. */
+  forgetDirectoriesBeneath(absolute: string): void {
+    const beneath = absolute.endsWith("/") ? absolute : `${absolute}/`;
+    this.database.prepare("DELETE FROM objects WHERE kind = 'directory' AND (path = ? OR substr(path, 1, ?) = ?)")
+      .run(absolute, beneath.length, beneath);
+  }
+
   /** The stored hash for a path regardless of validity; used by revalidation. */
   storedObjectHash(absolute: string): { kind: "file" | "directory"; hash: string } | undefined {
     const row = this.database.query("SELECT kind, hash FROM objects WHERE path = ?").get(absolute) as { kind: "file" | "directory"; hash: string } | null;

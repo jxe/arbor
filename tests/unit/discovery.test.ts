@@ -101,3 +101,121 @@ describe("workspace discovery", () => {
     expect(discovery.directories[0]?.childNames.has("friends")).toBe(false);
   });
 });
+
+async function until(condition: () => boolean | Promise<boolean>, timeoutMs = 4_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for the watcher");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+describe("ignore rules in discovery, listing, and watching", () => {
+  async function ignoredWorkspace() {
+    const root = await mkdtemp(join(tmpdir(), "arbor-ignore-discovery-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-ignore-discovery-state-"));
+    temporaryPaths.push(root, state);
+    await mkdir(join(root, "build"), { recursive: true });
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, ".gitignore"), ".env\nbuild/\n");
+    await writeFile(join(root, "docs", ".arborignore"), "draft.md\n");
+    await writeFile(join(root, ".env"), "TOKEN=secret\n");
+    await writeFile(join(root, "build", "out.md"), "---\nid: built1\n---\nBuilt\n");
+    await writeFile(join(root, "docs", "draft.md"), "---\nid: draft1\n---\nDraft\n");
+    await writeFile(join(root, "docs", "kept.md"), "---\nid: kept1\n---\nKept\n");
+    return { root, state };
+  }
+
+  test("an ignored file, directory, and page are not discovered", async () => {
+    const { root } = await ignoredWorkspace();
+    const discovery = await discoverWorkspace(root);
+    expect(discovery.files.map((file) => file.treePath).sort()).toEqual(["/.gitignore", "/docs/.arborignore", "/docs/kept.md"]);
+    expect(discovery.directories.map((directory) => directory.treePath).sort()).toEqual(["/", "/docs"]);
+    expect([...discovery.directories.find((directory) => directory.treePath === "/")!.childNames].sort()).toEqual([".gitignore", "docs"]);
+    expect([...discovery.pagePathsByID.keys()]).toEqual(["kept1"]);
+    expect(discovery.diagnostics).toEqual([]);
+  });
+
+  test("listing and direct resolution follow the same policy", async () => {
+    const { root, state } = await ignoredWorkspace();
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    try {
+      expect((await fs.list("/")).map((entry) => entry.name).sort()).toEqual([".gitignore", "docs"]);
+      expect((await fs.list("/docs")).map((entry) => entry.name).sort()).toEqual([".arborignore", "kept"]);
+      expect((await fs.resolve("/.env")).kind).toBe("missing");
+      expect((await fs.resolve("/build")).kind).toBe("missing");
+      expect((await fs.resolve("/docs/draft")).kind).toBe("missing");
+      expect(fs.startupDiscovery().pagePathsByID.has("draft1")).toBe(false);
+    } finally {
+      await fs[Symbol.asyncDispose]();
+    }
+    const browsing = await WorkspaceFS.open(root, { stateDirectory: state, discovery: "none" });
+    try {
+      // Without discovery a local path stays addressable, but listings still follow membership.
+      expect((await browsing.resolve("/.env")).kind).toBe("file");
+      expect((await browsing.list("/")).map((entry) => entry.name).sort()).toEqual([".gitignore", "docs"]);
+    } finally {
+      await browsing[Symbol.asyncDispose]();
+    }
+  });
+
+  test("watcher events for ignored paths are not node events", async () => {
+    const { root, state } = await ignoredWorkspace();
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    const events: string[] = [];
+    const ignored: string[] = [];
+    fs.subscribe((event) => events.push(`${event.type} ${event.path}`));
+    fs.subscribeIgnored((path) => ignored.push(path));
+    try {
+      await writeFile(join(root, "build", "more.txt"), "generated\n");
+      await writeFile(join(root, ".env"), "TOKEN=rotated\n");
+      await writeFile(join(root, "docs", "new.md"), "# New\n");
+      await until(() => events.includes("created /docs/new") && ignored.includes("/.env") && ignored.includes("/build/more.txt"));
+      await rm(join(root, "build", "more.txt"));
+      await until(() => ignored.filter((path) => path === "/build/more.txt").length >= 2);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(events).toEqual(["created /docs/new"]);
+    } finally {
+      await fs[Symbol.asyncDispose]();
+    }
+  });
+
+  test("an ignore-file edit reloads the policy and rediscovers once", async () => {
+    const { root, state } = await ignoredWorkspace();
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    const events: string[] = [];
+    fs.subscribe((event) => events.push(`${event.type} ${event.path}`));
+    try {
+      const before = fs.ignorePolicy;
+      await writeFile(join(root, ".gitignore"), ".env\n");
+      await writeFile(join(root, "docs", ".arborignore"), "kept.md\n");
+      await until(() => events.includes("updated /"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(events.filter((event) => event === "updated /")).toHaveLength(1);
+      expect(fs.ignorePolicy).not.toBe(before);
+      expect((await fs.list("/")).map((entry) => entry.name).sort()).toEqual([".gitignore", "build", "docs"]);
+      expect((await fs.list("/docs")).map((entry) => entry.name).sort()).toEqual([".arborignore", "draft"]);
+      expect([...fs.startupDiscovery().pagePathsByID.keys()].sort()).toEqual(["built1", "draft1"]);
+    } finally {
+      await fs[Symbol.asyncDispose]();
+    }
+  });
+
+  test("an ignore file that is not UTF-8 is reported and does not stop discovery", async () => {
+    const { root, state } = await ignoredWorkspace();
+    await writeFile(join(root, "docs", ".arborignore"), Buffer.from([0xff, 0x0a]));
+    const discovery = await discoverWorkspace(root);
+    expect(discovery.files.map((file) => file.treePath)).toContain("/docs/draft.md");
+    expect(discovery.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.path])).toEqual([["ignore-file-not-utf8", "/docs/.arborignore"]]);
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    const diagnostics: string[] = [];
+    fs.subscribe((event) => { if (event.diagnostic) diagnostics.push(`${event.diagnostic.code} ${event.path}`); });
+    try {
+      await writeFile(join(root, ".gitignore"), ".env\nbuild/\n# edited\n");
+      await until(() => diagnostics.length > 0);
+      expect(diagnostics).toEqual(["ignore-file-not-utf8 /docs/.arborignore"]);
+    } finally {
+      await fs[Symbol.asyncDispose]();
+    }
+  });
+});

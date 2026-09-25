@@ -7,11 +7,10 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 ## Soon
 
 Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's identifier
-(Filesystem 005 is still Filesystem 005) and its entry in the [catalog](catalog.md), marked **SOON**.
+(canopyd 005 is still canopyd 005) and its entry in the [catalog](catalog.md), marked **SOON**.
 
 | Plan | What it does |
 |---|---|
-| Filesystem [005](soon/005-ignore-policy.md) | `.arborignore` and `.gitignore` for placed folders |
 | canopyd [005](soon/005-tree-configuration-trees.md) | Decide and design per-tree configuration and co-administration |
 
 ## Remaining outcomes
@@ -26,7 +25,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Make sharing easier | Safe access links and coherent group management; name-based sharing, the directory, and avatar profiles are implemented. Proposed, undecided: per-tree configuration with co-administrators and group-owned trees | Security [004](security/004-access-link-secrets.md), canopyd [005](soon/005-tree-configuration-trees.md), [product design](catalog.md#product-completion) |
 | Browse document history and authorship | Show accepted document versions, restore an earlier version as a new edit, and explain who contributed current lines | canopyd [007](canopyd/007-document-history-routes-and-restore.md) and [006](canopyd/006-line-provenance.md) |
 | Bound storage and improve slow paths | Run the object collector live, bound document-version history, then measure before packing; sparse iOS placement and targeted performance work | canopyd [017](canopyd/017-collect-objects-live.md), [001](canopyd/001-pack-object-storage.md), Native [006](swift/006-sparse-ios-placement.md), [performance candidates](catalog.md#hardening-efficiency-polish-etc) |
-| Strengthen safety and delivery | Ignore policy and URL/response/secret boundaries; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [ignore policy](soon/005-ignore-policy.md), [compatibility cutoffs](catalog.md#compatibility-cutoffs) |
+| Strengthen safety and delivery | URL/response/secret boundaries; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [compatibility cutoffs](catalog.md#compatibility-cutoffs) |
 
 ## Release and verify what is already built
 
@@ -56,7 +55,7 @@ contracts remain in [open questions](open-questions.md).
 | `soon/` | Plans chosen for near-term work, from any owner; each keeps its owner's identifier |
 | `swift/` | Placement, offline collections, editor command capture and conflict review |
 | `canopy-web/` | The browser client: working-tree rebuild, hosts, and the native surfaces ported |
-| `filesystem/` | Ignore policy and disk editors |
+| `filesystem/` | Disk editors |
 | `canopyd/` | Merge policy, storage, accepted document history, provenance and hosted-tree configuration |
 | `cli/` | Structured access for external agents |
 | `apps/` | Executable documents, runtime authority and hosted agents |

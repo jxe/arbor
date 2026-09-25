@@ -1,33 +1,21 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
-import { isPageID, nodePathFromPhysical, parseMarkdown } from "@overstory/protocol";
+import { basename, join } from "node:path";
+import { isPageID, nodePathFromPhysical, parseMarkdown, type Diagnostic } from "@overstory/protocol";
 import { toTreePath } from "@overstory/protocol/path";
+import { loadIgnorePolicy, MANDATORY_DIRECTORY_NAMES, type IgnorePolicy } from "./ignore-policy.ts";
 
 /**
- * Directory names that are never part of an Arbor tree's authored content:
- * tooling and platform state that discovery, watching, snapshots, and
- * materialization all skip.
+ * The mandatory directory names, for the watcher's static globs. Membership
+ * decisions go through `IgnorePolicy`, never this set.
  */
-export const IGNORED_WORKSPACE_DIRECTORIES: ReadonlySet<string> = new Set([
-  ".git",
-  "node_modules",
-  ".arbor",
-  "Trash",
-  ".build",
-  "DerivedData",
-]);
+export const IGNORED_WORKSPACE_DIRECTORIES: ReadonlySet<string> = MANDATORY_DIRECTORY_NAMES;
 
+/** A watcher optimization only: queued events are still filtered through the policy. */
 export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.arbor/**",
-  "**/Trash/**",
-  "**/.build/**",
-  "**/DerivedData/**",
+  ...[...IGNORED_WORKSPACE_DIRECTORIES].map((name) => `**/${name}/**`),
   "**/*.arbor-txn-*",
   "**/*.arbor-write-*",
 ];
-
 
 export interface DiscoveredWorkspaceFile {
   absolutePath: string;
@@ -48,38 +36,37 @@ export interface WorkspaceDiscovery {
   directories: readonly DiscoveredWorkspaceDirectory[];
   pagePathsByID: ReadonlyMap<string, string>;
   pageIDOwners: ReadonlyMap<string, readonly string[]>;
+  /** Ignore files whose rules could not apply. */
+  diagnostics: readonly Diagnostic[];
 }
 
-export function isIgnoredWorkspaceDirectory(name: string): boolean {
-  return IGNORED_WORKSPACE_DIRECTORIES.has(name);
-}
-
+/**
+ * Walk a folder's tree content. One membership policy decides both descent
+ * and admission; pass `policy` to share one already loaded.
+ */
 export async function discoverWorkspace(
   path: string,
-  options: { recursive?: boolean; excludedRoots?: readonly string[] } = {},
+  options: { recursive?: boolean; excludedRoots?: readonly string[]; policy?: IgnorePolicy } = {},
 ): Promise<WorkspaceDiscovery> {
   const root = await realpath(path);
-  const excludedRoots = await Promise.all((options.excludedRoots ?? []).map(async (item) =>
-    realpath(item).catch(() => resolve(item))
-  ));
-  const isExcluded = (absolutePath: string): boolean => excludedRoots.some((excluded) => {
-    const remainder = relative(excluded, resolve(absolutePath));
-    return remainder === "" || (!remainder.startsWith("..") && remainder !== "..");
-  });
+  const policy = options.policy ?? await loadIgnorePolicy(root, { excludedRoots: options.excludedRoots });
   const files: DiscoveredWorkspaceFile[] = [];
   const directories: DiscoveredWorkspaceDirectory[] = [];
   const pagePathsByID = new Map<string, string>();
   const pageIDOwners = new Map<string, string[]>();
 
   const walk = async (absoluteDirectory: string): Promise<void> => {
-    if (absoluteDirectory !== root && isExcluded(absoluteDirectory)) return;
     const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch((error) => {
       if (absoluteDirectory === root) throw error;
       return null;
     });
     if (!entries) return;
     const directoryTreePath = toTreePath(root, absoluteDirectory);
-    const visibleEntries = entries.filter((entry) => !isExcluded(join(absoluteDirectory, entry.name)));
+    const visibleEntries = [];
+    for (const entry of entries) {
+      const treePath = toTreePath(root, join(absoluteDirectory, entry.name));
+      if ((await policy.decision(treePath, entry.isDirectory())).membership === "included") visibleEntries.push(entry);
+    }
     directories.push({
       absolutePath: absoluteDirectory,
       treePath: directoryTreePath,
@@ -91,7 +78,7 @@ export async function discoverWorkspace(
       if (entry.isSymbolicLink()) continue;
       const absolutePath = join(absoluteDirectory, entry.name);
       if (entry.isDirectory()) {
-        if (options.recursive !== false && !isIgnoredWorkspaceDirectory(entry.name)) await walk(absolutePath);
+        if (options.recursive !== false) await walk(absolutePath);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -113,5 +100,5 @@ export async function discoverWorkspace(
 
   await walk(root);
   for (const owners of pageIDOwners.values()) owners.sort();
-  return { root, files, directories, pagePathsByID, pageIDOwners };
+  return { root, files, directories, pagePathsByID, pageIDOwners, diagnostics: policy.diagnostics };
 }

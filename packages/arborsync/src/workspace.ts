@@ -1,8 +1,8 @@
 import type { LocalTreeDescriptor, TreeID } from "@overstory/protocol";
 import { nodePathFromPhysical, sha256, workspaceState } from "@overstory/protocol";
 import { resolveTreePath, toTreePath } from "@overstory/protocol/path";
-import { type FsEvent, type SnapshotObjectIndex, WorkspaceFS } from "@overstory/fs";
-import { basename, join } from "node:path";
+import { type FsEvent, isIgnoreFileName, type SnapshotObjectIndex, WorkspaceFS } from "@overstory/fs";
+import { basename, dirname, join } from "node:path";
 import { EventBus } from "./events.ts";
 import { FilesystemObjectSource } from "./filesystem-object-source.ts";
 import { reportObjectRead } from "./object-read-diagnostics.ts";
@@ -43,6 +43,7 @@ export class Workspace implements AsyncDisposable {
   private discovery: "recursive" | "shallow";
   private excludedRoots: string[];
   private unsubscribeFS: () => void;
+  private unsubscribeRediscovery: () => void;
   private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, options: WorkspaceOptions) {
     this.root = root;
     this.events = options.events ?? new EventBus();
@@ -67,9 +68,15 @@ export class Workspace implements AsyncDisposable {
 
     this.nodes = new WorkspaceNodes(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
+    // Changed ignore rules change which pages exist: page IDs and generated types follow.
+    this.unsubscribeRediscovery = fs.subscribeRediscovery((discovery) => {
+      this.nodes.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+      if (this.discovery === "recursive") void this.nodes.generateTypes(discovery).catch(() => {});
+    });
   }
   async [Symbol.asyncDispose](): Promise<void> {
     this.unsubscribeFS();
+    this.unsubscribeRediscovery();
     await this.objects[Symbol.asyncDispose]();
     await this.nodes[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
@@ -89,6 +96,10 @@ export class Workspace implements AsyncDisposable {
       displayName: options.displayName ?? await rootDisplayName(fs.root),
     });
     await workspace.nodes.initialize(discovery, workspace.discovery === "recursive");
+    // Ignore files whose rules do not apply; the event names the file, never its contents.
+    for (const diagnostic of discovery.diagnostics) {
+      workspace.events.emit({ tree: workspace.tree, kind: "diagnostic", ref: workspace.nodes.mutationRef(diagnostic.path), origin: "external" });
+    }
     // The object index is never authority; the first walk after open audits it.
     void workspace.revalidateObjectIndex().catch(() => {});
     return workspace;
@@ -155,6 +166,7 @@ export class Workspace implements AsyncDisposable {
   private async handleFsEvent(event: FsEvent): Promise<void> {
     if (event.path === "/") this.displayName = await rootDisplayName(this.root);
     if (event.type !== "diagnostic") this.forgetObjectRows(event.path, event.previousPath);
+    if (event.type !== "diagnostic" && isIgnoreFileName(basename(event.path))) this.forgetDirectoryRows(dirname(event.path));
     this.events.emit({
       tree: this.tree,
       kind: event.type,
@@ -163,6 +175,11 @@ export class Workspace implements AsyncDisposable {
       contentRevision: event.byteRevision,
       origin: "external",
     });
+  }
+
+  /** An ignore file changed: directory encodings at and beneath its directory followed the old rules. */
+  private forgetDirectoryRows(path: string): void {
+    try { this.objects.invalidateDirectories(resolveTreePath(this.root, path)); } catch {}
   }
 
   private forgetObjectRows(...paths: Array<string | undefined>): void {

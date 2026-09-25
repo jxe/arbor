@@ -1,5 +1,6 @@
 export * from "./types.ts";
 export * from "./materialization.ts";
+export * from "./ignore-policy.ts";
 export * from "./discovery.ts";
 export * from "./workspace-fs.ts";
 export * from "./protocol-tree.ts";

@@ -626,3 +626,179 @@ describe("private self-sync", () => {
     }
   });
 });
+
+describe("ignore rules in a placed folder", () => {
+  const owner = () => new ProtocolClient(host.url, token);
+  const syncState = async (service: ArborSyncDaemon) => (await service.trees.descriptors()).find(({ id }) => id === tree)?.sync;
+
+  /** The accepted text at a path, "<directory>" for a directory, or null. */
+  async function acceptedFile(path: string): Promise<string | null> {
+    const { snapshot } = await readAccepted(owner(), tree);
+    let entry: { file?: string; directory?: string } | undefined = { directory: snapshot.root };
+    for (const name of path.split("/").filter(Boolean)) {
+      if (!entry?.directory) return null;
+      const directory = decodeProtocolDirectory(snapshot.objects.get(entry.directory as never)!);
+      entry = directory.type === "directory" ? directory.entries.find((candidate) => candidate.name === name) : undefined;
+    }
+    if (entry?.directory) return "<directory>";
+    return entry?.file ? new TextDecoder().decode(snapshot.objects.get(entry.file as never)!) : null;
+  }
+
+  /** Another client's accepted update: set (or, with null, delete) files by path. */
+  async function remoteChange(changes: Record<string, string | null>): Promise<void> {
+    const client = owner();
+    const current = await readAccepted(client, tree);
+    const objects = new Map(current.snapshot.objects);
+    const rewrite = (hash: string | undefined, names: string[], value: string | null): string => {
+      const directory = hash ? decodeProtocolDirectory(objects.get(hash as never)!) : { type: "directory" as const, entries: [] };
+      if (directory.type !== "directory") throw new Error("Expected a directory");
+      const [name, ...rest] = names;
+      const existing = directory.entries.find((entry) => entry.name === name);
+      const entries = directory.entries.filter((entry) => entry.name !== name);
+      if (rest.length) entries.push({ name: name!, directory: rewrite(existing?.directory, rest, value) as never });
+      else if (value !== null) {
+        const bytes = new TextEncoder().encode(value);
+        objects.set(hashObject(bytes), bytes);
+        entries.push({ name: name!, file: hashObject(bytes) });
+      }
+      const encoded = encodeProtocolDirectory({ ...directory, entries: entries.sort((a, b) => compareProtocolNames(a.name, b.name)) });
+      objects.set(hashObject(encoded), encoded);
+      return hashObject(encoded);
+    };
+    let root: string = current.snapshot.root;
+    for (const [path, value] of Object.entries(changes)) root = rewrite(root, path.split("/").filter(Boolean), value);
+    await client.submitUpdate(tree, current.descriptor.tree.update, { root: root as never, objects });
+  }
+
+  test("ignored, untracked content is never published, deleted by a pull, or scanned into a change", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    await writeFile(join(treeA, ".gitignore"), ".env\nbuild/\n");
+    await writeFile(join(treeA, ".arborignore"), "draft.md\n");
+    await writeFile(join(treeA, ".env"), "TOKEN=never-leaves\n");
+    await mkdir(join(treeA, "build"), { recursive: true });
+    await writeFile(join(treeA, "build", "out.bin"), "generated\n");
+    await writeFile(join(treeA, "draft.md"), "---\nid: draft1\n---\nNot yet\n");
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await service.synchronizeNow();
+      expect(await acceptedFile("/.gitignore")).toBe(".env\nbuild/\n");
+      expect(await acceptedFile("/.arborignore")).toBe("draft.md\n");
+      for (const path of ["/.env", "/build", "/draft.md"]) expect(await acceptedFile(path)).toBeNull();
+      expect(await syncState(service)).toBe("idle");
+      expect((await service.pendingUpdate(tree)).request).toBeNull();
+
+      const before = host.canopy.acceptedUpdates(tree).length;
+      await remoteChange({ "/remote-note.txt": "from elsewhere\n" });
+      await service.synchronizeNow();
+      expect(await readFile(join(treeA, "remote-note.txt"), "utf8")).toBe("from elsewhere\n");
+      expect(await readFile(join(treeA, ".env"), "utf8")).toBe("TOKEN=never-leaves\n");
+      expect(await readFile(join(treeA, "build", "out.bin"), "utf8")).toBe("generated\n");
+      expect(await readFile(join(treeA, "draft.md"), "utf8")).toContain("Not yet");
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(before + 1);
+      expect(await syncState(service)).toBe("idle");
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
+    const count = host.canopy.acceptedUpdates(tree).length;
+    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await restarted.synchronizeNow();
+      expect(await syncState(restarted)).toBe("idle");
+      expect((await restarted.pendingUpdate(tree)).request).toBeNull();
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(count);
+    } finally {
+      await restarted[Symbol.asyncDispose]();
+    }
+  }, 20_000);
+
+  test("a tracked path stays synchronized when a rule matches it, until it is deleted", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await writeFile(join(treeA, "tracked.log"), "first\n");
+      await service.synchronizeNow();
+      expect(await acceptedFile("/tracked.log")).toBe("first\n");
+
+      await writeFile(join(treeA, ".arborignore"), "draft.md\n*.log\n");
+      await writeFile(join(treeA, "untracked.log"), "local only\n");
+      await service.synchronizeNow();
+      expect(await acceptedFile("/.arborignore")).toBe("draft.md\n*.log\n");
+      expect(await acceptedFile("/tracked.log")).toBe("first\n");
+      expect(await acceptedFile("/untracked.log")).toBeNull();
+
+      // The watcher reports the ignored path; the folder still tracks it, so the edit publishes.
+      // Let the scans the previous writes scheduled finish first, so only that report can publish it.
+      await Bun.sleep(1_000);
+      await writeFile(join(treeA, "tracked.log"), "second\n");
+      await waitFor(async () => await acceptedFile("/tracked.log") === "second\n", 8_000);
+
+      await remoteChange({ "/tracked.log": "third\n" });
+      await service.synchronizeNow();
+      expect(await readFile(join(treeA, "tracked.log"), "utf8")).toBe("third\n");
+      expect(await syncState(service)).toBe("idle");
+
+      await rm(join(treeA, "tracked.log"));
+      await service.synchronizeNow();
+      expect(await acceptedFile("/tracked.log")).toBeNull();
+      const count = host.canopy.acceptedUpdates(tree).length;
+      await writeFile(join(treeA, "tracked.log"), "recreated\n");
+      await service.synchronizeNow();
+      expect(await acceptedFile("/tracked.log")).toBeNull();
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(count);
+      expect(await syncState(service)).toBe("idle");
+      expect(await readFile(join(treeA, "tracked.log"), "utf8")).toBe("recreated\n");
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
+  }, 20_000);
+
+  test("remote deletions and rule changes keep ignored local bytes, and a removed rule publishes what it uncovered", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await writeFile(join(treeA, "kept.tmp"), "tracked before its rule\n");
+      await writeFile(join(treeA, "arrives.tmp2"), "tracked before a remote rule\n");
+      await service.synchronizeNow();
+      await writeFile(join(treeA, ".arborignore"), "draft.md\n*.log\n*.tmp\n");
+      await service.synchronizeNow();
+      expect(await acceptedFile("/kept.tmp")).toBe("tracked before its rule\n");
+
+      // A remote deletion of a tracked path a rule matches leaves the bytes, now untracked.
+      await remoteChange({ "/kept.tmp": null });
+      await service.synchronizeNow();
+      expect(await readFile(join(treeA, "kept.tmp"), "utf8")).toBe("tracked before its rule\n");
+      expect(await acceptedFile("/kept.tmp")).toBeNull();
+      expect(await syncState(service)).toBe("idle");
+
+      // A rule arriving with a deletion keeps those bytes too; the rule it drops uncovers draft.md.
+      await remoteChange({ "/.arborignore": "*.log\n*.tmp\n*.tmp2\n", "/arrives.tmp2": null });
+      await service.synchronizeNow();
+      expect(await readFile(join(treeA, "arrives.tmp2"), "utf8")).toBe("tracked before a remote rule\n");
+      expect(await readFile(join(treeA, ".arborignore"), "utf8")).toBe("*.log\n*.tmp\n*.tmp2\n");
+      await waitFor(async () => (await acceptedFile("/draft.md"))?.includes("Not yet") === true, 8_000);
+      await service.synchronizeNow();
+      expect(await acceptedFile("/arrives.tmp2")).toBeNull();
+      expect(await acceptedFile("/kept.tmp")).toBeNull();
+      expect(await acceptedFile("/.env")).toBeNull();
+      expect(await syncState(service)).toBe("idle");
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
+  }, 20_000);
+
+  test("an ignore file that is not UTF-8 applies no rules and does not stop synchronization", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    await mkdir(join(treeA, "bytes"), { recursive: true });
+    await writeFile(join(treeA, "bytes", ".gitignore"), Buffer.from([0xff, 0x2a, 0x0a]));
+    await writeFile(join(treeA, "bytes", "kept.txt"), "still content\n");
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await service.synchronizeNow();
+      expect(await acceptedFile("/bytes/kept.txt")).toBe("still content\n");
+      expect(await acceptedFile("/bytes/.gitignore")).not.toBeNull();
+      expect(await syncState(service)).toBe("idle");
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
+  }, 20_000);
+});

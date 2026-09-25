@@ -1,5 +1,6 @@
 import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
 import { FolderSync, folderStateRoot, pendingBytes, type DeclinedReport } from "./folder-sync.ts";
+import type { TrackedRoot } from "./filesystem-object-source.ts";
 import { ChangeLog } from "@overstory/working-tree/node";
 import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
@@ -12,7 +13,7 @@ import type {
   UpdateRequestJSON,
 } from "@overstory/protocol";
 import { canonicalNodePath, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
 import { EventBus } from "./events.ts";
@@ -114,6 +115,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
   private syncWaiters: Array<() => void> = [];
   private workspaceIOTails = new Map<string, Promise<void>>();
   private readonly folders = new Map<string, { root: string; sync: FolderSync }>();
+  /** Each folder's subscription to changes at paths its ignore rules keep out. */
+  private readonly ignoredChanges = new Map<string, () => void>();
   /** The last tree listing per account, for nested canonical boundaries. */
   private readonly listings = new Map<string, RemoteTreeDescriptor[]>();
   private readonly unsubscribeEvents: () => void;
@@ -481,13 +484,18 @@ export class ArborSyncDaemon implements AsyncDisposable {
       setSyncState: (state) => this.trees.setSyncState(tree, state),
       setDeclined: (declined) => this.trees.setDeclined(tree, declined),
       withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
-      scan: () => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? []),
+      scan: (tracked, also) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also),
       root: workspace.root,
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
     }, { pollIntervalMs: this.syncIntervalMs });
     this.folders.set(tree, { root: workspace.root, sync });
+    // The folder's object reads and audits follow the root it last held, and
+    // a change at a path a rule keeps out matters only while that root holds it.
+    workspace.objects.setTracked(() => sync.trackedRoot());
+    this.ignoredChanges.get(tree)?.();
+    this.ignoredChanges.set(tree, workspace.fs.subscribeIgnored((path) => { void sync.noteIgnoredChange(path); }));
     return sync;
   }
 
@@ -510,14 +518,22 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return boundaries;
   }
 
-  /** Walk a folder into a lazy graph; index hits read no file bytes until a change needs them. */
-  private scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[]) {
+  /**
+   * Walk a folder into a lazy graph; index hits read no file bytes until a
+   * change needs them. An ignored path is left out unless `tracked` holds it,
+   * or when `also` leaves it out.
+   */
+  private async scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[], tracked: TrackedRoot | null, also?: SkipPath) {
+    const exclusions = this.trees.excludedMountsWithin(workspace.root);
+    const policy = await loadIgnorePolicy(workspace.root, { excludedRoots: exclusions });
+    const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
     return snapshotDirectory(
       workspace.root,
       this.canonicalBoundariesFor(workspace, remoteTrees),
-      this.trees.excludedMountsWithin(workspace.root),
+      exclusions,
       (directory, sourceName) => workspace.describeProtocolCollectionFile(directory, sourceName),
       workspace.objectIndex(),
+      also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
     );
   }
 
@@ -565,7 +581,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
               // A reserved tree is activated with the folder's whole content.
               const initial = await this.withWorkspaceIO(
                 workspace,
-                async () => resolveSnapshot(await this.scanWorkspace(workspace, remoteTrees)),
+                // Nothing is tracked yet: ignore rules apply to the first snapshot.
+                async () => resolveSnapshot(await this.scanWorkspace(workspace, remoteTrees, null)),
               );
               const activated = await client.submitUpdate(placement.tree, null, initial);
               await this.trees.updateSyncMetadata({
@@ -604,6 +621,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
     this.unsubscribeEvents();
+    for (const unsubscribe of this.ignoredChanges.values()) unsubscribe();
+    this.ignoredChanges.clear();
     await Promise.all([...this.folders.values()].map((folder) => folder.sync.close()));
     this.folders.clear();
     await this.trees[Symbol.asyncDispose]();

@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@overstory/arborsync";
-import { canonicalStableKey } from "@overstory/protocol";
+import { canonicalStableKey, markdownStableKey } from "@overstory/protocol";
 
 let root: string;
 let state: string;
@@ -218,6 +218,42 @@ describe("workspace service", () => {
       process.env.ARBOR_DATA_HOME = state;
       await rm(duplicateRoot, { recursive: true, force: true });
       await rm(duplicateState, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ignore rules in the workspace service", () => {
+  test("a live rule edit takes a page out of browsing and the stable-key maps, and back", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "arbor-workspace-ignore-"));
+    const home = await mkdtemp(join(tmpdir(), "arbor-workspace-ignore-state-"));
+    const previous = process.env.ARBOR_DATA_HOME;
+    process.env.ARBOR_DATA_HOME = home;
+    await writeFile(join(folder, "kept.md"), "---\nid: keptpage1\n---\nKept\n");
+    await writeFile(join(folder, "draft.md"), "---\nid: draftpage1\n---\nDraft\n");
+    const opened = await Workspace.open(folder);
+    const key = markdownStableKey("draftpage1");
+    const names = async () => (await opened.nodes.children({ tree: opened.tree, path: "/", stableKey: null })).items.map((item) => item.name);
+    const until = async (condition: () => Promise<boolean>) => {
+      const deadline = Date.now() + 4_000;
+      while (!(await condition())) {
+        if (Date.now() > deadline) throw new Error("Timed out waiting for the rule edit");
+        await Bun.sleep(25);
+      }
+    };
+    try {
+      expect(await names()).toContain("draft");
+      expect(opened.nodes.mutationRef("/draft").stableKey).toBe(key);
+      await writeFile(join(folder, ".arborignore"), "draft.md\n");
+      await until(async () => !(await names()).includes("draft") && opened.nodes.mutationRef("/draft").stableKey === null);
+      await expect(opened.nodes.snapshot({ tree: opened.tree, path: "/", stableKey: key })).rejects.toThrow("No node owns stable key");
+      expect(opened.nodes.mutationRef("/kept").stableKey).toBe(markdownStableKey("keptpage1"));
+      await writeFile(join(folder, ".arborignore"), "");
+      await until(async () => (await names()).includes("draft") && opened.nodes.mutationRef("/draft").stableKey === key);
+    } finally {
+      await opened[Symbol.asyncDispose]();
+      process.env.ARBOR_DATA_HOME = previous;
+      await rm(folder, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
     }
   });
 });

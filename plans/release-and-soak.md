@@ -90,6 +90,23 @@ collections existed before `schema.cddl`, so no inventory or cutover remains.
   `swift test --package-path swift/Packages/CanopyWorkingTree`, then `bun run test:protocol`
   on a Mac; fix any compile error in place without changing the contract.
 
+## Ignore policy Mac gate
+
+Filesystem 005 (see [status](../status.md#ignored-filesystem-content-filesystem-005--2026-09-25))
+ported the ignore matcher to Swift. `IgnorePolicy.swift` compiled with the Swift 6.2 Linux
+toolchain and passed the shared fixture there; these did not compile, because their package
+imports Apple-only modules:
+
+- `swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/LocalFolderPreview.swift`: the
+  preview asks the policy instead of its own directory list.
+- `swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/IgnorePolicyTests.swift`: the
+  shared fixture, the UTF-8 diagnostic, and a preview that leaves out ignored content.
+
+- [ ] `swift test --package-path swift/Packages/CanopyWorkingTree --filter "IgnorePolicyTests|LocalFolderPreviewTests"`
+  passes on a Mac.
+- [ ] Restart the installed Arbor Sync on this build and confirm each placed folder returns to
+  idle without publishing a change.
+
 ## Server refinements
 
 Owner: canopyd [014](canopyd/014-merge-handles-many-cases.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.

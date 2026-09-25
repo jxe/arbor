@@ -11,7 +11,15 @@ import {
 import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@overstory/protocol";
 import { ProjectionProviderHost, ObjectIndex } from "@overstory/arborsync/state";
 import { decodeProtocolCollectionFile } from "@overstory/collection-schema";
-import { materializeTree, resolveSnapshot, snapshotDirectory, type SnapshotObjectIndex } from "@overstory/fs";
+import {
+  loadIgnorePolicy,
+  materializeTree,
+  membershipSkip,
+  resolveSnapshot,
+  snapshotDirectory,
+  trackedEntries,
+  type SnapshotObjectIndex,
+} from "@overstory/fs";
 
 function objectIndexOf(index: ObjectIndex): SnapshotObjectIndex {
   return {
@@ -369,6 +377,48 @@ describe("canonical tree objects", () => {
       expect(await readFile(path, "utf8")).toBe("same bytes\n");
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ignored, untracked content stays out of snapshots and is never deleted by materialization", async () => {
+    const source = await realpath(await mkdtemp(join(tmpdir(), "arbor-ignore-source-")));
+    const destination = await realpath(await mkdtemp(join(tmpdir(), "arbor-ignore-destination-")));
+    try {
+      await writeFile(join(source, ".gitignore"), "*.log\ncache/\n");
+      await writeFile(join(source, "page.md"), "# Page\n");
+      await writeFile(join(source, "tracked.log"), "tracked before its rule\n");
+      const held = await resolveSnapshot(await snapshotDirectory(source));
+      const load = async (hash: string) => held.objects.get(hash as never)!;
+      await writeFile(join(source, "untracked.log"), "local\n");
+      await mkdir(join(source, "cache"));
+      await writeFile(join(source, "cache", "blob"), "generated\n");
+      await writeFile(join(source, ".evicted.log.icloud"), "placeholder");
+
+      const policy = await loadIgnorePolicy(source);
+      const tracked = await snapshotDirectory(source, new Map(), [], undefined, undefined, membershipSkip(policy, trackedEntries(held.root, load)));
+      expect(tracked.root).toBe(held.root);
+      const fresh = await resolveSnapshot(await snapshotDirectory(source, new Map(), [], undefined, undefined, membershipSkip(policy, null)));
+      const names = decodeProtocolDirectory(fresh.objects.get(fresh.root)!);
+      expect(names.type === "directory" && names.entries.map((entry) => entry.name)).toEqual([".gitignore", "page.md"]);
+      // An evicted file a rule keeps out is not needed; without the rules it is.
+      await expect(snapshotDirectory(source)).rejects.toThrow("not materialized");
+
+      await writeFile(join(destination, ".gitignore"), "*.log\ncache/\n");
+      await writeFile(join(destination, "untracked.log"), "local\n");
+      await mkdir(join(destination, "cache"));
+      await writeFile(join(destination, "cache", "blob"), "generated\n");
+      await writeFile(join(destination, "stray.txt"), "not in the tree\n");
+      const skip = membershipSkip(await loadIgnorePolicy(destination), trackedEntries(held.root, load));
+      await materializeTree(destination, held.root, load, undefined, [], skip);
+      expect(await readFile(join(destination, "untracked.log"), "utf8")).toBe("local\n");
+      expect(await readFile(join(destination, "cache", "blob"), "utf8")).toBe("generated\n");
+      expect(await readFile(join(destination, "tracked.log"), "utf8")).toBe("tracked before its rule\n");
+      await expect(readFile(join(destination, "stray.txt"))).rejects.toThrow();
+      const written = await snapshotDirectory(destination, new Map(), [], undefined, undefined, skip);
+      expect(written.root).toBe(held.root);
+    } finally {
+      await rm(source, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
     }
   });
 

@@ -53,6 +53,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live Canopy) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
 | Declarative collection schemas: `schema.cddl` in the Overstory CDDL profile, one collection descriptor version (1, naming `schema.cddl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; canopyd acceptance and projection, the merge rules and Arbor Sync providers use the pure `@overstory/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | implemented, not deployed or installed; the Swift model edits are unverified (no Swift toolchain where they were made; [Mac gates](plans/release-and-soak.md#collection-schema-mac-gates)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile) |
+| Ignored filesystem content (Filesystem 005): one membership policy in `@overstory/fs` for discovery, listing, resolution, watching, snapshots, object reads and materialization; `.arborignore` and `.gitignore` in Git's grammar, mandatory exclusions that rules cannot negate, and tracked paths (the folder's last-held root) that stay synchronized until deleted; the Swift preview uses a port of the same matcher | implemented, not installed; `LocalFolderPreview` is unverified on a Mac ([Mac gate](plans/release-and-soak.md#ignore-policy-mac-gate)) | [directory format §7](docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files), [ignored content](docs/architecture/arborsync/data-home.md#ignored-content) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/canopyd/migrations/016-squash-history/README.md` at `d15ddce`) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
@@ -96,6 +97,66 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## Ignored filesystem content (Filesystem 005) — 2026-09-25
+
+Implemented; Arbor Sync not yet restarted on it. A placed folder's
+`.arborignore` and `.gitignore` now keep an untracked `.env`, cache or build
+output out of the tree: it is not discovered, listed, indexed, snapshotted,
+uploaded, overwritten, or deleted by a pull. `IgnorePolicy`
+(`packages/fs/src/ignore-policy.ts`) is the one decision every consumer asks;
+`snapshotDirectory` and `materializeTree` take a `skip` built from it
+(`membershipSkip`) and the folder's tracked root (`trackedEntries`).
+`WorkspaceFS` filters listings, resolution and watcher events through it,
+reloads and rediscovers once per ignore-file edit, and reports changes at
+ignored paths on a separate channel that `FolderSync` turns into a scan only
+while the path is tracked.
+
+Tracked needs no new state: it is `known.root`, the root the folder last held,
+so an existing placement's already-uploaded `.env` stays synchronized and
+needs no upgrade step. A first placement tracks nothing. Tracked-root
+directories come from the scan that produced that root, then the object cache
+inside `forTrackedLookup`, where a directory rebuilt from disk never consults
+tracked paths itself, so lookups cannot recurse. A pull writes every tracked
+entry; its cleanup keeps what either the pre-write rules (read from the root
+the folder held) or the written root's rules ignore, and if a rule the pull
+removed uncovers local content, the folder publishes it rather than failing
+verification. `FilesystemObjectSource` rebuilds and audits with the same
+policy and tracked root; a changed ignore file drops directory rows beneath
+it. The CLI's cloud-placement readiness check applies the policy too.
+
+The matcher is our own, not the `ignore` package: separate per-file instances
+of it report `a/b` ignored when `.gitignore` says `a/` and `.arborignore` says
+`!a` (Git includes it), and it matches case-insensitively by default. Unlike
+Git, `?` and brackets match one Unicode character, not one byte. Git's
+machine-private sources are never read. Evidence: `bun run typecheck`;
+`tests/unit/ignore-policy.test.ts` (70 shared cases in
+`tests/fixtures/ignore-policy/cases.json`, each non-mandatory case checked
+against `git check-ignore`; UTF-8 diagnostic; global Git sources ignored);
+a scratch differential against `git ls-files` directory traversal over
+about 6,400 random paths with no disagreement;
+`tests/unit/discovery.test.ts`, `tests/integration/workspace.test.ts` (live
+rule edits, page-ID maps), `tests/unit/protocol-objects.test.ts`,
+`tests/unit/filesystem-object-source.test.ts`, and
+`tests/integration/self-sync.test.ts` against a live canopyd (ignored content
+never published and kept across a pull and a restart; a tracked `.log`
+uploaded when edited through the ignored-path channel, pulled, deleted, then
+kept local; remote deletions and rule changes keep ignored bytes, and a
+removed rule publishes what it uncovered; an ignore file that is not UTF-8).
+`bun run test` in the cloud container: 1,484 pass, 3 fail, the same 3 as an
+unchanged `HEAD` there (`supplies-*` cannot resolve `overstory/data`; the
+unreadable-directory discovery test runs as root). The TypeScript half of
+`bun run test:protocol` passed; its Swift half needs `xcodebuild`.
+`IgnorePolicy.swift` compiled in Swift 6 language mode with the Swift 6.2 Linux
+toolchain and passed the shared fixture under swift-testing, plus 9,600 random
+cases compared with the TypeScript decisions; `LocalFolderPreview.swift` and
+the preview test depend on Apple-only modules and have not compiled
+([Mac gate](plans/release-and-soak.md#ignore-policy-mac-gate)). A warm
+50,000-file scan with the policy took about 10% longer in that container
+(8.5 s against 9.4 s, noisy); one decision costs about 5 µs. Not done: marking
+ignored paths in the Mac app's "what it would publish" view, and an
+`arbor untrack` command ([catalog](plans/catalog.md)); the recovery tool
+(`packages/arborsync/recovery/`) still snapshots disk without the policy.
 
 ## Declined folder paths (Filesystem 011) — 2026-09-25
 

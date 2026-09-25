@@ -9,7 +9,9 @@ import Foundation
 /// the preview's Markdown matches what the confirmed tree will show. It follows
 /// `SnapshotBridge`'s layout rules (`_index.md` and sibling-Markdown directory
 /// bodies, logical page paths without `.md`), so references, page IDs and
-/// titles are the ones the confirmed tree produces. It carries no accepted
+/// titles are the ones the confirmed tree produces. It applies the folder's
+/// ignore rules as a first placement does, with nothing yet tracked, so it
+/// never shows content that placement would leave out. It carries no accepted
 /// update, so it must never be edited or synchronized; other files are named by
 /// a stand-in hash and read as unavailable.
 public enum LocalFolderPreview {
@@ -23,11 +25,9 @@ public enum LocalFolderPreview {
         return workingTree
     }
 
-    /// Directory names the folder client never places in a tree.
-    static let ignoredDirectories: Set<String> = [".git", "node_modules", ".arbor", "Trash", ".build", "DerivedData"]
-
     static func nodes(in folder: URL) throws -> [WorkingTreeSystemNode] {
         let manager = FileManager.default
+        let policy = IgnorePolicy(root: folder)
         var nodes: [WorkingTreeSystemNode] = []
 
         func childPath(_ name: String, parent: String) -> String {
@@ -49,8 +49,11 @@ public enum LocalFolderPreview {
             for url in entries {
                 let values = try url.resourceValues(forKeys: Set(keys))
                 if values.isSymbolicLink == true { continue }
-                if values.isDirectory == true {
-                    if !ignoredDirectories.contains(url.lastPathComponent) { directories.append(url) }
+                let isDirectory = values.isDirectory == true
+                let membership = policy.decision(childPath(url.lastPathComponent, parent: path), isDirectory: isDirectory).membership
+                guard membership == .included else { continue }
+                if isDirectory {
+                    directories.append(url)
                 } else if values.isRegularFile == true {
                     files.append(url)
                 }

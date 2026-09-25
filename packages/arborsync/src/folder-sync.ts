@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   arborPrivateRoot,
   decodeTreeSnapshotJSON,
   decodeProtocolDirectory,
   encodeCandidateUpdateJSON,
+  encodeProtocolDirectory,
   hashObject,
   decodeBase64,
   transitionPayload,
@@ -21,7 +22,14 @@ import {
   type TreeSnapshot,
   type LocalTreeDescriptor,
 } from "@overstory/protocol";
-import { materializeTree } from "@overstory/fs";
+import {
+  ignoreFilesIn,
+  loadIgnorePolicy,
+  materializeTree,
+  membershipSkip,
+  trackedEntries,
+  type SkipPath,
+} from "@overstory/fs";
 import {
   equal,
   localChangeRequest,
@@ -38,6 +46,7 @@ import {
 } from "@overstory/working-tree";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
 import { differences, entryAt, maskDeclined, resolveDeclined, within, type LoadObject } from "./declined-paths.ts";
+import { forTrackedLookup, type TrackedRoot } from "./filesystem-object-source.ts";
 
 /** What the daemon provides one folder's synchronization. */
 export interface FolderSyncHost {
@@ -47,8 +56,11 @@ export interface FolderSyncHost {
   setSyncState(state: NonNullable<LocalTreeDescriptor["sync"]>): void;
   /** Serialize this folder's filesystem reads and writes; never held across protocol I/O. */
   withWorkspaceIO<T>(run: () => Promise<T>): Promise<T>;
-  /** Walk the folder into a lazy graph through its stat index. */
-  scan(): Promise<LazyTreeSnapshot>;
+  /**
+   * Walk the folder into a lazy graph through its stat index. An ignored path
+   * is left out unless `tracked` holds it, or when `also` leaves it out.
+   */
+  scan(tracked: TrackedRoot | null, also?: SkipPath): Promise<LazyTreeSnapshot>;
   /** The folder's root on disk. */
   readonly root: string;
   excludedMounts(): readonly string[];
@@ -98,6 +110,11 @@ export async function pendingBytes(log: ChangeLog, hash: string): Promise<Uint8A
 
 /** The root the folder held when it was last written or scanned, and the log basis a change to it names. */
 interface KnownFolder { root: string; basis: LocalChangeBasis }
+
+const EMPTY_DIRECTORY_BYTES = encodeProtocolDirectory({ type: "directory", entries: [] });
+const EMPTY_DIRECTORY = hashObject(EMPTY_DIRECTORY_BYTES);
+/** Directory objects kept for tracked lookups; content-addressed, so never stale. */
+const TRACKED_OBJECT_LIMIT = 4_096;
 
 const INITIAL_WATCH_BACKOFF_MS = 1_000;
 const MAX_WATCH_BACKOFF_MS = 30_000;
@@ -192,6 +209,9 @@ export class FolderSync implements AcceptedTree {
   private settling?: Promise<boolean>;
   /** The change the last preview prepared; the next scan of the same folder sends exactly it. */
   private previewed?: LocalChange;
+  /** Objects of the scan that last became the folder's known root: its directories, for tracked lookups. */
+  private recentObjects?: ReadonlyMap<ObjectHash, ProtocolObjectSource>;
+  private readonly trackedObjects = new Map<ObjectHash, Uint8Array>();
 
   constructor(readonly tree: string, stateRoot: string, private readonly host: FolderSyncHost, options: { pollIntervalMs?: number } = {}) {
     // Folder records are sparse (directories and new files), so the log keeps
@@ -288,6 +308,53 @@ export class FolderSync implements AcceptedTree {
   }
 
   /**
+   * `root` as the tracked set. Its directories come from the scan that
+   * produced it when still at hand, otherwise from the folder's index, its
+   * pending changes or Canopy, read so that no directory is rebuilt from disk
+   * through another tracked lookup.
+   */
+  private tracking(root: string): TrackedRoot {
+    return {
+      root: root as ObjectHash,
+      load: async (hash) => {
+        const kept = this.trackedObjects.get(hash);
+        if (kept) return kept;
+        const bytes = await this.recentObjects?.get(hash)?.bytes().catch(() => undefined)
+          ?? await forTrackedLookup(() => this.host.objectBytes(hash));
+        if (!bytes) throw new UpdateValidationError(`Tracked object is unavailable: ${hash}`);
+        if (this.trackedObjects.size >= TRACKED_OBJECT_LIMIT) this.trackedObjects.clear();
+        this.trackedObjects.set(hash, bytes);
+        return bytes;
+      },
+    };
+  }
+
+  /** The folder as a scan compares it with what it last held: the root it held is the tracked set. */
+  private scanKnown(known: KnownFolder | undefined): Promise<LazyTreeSnapshot> {
+    return this.host.scan(known ? this.tracking(known.root) : null);
+  }
+
+  /** The tracked root the folder's own object reads use: the root it last held. */
+  async trackedRoot(): Promise<TrackedRoot | null> {
+    const known = await this.loadKnown();
+    return known ? this.tracking(known.root) : null;
+  }
+
+  /**
+   * A path an ignore rule keeps out changed. It matters only when the folder
+   * still tracks it; a lookup that fails schedules the scan anyway.
+   */
+  async noteIgnoredChange(treePath: string): Promise<void> {
+    try {
+      const known = await this.loadKnown();
+      if (!known) return;
+      const tracked = trackedEntries(known.root as ObjectHash, this.tracking(known.root).load);
+      if (!(await tracked(treePath, false)) && !(await tracked(treePath, true))) return;
+    } catch {}
+    this.scheduleScan();
+  }
+
+  /**
    * The folder as it may be published: what it holds, with the accepted
    * state at every declined point. `record` lifts declined paths the folder now
    * agrees with the accepted state on.
@@ -340,38 +407,66 @@ export class FolderSync implements AcceptedTree {
 
   async install(base: AcceptedBase, source: AcceptedSource, local: { pending: boolean }): Promise<void> {
     let rescan = false;
+    let uncovered = false;
     await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!local.pending && known) {
         if (known.root !== base.root) {
-          const lazy = await this.host.scan();
+          const lazy = await this.scanKnown(known);
           const installed = (await this.accepted())?.root ?? known.root;
-          if ((await this.publishable(lazy, installed, true)).root === known.root) await this.write(base.root, (hash) => source.object(hash));
-          else rescan = true;
+          if ((await this.publishable(lazy, installed, true)).root === known.root) {
+            uncovered = await this.write(base.root, (hash) => source.object(hash), this.tracking(known.root));
+          } else rescan = true;
         }
         if (!rescan) await this.saveKnown({ root: base.root, basis: { kind: "accepted", root: base.root, update: base.update } });
       }
       await this.recordAccepted(base);
     });
-    // The folder changed since it was last scanned: publish what it holds.
-    if (rescan) this.scheduleScan(0);
+    // The folder changed since it was last scanned, or a rule the new root
+    // removed uncovered local content: publish what it holds.
+    if (rescan || uncovered) this.scheduleScan(0);
   }
 
-  /** Write `root` to the folder, except at declined points, and prove the folder now holds it there. */
-  private async write(root: string, load: (hash: string) => Promise<Uint8Array>): Promise<void> {
+  /**
+   * Write `root` to the folder, except at declined points, and prove the
+   * folder now holds it there. Local content the folder does not own is never
+   * deleted: a path that `root` lacks stays when the rules the folder held
+   * (`held`, the root it last held) or the rules `root` brings ignore it. True
+   * when content only the earlier rules ignored remains, which the folder
+   * must now publish.
+   */
+  private async write(root: string, load: (hash: string) => Promise<Uint8Array>, held: TrackedRoot | null): Promise<boolean> {
+    const tracked: TrackedRoot = { root: root as ObjectHash, load };
     const declined = await this.loadDeclined();
     let points: string[] = [];
     if (declined) {
-      const lazy = await this.host.scan();
+      const lazy = await this.host.scan(tracked);
       points = (await resolveDeclined(declined.paths, lazy.root, root as ObjectHash, this.loader(lazy, fromLazyThen(lazy, load)))).points;
     }
-    await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...this.host.excludedMounts(), ...points.map((point) => this.osPath(point))]);
-    const written = await this.host.scan();
+    const mounts = this.host.excludedMounts();
+    const lookup = trackedEntries(tracked.root, load);
+    // Both rule sets come from roots, not from a folder that changes as it is written.
+    const rulesOf = (source: TrackedRoot | null) => loadIgnorePolicy(this.host.root, {
+      excludedRoots: mounts,
+      read: source ? ignoreFilesIn(source.root, source.load) : async () => null,
+    });
+    const before = membershipSkip(await rulesOf(held), lookup);
+    const after = membershipSkip(await rulesOf(tracked), lookup);
+    await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...mounts, ...points.map((point) => this.osPath(point))],
+      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory));
+    let uncovered = false;
+    const written = await this.host.scan(tracked, async (path, isDirectory) => {
+      if (!(await before(path, isDirectory))) return false;
+      uncovered = true;
+      return true;
+    });
     const shown = points.length
       ? (await maskDeclined(written.root, root as ObjectHash, points, this.loader(written, fromLazyThen(written, load)))).root
       : written.root;
     if (shown !== root) throw new UpdateValidationError("The folder does not hold the accepted root it was given");
+    this.recentObjects = written.objects;
     this.host.materialized();
+    return uncovered;
   }
 
   // MARK: The folder as a source
@@ -412,7 +507,7 @@ export class FolderSync implements AcceptedTree {
     const appended = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known) return false;
-      const lazy = await this.publishable(await this.host.scan(), placement.ref!, true);
+      const lazy = await this.publishable(await this.scanKnown(known), placement.ref!, true);
       if (lazy.root === known.root) return false;
       if (placement.access !== "write") {
         // A read-only placement cannot publish; its edits wait, visibly.
@@ -425,6 +520,7 @@ export class FolderSync implements AcceptedTree {
         ? previewed : await this.prepare(known, lazy);
       await this.log.retain(change);
       await this.saveKnown({ root: lazy.root, basis: { kind: "authored", change: change.change } });
+      this.recentObjects = lazy.objects;
       return true;
     });
     if (appended) await this.coordinator.noteLocalChange();
@@ -506,7 +602,8 @@ export class FolderSync implements AcceptedTree {
     const client = await this.host.client(placement);
     const current = await client.descriptor(this.tree);
     await this.host.withWorkspaceIO(async () => {
-      const lazy = await this.host.scan();
+      // Nothing is tracked before a first placement: ignore rules apply to the first snapshot.
+      const lazy = await this.host.scan(null);
       if (lazy.root !== current.tree.root) {
         const root = decodeProtocolDirectory(await lazy.objects.get(lazy.root)!.bytes());
         if (root.entries.length) {
@@ -514,7 +611,7 @@ export class FolderSync implements AcceptedTree {
             tree: this.tree, path: "/", details: { kind: "workspace-revision" },
           });
         }
-        await this.write(current.tree.root, async (hash) => await this.host.objectBytes(hash as ObjectHash) ?? client.object(this.tree, hash));
+        await this.write(current.tree.root, async (hash) => await this.host.objectBytes(hash as ObjectHash) ?? client.object(this.tree, hash), null);
       }
       await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.observedThrough,
         conflicted: current.tree.conflicted, access: current.tree.access === "none" ? "read" : current.tree.access });
@@ -600,7 +697,7 @@ export class FolderSync implements AcceptedTree {
     const change = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known || placement.access !== "write") return undefined;
-      const lazy = await this.publishable(await this.host.scan(), placement.ref!, false);
+      const lazy = await this.publishable(await this.scanKnown(known), placement.ref!, false);
       if (lazy.root === known.root) return undefined;
       return this.previewed = await this.prepare(known, lazy);
     });
@@ -667,7 +764,7 @@ export class FolderSync implements AcceptedTree {
     return this.host.withWorkspaceIO(async () => {
       const declined = await this.loadDeclined();
       if (!declined || !accepted) return null;
-      const lazy = await this.host.scan();
+      const lazy = await this.scanKnown(await this.loadKnown());
       const { points } = await resolveDeclined(declined.paths, lazy.root, accepted.root as ObjectHash, this.loader(lazy));
       return { tree: this.tree, ...declined, points };
     });
@@ -685,10 +782,14 @@ export class FolderSync implements AcceptedTree {
     await this.host.withWorkspaceIO(async () => {
       const declined = await this.loadDeclined();
       if (!declined || !accepted) return;
-      const lazy = await this.host.scan();
+      const lazy = await this.scanKnown(await this.loadKnown());
       const load = this.loader(lazy);
       const { points } = await resolveDeclined(declined.paths, lazy.root, accepted.root as ObjectHash, load);
-      for (const point of points) await this.restore(point, await entryAt(accepted.root as ObjectHash, point, load), load);
+      const policy = await loadIgnorePolicy(this.host.root, { excludedRoots: this.host.excludedMounts() });
+      const tracked = trackedEntries(accepted.root as ObjectHash, load);
+      for (const point of points) {
+        await this.restore(point, await entryAt(accepted.root as ObjectHash, point, load), load, membershipSkip(policy, tracked, point));
+      }
       await this.saveDeclined(undefined);
       this.host.materialized();
     });
@@ -702,22 +803,34 @@ export class FolderSync implements AcceptedTree {
     await this.scan();
   }
 
-  /** Put the accepted entry (or its absence) at one declined point on disk. */
-  private async restore(point: string, entry: ProtocolDirectoryEntry | null, load: LoadObject): Promise<void> {
+  /**
+   * Put the accepted entry (or its absence) at one declined point on disk.
+   * `skip` is the folder's membership beneath the point: local content it
+   * leaves out is never deleted.
+   */
+  private async restore(point: string, entry: ProtocolDirectoryEntry | null, load: LoadObject, skip: SkipPath): Promise<void> {
     const target = this.osPath(point);
     const mounts = this.host.excludedMounts();
     if (mounts.some((mount) => within(mount, target) || within(target, mount))) {
       throw new UpdateValidationError(`A placed tree is mounted at or beneath ${point}; move it before restoring`);
     }
     if (entry?.tree) return;
-    if (!entry?.directory) await rm(target, { recursive: true, force: true });
+    const existing = await lstat(target).catch(() => undefined);
+    if (existing && !entry?.directory) {
+      if (existing.isDirectory()) {
+        // Remove what the folder owns beneath it; the directory stays while ignored content remains.
+        await materializeTree(target, EMPTY_DIRECTORY, async (hash) => hash === EMPTY_DIRECTORY ? EMPTY_DIRECTORY_BYTES : load(hash), undefined, mounts, skip);
+        await rmdir(target).catch(() => {});
+      } else if (!(await skip("/", false))) {
+        await rm(target, { force: true });
+      }
+    }
     if (entry?.file) {
       await mkdir(dirname(target), { recursive: true });
       await writeFileAtomic(target, await load(entry.file), 0o644);
     } else if (entry?.directory) {
-      const kind = await stat(target).catch(() => undefined);
-      if (kind && !kind.isDirectory()) await rm(target, { force: true });
-      await materializeTree(target, entry.directory, load, undefined, mounts);
+      if (existing && !existing.isDirectory()) await rm(target, { force: true });
+      await materializeTree(target, entry.directory, load, undefined, mounts, skip);
     }
   }
 

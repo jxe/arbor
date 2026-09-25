@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { access, lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
 import type { Diagnostic, MarkdownDocument } from "@overstory/protocol";
@@ -18,12 +18,8 @@ import {
 } from "@overstory/protocol";
 import { directoryPlacementDiagnostics, parseMarkdown } from "@overstory/protocol";
 import { pathExists } from "@overstory/protocol/file-ops";
-import {
-  discoverWorkspace,
-  IGNORED_WORKSPACE_DIRECTORIES,
-  type WorkspaceDiscovery,
-  WORKSPACE_WATCHER_IGNORE_GLOBS,
-} from "./discovery.ts";
+import { discoverWorkspace, type WorkspaceDiscovery, WORKSPACE_WATCHER_IGNORE_GLOBS } from "./discovery.ts";
+import { isIgnoreFileName, loadIgnorePolicy, type IgnorePolicy, type Membership } from "./ignore-policy.ts";
 import { iCloudPlaceholderLogicalName, iCloudPlaceholderPath } from "./materialization.ts";
 import {
   type FsDirectoryEntry,
@@ -35,7 +31,6 @@ import {
 import { ensureContainedPath, resolveTreePath, toTreePath } from "@overstory/protocol/path";
 
 const RESERVED = new Set(["schema.cddl", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
-const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;
 const EMPTY_REVISION = revisionOf("");
 
 function bodyRevision(document: MarkdownDocument): string {
@@ -68,11 +63,19 @@ export class WorkspaceFS implements AsyncDisposable {
   private recentExternalMoves = new Map<string, number>();
   private initialDiscovery?: WorkspaceDiscovery;
   private excludedRoots: string[];
+  private policy!: IgnorePolicy;
+  private readonly addressable: boolean;
+  private ignoredListeners = new Set<(treePath: string) => void>();
+  private rediscoveryListeners = new Set<(discovery: WorkspaceDiscovery) => void>();
+  private policyTimer?: ReturnType<typeof setTimeout>;
+  private policyReload?: Promise<void>;
 
   private constructor(root: string, options: WorkspaceFSOptions) {
     this.root = root;
     this.stateDirectory = options.stateDirectory;
     this.excludedRoots = (options.excludedRoots ?? []).map((item) => resolve(item));
+    // Browsing without discovery opens any local path; membership still shapes listings.
+    this.addressable = options.discovery === "none";
   }
 
   static async open(path: string, options: WorkspaceFSOptions): Promise<WorkspaceFS> {
@@ -80,11 +83,12 @@ export class WorkspaceFS implements AsyncDisposable {
     const info = await stat(root);
     if (!info.isDirectory()) throw new Error("WorkspaceFS requires a directory");
     const instance = new WorkspaceFS(root, options);
+    instance.policy = await loadIgnorePolicy(root, { excludedRoots: instance.excludedRoots });
     instance.initialDiscovery = options.discovery === "none"
-      ? { root, files: [], directories: [], pagePathsByID: new Map(), pageIDOwners: new Map() }
+      ? { root, files: [], directories: [], pagePathsByID: new Map(), pageIDOwners: new Map(), diagnostics: [] }
       : await discoverWorkspace(root, {
         recursive: options.discovery !== "shallow",
-        excludedRoots: instance.excludedRoots,
+        policy: instance.policy,
       });
     instance.loadPageIDs(instance.initialDiscovery);
     if (options.discovery !== "shallow" && options.discovery !== "none") await instance.startWatcher();
@@ -96,8 +100,13 @@ export class WorkspaceFS implements AsyncDisposable {
     return this.initialDiscovery;
   }
 
+  /** The membership policy this folder's listings and events currently follow. */
+  get ignorePolicy(): IgnorePolicy {
+    return this.policy;
+  }
+
   async discoverRecursively(): Promise<WorkspaceDiscovery> {
-    const discovery = await discoverWorkspace(this.root, { excludedRoots: this.excludedRoots });
+    const discovery = await discoverWorkspace(this.root, { policy: this.policy });
     this.initialDiscovery = discovery;
     this.loadPageIDs(discovery);
     if (!this.subscription) await this.startWatcher();
@@ -106,9 +115,10 @@ export class WorkspaceFS implements AsyncDisposable {
 
   async setExcludedRoots(roots: readonly string[]): Promise<WorkspaceDiscovery> {
     this.excludedRoots = roots.map((item) => resolve(item));
+    this.policy = await loadIgnorePolicy(this.root, { excludedRoots: this.excludedRoots });
     const discovery = await discoverWorkspace(this.root, {
       recursive: this.subscription !== undefined,
-      excludedRoots: this.excludedRoots,
+      policy: this.policy,
     });
     this.initialDiscovery = discovery;
     this.loadPageIDs(discovery);
@@ -123,6 +133,26 @@ export class WorkspaceFS implements AsyncDisposable {
   subscribe(listener: (event: FsEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Changes at paths an ignore rule keeps out of the listing, by physical tree
+   * path. They are never nodes here; a synchronizer that still tracks such a
+   * path decides whether the change matters.
+   */
+  subscribeIgnored(listener: (treePath: string) => void): () => void {
+    this.ignoredListeners.add(listener);
+    return () => this.ignoredListeners.delete(listener);
+  }
+
+  /** A changed ignore file made the folder rediscover; listeners see the new result before the tree is invalidated. */
+  subscribeRediscovery(listener: (discovery: WorkspaceDiscovery) => void): () => void {
+    this.rediscoveryListeners.add(listener);
+    return () => this.rediscoveryListeners.delete(listener);
+  }
+
+  private async included(treePath: string, isDirectory: boolean): Promise<boolean> {
+    return (await this.policy.decision(treePath, isDirectory)).membership === "included";
   }
 
   private emit(event: FsEvent): void {
@@ -151,12 +181,20 @@ export class WorkspaceFS implements AsyncDisposable {
     }
     const directPlaceholder = iCloudPlaceholderPath(direct);
     const siblingPlaceholder = iCloudPlaceholderPath(sibling);
-    const [directInfo, siblingInfo, directPlaceholderInfo, siblingPlaceholderInfo] = await Promise.all([
+    let [directInfo, siblingInfo, directPlaceholderInfo, siblingPlaceholderInfo] = await Promise.all([
       stat(direct).catch(() => null),
       path === "/" ? Promise.resolve(null) : stat(sibling).catch(() => null),
       path === "/" ? Promise.resolve(null) : stat(directPlaceholder).catch(() => null),
       path === "/" ? Promise.resolve(null) : stat(siblingPlaceholder).catch(() => null),
     ]);
+
+    if (path !== "/" && !this.addressable) {
+      // An excluded path is not a node, even when addressed directly.
+      if (directInfo && !(await this.included(path, directInfo.isDirectory()))) directInfo = null;
+      if (siblingInfo && !(await this.included(siblingTreePath, siblingInfo.isDirectory()))) siblingInfo = null;
+      if (directPlaceholderInfo && !(await this.included(path, false))) directPlaceholderInfo = null;
+      if (siblingPlaceholderInfo && !(await this.included(siblingTreePath, false))) siblingPlaceholderInfo = null;
+    }
 
     if (path === "/") {
       const indexPath = resolveTreePath(this.root, directoryIndexTreePath("/"));
@@ -308,10 +346,11 @@ export class WorkspaceFS implements AsyncDisposable {
     const entries = await readdir(node.directoryPath, { withFileTypes: true });
     const paths = new Set<string>();
     for (const entry of entries) {
-      if (IGNORED.has(entry.name) || RESERVED.has(entry.name) || isTransactionTemporary(entry.name)) continue;
+      if (RESERVED.has(entry.name) || isTransactionTemporary(entry.name)) continue;
       if (this.isExcludedAbsolute(join(node.directoryPath, entry.name))) continue;
       const logicalName = iCloudPlaceholderLogicalName(entry.name) ?? entry.name;
       const physical = `${node.path === "/" ? "" : node.path}/${logicalName}`;
+      if (!(await this.included(physical, entry.isDirectory()))) continue;
       paths.add(logicalName.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
     }
     const children = await Promise.all([...paths].map(async (path): Promise<FsDirectoryEntry | null> => {
@@ -351,7 +390,9 @@ export class WorkspaceFS implements AsyncDisposable {
   async [Symbol.asyncDispose](): Promise<void> {
     for (const timer of this.watcherTimers.values()) clearTimeout(timer);
     for (const timer of this.pendingDeleteTimers.values()) clearTimeout(timer);
+    if (this.policyTimer) clearTimeout(this.policyTimer);
     await this.subscription?.unsubscribe();
+    await this.policyReload?.catch(() => {});
   }
 
   private async startWatcher(): Promise<void> {
@@ -370,17 +411,57 @@ export class WorkspaceFS implements AsyncDisposable {
     let treePath: string;
     const placeholderName = iCloudPlaceholderLogicalName(basename(absolute));
     const logicalAbsolute = placeholderName ? join(dirname(absolute), placeholderName) : absolute;
-    try { treePath = nodePathFromPhysical(toTreePath(this.root, logicalAbsolute)); } catch { return; }
+    let physical: string;
+    try {
+      physical = toTreePath(this.root, logicalAbsolute);
+      treePath = nodePathFromPhysical(physical);
+    } catch { return; }
+    if (!placeholderName && isIgnoreFileName(basename(absolute))) this.schedulePolicyReload();
     const path = canonicalNodePath(treePath);
     const old = this.watcherTimers.get(path);
     if (old) clearTimeout(old);
     this.watcherTimers.set(path, setTimeout(() => {
       this.watcherTimers.delete(path);
-      void this.handleWatch(path, type);
+      void this.handleWatch(path, type, physical, logicalAbsolute);
     }, 60));
   }
 
-  private async handleWatch(path: string, type: watcher.EventType): Promise<void> {
+  /** Membership of an event's path; a vanished path counts as whatever it could have been. */
+  private async eventMembership(physical: string, absolute: string): Promise<Membership> {
+    const info = await lstat(absolute).catch(() => null);
+    const kinds = info ? [info.isDirectory()] : [false, true];
+    const decisions = await Promise.all(kinds.map(async (isDirectory) => (await this.policy.decision(physical, isDirectory)).membership));
+    return decisions.includes("included") ? "included" : decisions.includes("ignored") ? "ignored" : "mandatory";
+  }
+
+  /** Coalesce ignore-file edits into one reload and rediscovery, then invalidate the whole tree. */
+  private schedulePolicyReload(): void {
+    if (this.policyTimer) clearTimeout(this.policyTimer);
+    this.policyTimer = setTimeout(() => {
+      this.policyTimer = undefined;
+      const previous = this.policyReload ?? Promise.resolve();
+      this.policyReload = previous.catch(() => {}).then(() => this.reloadPolicy());
+    }, 60);
+  }
+
+  private async reloadPolicy(): Promise<void> {
+    this.policy = await loadIgnorePolicy(this.root, { excludedRoots: this.excludedRoots });
+    const discovery = await discoverWorkspace(this.root, { policy: this.policy });
+    this.initialDiscovery = discovery;
+    this.pagePathsByID = new Map();
+    this.loadPageIDs(discovery);
+    for (const listener of this.rediscoveryListeners) listener(discovery);
+    for (const diagnostic of discovery.diagnostics) this.emit({ type: "diagnostic", path: diagnostic.path, diagnostic });
+    this.emit({ type: "updated", path: "/" });
+  }
+
+  private async handleWatch(path: string, type: watcher.EventType, physical: string, absolute: string): Promise<void> {
+    const membership = await this.eventMembership(physical, absolute);
+    if (membership === "mandatory") return;
+    if (membership === "ignored") {
+      for (const listener of this.ignoredListeners) listener(physical);
+      return;
+    }
     const current = await this.read(path).catch(() => null);
     if (!current || current.node.kind === "missing") {
       if ((this.recentExternalMoves.get(path) ?? 0) > Date.now()) {

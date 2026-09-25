@@ -85,6 +85,33 @@ configuration tree in conflict.
 
 A declared placement may sit beneath the data home as a separate mounted tree. Local discovery, watching, indexing, snapshots, pushes, pulls, and deletion stop at every mounted tree root. Removing a placement stops replication without deleting its files or remote identity.
 
+## Ignored content
+
+A placed folder follows its `.arborignore` and `.gitignore` files as
+[directory format §7](../../overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files)
+specifies: an ignored, untracked `.env`, cache, or build output is never
+scanned into a change, uploaded, overwritten, or deleted by a pull, and stays
+out of discovery, search, and generated types. `.gitignore` is read for
+compatibility with the same grammar; `.arborignore` is the portable spelling
+and wins beside it. The mandatory exclusions (`.git`, `node_modules`, `.arbor`,
+`Trash`, `.build`, `DerivedData`, transaction temporaries, iCloud placeholders,
+nested mounts) apply whatever the rules say. Git is never run, and
+`.git/info/exclude`, `core.excludesFile`, and global Git ignore files are not
+read, so a folder yields the same tree on every device.
+
+An ignore file that is not valid UTF-8 applies no rules. The daemon reports a
+`diagnostic` event naming that file, never its contents, and keeps
+synchronizing.
+
+"Tracked" needs no state of its own: it is the folder record's `known.root`,
+the root the folder last held. A path in it keeps synchronizing after a rule
+matches it, so adding a rule does not stop syncing an `.env` that was already
+uploaded. To untrack one, move the file out of the folder, let the deletion
+sync, then move it back; the rule then keeps it local. Its bytes remain in the
+tree's accepted history, so a leaked secret must still be rotated. When a pull
+changes the rules, the daemon keeps any local file either the old or the new
+rules ignored, and publishes content that a removed rule uncovered.
+
 ## Scopes and durability
 
 The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, held changes, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `POST /v1/held/discard`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.

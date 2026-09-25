@@ -1,6 +1,6 @@
 import type { BigIntStats } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { CollectionFileDescriptor, Hash } from "@overstory/protocol";
 import {
   compareProtocolNames,
@@ -14,8 +14,14 @@ import {
   type ProtocolDirectory,
   type ProtocolObjectSource,
 } from "@overstory/protocol";
-import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
+import { toTreePath } from "@overstory/protocol/path";
 import { writeAtomic } from "@overstory/protocol/file-ops";
+import {
+  isCloudPlaceholderName,
+  isTransactionTemporaryName,
+  MANDATORY_DIRECTORY_NAMES,
+  type SkipPath,
+} from "./ignore-policy.ts";
 
 export interface SnapshotCollectionFileDescription {
   format: CollectionFileDescriptor["format"];
@@ -33,14 +39,6 @@ export class UnavailableCloudContentError extends Error {
     super(`Cloud content is not materialized: ${path}`);
     this.name = "UnavailableCloudContentError";
   }
-}
-
-function cloudPlaceholderName(name: string): boolean {
-  return name.startsWith(".") && name.endsWith(".icloud") && name.length > ".icloud".length + 1;
-}
-
-function privateTransactionName(name: string): boolean {
-  return name.includes(".arbor-write-") || name.includes(".arbor-txn-");
 }
 
 /**
@@ -83,6 +81,8 @@ export async function snapshotDirectory(
   excludedRoots: readonly string[] = [],
   describeCollectionFile?: DescribeSnapshotCollectionFile,
   objectIndex?: SnapshotObjectIndex,
+  /** Leaves out ignored, untracked content; see `membershipSkip`. Nested tree boundaries are never skipped. */
+  skip?: SkipPath,
 ): Promise<LazyTreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -137,23 +137,31 @@ export async function snapshotDirectory(
     return hash;
   };
 
-  const walk = async (directory: string): Promise<ObjectHash> => {
+  /** `treePath` is `directory` relative to the walked root, for `skip`. */
+  const walk = async (directory: string, treePath: string): Promise<ObjectHash> => {
+    const childPath = (name: string) => `${treePath === "/" ? "" : treePath}/${name}`;
     const entries: ProtocolDirectoryEntry[] = [];
     let childrenSource: CollectionFileDescriptor | undefined;
     const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareProtocolNames(a.name, b.name))) {
-      if (privateTransactionName(entry.name)) continue;
-      if (cloudPlaceholderName(entry.name)) throw new UnavailableCloudContentError(join(directory, entry.name));
+      if (isTransactionTemporaryName(entry.name)) continue;
+      if (isCloudPlaceholderName(entry.name)) {
+        // An evicted file that is not tree content is not needed.
+        const logical = join(directory, entry.name.slice(1, -".icloud".length));
+        if (skip && await skip(childPath(basename(logical)), false)) continue;
+        throw new UnavailableCloudContentError(join(directory, entry.name));
+      }
       if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory() && IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;
+      if (entry.isDirectory() && MANDATORY_DIRECTORY_NAMES.has(entry.name)) continue;
       const absolute = join(directory, entry.name);
       if (isExcluded(absolute)) continue;
       const boundary = normalizedBoundaries.get(absolute);
+      if (!boundary && skip && (entry.isDirectory() || entry.isFile()) && await skip(childPath(entry.name), entry.isDirectory())) continue;
       if (boundary) {
         entries.push({ name: entry.name, tree: boundary });
         seen.add(entry.name);
       } else if (entry.isDirectory()) {
-        entries.push({ name: entry.name, directory: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute) });
+        entries.push({ name: entry.name, directory: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute, childPath(entry.name)) });
         seen.add(entry.name);
       } else if (entry.isFile()) {
         const source = await fileSource(absolute, entry.name);
@@ -212,7 +220,7 @@ export async function snapshotDirectory(
     return store({ type: "directory", entries });
   };
 
-  return { root: await walk(root), objects };
+  return { root: await walk(root, "/"), objects };
 }
 
 function contained(root: string, path: string): string {
@@ -228,6 +236,11 @@ export async function materializeTree(
   load: (hash: ObjectHash) => Promise<Uint8Array>,
   onBoundary?: (path: string, tree: string) => Promise<void>,
   excludedRoots: readonly string[] = [],
+  /**
+   * Keeps local content the tree does not own: cleanup never deletes a path
+   * `skip` leaves out. Entries of the written root are always written.
+   */
+  skip?: SkipPath,
 ): Promise<void> {
   const destination = resolve(root);
   await mkdir(destination, { recursive: true });
@@ -257,7 +270,8 @@ export async function materializeTree(
     await mkdir(path, { recursive: true });
     const expected = new Set(object.entries.map((entry) => entry.name));
     for (const existing of await readdir(path, { withFileTypes: true })) {
-      if (IGNORED_WORKSPACE_DIRECTORIES.has(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
+      if (MANDATORY_DIRECTORY_NAMES.has(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
+      if (skip && await skip(toTreePath(canonicalDestination, join(path, existing.name)), existing.isDirectory())) continue;
       await rm(contained(canonicalDestination, join(path, existing.name)), { recursive: true, force: true });
     }
     for (const entry of object.entries) {
