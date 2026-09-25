@@ -9,6 +9,7 @@
     "./logical-path": "./src/model/logical-path.ts",
     "./logical-url": "./src/model/logical-url.ts",
     "./node-key": "./src/model/node-key.ts",
+    "./markdown-identity": "./src/documents/markdown-identity.ts",
     "./node-model": "./src/model/node-model.ts",
     "./sse": "./src/model/sse.ts",
     "./utf8": "./src/model/utf8.ts",

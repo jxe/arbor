@@ -81,7 +81,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                 title: entry.title,
                 excerpt: entry.source.isEmpty ? nil : entry.source,
                 modifiedAt: entry.modifiedAt,
-                backlinkCount: backlinkCounts[entry.path, default: 0]
+                backlinkCount: backlinkCounts[entry.path, default: 0],
+                markdownBody: entry.markdownBody
             ))
         }
         return results
@@ -97,7 +98,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                     stableKey: entry.pageID.map(markdownStableKey)
                 ),
                 title: entry.title,
-                excerpt: reference.path
+                excerpt: reference.path,
+                markdownBody: entry.markdownBody
             )
         }
     }
@@ -216,7 +218,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                 contentRevision: revision
             ),
             materialization: knownMissing ? .placeholder : .available,
-            isWritable: !readOnly && record.kind != .boundary
+            isWritable: !readOnly && record.kind != .boundary,
+            markdownBody: record.markdownBody
         )
     }
 

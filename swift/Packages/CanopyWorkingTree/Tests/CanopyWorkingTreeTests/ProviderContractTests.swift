@@ -73,9 +73,9 @@ struct ProviderContractTests {
         let backlinks = try await provider.backlinks(to: note.reference)
         #expect(backlinks.contains { $0.reference.path.hasSuffix("/linker") })
 
-        // Document-link rows are written as `arbor://` locators, and a relative href resolves
-        // against the linking page's parent. Both must count, or deleting one link to a page
-        // reads as though nothing links to it at all.
+        // Cross-tree rows are written as `arbor://` locators, and a relative href resolves
+        // against the directory holding the linking page's file. Both must count, or deleting
+        // one link to a page reads as though nothing links to it at all.
         let locator = try #require(buildArborLocator(
             tree: root.tree.rawValue,
             path: note.reference.path,
@@ -87,10 +87,9 @@ struct ProviderContractTests {
             source: "# Row Linker\n\n[Provider contract](\(locator))\n"
         )))
         _ = rowLinker
-        let siblingHref = try #require(buildCanonicalLink(
+        let siblingHref = try #require(buildMarkdownLink(
             from: folder.reference.path,
-            toPath: note.reference.path,
-            stableKey: nil
+            to: MarkdownLinkTarget(path: note.reference.path, body: note.markdownBody)
         ))
         let siblingLinker = try #require(try await provider.perform(.createMarkdown(
             parent: folder.reference,

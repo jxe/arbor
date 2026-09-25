@@ -1,7 +1,7 @@
 import {
   canonicalNodePath,
   isPageID,
-  pageIDStableKey,
+  markdownStableKey,
   parseMarkdown,
   resolveProtocolLogicalNode,
   type CollectionFileDescriptor,
@@ -29,7 +29,7 @@ function protocolNodeStableKey(node: ResolvedProtocolLogicalNode): string | null
   const file = node.kind === "file" ? node.bytes : node.body;
   if (!file) return null;
   const id = parseMarkdown(new TextDecoder().decode(file)).frontmatter.id;
-  return isPageID(id) ? pageIDStableKey(id) : null;
+  return isPageID(id) ? markdownStableKey(id) : null;
 }
 
 export function protocolCollectionFileRowTitle(row: ProtocolCollectionFileRow): string {

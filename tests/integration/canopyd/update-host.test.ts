@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256, ProtocolClient, applyTransitionPayload, ProtocolUpdateConflict, ProtocolUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
+import { buildNetworkLocator, canonicalStableKey, generateArborID, markdownStableKey, rowPathSegment, sha256, ProtocolClient, applyTransitionPayload, ProtocolUpdateConflict, ProtocolUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
 import { serveHost } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
@@ -545,7 +545,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(linkedSnapshot.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     expect(linkedSnapshot.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
     const keyedOldPath = buildNetworkLocator("/~owner/new-shared-tree/note", {
-      stableKey: pageIDStableKey("x7f3q2"),
+      stableKey: markdownStableKey("x7f3q2"),
     });
     expect((await fetch(`${running.url}${keyedOldPath}`, {
       headers: { "Arbor-Access-Link": linkSecret },
@@ -563,7 +563,7 @@ describe("governed account-configuration Canopy server", () => {
     });
     expect(healed.status).toBe(308);
     expect(healed.headers.get("location")).toBe(buildNetworkLocator("/~owner/new-shared-tree/renamed", {
-      stableKey: pageIDStableKey("x7f3q2"),
+      stableKey: markdownStableKey("x7f3q2"),
     }));
     const peoplePath = join(treePath, "people");
     await mkdir(peoplePath);

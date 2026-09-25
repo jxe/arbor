@@ -61,18 +61,20 @@ projects/atlas/                  work/atlas/
              └──── same Overstory tree ────┘
 ```
 
-Inside Markdown, these are still ordinary link destinations. From the document
-`/projects/atlas`, the links look like this:
+Inside Markdown, these are still ordinary link destinations, relative to the
+file they are written in, so any Markdown editor follows them. In
+`projects/atlas/_index.md` the links look like this:
 
 ```md
-[Notes](../notes)
-[Plans](../plans/README)
-[Drift](arbor://notes.example.org/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0)
+[Notes](notes.md#arbor-key=id:k2m9xq)
+[Plans](../plans/README.md)
+[Drift](arbor://notes.example.org/essays/drift;arbor-key=id:x7f3q2)
 ```
 
 The first points to a child, the second to a sibling, and the third to another
-Overstory tree. The `;arbor-key=` suffix carries the document's durable stable key,
-so links can heal after files and directories move.
+Overstory tree. `arbor-key` carries the target's durable stable key, here its
+Markdown `id`, so links can heal after files and directories move, and
+searching for `k2m9xq` finds every link to that page.
 
 I have a little CLI tool to manage all this:
 

@@ -2,45 +2,68 @@
   "cases": [
     {
       "name": "implicit-marker-preserves-source",
-      "directory": "/notes",
+      "directory": { "path": "/notes", "body": "index" },
       "source": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n",
       "children": [
-        { "name": "alpha", "path": "/notes/alpha" },
-        { "name": "beta", "path": "/notes/beta" }
+        { "name": "alpha", "path": "/notes/alpha", "body": "sibling" },
+        { "name": "beta", "path": "/notes/beta", "body": "sibling" }
       ],
-      "expectedBlockPaths": ["beta", "alpha"],
+      "expectedBlockPaths": ["beta", "alpha.md"],
       "expectedGeneratedChildren": ["/notes/alpha"],
       "expectedDiagnosticCodes": []
     },
     {
       "name": "explicit-marker-places-unmatched",
-      "directory": "/dir",
+      "directory": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\n<!-- arbor:children -->\n\nTail.\n",
       "children": [
-        { "name": "z", "path": "/dir/z" },
-        { "name": "A", "path": "/dir/A" }
+        { "name": "z", "path": "/dir/z", "body": "sibling" },
+        { "name": "A", "path": "/dir/A", "body": "index" }
       ],
-      "expectedBlockPaths": ["A", "z"],
+      "expectedBlockPaths": ["A/_index.md", "z.md"],
       "expectedGeneratedChildren": ["/dir/A", "/dir/z"],
       "expectedDiagnosticCodes": []
     },
     {
-      "name": "stable-key-survives-stale-path",
-      "directory": "/dir",
-      "source": "[Moved](old#arbor-key=W1siaWQiLCJwYWdlLW9wYXF1ZSJdXQ)\n",
+      "name": "sibling-body-rows-resolve-from-the-parent",
+      "directory": { "path": "/notes", "body": "sibling" },
+      "source": "[Beta](notes/beta.md)\n",
       "children": [
-        { "name": "Moved", "path": "/dir/new", "stableKey": "[[\"id\",\"page-opaque\"]]" }
+        { "name": "alpha", "path": "/notes/alpha", "body": "sibling", "stableKey": "[[\"id\",\"a1\"]]" },
+        { "name": "beta", "path": "/notes/beta", "body": "sibling" }
       ],
-      "expectedBlockPaths": ["old#arbor-key=W1siaWQiLCJwYWdlLW9wYXF1ZSJdXQ"],
+      "expectedBlockPaths": ["notes/beta.md", "notes/alpha.md#arbor-key=id:a1"],
+      "expectedGeneratedChildren": ["/notes/alpha"],
+      "expectedDiagnosticCodes": []
+    },
+    {
+      "name": "stable-key-survives-stale-path",
+      "directory": { "path": "/dir", "body": "index" },
+      "source": "[Moved](old.md#arbor-key=id:page-opaque)\n",
+      "children": [
+        { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
+      ],
+      "expectedBlockPaths": ["old.md#arbor-key=id:page-opaque"],
       "expectedGeneratedChildren": [],
       "expectedDiagnosticCodes": []
     },
     {
+      "name": "a-bare-fragment-is-not-identity",
+      "directory": { "path": "/dir", "body": "index" },
+      "source": "[Moved](old#page-opaque)\n",
+      "children": [
+        { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
+      ],
+      "expectedBlockPaths": ["old#page-opaque", "new.md#arbor-key=id:page-opaque"],
+      "expectedGeneratedChildren": ["/dir/new"],
+      "expectedDiagnosticCodes": []
+    },
+    {
       "name": "duplicate-marker-blocks-generation",
-      "directory": "/dir",
+      "directory": { "path": "/dir", "body": "index" },
       "source": "<!-- arbor:children -->\n\nText\n\n<!-- arbor:children -->\n",
       "children": [
-        { "name": "child", "path": "/dir/child" }
+        { "name": "child", "path": "/dir/child", "body": "sibling" }
       ],
       "expectedBlockPaths": [],
       "expectedGeneratedChildren": [],

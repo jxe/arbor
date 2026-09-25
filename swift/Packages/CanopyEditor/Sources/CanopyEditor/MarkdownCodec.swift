@@ -56,11 +56,15 @@ public enum CanopyMarkdownCodec {
     /// Insert unmentioned immediate children into the operational document at
     /// the explicit children marker, or at the implicit marker after authored
     /// source. The generated links are ordinary Quagmire blocks carrying
-    /// host-owned metadata until a transfer explicitly places them.
+    /// host-owned metadata until a transfer explicitly places them. Rows resolve
+    /// from, and generated rows are written from, the directory's source
+    /// directory: the directory itself for `_index.md`, its parent for a sibling
+    /// `x.md` body.
     static func placeDirectoryChildren(
         _ children: [WorkspaceNode],
         in blocks: [Block],
-        directory: WorkspaceReference
+        directory: WorkspaceReference,
+        sourceDirectory: String
     ) -> [Block] {
         let authored = removingProjectedBlocks(from: blocks)
         var mentionedIdentities = Set<WorkspaceIdentity>()
@@ -73,10 +77,9 @@ public enum CanopyMarkdownCodec {
         func inspect(_ values: [Block]) {
             for block in values {
                 if case let .documentLink(_, reference) = block.kind,
-                   let target = resolveNodeTarget(base: directory.path, href: reference.rawValue) {
+                   let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: reference.rawValue) {
                     let tree = target.tree.map(TreeID.init(rawValue:)) ?? directory.tree
-                    let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
-                    if let stableKey {
+                    if let stableKey = target.stableKey {
                         mentionedIdentities.insert(.key(tree: tree, stableKey: stableKey))
                     }
                     mentionedPaths.insert(pathKey(tree: tree, path: target.path))
@@ -100,11 +103,8 @@ public enum CanopyMarkdownCodec {
             let rawReference = if child.reference.tree != directory.tree {
                 CanopyDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
-                buildCanonicalLink(
-                    from: directory.path,
-                    toPath: child.reference.path,
-                    stableKey: child.reference.stableKey
-                ) ?? child.reference.path
+                buildMarkdownLink(from: sourceDirectory, to: child.markdownLinkTarget)
+                    ?? relativeFileReference(from: sourceDirectory, toFile: child.reference.path)
             }
             return Block(
                 id: projectedChildID(child.reference),

@@ -120,15 +120,17 @@ enum WorkingTreeSemantics {
         }
     }
 
-    /// The directory a node's relative links resolve against. A directory carries its own
-    /// `_index.md` body, so its links are written relative to itself; every other node's are
-    /// written relative to its parent, matching the editor's `relativeReferenceBase`.
-    static func linkBase(for node: WorkingTreeNode) -> String {
-        node.kind == .directory ? node.path : (parent(of: node.path) ?? "/")
+    /// The directory holding a node's body file, which its relative links resolve against: the
+    /// parent for a Markdown leaf or a directory's sibling `x.md`, the directory itself for its
+    /// `_index.md` (or a directory with no body yet).
+    static func sourceDirectory(for node: WorkingTreeNode) -> String {
+        markdownSourceDirectory(nodePath: node.path, body: node.markdownBody)
     }
 
-    static func linkTargets(in source: String, relativeTo directory: String) -> [ResolvedNodeTarget] {
-        markdownLinkHrefRanges(in: source).compactMap { resolveNodeTarget(base: directory, href: String(source[$0])) }
+    static func linkTargets(in source: String, sourceDirectory: String) -> [ResolvedNodeTarget] {
+        markdownLinkDestinations(in: source).compactMap { destination in
+            destination.image ? nil : resolveNodeTarget(sourceDirectory: sourceDirectory, href: destination.href)
+        }
     }
 
     static func isStoreFile(_ node: WorkingTreeNode) -> Bool {

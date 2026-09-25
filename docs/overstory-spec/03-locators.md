@@ -10,11 +10,11 @@ lookup.*
 Portable Overstory content uses these locator forms:
 
 ```text
-arbor://<TreeID>/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-./relative/tree/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-/tree-rooted/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-https://canopy.example/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-arbor://canopy.example/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+arbor://<TreeID>/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+./relative/tree/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+/tree-rooted/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+https://canopy.example/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+arbor://canopy.example/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ```
 
 `arbor://<TreeID>/...` directly names the primary tree identity plus a logical
@@ -57,46 +57,89 @@ Every successfully resolved node locator yields the same information:
 
 ## 2. Stable keys, revisions, and fragments
 
-When the node has a schema-derived stable key, the final raw path segment may
-carry `;arbor-key=<base64url-key>`. The value is the unpadded base64url encoding
-of the UTF-8 canonical key JSON. This is the single definition of that
-encoding: [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON for
-an array of `[field, value]` pairs in the identity rule's declared field order,
-where each value is a JSON string, boolean, or finite number—for example
-`[["id","x7f3q2"]]`. A schema normalizes any other backing value to a string
-before it can be a key. The same canonical JSON is the `stableKey` value carried
-in node references. The suffix supplies the third component of
-`(TreeID, path, stable key or null)`; it is not part of the decoded logical path.
+A node's stable key is [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
+canonical JSON for an array of `[field, value]` pairs in the identity rule's
+declared field order, where each value is a JSON string, boolean, or finite
+number—for example `[["id","x7f3q2"]]`. A schema normalizes any other backing
+value to a string before it can be a key. This canonical JSON is the
+`stableKey` value carried in node references.
+
+A locator carries the key as a **key token**, the single textual encoding of
+a stable key:
 
 ```text
-arbor://<TreeID>/roadmap;arbor-key=<base64url-key>
-arbor://<TreeID>/practices/walking;arbor-key=<base64url-key>
+key-token = pair *( "," pair )          ; pairs in key order
+pair      = name ":" string-value       ; a string value
+          / name "=" literal            ; `true`, `false`, or RFC 8785 number text
+```
+
+`name` and `string-value` percent-encode, as `%XX` with uppercase hex over
+UTF-8, every byte outside the URI unreserved set `A-Z a-z 0-9 - . _ ~`. A
+decoder accepts a token only if encoding the key it decodes reproduces the
+token exactly, so each key has one token and each token one key. Markdown IDs
+are minted from `[a-z0-9]`, so their tokens read as written and a plain text
+search for an ID finds every link that names it:
+
+| Key | Token |
+|---|---|
+| `[["id","x7f3q2"]]` | `id:x7f3q2` |
+| `[["slug","walking"],["lang","en"]]` | `slug:walking,lang:en` |
+| `[["id",42]]` | `id=42` |
+| `[["t","a b"]]` | `t:a%20b` |
+
+The token appears in exactly two places, one per kind of surface:
+
+| Surface | Spelling |
+|---|---|
+| Node reference (`NodeRef.stableKey`) | the canonical key JSON itself |
+| `arbor://`, canonical HTTP, and tree-rooted locators; any locator that also carries a revision or a content fragment | `;arbor-key=<key-token>` on the final path segment |
+| Relative link written in Markdown | `<file>#arbor-key=<key-token>` (§2.1) |
+| Markdown document identity | frontmatter `id: x7f3q2`, which is the key `[["id","x7f3q2"]]` ([directory format](02-directory-format.md#3-properties-markdown-content-and-identity)) |
+| Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 005](../../plans/postgres/005-representation-equivalence.md)) |
+
+The suffix supplies the third component of `(TreeID, path, stable key or
+null)`; it is not part of the decoded logical path.
+
+```text
+arbor://<TreeID>/roadmap;arbor-key=id:x7f3q2
+arbor://<TreeID>/practices/walking;arbor-key=slug:walking
 ```
 
 The same syntax is used for a Markdown `id`, a collection primary key, or any
 later schema identity rule. There is no `PageID` locator variant and no row-only
-locator shape.
+locator shape. A bare `#<fragment>` is only ever a content fragment: earlier
+bare `#<PageID>` and `#row=<key>` input, and base64url key tokens, are no longer
+read.
 
-The portable directory projection has one additional relative-link spelling:
+### 2.1 Links written in Markdown
+
+A relative link in a Markdown file is an ordinary relative URL, so any Markdown
+reader or editor follows it:
+
+- It resolves against the tree directory that holds the source file: the
+  parent directory for `x.md`, and `x/` itself for `x/_index.md`. A node
+  whose body is not stored yet resolves as if it had `x/_index.md`.
+- Writers name the target's body file: `Calendar.md`, `Picture-of-Life/Foo.md`,
+  `x/_index.md`. A target with no Markdown file of its own, such as a row
+  inside a collection file or a directory without a body, is named by its
+  extensionless logical path. Readers accept `x.md`, `x/_index.md`, `x/`, and
+  `x` as the same node.
+- The key is the Markdown alias `#arbor-key=<key-token>`, which a
+  non-Overstory reader treats as a missing anchor and ignores:
 
 ```md
-[Walking](walking#arbor-key=<base64url-key>)
-[List](List?id=p_123#arbor-key=<base64url-key>)
+[Walking](walking.md#arbor-key=slug:walking)
+[List](List/_index.md?id=p_123#arbor-key=id:k2m9xq)
 ```
 
-This is a Markdown compatibility alias for the same stable-key component, not
-an ordinary content fragment. A non-Overstory Markdown reader follows the normal
-relative path and may simply find no matching anchor. An Overstory-aware local
-reader uses the key for resolution and link healing. An Overstory HTTP renderer
-rewrites the destination to the server-visible
-`walking;arbor-key=<base64url-key>` form before emitting HTML, preserving the
-application query unchanged.
-
-The Markdown alias is permitted only on relative or tree-rooted authored links
-whose Overstory renderer can perform that translation. Raw TreeID, canonical Overstory,
-and canonical HTTP locators use the path-attached suffix directly. Legacy bare
-`#<PageID>` and `#row=<key>` spellings may be accepted as input during migration,
-but conforming writers emit either the Markdown alias or the path suffix.
+The alias is the same stable-key component as the path suffix, not an
+ordinary content fragment, and is permitted only on relative authored links.
+An Overstory HTTP renderer rewrites the destination to the server-visible
+`walking;arbor-key=slug:walking` form before emitting HTML, preserving the
+application query unchanged. A link that needs a content fragment or a
+revision as well as a key uses the path suffix instead, for example
+`Calendar.md;arbor-key=id:h31mlm#june`, which Overstory resolves but other
+Markdown readers do not.
 
 Append `;arbor-rev=sha256:<root>` to the final path segment, after any
 identity suffix, to select an immutable Overstory root of the addressed tree:
@@ -104,7 +147,7 @@ identity suffix, to select an immutable Overstory root of the addressed tree:
 ```text
 arbor://<TreeID>/notes;arbor-rev=sha256:<root>
 arbor://community.example/~alice/atlas/notes;arbor-rev=sha256:<root>
-./notes;arbor-key=<base64url-key>;arbor-rev=sha256:<root>
+./notes.md;arbor-key=<key-token>;arbor-rev=sha256:<root>
 ```
 
 A revision locator is read-only. Mutations against it fail as read-only. The
@@ -115,14 +158,14 @@ A query string follows the segment parameters and belongs completely to the
 addressed application document:
 
 ```text
-arbor://<TreeID>/Practice;arbor-key=<base64url-key>?id=p_123&edit
+arbor://<TreeID>/Practice;arbor-key=<key-token>?id=p_123&edit
 ```
 
 Overstory routing consumes neither application keys nor values. Other fragments
 remain ordinary content-local navigation and are not used as node identity:
 
 ```text
-arbor://<TreeID>/roadmap;arbor-key=<base64url-key>#implementation
+arbor://<TreeID>/roadmap;arbor-key=<key-token>#implementation
 ```
 
 This separation is required for server rendering: the host receives the
@@ -130,11 +173,8 @@ path-attached stable key on the initial HTTP request, while browsers do not send
 the content fragment and executable documents retain their full query-string
 namespace.
 
-This version does not define one Markdown relative link carrying both a
-stable key and a separate within-node content fragment ([deferred 7](README.md#deferred)).
-Authors choose rename-healable node navigation or within-node navigation for
-that link. A later structured fragment form may add both without changing the
-three-part node reference.
+The Markdown alias cannot carry a content fragment as well
+([deferred 7](README.md#deferred)); such a link uses the path suffix (§2.1).
 
 ## 3. Parsing and canonicalization
 
@@ -152,7 +192,7 @@ the locator addresses the canonical root node itself.
 
 `.` and `..` are resolved only while parsing a relative reference or URL. A resolved logical path is absolute within its tree, contains no empty interior component, and cannot escape its tree root. Backslash and NUL are invalid logical-path characters. URL serialization percent-encodes decoded components once.
 
-Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
+`x.md`, `x/_index.md`, and `x/` are input spellings of the node `x`. Links written in Markdown name the physical body file (§2.1); canonical URLs, API paths, and every other emitted locator use extensionless logical paths. `.mdx` and `.tsx` stay literal path components here: whether one is a node's executable body is decided by the tree's [directory format](02-directory-format.md#2-mapping-files-and-directories-to-nodes), not by the locator parser.
 
 ## 4. Resolution rules
 
@@ -160,7 +200,7 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
 - A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - When `stableKey` is non-null, the resolver validates it against the addressed schema. A key from a tree identity declaration may repair the path anywhere in that tree; a key from a parent's children declaration may repair only the final child component after the parent path resolves. The declaration site supplies this keyspace; the identity rule has no separate `scope` field.
-- If a valid key resolves a different current path, swift/local editors heal the readable path while preserving the Markdown key alias and application query. An HTTP authority redirects to the current canonical path while preserving the path-attached suffix and application query; ordinary HTTP fragment inheritance preserves a content fragment when one is present. Duplicate, invalid, inaccessible, or out-of-scope keys fail rather than falling back to a coincidental path match.
+- If a valid key resolves a different current path, local editors heal the link to name the target's current file (§2.1), preserving the key, application query, and content fragment. When a source file itself moves or changes body form (`x.md` ↔ `x/_index.md`), the writer that moves it rewrites its own relative links against the new directory in the same change. An HTTP authority redirects to the current canonical path while preserving the path-attached suffix and application query; ordinary HTTP fragment inheritance preserves a content fragment when one is present. Duplicate, invalid, inaccessible, or out-of-scope keys fail rather than falling back to a coincidental path match.
 - Ambiguous identity is an error. A resolver never guesses among placements, endpoints, stable-key owners, or boundary records.
 - An authored source locator resolves from its defining module through explicit logical placements and nested tree boundaries; an imported helper retains the resolution context of the module that authored the locator. Physical filesystem paths, sampled table names and the current browser document are never fallback resolution contexts. A locator that is unavailable, ambiguous, stale or unauthorized fails before data access and is never redirected to a same-named store: matching names are not proof of identity.
 

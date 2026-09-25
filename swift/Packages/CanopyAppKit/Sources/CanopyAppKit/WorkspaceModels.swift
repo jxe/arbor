@@ -116,13 +116,15 @@ public enum WorkspaceIdentity: Hashable, Codable, Sendable {
     case path(tree: TreeID, path: String)
 }
 
-/// The current Markdown `id` representation projected into the generic node-key slot.
+/// The Markdown representation's identity codec: a document's frontmatter `id` is its stable key
+/// `[["id", <id>]]`. Generic locator, workspace and backlink code handles stable keys only; this
+/// pair is the one place an authored Markdown ID and a stable key convert.
 public func markdownStableKey(_ id: String) -> String {
     // A single string pair is always a valid JSON object, so this cannot throw.
     try! stableKeyJSON([["id", id]])
 }
 
-/// Bounded bridge used only where the physical Markdown representation stores `id`.
+/// The frontmatter `id` a stable key stands for, or nil when the key is not a Markdown `id` key.
 public func markdownID(fromStableKey stableKey: String?) -> String? {
     guard let stableKey,
           let data = stableKey.data(using: .utf8),
@@ -219,12 +221,12 @@ public enum WorkspaceSurface: Hashable, Codable, Sendable {
     case diagnostic(title: String, detail: String)
     case historical(source: String, revision: String)
 
-    /// A surface whose body is written at the directory itself, so its relative links resolve
-    /// against that directory rather than against a parent.
-    public var isDirectoryLike: Bool {
+    /// Where a body of this surface lives when the provider does not say.
+    public var defaultMarkdownBody: MarkdownBodyOrigin? {
         switch self {
-        case .directory, .directoryDocument: true
-        default: false
+        case .markdown, .historical: .sibling
+        case let .directoryDocument(_, _, stored): stored ? .index : nil
+        default: nil
         }
     }
 
@@ -251,6 +253,9 @@ public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
     public var provenance: WorkspaceProvenance
     public var materialization: WorkspaceMaterialization
     public var isWritable: Bool
+    /// Where the node's Markdown body file lives, nil when it has none. When a provider does not
+    /// say, a Markdown surface is a sibling `x.md` and a stored directory document is `x/_index.md`.
+    public var markdownBody: MarkdownBodyOrigin?
 
     public init(
         reference: WorkspaceReference,
@@ -259,7 +264,8 @@ public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
         surface: WorkspaceSurface,
         provenance: WorkspaceProvenance,
         materialization: WorkspaceMaterialization = .available,
-        isWritable: Bool = true
+        isWritable: Bool = true,
+        markdownBody: MarkdownBodyOrigin? = nil
     ) {
         self.reference = reference
         self.location = location ?? .reference(reference)
@@ -268,9 +274,20 @@ public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
         self.provenance = provenance
         self.materialization = materialization
         self.isWritable = isWritable && !surface.isReadOnly
+        self.markdownBody = markdownBody ?? surface.defaultMarkdownBody
     }
 
     public var id: WorkspaceIdentity { reference.identity }
+
+    /// The tree directory holding the node's body file, which its relative links resolve against.
+    public var sourceDirectory: String {
+        markdownSourceDirectory(nodePath: reference.path, body: markdownBody)
+    }
+
+    /// The target a Markdown link to this node names.
+    public var markdownLinkTarget: MarkdownLinkTarget {
+        MarkdownLinkTarget(path: reference.path, body: markdownBody, stableKey: reference.stableKey)
+    }
 }
 
 public struct WorkspaceSearchResult: Hashable, Codable, Sendable, Identifiable {
@@ -279,19 +296,23 @@ public struct WorkspaceSearchResult: Hashable, Codable, Sendable, Identifiable {
     public var excerpt: String?
     public var modifiedAt: Date?
     public var backlinkCount: Int
+    /// Where the result's Markdown body file lives, nil when it has none or the provider does not say.
+    public var markdownBody: MarkdownBodyOrigin?
 
     public init(
         reference: WorkspaceReference,
         title: String,
         excerpt: String? = nil,
         modifiedAt: Date? = nil,
-        backlinkCount: Int = 0
+        backlinkCount: Int = 0,
+        markdownBody: MarkdownBodyOrigin? = nil
     ) {
         self.reference = reference
         self.title = title
         self.excerpt = excerpt
         self.modifiedAt = modifiedAt
         self.backlinkCount = backlinkCount
+        self.markdownBody = markdownBody
     }
 
     public var id: WorkspaceIdentity { reference.identity }

@@ -1,0 +1,10 @@
+[
+  {
+    "source": "See [a](x.md) and ![i](p.png) and [b](https://e.com/q?a=1#f).",
+    "destinations": [{"href": "x.md", "image": false}, {"href": "p.png", "image": true}, {"href": "https://e.com/q?a=1#f", "image": false}]
+  },
+  {
+    "source": "é [ü](Ünïcode.md)\r\n- [z](#top)\n[](empty.md)",
+    "destinations": [{"href": "Ünïcode.md", "image": false}, {"href": "#top", "image": false}, {"href": "empty.md", "image": false}]
+  }
+]

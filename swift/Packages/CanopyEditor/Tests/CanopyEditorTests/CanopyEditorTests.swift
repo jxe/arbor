@@ -757,7 +757,7 @@ struct CanopyEditorTests {
             requestedReference: nil,
             initialContent: nil
         ))
-        let firstReference = try #require(CanopyDocumentReferenceCodec.decode(first))
+        let firstReference = try #require(host.workspaceReference(for: first))
         let createdSession = try await provider.openDocument(firstReference)
         let createdSnapshot = try await createdSession.snapshot()
         _ = try await createdSession.admit(
@@ -800,13 +800,15 @@ struct CanopyEditorTests {
 
         #expect(firstReference.path == "/welcome/Arbor-demo")
         #expect(firstReference.stableKey != nil)
+        // The created page's link is the relative Markdown link this page stores, unchanged by linkURL.
+        #expect(first.rawValue.hasPrefix("welcome/Arbor-demo.md#arbor-key=id:pg_"))
         let authoredLink = try #require(host.linkURL(for: first, in: binding.document))
-        #expect(authoredLink.relativeString.hasPrefix("welcome/Arbor-demo#arbor-key="))
+        #expect(authoredLink.relativeString == first.rawValue)
         #expect(authoredLink.scheme == nil)
         #expect(retry == first, "a retry should recover the page materialized by the first attempt")
-        #expect(CanopyDocumentReferenceCodec.decode(existing)?.path == "/welcome")
-        #expect(CanopyDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
-        #expect(CanopyDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
+        #expect(host.workspaceReference(for: existing)?.path == "/welcome")
+        #expect(host.workspaceReference(for: remote)?.path == remoteMatch.reference.path)
+        #expect(host.workspaceReference(for: disambiguated)?.path == "/welcome/Collision-2")
         #expect(errors.isEmpty)
         await session.close()
     }
@@ -844,7 +846,10 @@ struct CanopyEditorTests {
         let suggestions = await host.suggestDocuments("Values", in: binding.document)
 
         #expect(suggestions.first?.title == "Values")
-        #expect(suggestions.first?.id == CanopyDocumentReferenceCodec.encode(target.reference))
+        let targetKey = try #require(target.reference.stableKey.flatMap(encodeStableKey))
+        #expect(suggestions.first?.id == DocumentReference("Values.md#arbor-key=\(targetKey)"))
+        #expect(host.linkURL(for: try #require(suggestions.first?.id), in: binding.document)?.relativeString
+            == "Values.md#arbor-key=\(targetKey)")
         #expect(suggestions.allSatisfy {
             $0.title.localizedCaseInsensitiveContains("Values")
                 || ($0.subtitle?.localizedCaseInsensitiveContains("Values") == true)
@@ -1089,8 +1094,9 @@ struct CanopyEditorTests {
             from: URL(string: "Reference.md#stdu7s")!,
             in: binding.document
         ))
-        #expect(CanopyDocumentReferenceCodec.decode(hunchLink)?.path == "/Reference")
-        let standaloneHunchLink = DocumentReference("welcome.md#pg_welcome")
+        #expect(hunchLink.rawValue == "Reference.md#stdu7s")
+        #expect(host.workspaceReference(for: hunchLink) == WorkspaceReference(tree: "tr_sample", path: "/Reference"))
+        let standaloneHunchLink = DocumentReference("welcome.md#arbor-key=id:pg_welcome")
         host.openDocument(standaloneHunchLink)
         #expect(openedReference?.path == "/welcome")
         #expect(host.lookupDocument(standaloneHunchLink) == .pending)
@@ -1175,7 +1181,8 @@ struct CanopyEditorTests {
         let projected = CanopyMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
-            directory: directory
+            directory: directory,
+            sourceDirectory: "/parent"
         )
         let parent = try #require(projected.first)
         let markerIndex = try #require(parent.children.firstIndex {
@@ -1199,7 +1206,7 @@ struct CanopyEditorTests {
         }
         let admitted = CanopyMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
         #expect(document.find(generatedID).map(CanopyMarkdownCodec.isProjectedChild) == false)
-        #expect(admitted.contains("[Child]("))
+        #expect(admitted.contains("[Child](child.md#arbor-key=id:pg_child)"))
         let linkRange = try #require(admitted.range(of: "[Child]("))
         let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
         #expect(linkRange.lowerBound < markerRange.lowerBound)
@@ -1226,7 +1233,8 @@ struct CanopyEditorTests {
         let projected = CanopyMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
-            directory: directory
+            directory: directory,
+            sourceDirectory: "/"
         )
         let heading = try #require(projected.first)
         let generated = try #require(heading.children.first(where: CanopyMarkdownCodec.isProjectedChild))
@@ -1309,19 +1317,20 @@ struct CanopyEditorTests {
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
-            relativeReferenceBase: parent.reference,
+            sourceDirectory: parent.sourceDirectory,
             open: { opened.append($0) }
         )
+        #expect(parent.sourceDirectory == "/parent")
         let generatedChildLink = try #require(host.resolveReference(
             from: URL(string: "child")!,
             in: binding.document
         ))
-        #expect(CanopyDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
+        #expect(host.workspaceReference(for: generatedChildLink)?.path == "/parent/child")
         let legacyChildLink = try #require(host.resolveReference(
-            from: URL(string: "stale-child.md#pg_child")!,
+            from: URL(string: "stale-child.md#arbor-key=id:pg_child")!,
             in: binding.document
         ))
-        #expect(CanopyDocumentReferenceCodec.decode(legacyChildLink) == WorkspaceReference(
+        #expect(host.workspaceReference(for: legacyChildLink) == WorkspaceReference(
             tree: tree,
             path: "/parent/stale-child",
             stableKey: markdownStableKey("pg_child")
@@ -1333,7 +1342,7 @@ struct CanopyEditorTests {
             from: URL(string: "../destination")!,
             in: binding.document
         ))
-        #expect(CanopyDocumentReferenceCodec.decode(relativeSiblingLink)?.path == "/destination")
+        #expect(host.workspaceReference(for: relativeSiblingLink)?.path == "/destination")
         let reference = CanopyDocumentReferenceCodec.encode(.init(
             tree: tree,
             path: "/stale-child-hint",
@@ -1863,13 +1872,13 @@ extension CanopyEditorTests {
         let source = WorkspaceNode(
             reference: .init(tree: tree, path: "/source", stableKey: markdownStableKey("pg_source")),
             title: "Source",
-            surface: .markdown(source: "[Target](old-name#pg_target)\n", contentRevision: "r1"),
+            surface: .markdown(source: "[Target](old-name.md#arbor-key=id:pg_target)\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let child = WorkspaceNode(
             reference: .init(tree: tree, path: "/old-name/child", stableKey: markdownStableKey("pg_child")),
             title: "Child",
-            surface: .markdown(source: "[Source](../source#pg_source)\n", contentRevision: "r1"),
+            surface: .markdown(source: "[Source](../source.md#arbor-key=id:pg_source)\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let childBacklink = WorkspaceNode(
@@ -1893,12 +1902,13 @@ extension CanopyEditorTests {
         )
 
         let healed = try await provider.openDocument(source.reference).snapshot()
-        #expect(healed.source == "[Target](private-name#pg_target)\n")
+        #expect(healed.source == "[Target](private-name.md#arbor-key=id:pg_target)\n")
+        // A keyless inbound link gains its target's key as its path is rewritten.
         let healedChildBacklink = try await provider.openDocument(childBacklink.reference).snapshot()
-        #expect(healedChildBacklink.source == "[Child](private-name/child)\n")
+        #expect(healedChildBacklink.source == "[Child](private-name/child.md#arbor-key=id:pg_child)\n")
         let movedChild = try await provider.resolve(.init(tree: tree, path: "/private-name/child", stableKey: child.reference.stableKey))
         let healedChild = try await provider.openDocument(movedChild.reference).snapshot()
-        #expect(healedChild.source == "[Source](../source#pg_source)\n")
+        #expect(healedChild.source == "[Source](../source.md#arbor-key=id:pg_source)\n")
         #expect(renamed.title == "A Different Title")
         await workspace.closeAll()
     }
@@ -2049,5 +2059,196 @@ struct TransferPlanTests {
     @Test("An empty destination cannot be a landing place")
     func emptyDestination() throws {
         #expect(try plan("One\n\nTwo\n", "") { [$0[0]] } == nil)
+    }
+}
+
+@Suite("Same-tree links are relative Markdown links from the body's directory")
+struct MarkdownLinkWritingTests {
+    private struct DirectoryFixture: Decodable {
+        struct Case: Decodable {
+            struct Placement: Decodable {
+                var path: String
+                var body: MarkdownBodyOrigin?
+            }
+            struct Child: Decodable {
+                var name: String
+                var path: String
+                var body: MarkdownBodyOrigin?
+                var stableKey: String?
+            }
+            var name: String
+            var directory: Placement
+            var source: String
+            var children: [Child]
+            var expectedBlockPaths: [String]
+            var expectedGeneratedChildren: [String]
+        }
+        var cases: [Case]
+    }
+
+    private static var conformance: URL {
+        if let path = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "../../../../../docs/overstory-spec/conformance")
+            .standardizedFileURL
+    }
+
+    private static func node(_ path: String, tree: TreeID = "tr_links", body: MarkdownBodyOrigin?, stableKey: String? = nil, title: String? = nil) -> WorkspaceNode {
+        let surface: WorkspaceSurface = body == .index
+            ? .directoryDocument(source: "", contentRevision: "r1", stored: true)
+            : .markdown(source: "", contentRevision: "r1")
+        return WorkspaceNode(
+            reference: .init(tree: tree, path: path, stableKey: stableKey),
+            title: title ?? String(path.split(separator: "/").last ?? "/"),
+            surface: surface,
+            provenance: .init(authority: .local, sourceDescription: "Test"),
+            markdownBody: body
+        )
+    }
+
+    private static func documentLinks(_ blocks: [Block]) -> [(reference: DocumentReference, projected: Bool)] {
+        blocks.flatMap { block -> [(reference: DocumentReference, projected: Bool)] in
+            var links: [(reference: DocumentReference, projected: Bool)] = []
+            if case let .documentLink(_, reference) = block.kind {
+                links.append((reference, CanopyMarkdownCodec.isProjectedChild(block)))
+            }
+            return links + documentLinks(block.children)
+        }
+    }
+
+    @Test("Directory placement matches every shared directory-document vector")
+    func directoryDocumentVectors() throws {
+        let fixture = try JSONDecoder().decode(
+            DirectoryFixture.self,
+            from: Data(contentsOf: Self.conformance.appending(path: "directory-documents.json"))
+        )
+        #expect(!fixture.cases.isEmpty)
+        for item in fixture.cases {
+            let directory = Self.node(item.directory.path, body: item.directory.body)
+            let children = item.children.map { Self.node($0.path, body: $0.body, stableKey: $0.stableKey, title: $0.name) }
+            let opened = CanopyMarkdownCodec.open(source: item.source, revision: "r1", identitySeed: item.name)
+            let projected = CanopyMarkdownCodec.placeDirectoryChildren(
+                children,
+                in: opened.blocks,
+                directory: directory.reference,
+                sourceDirectory: directory.sourceDirectory
+            )
+            let links = Self.documentLinks(projected)
+            let comment = Comment(rawValue: item.name)
+            #expect(links.map(\.reference.rawValue) == item.expectedBlockPaths, comment)
+            let generated = links.filter(\.projected).compactMap {
+                resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: $0.reference.rawValue)?.path
+            }
+            #expect(generated.sorted() == item.expectedGeneratedChildren.sorted(), comment)
+            #expect(CanopyMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
+        }
+    }
+
+    @Test("A sibling body's generated rows resolve from its parent; an index body's from itself")
+    func siblingAndIndexGeneratedRows() {
+        let child = Self.node("/notes/alpha", body: .sibling, stableKey: markdownStableKey("a1"))
+        let folder = Self.node("/notes/folder", body: .index, stableKey: markdownStableKey("f1"))
+        let crossTree = Self.node("/", tree: "tr_other", body: nil)
+        let opened = CanopyMarkdownCodec.open(source: "# Notes\n", revision: "r1", identitySeed: "rows")
+        func rows(_ body: MarkdownBodyOrigin) -> [String] {
+            let directory = Self.node("/notes", body: body)
+            return Self.documentLinks(CanopyMarkdownCodec.placeDirectoryChildren(
+                [child, folder, crossTree],
+                in: opened.blocks,
+                directory: directory.reference,
+                sourceDirectory: directory.sourceDirectory
+            )).map(\.reference.rawValue)
+        }
+        #expect(rows(.index) == ["arbor://tr_other/", "alpha.md#arbor-key=id:a1", "folder/_index.md#arbor-key=id:f1"])
+        #expect(rows(.sibling) == ["arbor://tr_other/", "notes/alpha.md#arbor-key=id:a1", "notes/folder/_index.md#arbor-key=id:f1"])
+    }
+
+    @MainActor
+    @Test("Suggestions and converted links are relative in this tree and arbor:// across trees")
+    func suggestionsAreRelativeInTree() async throws {
+        let tree: TreeID = "tr_mentions"
+        let root = Self.node("/", tree: tree, body: .index, title: "Home")
+        let page = Self.node("/notes/page", tree: tree, body: .sibling, stableKey: markdownStableKey("p1"), title: "Page")
+        let folder = Self.node("/Folder", tree: tree, body: .index, stableKey: markdownStableKey("f1"), title: "Folder")
+        let provider = InMemoryWorkspaceProvider(nodes: [root, page, folder], children: [root.id: [folder.id]])
+        let session = try await provider.openDocument(page.reference)
+        let binding = try await CanopyDocumentBinding.open(reference: page.reference, session: session)
+        let host = CanopyEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: LinkPreviewService(cacheDirectory: FileManager.default.temporaryDirectory.appending(path: "previews-\(UUID())")),
+            sourceDirectory: page.sourceDirectory
+        )
+
+        let suggestions = await host.suggestDocuments("Folder", in: binding.document)
+        let folderLink = try #require(suggestions.first { $0.title == "Folder" }?.id)
+        #expect(folderLink.rawValue == "../Folder/_index.md#arbor-key=id:f1")
+        #expect(host.linkURL(for: folderLink, in: binding.document)?.relativeString == folderLink.rawValue)
+        #expect(host.workspaceReference(for: folderLink) == folder.reference)
+
+        // A same-tree locator converts to the relative link, naming the body file once it is known.
+        let converted = try #require(host.resolveReference(
+            from: URL(string: "arbor://tr_mentions/Folder;arbor-key=id:f1")!,
+            in: binding.document
+        ))
+        #expect(converted.rawValue == "../Folder/_index.md#arbor-key=id:f1")
+
+        let other = WorkspaceReference(tree: "tr_elsewhere", path: "/x", stableKey: markdownStableKey("x1"))
+        #expect(host.documentReference(for: other, body: .sibling).rawValue == "arbor://tr_elsewhere/x;arbor-key=id:x1")
+        let crossTree = try #require(host.resolveReference(
+            from: URL(string: "arbor://tr_elsewhere/x;arbor-key=id:x1")!,
+            in: binding.document
+        ))
+        #expect(crossTree.rawValue == "arbor://tr_elsewhere/x;arbor-key=id:x1")
+        #expect(host.workspaceReference(for: crossTree) == other)
+        await session.close()
+    }
+
+    @MainActor
+    @Test("A moved page's own keyless outbound link is healed from its new directory")
+    func movedDocumentOutboundLinks() async throws {
+        let tree: TreeID = "tr_move_heal"
+        let root = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directory(summary: nil),
+            provenance: .init(authority: .local, sourceDescription: "Test")
+        )
+        let target = Self.node("/source", tree: tree, body: .sibling, stableKey: markdownStableKey("pg_source"))
+        let folder = WorkspaceNode(
+            reference: .init(tree: tree, path: "/a"),
+            title: "a",
+            surface: .directory(summary: nil),
+            provenance: root.provenance
+        )
+        let destination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/b/c"),
+            title: "c",
+            surface: .directory(summary: nil),
+            provenance: root.provenance
+        )
+        let mover = WorkspaceNode(
+            reference: .init(tree: tree, path: "/a/mover", stableKey: markdownStableKey("pg_mover")),
+            title: "Mover",
+            surface: .markdown(source: "[S](../source.md) and [W](https://example.com/x)\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [root, target, folder, destination, mover],
+            children: [root.id: [target.id, folder.id, destination.id], folder.id: [mover.id]]
+        )
+        let workspace = CanopyEditorWorkspace(provider: provider)
+        let action = WorkspaceStructuralAction.move(reference: mover.reference, destination: destination.reference)
+        let sources = await workspace.linkHealingSources(for: action)
+        #expect(sources.first { $0.reference == mover.reference }?.sourceDirectory == "/a")
+        let moved = try #require(try await provider.perform(action))
+        await workspace.healLinks(in: sources, movedFrom: mover.reference.path, to: moved.reference)
+
+        let healed = try await provider.openDocument(moved.reference).snapshot()
+        #expect(healed.source == "[S](../../source.md#arbor-key=id:pg_source) and [W](https://example.com/x)\n")
+        await workspace.closeAll()
     }
 }

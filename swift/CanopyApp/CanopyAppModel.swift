@@ -2057,21 +2057,14 @@ final class CanopyAppModel {
                     return
                 }
                 if case .directoryDocument = resolved.surface {
-                    lease.binding.projectDirectoryChildren(loadedChildren, in: resolved.reference)
+                    lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
                 editorLease = lease
-                let relativeReferenceBase: WorkspaceReference
-                switch resolved.surface {
-                case .directoryDocument:
-                    relativeReferenceBase = resolved.reference
-                default:
-                    relativeReferenceBase = resolved.reference.parent ?? resolved.reference
-                }
                 editorHost = CanopyEditorHost(
                     binding: lease.binding,
                     provider: workspace.provider,
                     linkPreviewService: workspace.linkPreviewService,
-                    relativeReferenceBase: relativeReferenceBase,
+                    sourceDirectory: resolved.sourceDirectory,
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
                     navigateBack: { [weak self] in Task { await self?.goBack() } },
                     reportError: { [weak self] message in self?.errorMessage = message },

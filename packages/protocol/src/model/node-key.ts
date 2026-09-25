@@ -42,55 +42,66 @@ export function parseCanonicalStableKey(value: string): StableKeyPair[] | null {
   return JSON.stringify(parsed) === value ? parsed as StableKeyPair[] : null;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+const UNRESERVED = /[A-Za-z0-9\-._~]/;
+
+function percentEncode(value: string): string {
+  let encoded = "";
+  for (const byte of new TextEncoder().encode(value)) {
+    const character = String.fromCharCode(byte);
+    encoded += byte < 0x80 && UNRESERVED.test(character) ? character : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+  return encoded;
 }
 
-function base64ToBytes(value: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
-  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-  const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
+function percentDecode(value: string): string | null {
+  if (/%(?![0-9A-F]{2})/.test(value)) return null;
   try {
-    const binary = atob(padded);
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return decodeURIComponent(value);
   } catch {
     return null;
   }
 }
 
+/**
+ * The readable key token carried by `;arbor-key=` and `#arbor-key=`: each pair
+ * as `name:value` for a string or `name=literal` for a number or boolean,
+ * joined by `,`, with every byte outside the URI unreserved set
+ * percent-encoded. `[["id","h31mlm"]]` is `id:h31mlm`.
+ */
 export function encodeStableKey(value: string): string {
-  if (!parseCanonicalStableKey(value)) throw new TypeError("stable key is not canonical identity JSON");
-  return bytesToBase64(new TextEncoder().encode(value))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
+  const pairs = parseCanonicalStableKey(value);
+  if (!pairs) throw new TypeError("stable key is not canonical identity JSON");
+  return pairs.map(([name, scalar]) => typeof scalar === "string"
+    ? `${percentEncode(name)}:${percentEncode(scalar)}`
+    : `${percentEncode(name)}=${JSON.stringify(scalar)}`).join(",");
 }
 
-export function decodeStableKey(value: string): string | null {
-  const bytes = base64ToBytes(value);
-  if (!bytes) return null;
-  let decoded: string;
-  try {
-    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return null;
+export function decodeStableKey(token: string): string | null {
+  if (!token) return null;
+  const pairs: StableKeyPair[] = [];
+  for (const part of token.split(",")) {
+    const separator = part.search(/[:=]/);
+    if (separator < 1) return null;
+    const name = percentDecode(part.slice(0, separator));
+    const raw = part.slice(separator + 1);
+    if (name === null) return null;
+    if (part[separator] === ":") {
+      const scalar = percentDecode(raw);
+      if (scalar === null) return null;
+      pairs.push([name, scalar]);
+      continue;
+    }
+    let literal: unknown;
+    try {
+      literal = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (typeof literal !== "boolean" && !(typeof literal === "number" && Number.isFinite(literal))) return null;
+    pairs.push([name, literal]);
   }
-  if (!parseCanonicalStableKey(decoded) || encodeStableKey(decoded) !== value) return null;
-  return decoded;
-}
-
-/** Compatibility bridge for Markdown `id` while PageID storage is migrated. */
-export function pageIDStableKey(pageID: string): string {
-  return canonicalStableKey([["id", pageID]]);
-}
-
-export function pageIDFromStableKey(stableKey: string | null): string | null {
-  const pairs = stableKey ? parseCanonicalStableKey(stableKey) : null;
-  return pairs?.length === 1 && pairs[0]?.[0] === "id" && typeof pairs[0][1] === "string"
-    ? pairs[0][1]
-    : null;
+  const key = canonicalStableKey(pairs);
+  return encodeStableKey(key) === token ? key : null;
 }
 
 /** Derive one canonical key from declared properties without coercing values. */
@@ -130,5 +141,12 @@ export function rowPathSegment(stableKey: string): string {
   if (!pairs) throw new TypeError("row path requires a canonical stable key");
   const onlyValue = pairs.length === 1 ? pairs[0]![1] : null;
   if (typeof onlyValue === "string" && readableRowSegment(onlyValue)) return onlyValue;
-  return `~row-${encodeStableKey(stableKey)}`;
+  return `~row-${rowKeyToken(stableKey)}`;
+}
+
+/** `~row-` keeps base64url of the canonical key JSON until Postgres 005 settles the row segment rule. */
+function rowKeyToken(stableKey: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(stableKey)) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }

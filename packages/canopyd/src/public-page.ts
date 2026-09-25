@@ -13,7 +13,8 @@ export interface PublicMarkdownPageOptions {
   fallbackTitle: string;
   origin: string;
   treeCanonicalPath: string;
-  documentPath: string;
+  /** The tree directory holding the page's Markdown file; its relative links resolve against it. */
+  sourceDirectory: string;
   children?: PublicPageChild[];
 }
 
@@ -36,12 +37,13 @@ interface RenderContext {
   origin: string;
   host: string;
   treeCanonicalPath: string;
-  documentPath: string;
+  /** The tree directory holding the page's Markdown file; its relative links resolve against it. */
+  sourceDirectory: string;
   footnotes: Map<string, number>;
 }
 
 function linkHref(raw: string, context: RenderContext): string | null {
-  const resolved = resolveLogicalURL(context.documentPath, raw);
+  const resolved = resolveLogicalURL(context.sourceDirectory, raw);
   if (!resolved) return null;
   if (resolved.kind === "local") {
     return buildNetworkLocator(publicTreePath(context.treeCanonicalPath, resolved.path), resolved);
@@ -274,7 +276,7 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     origin: options.origin,
     host: new URL(options.origin).host,
     treeCanonicalPath: options.treeCanonicalPath,
-    documentPath: options.documentPath,
+    sourceDirectory: options.sourceDirectory,
     footnotes: collectFootnotes(document.blocks),
   };
   const title = markdownDisplayTitle(document, options.fallbackTitle);

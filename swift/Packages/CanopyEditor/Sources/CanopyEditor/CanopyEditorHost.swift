@@ -102,10 +102,11 @@ public struct CanopyMoveDocument: Identifiable, Hashable, Sendable {
     }
 }
 
-/// Document-link rows carry their target as an `arbor://` locator in the canonical grammar
-/// `arbor://<tree>/<path>;arbor-key=<base64url>`, which is what `resolveNodeTarget` parses and
-/// what the backlink indexes read. Pre-canonical `arbor://<tree>/node/<path>?stableKey=<JSON>`
-/// references still decode, through the read-side shim in `resolveNodeTarget`.
+/// A reference that names its tree: `arbor://<tree>/<path>;arbor-key=<token>`, which is what
+/// `resolveNodeTarget` parses and what the backlink indexes read. Authored Markdown uses it only
+/// for a link into another tree; a same-tree link is a relative Markdown link written by
+/// `CanopyEditorHost`. The app also uses it for references that never reach Markdown, such as
+/// move and drop destinations.
 public enum CanopyDocumentReferenceCodec {
     public static func encode(_ reference: WorkspaceReference) -> DocumentReference {
         let locator = buildArborLocator(
@@ -117,9 +118,8 @@ public enum CanopyDocumentReferenceCodec {
     }
 
     public static func decode(_ value: DocumentReference) -> WorkspaceReference? {
-        guard let target = resolveNodeTarget(base: "/", href: value.rawValue), let tree = target.tree else { return nil }
-        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
-        return WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: stableKey)
+        guard let target = resolveNodeTarget(sourceDirectory: "/", href: value.rawValue), let tree = target.tree else { return nil }
+        return WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: target.stableKey)
     }
 }
 
@@ -162,7 +162,12 @@ public final class CanopyEditorHost: EditorHost {
     public private(set) var structuralMoveRequest: CanopyStructuralMoveRequest?
     private let provider: any WorkspaceProvider
     private let linkPreviewService: LinkPreviewService
-    private let relativeReferenceBase: WorkspaceReference
+    /// The tree directory holding this document's body file: relative links in it resolve from
+    /// here, and same-tree links this host writes are relative to it.
+    private let sourceDirectory: String
+    /// Where known same-tree nodes keep their bodies, so a synchronous link conversion can name
+    /// a node's file. Filled from suggestions, lookups and created pages.
+    @ObservationIgnored private var knownBodies: [String: MarkdownBodyOrigin?] = [:]
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
     private let errorAction: @MainActor (String) -> Void
@@ -178,7 +183,7 @@ public final class CanopyEditorHost: EditorHost {
         binding: CanopyDocumentBinding,
         provider: any WorkspaceProvider,
         linkPreviewService: LinkPreviewService,
-        relativeReferenceBase: WorkspaceReference? = nil,
+        sourceDirectory: String? = nil,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
         navigateBack: @escaping @MainActor () -> Void = {},
         reportError: @escaping @MainActor (String) -> Void = { _ in },
@@ -188,9 +193,8 @@ public final class CanopyEditorHost: EditorHost {
         self.binding = binding
         self.provider = provider
         self.linkPreviewService = linkPreviewService
-        self.relativeReferenceBase = relativeReferenceBase
-            ?? binding.reference.parent
-            ?? binding.reference
+        self.sourceDirectory = sourceDirectory
+            ?? markdownSourceDirectory(nodePath: binding.reference.path, body: .sibling)
         self.openAction = open
         self.backAction = navigateBack
         self.errorAction = reportError
@@ -293,14 +297,32 @@ public final class CanopyEditorHost: EditorHost {
                 return lhs.reference.path.localizedStandardCompare(rhs.reference.path) == .orderedAscending
             }
         }
-        return results.prefix(8).map {
-            MentionItem(
-                id: CanopyDocumentReferenceCodec.encode($0.reference),
-                title: $0.title,
-                subtitle: $0.reference.path,
-                isHome: $0.reference.path == "/"
-            )
+        var items: [MentionItem] = []
+        for result in results.prefix(8) {
+            var body = result.markdownBody
+            if body == nil, let node = try? await provider.resolve(result.reference) { body = node.markdownBody }
+            items.append(MentionItem(
+                id: documentReference(for: result.reference, body: body),
+                title: result.title,
+                subtitle: result.reference.path,
+                isHome: result.reference.path == "/"
+            ))
         }
+        return items
+    }
+
+    /// The reference a document link in this page stores for `reference`: a relative Markdown
+    /// link to its body file, with its key, in this tree, and an `arbor://` locator into another.
+    func documentReference(for reference: WorkspaceReference, body: MarkdownBodyOrigin?) -> DocumentReference {
+        guard reference.tree == binding.reference.tree else { return CanopyDocumentReferenceCodec.encode(reference) }
+        knownBodies[reference.path] = body
+        let target = MarkdownLinkTarget(path: reference.path, body: body, stableKey: reference.stableKey)
+        return buildMarkdownLink(from: sourceDirectory, to: target).map { DocumentReference($0) }
+            ?? CanopyDocumentReferenceCodec.encode(reference)
+    }
+
+    private func documentReference(for node: WorkspaceNode) -> DocumentReference {
+        documentReference(for: node.reference, body: node.markdownBody)
     }
 
     private func mentionSuggestionRank(_ result: WorkspaceSearchResult, query: String) -> Int {
@@ -363,6 +385,7 @@ public final class CanopyEditorHost: EditorHost {
                 guard let self else { return }
                 do {
                     let node = try await provider.resolve(decoded)
+                    if node.reference.tree == binding.reference.tree { knownBodies[node.reference.path] = node.markdownBody }
                     lookups[reference] = .present(.init(
                         title: node.title,
                         capabilities: documentCapabilities(for: node)
@@ -400,38 +423,29 @@ public final class CanopyEditorHost: EditorHost {
         return node
     }
 
+    /// A relative link already names its target from this page, so it is kept as written; a
+    /// same-tree `arbor://` locator becomes the relative link this page would write for it, naming
+    /// the body file known from earlier lookups (or a sibling `x.md` until one is known), and a
+    /// locator into another tree stays one.
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
-        guard let reference = workspaceReference(for: url) else { return nil }
-        return CanopyDocumentReferenceCodec.encode(reference)
+        let href = url.absoluteString
+        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: href) else { return nil }
+        guard let tree = target.tree else { return DocumentReference(href) }
+        let reference = WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: target.stableKey)
+        guard reference.tree == binding.reference.tree else { return CanopyDocumentReferenceCodec.encode(reference) }
+        return documentReference(for: reference, body: knownBodies[reference.path] ?? .sibling)
     }
 
-    private func workspaceReference(for reference: DocumentReference) -> WorkspaceReference? {
-        if let decoded = CanopyDocumentReferenceCodec.decode(reference) { return decoded }
-        guard let url = URL(string: reference.rawValue) else { return nil }
-        return workspaceReference(for: url)
-    }
-
-    private func workspaceReference(for url: URL) -> WorkspaceReference? {
-        guard let target = resolveNodeTarget(
-            base: relativeReferenceBase.path,
-            href: url.absoluteString
-        ) else { return nil }
+    /// The node a reference this page stores names, from this page's source directory.
+    func workspaceReference(for reference: DocumentReference) -> WorkspaceReference? {
+        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: reference.rawValue) else { return nil }
         let tree = target.tree.map(TreeID.init(rawValue:)) ?? binding.reference.tree
-        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
-        return WorkspaceReference(tree: tree, path: target.path, stableKey: stableKey)
+        return WorkspaceReference(tree: tree, path: target.path, stableKey: target.stableKey)
     }
 
+    /// References this host hands the editor are already the hrefs the page stores.
     public func linkURL(for reference: DocumentReference, in _: Document) -> URL? {
-        guard let target = CanopyDocumentReferenceCodec.decode(reference),
-              target.tree == binding.reference.tree,
-              let link = buildCanonicalLink(
-                from: relativeReferenceBase.path,
-                toPath: target.path,
-                stableKey: target.stableKey
-              ) else {
-            return URL(string: reference.rawValue)
-        }
-        return URL(string: link)
+        URL(string: reference.rawValue)
     }
 
     public func createDocument(title: String, requestedReference: DocumentReference?, initialContent: [Block]?, transaction: UUID) async -> DocumentReference? {
@@ -500,7 +514,7 @@ public final class CanopyEditorHost: EditorHost {
             if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)) {
                 siblingsByName[name.lowercased()] = materialized
                 if page(materialized, hasExactTitle: title) {
-                    return CanopyDocumentReferenceCodec.encode(materialized.reference)
+                    return documentReference(for: materialized)
                 }
                 continue
             }
@@ -558,7 +572,7 @@ public final class CanopyEditorHost: EditorHost {
 
     private func durableDocumentReference(for node: WorkspaceNode) async -> DocumentReference? {
         if node.reference.stableKey != nil || node.reference.tree == "local" {
-            return CanopyDocumentReferenceCodec.encode(node.reference)
+            return documentReference(for: node)
         }
         do {
             let snapshot = try await withDocumentSession(node.reference) { try await $0.snapshot() }
@@ -566,7 +580,7 @@ public final class CanopyEditorHost: EditorHost {
                 errorAction("Failed to create a durable page link: the workspace returned no identity")
                 return nil
             }
-            return CanopyDocumentReferenceCodec.encode(snapshot.reference)
+            return documentReference(for: snapshot.reference, body: node.markdownBody)
         } catch {
             errorAction("Failed to create a durable page link: \(error.localizedDescription)")
             return nil
@@ -1007,8 +1021,7 @@ public final class CanopyEditorHost: EditorHost {
         if withoutFragment.hasPrefix("/") {
             path = withoutFragment
         } else {
-            let base = relativeReferenceBase.path
-            path = base == "/" ? "/\(withoutFragment)" : "\(base)/\(withoutFragment)"
+            path = sourceDirectory == "/" ? "/\(withoutFragment)" : "\(sourceDirectory)/\(withoutFragment)"
         }
         return WorkspaceReference(tree: binding.reference.tree, path: path)
     }

@@ -16,7 +16,7 @@ support directory, keyed by the percent-encoded `TreeID`:
     materialized/tree.json    # WorkingTreeState, schema 2
     control/heads.json        # materialized, accepted, and pending roots
     journals/pages/<key>/     # crash journal for in-flight page transactions
-    indexes/search.json       # search and page-identity index, rebuildable
+    indexes/search.json       # search and backlink index (format 2), rebuilt when its format or generation differs
     objects/<hash>            # the overlay: this tree's own unaccepted objects
   Sync/<key>/
     sync/update-control.json  # UpdateControl, schema 2: attempt, durable head, hold, conflict

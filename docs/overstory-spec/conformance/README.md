@@ -4,10 +4,17 @@ These language-neutral vectors accompany the portable [Overstory specification](
 
 The vectors are normative only where their owning specification defines an exact representation or result. Reference daemon responses, client presentation values, and replaceable host algorithms live under [`tests/fixtures`](../../../tests/fixtures) instead.
 
-`url-resolution.json` is the shared TypeScript/Swift locator contract. Its
-`legacyStableKeyCandidate` field records input-only migration evidence; it does
-not turn an ordinary content fragment into identity. A resolver may use that
-candidate only after the old PageID owner index proves one accessible owner.
+`url-resolution.json` and `node-targets.json` are the shared TypeScript/Swift
+locator contract, resolved against a source directory
+([locators §2.1](../03-locators.md#21-links-written-in-markdown)). A bare
+fragment is only ever a content fragment. The Markdown link surface has five
+more files, each run by both implementations:
+
+- `stable-key-tokens.json`: key tokens that must round-trip, and tokens that must be rejected.
+- `markdown-source-directories.json`: the directory a body's links resolve from, and the file a link names for it.
+- `markdown-links.json`: what a writer emits for a target.
+- `markdown-link-healing.json`: byte-preserving rewrites after a move, a body-form change, or a stale path.
+- `markdown-link-destinations.json`: which hrefs a Markdown source contains.
 
 `node-model.json` freezes the provider-neutral model-sampling values (refs,
 identity rules, snapshots, child pages, collection-file descriptors) that the

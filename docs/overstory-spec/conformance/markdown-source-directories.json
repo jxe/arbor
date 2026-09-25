@@ -1,0 +1,38 @@
+[
+  {
+    "path": "/a/x",
+    "body": "sibling",
+    "sourceDirectory": "/a",
+    "linkFile": "/a/x.md"
+  },
+  {
+    "path": "/x",
+    "body": "sibling",
+    "sourceDirectory": "/",
+    "linkFile": "/x.md"
+  },
+  {
+    "path": "/a/x",
+    "body": "index",
+    "sourceDirectory": "/a/x",
+    "linkFile": "/a/x/_index.md"
+  },
+  {
+    "path": "/a/x",
+    "body": null,
+    "sourceDirectory": "/a/x",
+    "linkFile": "/a/x"
+  },
+  {
+    "path": "/",
+    "body": "index",
+    "sourceDirectory": "/",
+    "linkFile": "/_index.md"
+  },
+  {
+    "path": "/",
+    "body": null,
+    "sourceDirectory": "/",
+    "linkFile": "/"
+  }
+]

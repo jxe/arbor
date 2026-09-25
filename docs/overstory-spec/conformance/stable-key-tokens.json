@@ -1,0 +1,15 @@
+{
+  "valid": [
+    {"key": "[[\"id\",\"h31mlm\"]]", "token": "id:h31mlm"},
+    {"key": "[[\"id\",\"pg_2418e521-42b7-4581-8905-8a6ae1803039\"]]", "token": "id:pg_2418e521-42b7-4581-8905-8a6ae1803039"},
+    {"key": "[[\"slug\",\"walking\"],[\"lang\",\"en\"]]", "token": "slug:walking,lang:en"},
+    {"key": "[[\"id\",42]]", "token": "id=42"},
+    {"key": "[[\"n\",-1.5]]", "token": "n=-1.5"},
+    {"key": "[[\"done\",true]]", "token": "done=true"},
+    {"key": "[[\"t\",\"\"]]", "token": "t:"},
+    {"key": "[[\"t\",\"a b,c:d;e#f?g%h/i=j\"]]", "token": "t:a%20b%2Cc%3Ad%3Be%23f%3Fg%25h%2Fi%3Dj"},
+    {"key": "[[\"名\",\"ü\"]]", "token": "%E5%90%8D:%C3%BC"},
+    {"key": "[[\"t\",\"~._-\"]]", "token": "t:~._-"}
+  ],
+  "invalid": ["", "id", ":x", "id:%2c", "id:%zz", "%69d:x", "id=042", "id=1.0", "id=+1", "id=null", "id:a,", "id:a,,b:c", "W1siaWQiLCJ4N2YzcTIiXV0"]
+}

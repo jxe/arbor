@@ -90,6 +90,16 @@ describe("workspace service", () => {
     expect(nodeDocument(row)?.bodySource).toBe("Row body.\n");
   });
 
+  test("resolves refs by stable key and fails an unowned key instead of guessing", async () => {
+    await writeFile(join(root, "keyed.md"), "---\nid: kx9q2m\n---\nKeyed.\n");
+    await workspace.editor.snapshot({ tree: workspace.tree, path: "/keyed", stableKey: null });
+    const keyed = await workspace.editor.snapshot({ tree: workspace.tree, path: "/elsewhere", stableKey: canonicalStableKey([["id", "kx9q2m"]]) });
+    expect(keyed.ref).toEqual({ tree: workspace.tree, path: "/keyed", stableKey: '[["id","kx9q2m"]]' });
+    for (const stableKey of [canonicalStableKey([["id", "nobody"]]), canonicalStableKey([["slug", "keyed"]])]) {
+      await expect(workspace.editor.snapshot({ tree: workspace.tree, path: "/keyed", stableKey })).rejects.toMatchObject({ code: "not-found", status: 404 });
+    }
+  });
+
   test("keeps an automatically minted page id on a Markdown row without declaring it", async () => {
     const collection = join(root, "reading");
     await mkdir(collection);

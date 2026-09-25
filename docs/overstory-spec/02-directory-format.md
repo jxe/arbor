@@ -30,8 +30,10 @@ directory: `x.md`, `x.mdx`, or `x.tsx` supplies the content of `/x` when `x/`
 has no `_index.md`, and the sibling directory `x/`, if present, still supplies
 the children. `.md` supplies non-executable Markdown, while `.mdx` and a
 default-exporting `.tsx` may supply an executable component body as specified
-by [executable documents](07-executable-documents.md). URLs, links, API paths,
-and visible names use extensionless logical paths either way.
+by [executable documents](07-executable-documents.md). URLs, API paths, and
+visible names use extensionless logical paths either way; a relative link
+written in Markdown names the body file itself and resolves from the directory
+that holds the file containing it ([locators §2.1](03-locators.md#21-links-written-in-markdown)).
 
 `_index.md` takes precedence. When both `x/_index.md` and a sibling body exist,
 `_index.md` is the node's content, the sibling body is not part of the model,
@@ -49,6 +51,15 @@ authored child ordering, or operation requiring durable Markdown document
 identity may materialize it. Rename, move, copy, trash, and restore treat
 sibling content and its directory as one logical unit and never silently merge
 an occupied destination.
+
+Because relative links resolve from the directory holding the file that
+contains them, a body that changes form or place (a sibling `x.md` replaced by
+`x/_index.md`, or any rename or move) moves the base of its own relative
+links, and links elsewhere that spell its old file name go stale. The writer
+that makes the change rewrites the moved body's relative links against its new
+directory in the same change and heals the links that name it as for any
+other move ([locators §4](03-locators.md#4-resolution-rules)). A reader still
+resolves a stale `x.md` spelling to the node `x`.
 
 ## 3. Properties, Markdown content, and identity
 
@@ -121,14 +132,16 @@ or child unless an explicit materialization operation creates one.
 
 Links use [Overstory locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
-TreeID locators. Any schema-identified node may use the Markdown-compatible
-`#arbor-key=<base64url-key>` relative-link alias defined by
-[locators](03-locators.md#2-stable-keys-revisions-and-fragments). When its readable path and
-valid stable key disagree, the key selects the node within its declaring
-keyspace and the authored content may be healed through an ordinary mutation. The alias
-and application query survive healing unchanged. Overstory renderers translate the
-alias to the server-visible path suffix before emitting HTTP links. Nodes with a
-null stable key remain path-identified.
+TreeID locators; a document-link row naming a node in the same tree is a
+relative link, not an `arbor://` locator. A relative link names the target's
+body file and carries its stable key as `#arbor-key=<key-token>`, as
+[locators §2.1](03-locators.md#21-links-written-in-markdown) defines. When its
+readable path and valid stable key disagree, the key selects the node within
+its declaring keyspace and the authored content may be healed through an
+ordinary mutation that rewrites only the link's destination; the key,
+application query, and content fragment survive. Overstory renderers translate
+the alias to the server-visible path suffix before emitting HTTP links. Nodes
+with a null stable key remain path-identified.
 
 ## 5. Recognized authored files
 

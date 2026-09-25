@@ -2,17 +2,21 @@ import type { ArborBlock, Diagnostic, MarkdownDocument } from "../index.ts";
 import { sha256 } from "../model/hash.ts";
 import { compareUTF8 } from "../model/utf8.ts";
 import { canonicalNodePath } from "../model/logical-path.ts";
-import { buildCanonicalLink, legacyPageIDCandidate, resolveLogicalURL } from "../model/logical-url.ts";
-import { pageIDStableKey } from "../model/node-key.ts";
+import { buildMarkdownLink, markdownSourceDirectory, resolveLogicalURL, type MarkdownBodyOrigin } from "../model/logical-url.ts";
 
 export const CHILDREN_MARKER = "<!-- arbor:children -->";
 
 export interface DirectoryPlacementChild {
   name: string;
   path: string;
+  body: MarkdownBodyOrigin | null;
   stableKey?: string | null;
-  /** Bounded compatibility input while Markdown PageIDs become generic keys. */
-  pageID?: string;
+}
+
+/** A directory node and where its own Markdown body lives, which is where its rows resolve from. */
+export interface PlacementDirectory {
+  path: string;
+  body: MarkdownBodyOrigin | null;
 }
 
 export interface DirectoryPlacementResult {
@@ -20,10 +24,6 @@ export interface DirectoryPlacementResult {
   placedChildren: string[];
   generatedChildren: string[];
   diagnostics: Diagnostic[];
-}
-
-function stableKey(child: DirectoryPlacementChild): string | null {
-  return child.stableKey ?? (child.pageID ? pageIDStableKey(child.pageID) : null);
 }
 
 function isChildrenMarker(block: ArborBlock): boolean {
@@ -55,29 +55,25 @@ export function directoryPlacementDiagnostics(
  * that flag and makes the link an authored placement.
  */
 export function placeDirectoryChildren(
-  directoryInput: string,
+  placement: PlacementDirectory,
   document: MarkdownDocument,
   inputChildren: readonly DirectoryPlacementChild[],
 ): DirectoryPlacementResult {
-  const directory = canonicalNodePath(directoryInput);
+  const directory = canonicalNodePath(placement.path);
+  const sourceDirectory = markdownSourceDirectory(directory, placement.body);
   const children = [...inputChildren].sort((left, right) =>
     compareUTF8(canonicalNodePath(left.path), canonicalNodePath(right.path))
   );
   const childByPath = new Map(children.map((child) => [canonicalNodePath(child.path), child]));
-  const childByStableKey = new Map(children.flatMap((child) => {
-    const key = stableKey(child);
-    return key ? [[key, child] as const] : [];
-  }));
+  const childByStableKey = new Map(children.flatMap((child) => child.stableKey ? [[child.stableKey, child] as const] : []));
   const matched = new Set<DirectoryPlacementChild>();
 
   const walk = (blocks: readonly ArborBlock[]): void => {
     for (const block of blocks) {
       if (block.type === "standaloneLink") {
-        const resolved = resolveLogicalURL(directory, String(block.props?.path ?? ""));
+        const resolved = resolveLogicalURL(sourceDirectory, String(block.props?.path ?? ""));
         if (resolved?.kind === "local") {
-          const legacy = legacyPageIDCandidate(resolved);
           const child = (resolved.stableKey && childByStableKey.get(resolved.stableKey))
-            || (legacy && childByStableKey.get(pageIDStableKey(legacy)))
             || childByPath.get(resolved.path);
           if (child) matched.add(child);
         }
@@ -100,13 +96,13 @@ export function placeDirectoryChildren(
   const missing = children.filter((child) => !matched.has(child));
   const generated = missing.map((child): ArborBlock => {
     const path = canonicalNodePath(child.path);
-    const key = stableKey(child);
+    const key = child.stableKey ?? null;
     return {
       id: `arbor-child-${sha256(`${path}\0${key ?? ""}`).slice(0, 16)}`,
       type: "standaloneLink",
       content: child.name,
       props: {
-        path: buildCanonicalLink(directory, { path, stableKey: key }),
+        path: buildMarkdownLink(sourceDirectory, { path, body: child.body, stableKey: key }),
         arborGenerated: true,
       },
       children: [],

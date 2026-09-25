@@ -2,123 +2,152 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  buildCanonicalLink,
+  buildArborLocator,
+  buildMarkdownLink,
   buildNetworkLocator,
   canonicalStableKey,
   decodeStableKey,
   encodeStableKey,
-  relativeLogicalReference,
+  healMarkdownLinks,
+  markdownLinkDestinations,
+  markdownLinkFile,
+  markdownSourceDirectory,
+  markdownStableKey,
+  relativeFileReference,
   rewriteLocalLinkPath,
   resolveLogicalURL,
   resolveNodeTarget,
-  buildArborLocator,
-  pageIDStableKey,
+  type MarkdownBodyOrigin,
+  type MarkdownLinkTarget,
   type ResolvedLink,
   type ResolvedNodeTarget,
 } from "@overstory/protocol";
 
 interface UrlCase {
-  base: string;
+  sourceDirectory: string;
   href: string;
   expected: ResolvedLink;
-  rewritePath?: string;
+  rewriteTarget?: { path: string; body: MarkdownBodyOrigin | null };
   expectedRewritten?: string;
 }
 
+interface HealingNode { path: string; body: MarkdownBodyOrigin | null; stableKey?: string }
+
 const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance");
+const fixture = async <T>(name: string): Promise<T> => JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
 describe("logical URL resolution", () => {
   test("resolves every shared fixture case identically", async () => {
-    const cases = JSON.parse(await readFile(join(conformance, "url-resolution.json"), "utf8")) as UrlCase[];
+    const cases = await fixture<UrlCase[]>("url-resolution.json");
     expect(cases.length).toBeGreaterThan(20);
-    for (const { base, href, expected, rewritePath, expectedRewritten } of cases) {
-      expect(resolveLogicalURL(base, href), `${base} + ${JSON.stringify(href)}`).toEqual(expected);
-      if (rewritePath) {
+    for (const { sourceDirectory, href, expected, rewriteTarget, expectedRewritten } of cases) {
+      expect(resolveLogicalURL(sourceDirectory, href), `${sourceDirectory} + ${JSON.stringify(href)}`).toEqual(expected);
+      if (rewriteTarget) {
         expect(expectedRewritten, `${href} rewrite fixture`).toBeDefined();
-        expect(rewriteLocalLinkPath(base, href, rewritePath), `${href} -> ${rewritePath}`).toBe(expectedRewritten!);
+        expect(rewriteLocalLinkPath(sourceDirectory, href, rewriteTarget), `${href} -> ${rewriteTarget.path}`).toBe(expectedRewritten!);
       }
     }
   });
 
   test("resolves every shared node-target fixture identically", async () => {
-    interface NodeCase { base: string; href: string; expected: ResolvedNodeTarget | null }
-    const cases = JSON.parse(await readFile(join(conformance, "node-targets.json"), "utf8")) as NodeCase[];
+    const cases = await fixture<Array<{ sourceDirectory: string; href: string; expected: ResolvedNodeTarget | null }>>("node-targets.json");
     expect(cases.length).toBeGreaterThan(10);
-    for (const { base, href, expected } of cases) {
-      expect(resolveNodeTarget(base, href), `${base} + ${href}`).toEqual(expected);
+    for (const { sourceDirectory, href, expected } of cases) {
+      expect(resolveNodeTarget(sourceDirectory, href), `${sourceDirectory} + ${href}`).toEqual(expected);
+    }
+  });
+
+  test("encodes and decodes every shared key token", async () => {
+    const { valid, invalid } = await fixture<{ valid: Array<{ key: string; token: string }>; invalid: string[] }>("stable-key-tokens.json");
+    for (const { key, token } of valid) {
+      expect(encodeStableKey(key), key).toBe(token);
+      expect(decodeStableKey(token), token).toBe(key);
+    }
+    for (const token of invalid) expect(decodeStableKey(token), token).toBeNull();
+  });
+
+  test("finds each body's source directory and link file", async () => {
+    const cases = await fixture<Array<{ path: string; body: MarkdownBodyOrigin | null; sourceDirectory: string; linkFile: string }>>("markdown-source-directories.json");
+    for (const { path, body, sourceDirectory, linkFile } of cases) {
+      expect(markdownSourceDirectory(path, body), `${path} ${body}`).toBe(sourceDirectory);
+      expect(markdownLinkFile(path, body), `${path} ${body}`).toBe(linkFile);
+    }
+  });
+
+  test("writes every shared Markdown link, and each resolves back to its target", async () => {
+    const cases = await fixture<Array<{ sourceDirectory: string; target: MarkdownLinkTarget; expected: string }>>("markdown-links.json");
+    for (const { sourceDirectory, target, expected } of cases) {
+      expect(buildMarkdownLink(sourceDirectory, target), JSON.stringify(target)).toBe(expected);
+      expect(resolveLogicalURL(sourceDirectory, expected)).toMatchObject({
+        kind: "local",
+        path: target.path,
+        stableKey: target.stableKey ?? null,
+        revision: target.revision ?? null,
+        applicationQuery: target.applicationQuery ?? null,
+        contentFragment: target.contentFragment ?? null,
+      });
+    }
+  });
+
+  test("heals every shared Markdown source", async () => {
+    const cases = await fixture<Array<{
+      name: string; source: string; resolveFrom: string; writeFrom: string; tree: string; nodes: HealingNode[]; expected: string;
+    }>>("markdown-link-healing.json");
+    for (const { name, source, resolveFrom, writeFrom, tree, nodes, expected } of cases) {
+      const healed = healMarkdownLinks(source, {
+        resolveFrom,
+        writeFrom,
+        tree,
+        target: ({ path, stableKey }) => {
+          const node = stableKey ? nodes.find((candidate) => candidate.stableKey === stableKey) : nodes.find((candidate) => candidate.path === path);
+          return node ? { path: node.path, body: node.body, stableKey: node.stableKey ?? null } : null;
+        },
+      });
+      expect(healed, name).toBe(expected);
+    }
+  });
+
+  test("finds every shared link destination", async () => {
+    const cases = await fixture<Array<{ source: string; destinations: Array<{ href: string; image: boolean }> }>>("markdown-link-destinations.json");
+    for (const { source, destinations } of cases) {
+      const found = markdownLinkDestinations(source);
+      expect(found.map(({ href, image }) => ({ href, image }))).toEqual(destinations);
+      for (const { href, start, end } of found) expect(source.slice(start, end)).toBe(href);
     }
   });
 
   test("arbor locators round-trip through node-target resolution", () => {
-    const key = pageIDStableKey("x6baw0");
+    const key = markdownStableKey("x6baw0");
     const locator = buildArborLocator("tr_sample", "/notes/deep", key);
-    expect(locator).toBe("arbor://tr_sample/notes/deep;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0");
-    expect(resolveNodeTarget("/", locator)).toEqual({
-      tree: "tr_sample",
-      path: "/notes/deep",
-      stableKey: key,
-      legacyPageID: null,
-    });
+    expect(locator).toBe("arbor://tr_sample/notes/deep;arbor-key=id:x6baw0");
+    expect(resolveNodeTarget("/", locator)).toEqual({ tree: "tr_sample", path: "/notes/deep", stableKey: key });
+    expect(rewriteLocalLinkPath("/", locator, { path: "/new", body: "sibling" })).toBe("arbor://tr_sample/new;arbor-key=id:x6baw0");
+    expect(rewriteLocalLinkPath("/", "arbor://example.com/old", { path: "/new", body: "sibling" })).toBeNull();
   });
 
-  test("a rename rewrites arbor locators in place", () => {
-    const legacy = "arbor://tr_sample/node/old?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D";
-    expect(rewriteLocalLinkPath("/", legacy, "/new")).toBe("arbor://tr_sample/new;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0");
-    expect(rewriteLocalLinkPath("/", "arbor://example.com/old", "/new")).toBeNull();
+  test("a bare fragment is only a content fragment", () => {
+    expect(resolveLogicalURL("/", "#x7f3q2")).toEqual({ kind: "fragment", contentFragment: "x7f3q2" });
+    expect(resolveLogicalURL("/", "Calendar.md#h31mlm")).toMatchObject({ path: "/Calendar", stableKey: null, contentFragment: "h31mlm" });
+    expect(resolveNodeTarget("/", "#x7f3q2")).toBeNull();
   });
 
-  test("the base is directory-like regardless of body representation", () => {
-    const expected = {
-      kind: "local",
-      path: "/projects/atlas/notes",
-      stableKey: null,
-      revision: null,
-      applicationQuery: null,
-      contentFragment: null,
-      legacyStableKeyCandidate: null,
-    } as const;
-    for (const base of ["/projects/atlas", "/projects/atlas.md", "/projects/atlas/_index.md"]) {
-      expect(resolveLogicalURL(base, "notes")).toEqual(expected);
-      expect(resolveLogicalURL(base, "../roadmap")).toEqual({ ...expected, path: "/projects/roadmap" });
+  test("relative file references invert resolution", () => {
+    for (const [from, file, node] of [
+      ["/projects/atlas", "/projects/atlas/notes.md", "/projects/atlas/notes"],
+      ["/a/b/c", "/a/x/y/_index.md", "/a/x/y"],
+      ["/", "/_index.md", "/"],
+      ["/a", "/a", "/a"],
+      ["/", "/a b/c;d.md", "/a b/c;d"],
+    ] as const) {
+      expect(resolveLogicalURL(from, relativeFileReference(from, file)), `${from} -> ${file}`).toMatchObject({ kind: "local", path: node });
     }
   });
 
-  test("relative references invert resolution", () => {
-    expect(relativeLogicalReference("/projects/atlas", "/projects/atlas/notes")).toBe("notes");
-    expect(relativeLogicalReference("/projects/atlas", "/projects/roadmap")).toBe("../roadmap");
-    expect(relativeLogicalReference("/", "/notes")).toBe("notes");
-    for (const [from, to] of [["/projects/atlas", "/projects/atlas/notes"], ["/a/b/c", "/a/x/y"]] as const) {
-      const spelled = relativeLogicalReference(from, to);
-      expect(resolveLogicalURL(from, spelled)).toMatchObject({ kind: "local", path: to });
-    }
-  });
-
-  test("canonical keys and both locator spellings round-trip", () => {
+  test("the key spellings carry the same token", () => {
     const stableKey = canonicalStableKey([["id", "x7f3q2"]]);
-    const encoded = encodeStableKey(stableKey);
-    expect(encoded).toBe("W1siaWQiLCJ4N2YzcTIiXV0");
-    expect(decodeStableKey(encoded)).toBe(stableKey);
-    expect(decodeStableKey(`${encoded}=`)).toBeNull();
-    expect(decodeStableKey("W1sgImlkIiwgIng3ZjNxMiIgXV0")).toBeNull();
-    expect(buildCanonicalLink("/projects/atlas", {
-      path: "/projects/roadmap",
-      stableKey,
-      applicationQuery: "view=board&edit",
-    })).toBe(`../roadmap?view=board&edit#arbor-key=${encoded}`);
-    expect(buildNetworkLocator("../roadmap", {
-      stableKey,
-      applicationQuery: "view=board&edit",
-      contentFragment: "implementation",
-    })).toBe(`../roadmap;arbor-key=${encoded}?view=board&edit#implementation`);
-    expect(rewriteLocalLinkPath(
-      "/projects/atlas",
-      `../old?view=board&edit#arbor-key=${encoded}`,
-      "/projects/roadmap",
-    )).toBe(`../roadmap?view=board&edit#arbor-key=${encoded}`);
-    expect(rewriteLocalLinkPath(
-      "/projects/atlas",
-      "../old?view=board#implementation",
-      "/projects/roadmap",
-    )).toBe("../roadmap?view=board#implementation");
+    expect(buildNetworkLocator("../roadmap.md", { stableKey, applicationQuery: "view=board&edit", contentFragment: "implementation" }))
+      .toBe("../roadmap.md;arbor-key=id:x7f3q2?view=board&edit#implementation");
+    expect(buildMarkdownLink("/projects/atlas", { path: "/projects/roadmap", body: "sibling", stableKey, applicationQuery: "view=board&edit" }))
+      .toBe("../roadmap.md?view=board&edit#arbor-key=id:x7f3q2");
   });
 });

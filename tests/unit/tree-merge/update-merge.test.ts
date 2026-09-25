@@ -249,7 +249,7 @@ describe("reference Canopy merge fixtures", () => {
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([
-      expect.objectContaining({ reason: "collection-file-row-conflict" }),
+      expect.objectContaining({ reason: "collection-file-row-conflict", path: expect.stringMatching(/;arbor-key=id:a$/) }),
     ]);
   });
 

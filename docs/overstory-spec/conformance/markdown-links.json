@@ -1,0 +1,82 @@
+[
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"},
+    "expected": "Calendar.md#arbor-key=id:h31mlm"
+  },
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Picture-of-Life/Foo", "body": "sibling", "stableKey": "[[\"id\",\"abc123\"]]"},
+    "expected": "Picture-of-Life/Foo.md#arbor-key=id:abc123"
+  },
+  {
+    "sourceDirectory": "/x",
+    "target": {"path": "/x/child", "body": "sibling"},
+    "expected": "child.md"
+  },
+  {
+    "sourceDirectory": "/x",
+    "target": {"path": "/x", "body": "index"},
+    "expected": "_index.md"
+  },
+  {
+    "sourceDirectory": "/a/x",
+    "target": {"path": "/a/x", "body": "sibling"},
+    "expected": "../x.md"
+  },
+  {
+    "sourceDirectory": "/a/b",
+    "target": {"path": "/", "body": "index"},
+    "expected": "../../_index.md"
+  },
+  {
+    "sourceDirectory": "/a",
+    "target": {"path": "/a/sub", "body": null},
+    "expected": "sub"
+  },
+  {
+    "sourceDirectory": "/a",
+    "target": {"path": "/a", "body": null},
+    "expected": "../a"
+  },
+  {
+    "sourceDirectory": "/a",
+    "target": {"path": "/a/Tasks/walking", "body": null, "stableKey": "[[\"slug\",\"walking\"]]"},
+    "expected": "Tasks/walking#arbor-key=slug:walking"
+  },
+  {
+    "sourceDirectory": "/a",
+    "target": {"path": "/a/Tasks/walking", "body": "sibling", "stableKey": "[[\"slug\",\"walking\"]]"},
+    "expected": "Tasks/walking.md#arbor-key=slug:walking"
+  },
+  {
+    "sourceDirectory": "/a",
+    "target": {"path": "/a/Tasks/row", "body": null, "stableKey": "[[\"id\",42]]"},
+    "expected": "Tasks/row#arbor-key=id=42"
+  },
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]", "contentFragment": "june"},
+    "expected": "Calendar.md;arbor-key=id:h31mlm#june"
+  },
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Calendar", "body": "sibling", "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+    "expected": "Calendar.md;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Calendar", "body": "sibling", "contentFragment": "june"},
+    "expected": "Calendar.md#june"
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "target": {"path": "/projects/roadmap", "body": "sibling", "stableKey": "[[\"id\",\"x7f3q2\"]]", "applicationQuery": "view=board&edit"},
+    "expected": "../roadmap.md?view=board&edit#arbor-key=id:x7f3q2"
+  },
+  {
+    "sourceDirectory": "/",
+    "target": {"path": "/Notes (draft)/a b;c#d?e%", "body": "sibling"},
+    "expected": "Notes%20%28draft%29/a%20b%3Bc%23d%3Fe%25.md"
+  }
+]

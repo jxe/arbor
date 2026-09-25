@@ -71,7 +71,6 @@ export class Workspace implements AsyncDisposable {
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
   }
   async [Symbol.asyncDispose](): Promise<void> {
-    this.editor.cancelPendingHealing();
     this.unsubscribeFS();
     await this.objects[Symbol.asyncDispose]();
     await this.editor[Symbol.asyncDispose]();

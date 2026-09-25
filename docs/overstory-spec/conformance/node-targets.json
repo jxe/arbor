@@ -1,56 +1,82 @@
 [
   {
-    "base": "/",
-    "href": "Nothing-w-o-self-contact-care-for-my-misgivings#arbor-key=W1siaWQiLCJ4NmJhdzAiXV0",
-    "expected": { "tree": null, "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]", "legacyPageID": null }
+    "sourceDirectory": "/",
+    "href": "Nothing-w-o-self-contact-care-for-my-misgivings#arbor-key=id:x6baw0",
+    "expected": {"tree": null, "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]"}
   },
   {
-    "base": "/",
+    "sourceDirectory": "/",
     "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node/Nothing-w-o-self-contact-care-for-my-misgivings?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D",
-    "expected": { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]", "legacyPageID": null }
+    "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": null}
   },
   {
-    "base": "/",
-    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/Nothing-w-o-self-contact-care-for-my-misgivings;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0",
-    "expected": { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]", "legacyPageID": null }
+    "sourceDirectory": "/",
+    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/Nothing-w-o-self-contact-care-for-my-misgivings;arbor-key=id:x6baw0",
+    "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]"}
   },
   {
-    "base": "/",
+    "sourceDirectory": "/",
     "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node?stableKey=%5B%5B%22id%22,%22341rcu%22%5D%5D",
-    "expected": { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/", "stableKey": "[[\"id\",\"341rcu\"]]", "legacyPageID": null }
+    "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node", "stableKey": null}
   },
   {
-    "base": "/projects/atlas",
+    "sourceDirectory": "/projects/atlas",
     "href": "notes",
-    "expected": { "tree": null, "path": "/projects/atlas/notes", "stableKey": null, "legacyPageID": null }
+    "expected": {"tree": null, "path": "/projects/atlas/notes", "stableKey": null}
   },
   {
-    "base": "/projects",
+    "sourceDirectory": "/projects",
     "href": "atlas#lvcmy6",
-    "expected": { "tree": null, "path": "/projects/atlas", "stableKey": null, "legacyPageID": "lvcmy6" }
+    "expected": {"tree": null, "path": "/projects/atlas", "stableKey": null}
   },
   {
-    "base": "/projects",
-    "href": "../roadmap;arbor-key=W1siaWQiLCIzNDFyY3UiXV0",
-    "expected": { "tree": null, "path": "/roadmap", "stableKey": "[[\"id\",\"341rcu\"]]", "legacyPageID": null }
+    "sourceDirectory": "/projects",
+    "href": "../roadmap;arbor-key=id:341rcu",
+    "expected": {"tree": null, "path": "/roadmap", "stableKey": "[[\"id\",\"341rcu\"]]"}
   },
   {
-    "base": "/",
-    "href": "arbor://tr_qtwuy4ugt2f4yifj2gyv5ry72a/shared/note;arbor-key=W1siaWQiLCIzNDFyY3UiXV0",
-    "expected": { "tree": "tr_qtwuy4ugt2f4yifj2gyv5ry72a", "path": "/shared/note", "stableKey": "[[\"id\",\"341rcu\"]]", "legacyPageID": null }
+    "sourceDirectory": "/",
+    "href": "arbor://tr_qtwuy4ugt2f4yifj2gyv5ry72a/shared/note;arbor-key=id:341rcu",
+    "expected": {"tree": "tr_qtwuy4ugt2f4yifj2gyv5ry72a", "path": "/shared/note", "stableKey": "[[\"id\",\"341rcu\"]]"}
   },
   {
-    "base": "/",
+    "sourceDirectory": "/",
     "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node/child",
-    "expected": { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node/child", "stableKey": null, "legacyPageID": null }
+    "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node/child", "stableKey": null}
   },
   {
-    "base": "/",
+    "sourceDirectory": "/",
     "href": "arbor://example.com/shared/note",
     "expected": null
   },
-  { "base": "/", "href": "https://example.com/page", "expected": null },
-  { "base": "/", "href": "#lvcmy6", "expected": null },
-  { "base": "/", "href": "system:settings", "expected": null },
-  { "base": "/", "href": "local:overlay", "expected": null }
+  {
+    "sourceDirectory": "/",
+    "href": "https://example.com/page",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/",
+    "href": "#lvcmy6",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/",
+    "href": "system:settings",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/",
+    "href": "local:overlay",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects",
+    "href": "atlas.md#arbor-key=id:lvcmy6",
+    "expected": {"tree": null, "path": "/projects/atlas", "stableKey": "[[\"id\",\"lvcmy6\"]]"}
+  },
+  {
+    "sourceDirectory": "/projects",
+    "href": "atlas/_index.md",
+    "expected": {"tree": null, "path": "/projects/atlas", "stableKey": null}
+  }
 ]

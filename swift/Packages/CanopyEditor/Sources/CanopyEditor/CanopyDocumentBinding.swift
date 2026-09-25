@@ -38,7 +38,7 @@ public final class CanopyDocumentBinding {
     private var copySources: [BlockID: BlockID] = [:]
     private(set) var ledger: CanopySourceLedger
     private var updatesTask: Task<Void, Never>?
-    private var directoryProjection: (reference: WorkspaceReference, children: [WorkspaceNode])?
+    private var directoryProjection: (directory: WorkspaceNode, children: [WorkspaceNode])?
     /// Mirrors of the source's state for observation.
     private var saving = false
     private var failure: (any Error)?
@@ -265,13 +265,14 @@ public final class CanopyDocumentBinding {
     /// it through Quagmire's ordinary block move transaction.
     public func projectDirectoryChildren(
         _ children: [WorkspaceNode],
-        in reference: WorkspaceReference
+        in directory: WorkspaceNode
     ) {
-        directoryProjection = (reference, children)
+        directoryProjection = (directory, children)
         let projected = CanopyMarkdownCodec.placeDirectoryChildren(
             children,
             in: document.children,
-            directory: reference
+            directory: directory.reference,
+            sourceDirectory: directory.sourceDirectory
         )
         _ = document.replaceChildrenReconciled(projected)
     }
@@ -317,7 +318,8 @@ public final class CanopyDocumentBinding {
             replacement = CanopyMarkdownCodec.placeDirectoryChildren(
                 directoryProjection.children,
                 in: rebased.blocks,
-                directory: directoryProjection.reference
+                directory: directoryProjection.directory.reference,
+                sourceDirectory: directoryProjection.directory.sourceDirectory
             )
         } else {
             replacement = rebased.blocks

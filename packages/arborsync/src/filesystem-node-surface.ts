@@ -8,7 +8,7 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@overstory/protocol";
-import { isPageID, nodeDisplayName, pageIDStableKey } from "@overstory/protocol";
+import { isPageID, nodeDisplayName, markdownStableKey } from "@overstory/protocol";
 import type { WorkspaceFS } from "@overstory/fs";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import {
@@ -33,7 +33,6 @@ export interface FilesystemNodeSurfaceOptions {
   writable(path: string): boolean | Promise<boolean>;
   writableNode(node: ExpandedNode): boolean;
   inspectDocument?(context: FilesystemDocumentContext): readonly Diagnostic[];
-  childPageID?(path: string, discovered?: string): string | undefined;
   notFound(path: string): Error;
   invalidChildren(path: string): Error;
 }
@@ -150,7 +149,7 @@ export class FilesystemNodeSurface {
       parent: {
         tree: this.options.tree,
         path,
-        stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
+        stableKey: isPageID(node.document?.frontmatter.id) ? markdownStableKey(node.document.frontmatter.id) : null,
       },
       items,
       nextCursor: nextOffset < all.length ? encodePageCursor(cursorKey, nextOffset) : null,
@@ -163,14 +162,7 @@ export class FilesystemNodeSurface {
     const children: ExpandedChild[] = [];
     const diagnostics: Diagnostic[] = [];
     for (const entry of entries) {
-      const pageID = this.options.childPageID?.(entry.path, entry.pageID) ?? entry.pageID;
-      children.push({
-        name: entry.name,
-        path: entry.path,
-        kind: entry.kind,
-        materialization: entry.materialization,
-        ...(pageID ? { pageID } : {}),
-      });
+      children.push({ name: entry.name, path: entry.path, kind: entry.kind, materialization: entry.materialization });
       diagnostics.push(...entry.diagnostics);
     }
     return { children: children.sort((left, right) => left.name.localeCompare(right.name)), diagnostics };

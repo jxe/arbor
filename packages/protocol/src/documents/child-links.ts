@@ -1,14 +1,17 @@
 import type { ArborBlock } from "../index.ts";
 import { canonicalNodePath, nodeDisplayName } from "../model/logical-path.ts";
-import { relativeLogicalReference, resolveLogicalURL, rewriteLocalLinkPath } from "../model/logical-url.ts";
+import { buildMarkdownLink, resolveLogicalURL, rewriteLocalLinkPath, type MarkdownBodyOrigin } from "../model/logical-url.ts";
 
 export interface ChildLinkMove {
   oldPath: string;
   newPath: string;
+  /** Where the moved child's body lives now, which decides the file its row names. */
+  newBody: MarkdownBodyOrigin | null;
 }
 
 export interface ChildLinkTransform {
-  directory: string;
+  /** The directory holding the source file whose rows are rewritten (`markdownSourceDirectory`). */
+  sourceDirectory: string;
   removePaths: readonly string[];
   insertMoves?: readonly ChildLinkMove[];
   /**
@@ -28,8 +31,8 @@ export interface ChildLinkTransformResult {
 }
 
 /** Tree-local row matching: only `local`-kind destinations name a physical child. */
-export function resolveChildLinkPath(directoryInput: string, raw: string): string | null {
-  const link = resolveLogicalURL(directoryInput, raw);
+export function resolveChildLinkPath(sourceDirectory: string, raw: string): string | null {
+  const link = resolveLogicalURL(sourceDirectory, raw);
   return link?.kind === "local" ? link.path : null;
 }
 
@@ -37,7 +40,7 @@ export function reorderChildLinks(
   inputBlocks: readonly ArborBlock[],
   transform: ChildLinkTransform,
 ): ChildLinkTransformResult {
-  const directory = canonicalNodePath(transform.directory);
+  const directory = canonicalNodePath(transform.sourceDirectory);
   const remove = new Set(transform.removePaths.map(canonicalNodePath));
   const existingByPath = new Map<string, ArborBlock>();
 
@@ -78,14 +81,14 @@ export function reorderChildLinks(
       props: {
         ...existing.props,
         arborGenerated: false,
-        path: rewriteLocalLinkPath(directory, String(existing.props?.path ?? ""), newPath)
-          ?? relativeLogicalReference(directory, newPath),
+        path: rewriteLocalLinkPath(directory, String(existing.props?.path ?? ""), { path: newPath, body: move.newBody })
+          ?? buildMarkdownLink(directory, { path: newPath, body: move.newBody }),
       },
     } : {
       id: createBlockId(),
       type: "standaloneLink",
       content: newName,
-      props: { path: relativeLogicalReference(directory, newPath) },
+      props: { path: buildMarkdownLink(directory, { path: newPath, body: move.newBody }) },
       children: [],
     } satisfies ArborBlock;
   });

@@ -9,7 +9,7 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@overstory/protocol";
-import { isPageID, mediaTypeForPath, pageIDStableKey, toJSONValue, markdownDisplayTitle } from "@overstory/protocol";
+import { isPageID, mediaTypeForPath, markdownStableKey, toJSONValue, markdownDisplayTitle } from "@overstory/protocol";
 
 /** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
 export interface ExpandedChild {
@@ -17,7 +17,6 @@ export interface ExpandedChild {
   path: string;
   kind: "markdown" | "directory" | "file";
   materialization: Materialization;
-  pageID?: string;
 }
 
 /** Exact filesystem read state used to construct the generic public node model. */
@@ -86,7 +85,7 @@ export function sampleExpandedNode(node: ExpandedNode, context: NodeSamplingCont
     ref: {
       tree: context.tree,
       path: node.path,
-      stableKey: pageID ? pageIDStableKey(pageID) : null,
+      stableKey: pageID ? markdownStableKey(pageID) : null,
     },
     name: node.name,
     revision: node.revision,

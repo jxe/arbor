@@ -86,7 +86,10 @@ A backing preserves these logical child-set facts:
   removal of one child and creation of another. A row's logical child segment
   is its single string key when that is a valid nonempty logical path component
   not beginning with the reserved `~row-` prefix; otherwise it is `~row-`
-  followed by the unpadded base64url encoding of the canonical row key.
+  followed by the unpadded base64url encoding of the canonical row key. This
+  is the one surface that still uses base64url rather than the locator key
+  token; the rule is under review in
+  [Postgres 005](../../plans/postgres/005-representation-equivalence.md).
 - **Ordering.** Collection-file and database rows enumerate in canonical stable-key
   order, falling back to canonical path, using the portable comparison; a
   backing's default collation is not an acceptable substitute. Where a

@@ -41,8 +41,10 @@ A component renders `<title>`, `<meta>`, `<link>`, and other React-supported hea
 Executable documents have Tailwind available as a compiler capability without an import, stylesheet directive, configuration file, or content glob. Statically discoverable utility classes in the addressed document's public import graph are available, and the pinned Tailwind/compiler version is part of the coherent document version. Constructing class names from arbitrary string fragments is not portable; conditional complete class tokens are. An ordinary imported stylesheet remains available for exceptional CSS, but neither `@import "tailwindcss"` nor a CDN/runtime compiler is part of authored source.
 
 `Markdown` from `overstory/react` renders a Markdown source string with Overstory's ordinary link resolution, safe URL and asset policy, and source semantics. It is the standard way for a component to present stored Markdown; executable documents do not choose a separate third-party Markdown policy accidentally.
-For a relative Markdown destination carrying the reserved `#arbor-key=` alias,
-it emits the equivalent server-visible path suffix and preserves the authored
+It resolves a relative Markdown destination from the directory holding the
+source file, as [locators §2.1](03-locators.md#21-links-written-in-markdown)
+defines. For a destination carrying the reserved `#arbor-key=` alias, it emits
+the equivalent server-visible path suffix and preserves the authored
 application query. It does not forward the reserved identity alias as an HTML
 fragment.
 

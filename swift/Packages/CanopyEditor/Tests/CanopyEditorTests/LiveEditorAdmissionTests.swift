@@ -80,7 +80,8 @@ struct LiveEditorAdmissionTests {
         binding.appendCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         _ = try await coordinator.syncOnce()
-        let created = try #require(CanopyDocumentReferenceCodec.decode(page))
+        #expect(!page.rawValue.hasPrefix("arbor://"), "a same-tree page link is a relative Markdown link")
+        let created = try #require(host.workspaceReference(for: page))
         #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
             let capture = try await tree.captureSourceBasis(created)

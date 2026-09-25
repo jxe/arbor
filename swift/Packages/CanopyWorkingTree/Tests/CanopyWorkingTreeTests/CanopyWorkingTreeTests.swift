@@ -33,8 +33,19 @@ struct WorkingTreeFixtureTests {
             from: Data(contentsOf: fixtureDirectory().appending(path: "directory-documents.json"))
         )
         for item in fixture.cases {
-            let root = WorkingTreeNode(path: item.directory, kind: .directory, source: item.source.isEmpty ? nil : item.source)
+            let root = WorkingTreeNode(
+                path: item.directory.path,
+                kind: .directory,
+                source: item.source.isEmpty ? nil : item.source,
+                directoryBodyPlacement: item.directory.body == .sibling ? .siblingMarkdown : nil
+            )
             #expect((root.source ?? "") == item.source, Comment(rawValue: item.name))
+            #expect(root.markdownBody == item.directory.body, Comment(rawValue: item.name))
+            #expect(
+                WorkingTreeSemantics.sourceDirectory(for: root)
+                    == markdownSourceDirectory(nodePath: item.directory.path, body: item.directory.body),
+                Comment(rawValue: item.name)
+            )
         }
     }
 
@@ -231,10 +242,9 @@ struct WorkingTreeProviderTests {
             let collection = try await provider.resolve(people.reference)
             #expect(collection.surface == .collection(kind: "CSV", rowCount: 2))
 
-            let restoredLink = try #require(buildCanonicalLink(
+            let restoredLink = try #require(buildMarkdownLink(
                 from: "/",
-                toPath: "/archive/renamed",
-                stableKey: restored.reference.stableKey
+                to: MarkdownLinkTarget(path: "/archive/renamed", body: .sibling, stableKey: restored.reference.stableKey)
             ))
             let linker = try #require(try await provider.perform(.createMarkdown(
                 parent: rootRef,
@@ -699,6 +709,101 @@ private func fixtureDirectory() -> URL {
     fatalError("Could not locate protocol fixtures")
 }
 
+@Suite("Links resolve from each body's source directory")
+struct WorkingTreeLinkSourceDirectoryTests {
+    static let tree: TreeID = "tr_links"
+
+    /// `/a/x` is linked from an `_index.md` by key, from another `_index.md` and a sibling
+    /// directory body by path, and by key alone from a stale path. A bare `#x1` fragment is only
+    /// a content fragment, so `/d` names a different node.
+    static let nodes: [WorkingTreeSystemNode] = [
+        WorkingTreeSystemNode(path: "/", content: .directory(source: "[X](a/x.md#arbor-key=id:x1)\n")),
+        WorkingTreeSystemNode(path: "/a", content: .directory(source: "[X](x.md)\n")),
+        WorkingTreeSystemNode(path: "/a/x", pageID: "x1", content: .markdown(source: "---\nid: x1\n---\n\n# X\n")),
+        WorkingTreeSystemNode(path: "/b", content: .directory(source: "[X](a/x.md)\n"), directoryBodyPlacement: .siblingMarkdown),
+        WorkingTreeSystemNode(path: "/b/child", content: .markdown(source: "# Child\n")),
+        WorkingTreeSystemNode(path: "/c", content: .markdown(source: "[Old](gone.md#arbor-key=id:x1)\n")),
+        WorkingTreeSystemNode(path: "/d", content: .markdown(source: "[L](elsewhere#x1)\n")),
+    ]
+
+    static func open(_ kind: StoreKind, at root: URL) async throws -> WorkingTree {
+        let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+        let state = try await workingTree.state(from: WorkingTreeSystemReplacement(root: "", update: "up_links", nodes: nodes))
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
+        try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
+            root: snapshot.root,
+            update: "up_links",
+            cursor: "up_links",
+            nodes: nodes
+        ))
+        return workingTree
+    }
+
+    @Test("Sibling and index bodies resolve from different directories; backlinks match by key or path", arguments: StoreKind.allCases)
+    func sourceDirectoriesAndBacklinks(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let workingTree = try await Self.open(kind, at: root)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+
+            let index = try await provider.resolve(.init(tree: Self.tree, path: "/a"))
+            let sibling = try await provider.resolve(.init(tree: Self.tree, path: "/b"))
+            let leaf = try await provider.resolve(.init(tree: Self.tree, path: "/a/x"))
+            let bare = try await provider.resolve(.init(tree: Self.tree, path: "/b/child"))
+            #expect(index.markdownBody == .index)
+            #expect(index.sourceDirectory == "/a")
+            #expect(sibling.markdownBody == .sibling)
+            #expect(sibling.sourceDirectory == "/")
+            #expect(leaf.markdownBody == .sibling)
+            #expect(leaf.sourceDirectory == "/a")
+            #expect(bare.sourceDirectory == "/b")
+
+            let target = WorkspaceReference(tree: Self.tree, path: "/a/x", stableKey: markdownStableKey("x1"))
+            let sources = Set(try await provider.backlinks(to: target).map(\.reference.path))
+            #expect(sources == ["/", "/a", "/b", "/c"])
+            let results = try await provider.search("", in: Self.tree)
+            #expect(results.first { $0.reference.path == "/a/x" }?.backlinkCount == 4)
+            #expect(results.first { $0.reference.path == "/b" }?.markdownBody == .sibling)
+            #expect(results.first { $0.reference.path == "/a" }?.markdownBody == .index)
+            await workingTree.close()
+        }
+    }
+
+    @Test("An index of an older format is rebuilt even at the current generation")
+    func olderIndexFormatIsRebuilt() async throws {
+        try await withTemporaryReplica { root in
+            let target = WorkspaceReference(tree: Self.tree, path: "/a/x", stableKey: markdownStableKey("x1"))
+            let first = try await Self.open(.durable, at: root)
+            #expect(try await first.backlinks(to: target).count == 4)
+            await first.close()
+
+            // Blank every entry's links so a reused index is observable, then write it back
+            // both without a format (an index written before the field) and at the current format.
+            let indexURL = root.appending(path: "indexes/search.json")
+            var index = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: indexURL)) as? [String: Any])
+            #expect(index["format"] as? Int == WorkingTreeSearchIndex.currentFormat)
+            index["entries"] = (index["entries"] as? [[String: Any]] ?? []).map { entry in
+                var entry = entry
+                entry["links"] = [Any]()
+                return entry
+            }
+
+            index["format"] = WorkingTreeSearchIndex.currentFormat
+            try JSONSerialization.data(withJSONObject: index).write(to: indexURL)
+            let reused = try await WorkingTree.open(at: root, tree: Self.tree)
+            #expect(try await reused.backlinks(to: target).isEmpty)
+            await reused.close()
+
+            for format: Any? in [nil, 1] {
+                index["format"] = format
+                try JSONSerialization.data(withJSONObject: index).write(to: indexURL)
+                let reopened = try await WorkingTree.open(at: root, tree: Self.tree)
+                #expect(try await reopened.backlinks(to: target).count == 4)
+                await reopened.close()
+            }
+        }
+    }
+}
+
 private func journalFiles(_ root: URL) throws -> [URL] {
     let directory = root.appending(path: "journals/pages", directoryHint: .isDirectory)
     let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
@@ -712,8 +817,12 @@ private struct DirectoryFixture: Decodable {
             var path: String
             var stableKey: String?
         }
+        struct Directory: Decodable {
+            var path: String
+            var body: MarkdownBodyOrigin?
+        }
         var name: String
-        var directory: String
+        var directory: Directory
         var source: String
         var children: [Child]
         var expectedGeneratedChildren: [String]

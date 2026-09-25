@@ -64,63 +64,79 @@ public final class CanopyEditorWorkspace {
         try await coordinator.flushAll()
     }
 
-    /// Capture the documents whose readable link paths may become stale before
-    /// a page changes location. Stable identity still makes those links work;
-    /// this list lets the structural action also repair their authored paths.
-    public func linkHealingSources(for action: WorkspaceStructuralAction) async -> [WorkspaceReference] {
+    /// A document whose links may need healing after a move, with the directory its body file was
+    /// in before the move, which its relative links were written from.
+    public struct LinkHealingSource: Sendable, Equatable {
+        public var reference: WorkspaceReference
+        public var sourceDirectory: String
+
+        public init(reference: WorkspaceReference, sourceDirectory: String) {
+            self.reference = reference
+            self.sourceDirectory = sourceDirectory
+        }
+    }
+
+    /// Capture the documents whose links may become stale before a page changes location: the
+    /// moved page and its descendants, whose own relative links move with them, and every page
+    /// linking to one of them, whose readable paths go stale. Stable identity still makes those
+    /// links work; this list lets the structural action also repair their authored paths.
+    public func linkHealingSources(for action: WorkspaceStructuralAction) async -> [LinkHealingSource] {
         let reference: WorkspaceReference
         switch action {
         case let .rename(candidate, _), let .move(candidate, _): reference = candidate
         default: return []
         }
-        var descendants: [WorkspaceReference] = []
-        var pending = [reference]
+        guard let root = try? await provider.resolve(reference) else { return [] }
+        var descendants: [WorkspaceNode] = []
+        var pending = [root]
         var visited = Set<WorkspaceIdentity>()
-        while let candidate = pending.popLast(), visited.insert(candidate.identity).inserted {
+        while let candidate = pending.popLast(), visited.insert(candidate.id).inserted {
             descendants.append(candidate)
-            if let children = try? await provider.children(of: candidate) {
-                pending.append(contentsOf: children.map(\.reference))
+            if let children = try? await provider.children(of: candidate.reference) {
+                pending.append(contentsOf: children)
             }
         }
-        var backlinks: [WorkspaceReference] = []
+        var backlinks: [WorkspaceNode] = []
         for descendant in descendants {
-            backlinks.append(contentsOf: (try? await provider.backlinks(to: descendant).map(\.reference)) ?? [])
+            for result in (try? await provider.backlinks(to: descendant.reference)) ?? [] {
+                if let node = try? await provider.resolve(result.reference) { backlinks.append(node) }
+            }
         }
         var seen = Set<WorkspaceIdentity>()
-        return (backlinks + descendants).filter { seen.insert($0.identity).inserted }
+        return (backlinks + descendants)
+            .filter { seen.insert($0.id).inserted }
+            .map { LinkHealingSource(reference: $0.reference, sourceDirectory: $0.sourceDirectory) }
     }
 
-    /// Best-effort proactive healing after a move or rename. Lazy stable-key
-    /// resolution remains the fallback if a concurrent edit wins the race.
+    /// Best-effort proactive healing after a move or rename. Each source's links are re-resolved
+    /// from where its body file was and rewritten from where it is now, so a moved page's own
+    /// relative links follow it and inbound links name the new path; same-tree `arbor://` links
+    /// become relative. Lazy stable-key resolution remains the fallback if a concurrent edit
+    /// wins the race.
     public func healLinks(
-        in sources: [WorkspaceReference],
+        in sources: [LinkHealingSource],
         movedFrom oldPath: String,
         to moved: WorkspaceReference
     ) async {
+        func relocated(_ path: String) -> String {
+            guard path == oldPath || path.hasPrefix(oldPath + "/") else { return path }
+            return moved.path + path.dropFirst(oldPath.count)
+        }
         for source in sources {
             do {
-                var currentSource = source
-                if source.path == oldPath || source.path.hasPrefix(oldPath + "/") {
-                    currentSource.path = moved.path + source.path.dropFirst(oldPath.count)
-                }
+                var currentSource = source.reference
+                currentSource.path = relocated(source.reference.path)
                 let resolvedSource = try await provider.resolve(currentSource)
                 guard resolvedSource.surface.supportsDocumentSession else { continue }
                 let session = try await provider.openDocument(resolvedSource.reference)
                 do {
                     let snapshot = try await session.snapshot()
-                    let base: String
-                    switch resolvedSource.surface {
-                    case .directory, .directoryDocument, .collection:
-                        base = snapshot.reference.path
-                    default:
-                        base = snapshot.reference.parent?.path ?? snapshot.reference.path
-                    }
-                    let healed = await healedLinkPaths(
+                    let healed = await healedLinks(
                         in: snapshot.source,
-                        base: base,
+                        resolveFrom: source.sourceDirectory,
+                        writeFrom: resolvedSource.sourceDirectory,
                         tree: snapshot.reference.tree,
-                        movedFrom: oldPath,
-                        to: moved
+                        relocated: relocated
                     )
                     if healed != snapshot.source {
                         _ = try await session.admit(
@@ -140,41 +156,39 @@ public final class CanopyEditorWorkspace {
         }
     }
 
-    private func healedLinkPaths(
+    private struct LinkKey: Hashable {
+        var path: String
+        var stableKey: String?
+    }
+
+    /// Look up every same-tree link's current target, then heal the source against those answers.
+    private func healedLinks(
         in source: String,
-        base: String,
+        resolveFrom: String,
+        writeFrom: String,
         tree: TreeID,
-        movedFrom oldPath: String,
-        to moved: WorkspaceReference
+        relocated: (String) -> String
     ) async -> String {
-        var replacements: [(Range<String.Index>, String)] = []
-        for hrefRange in markdownLinkHrefRanges(in: source) {
-            let href = String(source[hrefRange])
-            guard let target = resolveNodeTarget(base: base, href: href),
-                  target.tree == nil || target.tree == tree.rawValue else { continue }
-            let newPath: String?
-            if target.path == oldPath || target.path.hasPrefix(oldPath + "/") {
-                newPath = moved.path + target.path.dropFirst(oldPath.count)
-            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey),
-                      let resolved = try? await provider.resolve(WorkspaceReference(
-                        tree: tree,
-                        path: target.path,
-                        stableKey: stableKey
-                      )) {
-                newPath = resolved.reference.path
-            } else {
-                newPath = nil
-            }
-            guard let newPath,
-                  let replacement = rewriteLocalLinkPath(base: base, href: href, newPath: newPath),
-                  replacement != href else { continue }
-            replacements.append((hrefRange, replacement))
+        var targets: [LinkKey: MarkdownLinkTarget] = [:]
+        var looked = Set<LinkKey>()
+        for destination in markdownLinkDestinations(in: source) {
+            guard let link = resolveNodeTarget(sourceDirectory: resolveFrom, href: destination.href),
+                  link.tree == nil || link.tree == tree.rawValue else { continue }
+            let key = LinkKey(path: link.path, stableKey: link.stableKey)
+            guard looked.insert(key).inserted,
+                  let node = try? await provider.resolve(WorkspaceReference(
+                    tree: tree,
+                    path: relocated(link.path),
+                    stableKey: link.stableKey
+                  )),
+                  link.stableKey == nil || node.reference.stableKey == link.stableKey
+            else { continue }
+            targets[key] = node.markdownLinkTarget
         }
-        var result = source
-        for (range, replacement) in replacements.reversed() {
-            result.replaceSubrange(range, with: replacement)
+        guard !targets.isEmpty else { return source }
+        return healMarkdownLinks(source, resolveFrom: resolveFrom, writeFrom: writeFrom, tree: tree.rawValue) { path, stableKey in
+            targets[LinkKey(path: path, stableKey: stableKey)]
         }
-        return result
     }
 
     public func appendTranscript(

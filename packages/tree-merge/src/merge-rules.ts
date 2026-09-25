@@ -2,7 +2,7 @@ import {
   type ObjectHash,
   type UpdateConflict,
 } from "@overstory/protocol";
-import { stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
+import { encodeStableKey, stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
 import {
   collectionChildSetHash,
   decodeProtocolCollectionFile,
@@ -296,7 +296,7 @@ export async function collectionFileRowsV1(
         mergedRows += 1;
       } else {
         const name = candidate?.path ?? current?.path ?? before?.path ?? "row";
-        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};arbor-key=${Buffer.from(key).toString("base64url")}`, reason: "collection-file-row-conflict" });
+        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};arbor-key=${encodeStableKey(key)}`, reason: "collection-file-row-conflict" });
         row = candidate;
       }
       if (row) selected.set(key, row);

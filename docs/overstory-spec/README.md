@@ -141,7 +141,7 @@ inline mention links here; accepted implementation work is indexed under
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](06-child-backings.md#4-postgres-and-placement-projections)).
 5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([child backings §1.1](06-child-backings.md#11-child-backings)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](07-executable-documents.md#131-agent-files)).
-7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](03-locators.md#2-stable-keys-revisions-and-fragments)).
+7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#arbor-key=` alias has no room for a heading; such a link uses the `;arbor-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](03-locators.md#21-links-written-in-markdown)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](07-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](03-locators.md#1-forms)).
 10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates §2.2](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](05-access-control.md#4-reading-access)).

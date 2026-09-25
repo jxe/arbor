@@ -1,7 +1,7 @@
 import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
-import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
@@ -783,7 +783,7 @@ export async function serveHost(options: {
                 fallbackTitle: objectName.slice(0, -3),
                 origin: publicOrigin,
                 treeCanonicalPath: canonicalPath,
-                documentPath: logicalPath,
+                sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
               }));
             }
             return new Response(logical.bytes.buffer.slice(
@@ -833,7 +833,7 @@ export async function serveHost(options: {
             fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
             origin: publicOrigin,
             treeCanonicalPath: canonicalPath,
-            documentPath: logicalPath,
+            sourceDirectory: markdownSourceDirectory(logicalPath, logical.bodyOrigin ?? null),
             children,
           }));
         }

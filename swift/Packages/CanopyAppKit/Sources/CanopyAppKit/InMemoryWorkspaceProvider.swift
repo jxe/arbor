@@ -107,7 +107,8 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
                     reference: node.reference,
                     title: node.title,
                     excerpt: source(of: node).isEmpty ? nil : source(of: node),
-                    backlinkCount: backlinkResults(to: node.reference).count
+                    backlinkCount: backlinkResults(to: node.reference).count,
+                    markdownBody: node.markdownBody
                 )
             }
     }
@@ -120,9 +121,9 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         let target = reference.path
         let targetKey = reference.stableKey
         return nodesByIdentity.values.compactMap { node in
-            let base = node.surface.isDirectoryLike ? node.reference.path : (node.reference.parent?.path ?? "/")
-            let text = source(of: node)
-            let links = markdownLinkHrefRanges(in: text).compactMap { resolveNodeTarget(base: base, href: String(text[$0])) }
+            let links = markdownLinkDestinations(in: source(of: node)).compactMap { destination in
+                destination.image ? nil : resolveNodeTarget(sourceDirectory: node.sourceDirectory, href: destination.href)
+            }
             guard links.contains(where: { link in
                 guard link.tree == nil || link.tree == reference.tree.rawValue else { return false }
                 return link.path == target || (targetKey != nil && link.stableKey == targetKey)
@@ -247,6 +248,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
                 contentRevision: snapshot.contentRevision,
                 stored: stored
             )
+            node.markdownBody = node.markdownBody ?? .index
         default:
             throw WorkspaceProviderError.notDocument(snapshot.reference)
         }

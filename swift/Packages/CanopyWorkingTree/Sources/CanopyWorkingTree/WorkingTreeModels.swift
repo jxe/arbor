@@ -309,6 +309,16 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
             siblingBody: directoryBodyPlacement == .siblingMarkdown)
     }
 
+    /// Where the node's Markdown body lives: a leaf's `x.md`, or a directory's `_index.md` or
+    /// sibling `x.md`. A directory with no body, a file and a nested tree have none.
+    var markdownBody: MarkdownBodyOrigin? {
+        switch kind {
+        case .markdown: .sibling
+        case .directory where source != nil: directoryBodyPlacement == .siblingMarkdown ? .sibling : .index
+        case .directory, .file, .boundary: nil
+        }
+    }
+
     /// The node's content and placement, without its descriptive metadata.
     var withoutMetadata: WorkingTreeNode {
         var node = self; node.metadata = nil; node.legacyModifiedAt = nil; return node
@@ -412,15 +422,22 @@ struct WorkingTreeMutationIntent: Codable, Equatable, Sendable {
 }
 
 struct WorkingTreeSearchIndex: Codable, Equatable, Sendable {
+    /// Bumped whenever an entry's derived content changes meaning. An index of another format, or
+    /// one written before this field existed (which fails to decode), is rebuilt on open.
+    /// Format 2: links resolve from each body's source directory with readable key tokens.
+    static let currentFormat = 2
+
     struct Entry: Codable, Equatable, Sendable {
         var path: String
         var pageID: String?
+        var markdownBody: MarkdownBodyOrigin?
         var title: String
         var source: String
         var links: [ResolvedNodeTarget]
         var modifiedAt: Date?
     }
 
+    var format: Int = WorkingTreeSearchIndex.currentFormat
     var generation: Int
     var entries: [Entry]
 }

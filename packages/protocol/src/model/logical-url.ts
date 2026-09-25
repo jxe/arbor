@@ -1,14 +1,12 @@
 import type { LogicalPath } from "./identifiers.ts";
-import { canonicalNodePath, nodeDisplayName } from "./logical-path.ts";
-import { decodeStableKey, encodeStableKey, pageIDFromStableKey, parseCanonicalStableKey } from "./node-key.ts";
+import { canonicalNodePath } from "./logical-path.ts";
+import { decodeStableKey, encodeStableKey } from "./node-key.ts";
 
 export interface ResolvedLocatorState {
   stableKey: string | null;
   revision: string | null;
   applicationQuery: string | null;
   contentFragment: string | null;
-  /** Input-only candidate. A PageID owner index must prove it unique. */
-  legacyStableKeyCandidate: string | null;
 }
 
 export type ResolvedLink =
@@ -21,12 +19,7 @@ export type ResolvedLink =
   | { kind: "system"; raw: string }
   | { kind: "overlay"; raw: string }
   | { kind: "external"; href: string }
-  | {
-    kind: "fragment";
-    contentFragment: string;
-    /** Input-only candidate. A PageID owner index must prove it unique. */
-    legacyStableKeyCandidate: string;
-  }
+  | { kind: "fragment"; contentFragment: string }
   | null;
 
 const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/i;
@@ -91,17 +84,13 @@ function locatorState(destination: string, fragment: string | null): {
   if (markdownKeyToken !== null && !markdownStableKey) return null;
   if (pathStableKey && markdownStableKey) return null;
 
-  const isMarkdownAlias = markdownStableKey !== null;
-  const ordinaryFragment = fragment && !isMarkdownAlias ? fragment : null;
-  const stableKey = pathStableKey ?? markdownStableKey;
   return {
     rawPath,
     state: {
-      stableKey,
+      stableKey: pathStableKey ?? markdownStableKey,
       revision,
       applicationQuery,
-      contentFragment: ordinaryFragment,
-      legacyStableKeyCandidate: stableKey ? null : ordinaryFragment,
+      contentFragment: fragment && markdownStableKey === null ? fragment : null,
     },
   };
 }
@@ -119,13 +108,13 @@ function canonicalDecodedNodePath(input: string): LogicalPath | null {
 }
 
 /** Decode each raw path component exactly once and resolve dot segments. */
-function resolveTreePath(baseDocumentPath: LogicalPath, rawDestination: string): LogicalPath | null {
+function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string): LogicalPath | null {
   let stack: string[];
   if (rawDestination.startsWith("/")) {
     stack = [];
   } else {
     try {
-      const base = canonicalDecodedNodePath(baseDocumentPath);
+      const base = canonicalDecodedNodePath(sourceDirectory);
       if (!base) return null;
       stack = base.split("/").filter(Boolean);
     } catch {
@@ -172,14 +161,20 @@ function parseArborURL(href: string): ResolvedLink {
   return { kind: "arbor", authority, path, ...parsed.state };
 }
 
-export function resolveLogicalURL(baseDocumentPath: LogicalPath, href: string): ResolvedLink {
+/**
+ * Resolve an href found in a Markdown source. A relative href resolves against
+ * `sourceDirectory`, the tree directory holding the source file (see
+ * `markdownSourceDirectory`), exactly as an ordinary Markdown reader resolves
+ * it. `x.md`, `x/_index.md`, `x/` and `x` all name the node `x`.
+ */
+export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): ResolvedLink {
   const raw = href.trim();
   if (!raw) return null;
 
   if (raw.startsWith("#")) {
     const contentFragment = raw.slice(1);
     if (!contentFragment || contentFragment.startsWith(MARKDOWN_KEY_PREFIX)) return null;
-    return { kind: "fragment", contentFragment, legacyStableKeyCandidate: contentFragment };
+    return { kind: "fragment", contentFragment };
   }
 
   const scheme = raw.match(SCHEME_PATTERN)?.[1]?.toLowerCase();
@@ -191,33 +186,82 @@ export function resolveLogicalURL(baseDocumentPath: LogicalPath, href: string): 
   const [destination, fragment] = splitOnce(raw, "#");
   const parsed = locatorState(destination, fragment);
   if (!parsed) return null;
-  const path = resolveTreePath(baseDocumentPath, parsed.rawPath);
+  const path = resolveTreePath(sourceDirectory, parsed.rawPath);
   if (path === null) return null;
   return { kind: "local", path, ...parsed.state };
 }
 
-export function relativeLogicalReference(fromInput: LogicalPath, toInput: LogicalPath): string {
-  const from = canonicalNodePath(fromInput).split("/").filter(Boolean);
-  const to = canonicalNodePath(toInput).split("/").filter(Boolean);
+/**
+ * Where a node's Markdown body lives. A `sibling` body is `x.md` beside the
+ * (possibly absent) directory `x/`, which includes every leaf document; an
+ * `index` body is `x/_index.md`. `null` is a node with no stored body.
+ */
+export type MarkdownBodyOrigin = "sibling" | "index";
+
+/** The tree directory holding a node's body file, against which its relative links resolve. */
+export function markdownSourceDirectory(nodePath: LogicalPath, body: MarkdownBodyOrigin | null): LogicalPath {
+  const path = decodedPath(nodePath);
+  if (body !== "sibling" || path === "/") return path;
+  return path.slice(0, path.lastIndexOf("/")) || "/";
+}
+
+/** The file a Markdown link names for a node: its body file, or its logical path when it has none. */
+export function markdownLinkFile(nodePath: LogicalPath, body: MarkdownBodyOrigin | null): string {
+  const path = decodedPath(nodePath);
+  if (!body) return path;
+  if (body === "sibling" && path !== "/") return `${path}.md`;
+  return path === "/" ? "/_index.md" : `${path}/_index.md`;
+}
+
+/** Logical paths are already decoded: `%` is data here. */
+function decodedPath(input: string): LogicalPath {
+  const path = canonicalDecodedNodePath(input);
+  if (path === null) throw new TypeError(`Invalid logical path: ${input}`);
+  return path;
+}
+
+function encodeLinkSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/** A relative reference from a source directory to a tree file or node, one encoded segment at a time. */
+export function relativeFileReference(sourceDirectory: LogicalPath, targetFile: string): string {
+  const from = decodedPath(sourceDirectory).split("/").filter(Boolean);
+  const to = targetFile.split("/").filter(Boolean);
   let shared = 0;
   while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared += 1;
-  return [...Array(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || nodeDisplayName(toInput);
+  // A node that is the source directory itself is named from its parent.
+  if (shared === to.length && shared > 0) shared -= 1;
+  const segments = [...Array(from.length - shared).fill(".."), ...to.slice(shared).map(encodeLinkSegment)];
+  return segments.join("/") || ".";
 }
 
 function querySuffix(applicationQuery: string | null | undefined): string {
   return applicationQuery === null || applicationQuery === undefined ? "" : `?${applicationQuery}`;
 }
 
-/** Emit the ordinary-Markdown-compatible stable-key alias. */
-export function buildCanonicalLink(
-  fromInput: LogicalPath,
-  target: { path: LogicalPath; stableKey?: string | null; applicationQuery?: string | null },
-): string {
-  const reference = relativeLogicalReference(fromInput, target.path);
+export interface MarkdownLinkTarget {
+  path: LogicalPath;
+  body: MarkdownBodyOrigin | null;
+  stableKey?: string | null;
+  revision?: string | null;
+  applicationQuery?: string | null;
+  contentFragment?: string | null;
+}
+
+/**
+ * The href a Markdown writer emits for a node in the same tree: the target's
+ * file relative to the source directory, so any Markdown reader follows it,
+ * with the stable key as the `#arbor-key=` fragment. A key together with a
+ * content fragment, or a revision, needs the `;arbor-key=`/`;arbor-rev=`
+ * segment form.
+ */
+export function buildMarkdownLink(sourceDirectory: LogicalPath, target: MarkdownLinkTarget): string {
+  const reference = relativeFileReference(sourceDirectory, markdownLinkFile(target.path, target.body));
+  if (target.revision || (target.stableKey && target.contentFragment)) return buildNetworkLocator(reference, target);
   const query = querySuffix(target.applicationQuery);
-  return target.stableKey
-    ? `${reference}${query}#${MARKDOWN_KEY_PREFIX}${encodeStableKey(target.stableKey)}`
-    : `${reference}${query}`;
+  if (target.stableKey) return `${reference}${query}#${MARKDOWN_KEY_PREFIX}${encodeStableKey(target.stableKey)}`;
+  return target.contentFragment ? `${reference}${query}#${target.contentFragment}` : `${reference}${query}`;
 }
 
 /** Attach identity and revision to the final raw path segment for wire and hosted hrefs. */
@@ -254,34 +298,6 @@ export interface ResolvedNodeTarget {
   tree: string | null;
   path: LogicalPath;
   stableKey: string | null;
-  legacyPageID: string | null;
-}
-
-/**
- * Document links were written as `arbor://<tree>/node/<path>?stableKey=<canonical JSON>` before the
- * locator grammar settled. Read that shape back so existing content still resolves; the `?stableKey=`
- * query is the signature, since canonical locators carry `;arbor-key=` instead and never that query.
- */
-function legacyNodeRoute(
-  path: LogicalPath,
-  locator: ResolvedLocatorState,
-): { path: LogicalPath; stableKey: string } | null {
-  if (path !== "/node" && !path.startsWith("/node/")) return null;
-  if (locator.stableKey || !locator.applicationQuery) return null;
-  for (const parameter of locator.applicationQuery.split("&")) {
-    const [name, rawValue] = splitOnce(parameter, "=");
-    if (name !== "stableKey" || rawValue === null) continue;
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(rawValue);
-    } catch {
-      continue;
-    }
-    if (!parseCanonicalStableKey(decoded)) continue;
-    const stripped = path.slice("/node".length);
-    return { path: stripped === "" ? "/" : canonicalNodePath(stripped as LogicalPath), stableKey: decoded };
-  }
-  return null;
 }
 
 /**
@@ -290,62 +306,28 @@ function legacyNodeRoute(
  * bare `#fragment` anchors, and `arbor://` URLs on a DNS authority (those name another workspace,
  * not a node this tree can resolve).
  */
-export function resolveNodeTarget(baseDocumentPath: LogicalPath, href: string): ResolvedNodeTarget | null {
-  const resolved = resolveLogicalURL(baseDocumentPath, href);
-  if (resolved?.kind === "local") {
-    return {
-      tree: null,
-      path: resolved.path,
-      stableKey: resolved.stableKey,
-      legacyPageID: resolved.legacyStableKeyCandidate,
-    };
-  }
+export function resolveNodeTarget(sourceDirectory: LogicalPath, href: string): ResolvedNodeTarget | null {
+  const resolved = resolveLogicalURL(sourceDirectory, href);
+  if (resolved?.kind === "local") return { tree: null, path: resolved.path, stableKey: resolved.stableKey };
   if (resolved?.kind !== "arbor" || !("treeID" in resolved.authority)) return null;
-  const legacy = legacyNodeRoute(resolved.path, resolved);
-  if (legacy) {
-    return { tree: resolved.authority.treeID, path: legacy.path, stableKey: legacy.stableKey, legacyPageID: null };
-  }
-  return {
-    tree: resolved.authority.treeID,
-    path: resolved.path,
-    stableKey: resolved.stableKey,
-    legacyPageID: resolved.legacyStableKeyCandidate,
-  };
+  return { tree: resolved.authority.treeID, path: resolved.path, stableKey: resolved.stableKey };
 }
 
-/** Rewrite a node link's readable path, retaining all locator state. Handles relative hrefs and `arbor://` locators alike. */
+/**
+ * Rewrite a node link to name `target`, retaining its key, revision, query and
+ * content fragment. A relative href is rewritten against `sourceDirectory`; an
+ * `arbor://` locator stays one.
+ */
 export function rewriteLocalLinkPath(
-  baseDocumentPath: LogicalPath,
+  sourceDirectory: LogicalPath,
   href: string,
-  newPath: LogicalPath,
+  target: { path: LogicalPath; body: MarkdownBodyOrigin | null },
 ): string | null {
-  const resolved = resolveLogicalURL(baseDocumentPath, href);
+  const resolved = resolveLogicalURL(sourceDirectory, href);
   if (resolved?.kind === "arbor") {
     if (!("treeID" in resolved.authority)) return null;
-    const stableKey = legacyNodeRoute(resolved.path, resolved)?.stableKey ?? resolved.stableKey;
-    return buildArborLocator(resolved.authority.treeID, newPath, stableKey);
+    return buildArborLocator(resolved.authority.treeID, target.path, resolved.stableKey);
   }
   if (resolved?.kind !== "local") return null;
-  const relativePath = relativeLogicalReference(baseDocumentPath, newPath);
-  if (resolved.revision || (resolved.stableKey && resolved.contentFragment)) {
-    return buildNetworkLocator(relativePath, resolved);
-  }
-  if (resolved.stableKey) {
-    return buildCanonicalLink(baseDocumentPath, {
-      path: newPath,
-      stableKey: resolved.stableKey,
-      applicationQuery: resolved.applicationQuery,
-    });
-  }
-  return buildNetworkLocator(relativePath, {
-    applicationQuery: resolved.applicationQuery,
-    contentFragment: resolved.contentFragment,
-  });
-}
-
-/** Transitional extraction; callers must still prove a legacy candidate unique. */
-export function legacyPageIDCandidate(link: Exclude<ResolvedLink, null>): string | null {
-  if (link.kind === "fragment") return link.legacyStableKeyCandidate;
-  if (link.kind !== "local" && link.kind !== "arbor") return null;
-  return pageIDFromStableKey(link.stableKey) ?? link.legacyStableKeyCandidate;
+  return buildMarkdownLink(sourceDirectory, { ...resolved, ...target });
 }

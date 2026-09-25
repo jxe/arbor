@@ -518,15 +518,11 @@ public actor WorkingTree {
         if index.generation != control.generation { try rebuildIndex() }
         var inboundByPath: [String: Set<String>] = [:]
         var inboundByStableKey: [String: Set<String>] = [:]
-        var inboundByLegacyPageID: [String: Set<String>] = [:]
         for source in index.entries {
             for link in source.links where link.tree == nil || link.tree == state.tree {
                 inboundByPath[link.path, default: []].insert(source.path)
                 if let stableKey = link.stableKey {
                     inboundByStableKey[stableKey, default: []].insert(source.path)
-                }
-                if let pageID = link.legacyPageID {
-                    inboundByLegacyPageID[pageID, default: []].insert(source.path)
                 }
             }
         }
@@ -534,7 +530,6 @@ public actor WorkingTree {
             var sources = inboundByPath[target.path, default: []]
             if let pageID = target.pageID {
                 sources.formUnion(inboundByStableKey[markdownStableKey(pageID), default: []])
-                sources.formUnion(inboundByLegacyPageID[pageID, default: []])
             }
             return (target.path, sources.count)
         })
@@ -549,7 +544,6 @@ public actor WorkingTree {
                 guard link.tree == nil || link.tree == state.tree else { return false }
                 return link.path == target.path
                     || (targetKey != nil && link.stableKey == targetKey)
-                    || (target.pageID != nil && link.legacyPageID == target.pageID)
             }
         }
     }
@@ -1046,6 +1040,7 @@ public actor WorkingTree {
     private func loadOrRebuildIndex() throws {
         if let data = store.readIndex(),
            let loaded = try? Self.decode(WorkingTreeSearchIndex.self, from: data),
+           loaded.format == WorkingTreeSearchIndex.currentFormat,
            loaded.generation == control.generation {
             index = loaded
         } else {
@@ -1069,9 +1064,10 @@ public actor WorkingTree {
                 return WorkingTreeSearchIndex.Entry(
                     path: node.path,
                     pageID: node.pageID,
+                    markdownBody: node.markdownBody,
                     title: WorkingTreeSemantics.title(for: node),
                     source: source,
-                    links: WorkingTreeSemantics.linkTargets(in: source, relativeTo: WorkingTreeSemantics.linkBase(for: node)),
+                    links: WorkingTreeSemantics.linkTargets(in: source, sourceDirectory: WorkingTreeSemantics.sourceDirectory(for: node)),
                     modifiedAt: node.modifiedAt
                 )
             }.sorted { WorkingTreeSemantics.compareUTF8($0.path, $1.path) }

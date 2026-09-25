@@ -31,6 +31,8 @@ export { decodeMaterialRef } from "./updates/authored-contract.ts";
 export type { DecisionPage, InspectedDecision, InspectedAlternative } from "./updates/accepted-contract.ts";
 
 export * from "./documents/markdown.ts";
+export * from "./documents/markdown-identity.ts";
+export * from "./documents/markdown-links.ts";
 export * from "./documents/directory-document.ts";
 export * from "./documents/child-links.ts";
 export * from "./documents/document-icon.ts";
