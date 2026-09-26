@@ -296,6 +296,17 @@ For a key device the token is a session its key opened, not a long-lived
 credential: it is valid for at most an hour, so a client refetches it after a
 401 rather than caching it indefinitely.
 
+A profile reset (accounts §5.3) has five routes. `POST /v1/me/reset` accepts
+`{ origin }` and requests, with the local profile key, a reset of the
+profile's devices at that home host to this installation, answering
+`202 { reset }`. `GET /v1/me/reset` answers the reset waiting here (or
+`null`), `DELETE /v1/me/reset` drops it and its unused key, and
+`POST /v1/me/reset/finish` connects this installation as the profile's only
+device once the reset has taken effect. `GET /v1/profile-reset?configurationTree=`
+answers `{ reset }` for a connected account, as every device of the profile
+sees it, and `DELETE` with the same parameter cancels it from an
+administrator device.
+
 `POST /v1/device-key` accepts `{ configurationTree }` and moves this
 installation's device for that account to a key (`arbor device move-to-key`),
 answering `{ deviceKey }`; for a device that already has one it only answers.

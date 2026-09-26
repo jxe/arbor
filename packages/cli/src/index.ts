@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
-import { moveToDeviceKey } from "@overstory/client";
+import { cancelAccountProfileReset, discardLocalProfileReset, moveToDeviceKey, pendingAccountProfileReset, pendingLocalProfileReset, requestProfileReset } from "@overstory/client";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { addLocalPlacement, backupIsEncrypted, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
@@ -89,8 +89,10 @@ function usage(): never {
   arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
+  arbor me reset [<home-host-origin> | --finish | --discard]
   arbor device [--account <ConfigurationTreeID>]
   arbor device move-to-key [--account <ConfigurationTreeID>]
+  arbor device cancel-reset [--account <ConfigurationTreeID>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor status [<locator>] [--json]
   arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
@@ -1583,6 +1585,30 @@ async function main(): Promise<void> {
       console.log(`Updated profile ${status.profileTree}`);
       return;
     }
+    if (action === "reset") {
+      if (operands.length > 1) usage();
+      if (operands[0] === "--finish") {
+        await withArborSync(process.cwd(), (client) => client.finishProfileReset());
+        console.log("Connected as the profile's new device; every earlier device was reset away");
+        return;
+      }
+      if (operands[0] === "--discard") {
+        console.log(await discardLocalProfileReset() ? "Discarded the waiting reset and its unused key" : "No profile reset is waiting here");
+        return;
+      }
+      if (operands[0]) {
+        if (operands[0].startsWith("-")) usage();
+        const reset = await requestProfileReset(operands[0]);
+        console.log(`Requested a reset of ${(await store.status())!.profileTree}: its devices will be replaced by this one, ${reset.device.label} (${reset.device.id})`);
+        console.log(`It takes effect at ${new Date(reset.effectiveAt).toISOString()} unless an administrator device cancels it; then run \`arbor me reset --finish\``);
+        return;
+      }
+      const waiting = await pendingLocalProfileReset();
+      console.log(waiting
+        ? `Waiting to become ${waiting.device.label} (${waiting.device.id}) at ${waiting.origin}; takes effect at ${new Date(waiting.effectiveAt).toISOString()}`
+        : "No profile reset is waiting here");
+      return;
+    }
     if (action === "backup") {
       if (operands.length !== 1) usage();
       const destination = resolveUserPath(operands[0]!);
@@ -1609,7 +1635,7 @@ async function main(): Promise<void> {
   }
   if (command === "device") {
     const [action, ...rest] = args[0]?.startsWith("-") ? [undefined, ...args] : args;
-    if (action !== undefined && action !== "move-to-key") usage();
+    if (action !== undefined && action !== "move-to-key" && action !== "cancel-reset") usage();
     let configurationTree: string | undefined;
     for (let index = 0; index < rest.length; index += 1) {
       if (rest[index] === "--account" && rest[index + 1]) configurationTree = rest[++index];
@@ -1624,10 +1650,20 @@ async function main(): Promise<void> {
         ? `Several accounts are connected; name one with --account: ${accounts.map((candidate) => candidate.configurationTree).join(", ")}`
         : "No connected account matches");
     }
+    if (action === "cancel-reset") {
+      await cancelAccountProfileReset(record.configurationTree);
+      console.log(`Cancelled the pending reset of ${record.account}`);
+      return;
+    }
     const moved = action === "move-to-key" ? await moveToDeviceKey(record.configurationTree) : record;
     console.log(`Account: ${moved.account}`);
     console.log(`Device: ${moved.deviceID}`);
     console.log(moved.deviceKey ? `Signs in with key: ${moved.deviceKey}` : "Signs in with a credential; `arbor device move-to-key` moves it to a key");
+    const reset = await pendingAccountProfileReset(record.configurationTree).catch(() => null);
+    if (reset) {
+      console.log(`A reset of this profile's devices is pending: at ${new Date(reset.effectiveAt).toISOString()} every device will be replaced by ${reset.device.label} (${reset.device.id}).`);
+      console.log("If you did not ask for it, cancel it with `arbor device cancel-reset` from an administrator device.");
+    }
     return;
   }
   if (command === "daemon") {

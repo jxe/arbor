@@ -7,6 +7,9 @@ import { dirname, join, resolve } from "node:path";
 import {
   accountChallengeBytes,
   isPersonProfileTreeID,
+  profileResetChallengeBytes,
+  validateProfileResetChallenge,
+  type ProfileResetChallenge,
   personProfileTreeID,
   sha256,
   validateAccountChallenge,
@@ -384,6 +387,18 @@ export class ProfileIdentityStore {
     return {
       publicKey: base64url(material.publicKey),
       signature: sign(null, accountChallengeBytes(challenge), privateKey).toString("base64url"),
+    };
+  }
+
+  /** Sign a reset of this profile's devices at the challenge's host (accounts §5.3). */
+  async signResetChallenge(input: ProfileResetChallenge): Promise<{ publicKey: string; signature: string }> {
+    const challenge = validateProfileResetChallenge(input);
+    const material = await this.keyMaterial();
+    if (challenge.profileTree !== material.metadata.profileTree) throw new Error("Reset challenge names another profile identity");
+    const privateKey = createPrivateKey({ key: Buffer.concat([PKCS8_PREFIX, material.seed]), format: "der", type: "pkcs8" });
+    return {
+      publicKey: base64url(material.publicKey),
+      signature: sign(null, profileResetChallengeBytes(challenge), privateKey).toString("base64url"),
     };
   }
 

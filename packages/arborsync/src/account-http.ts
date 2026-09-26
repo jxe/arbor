@@ -38,6 +38,26 @@ export function accountHandler(service: LocalAccountService) {
       if (typeof body.configurationTree !== "string") throw new ProtocolError("invalid-request", "Moving to a device key requires a configurationTree", 400);
       return json({ deviceKey: await service.moveToDeviceKey(body.configurationTree) });
     }
+    if (url.pathname === "/v1/me/reset") {
+      if (request.method === "GET") return json({ reset: await service.pendingLocalProfileReset() });
+      if (request.method === "DELETE") return json({ discarded: await service.discardLocalProfileReset() });
+      if (request.method === "POST") {
+        const body = await request.json() as { origin?: unknown };
+        if (typeof body.origin !== "string") throw new ProtocolError("invalid-request", "A profile reset names its home host's origin", 400);
+        return json({ reset: await service.requestProfileReset(body.origin) }, 202);
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me/reset/finish") {
+      await service.finishProfileReset();
+      return json({ connected: true });
+    }
+    if (url.pathname === "/v1/profile-reset" && (request.method === "GET" || request.method === "DELETE")) {
+      const configurationTree = url.searchParams.get("configurationTree");
+      if (!configurationTree) throw new ProtocolError("invalid-request", "A profile reset is read per account; name its configurationTree", 400);
+      if (request.method === "GET") return json({ reset: await service.pendingAccountProfileReset(configurationTree) });
+      await service.cancelAccountProfileReset(configurationTree);
+      return json({ cancelled: true });
+    }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts/cancel") {
       await service.cancelPendingClaim();
       return json({ cancelled: true });

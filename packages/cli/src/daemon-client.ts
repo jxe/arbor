@@ -199,6 +199,11 @@ export class ArborSyncRESTClient {
     });
   }
 
+  /** Connect as the new device of a profile reset that has taken effect. */
+  finishProfileReset(): Promise<{ connected: true }> {
+    return this.request("/v1/me/reset/finish", { method: "POST" });
+  }
+
   /** A placed folder's declined work, or null when nothing is declined. */
   async declined(tree: string): Promise<DeclinedChanges | null> {
     return (await this.request<{ declined: DeclinedChanges | null }>(`/v1/declined?tree=${encodeURIComponent(tree)}`)).declined;

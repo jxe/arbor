@@ -202,6 +202,7 @@ arbor me create [<profile-folder>] [--name <display-name>]
 arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
 arbor me backup <file>
 arbor me restore <file> [<profile-folder>]
+arbor me reset [<home-host-origin> | --finish | --discard]
 ```
 
 `arbor me create` creates this person's one self-certifying profile identity.
@@ -243,11 +244,22 @@ arbor me
 arbor me backup ~/Documents/arbor-me.backup
 ```
 
+`arbor me reset <home-host-origin>` is for a person who has lost every
+administrator device. It signs a reset with the profile key (restore a backup
+first) that will replace every device of the profile at its home host with
+this installation, as a new administrator key device. The host holds it for
+72 hours, during which every current device sees it and any administrator
+device can cancel it. `arbor me reset` shows the waiting reset,
+`arbor me reset --finish` connects this installation once it has taken effect
+(Arbor Sync must be running), and `--discard` drops a cancelled one.
+
+
 ### `arbor device`
 
 ```text
 arbor device [--account <ConfigurationTreeID>]
 arbor device move-to-key [--account <ConfigurationTreeID>]
+arbor device cancel-reset [--account <ConfigurationTreeID>]
 ```
 
 `arbor device` prints this installation's device for an account and how it
@@ -258,6 +270,8 @@ from then on opens hour-long sessions with it; the host stops accepting the
 old credential in the same update. The DeviceID stays the same, and a device
 moves once. `--account` is needed only when several accounts are connected.
 A device that claims an account or pairs with this version already has a key.
+`arbor device` also reports a pending reset of the profile's devices, with the
+time it takes effect; `cancel-reset` cancels it from an administrator device.
 
 ### `arbor daemon`
 

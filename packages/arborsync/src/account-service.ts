@@ -4,8 +4,13 @@ import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { moveToDeviceKey } from "@overstory/client";
+import { cancelAccountProfileReset, discardLocalProfileReset, finishProfileReset, moveToDeviceKey, pendingAccountProfileReset, pendingLocalProfileReset, requestProfileReset } from "@overstory/client";
 import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+
+function accountTree(configurationTree: string): string {
+  try { return new HostAccountStore(configurationTree).configurationTree; }
+  catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
+}
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -44,6 +49,23 @@ export class LocalAccountService {
     if (!await store.safe()) throw new ProtocolError("not-found", "No account is connected for that configuration", 404);
     return (await moveToDeviceKey(configurationTree)).deviceKey!;
   }
+
+  /** Reset the profile's devices at `origin` to this installation, with the profile key. */
+  requestProfileReset(origin: string) { return requestProfileReset(origin); }
+
+  /** The reset this installation is waiting to complete. */
+  pendingLocalProfileReset() { return pendingLocalProfileReset(); }
+
+  discardLocalProfileReset() { return discardLocalProfileReset(); }
+
+  async finishProfileReset(): Promise<void> {
+    await finishProfileReset(this.deps);
+  }
+
+  /** A connected account's pending reset, which its devices see and an administrator device may cancel. */
+  pendingAccountProfileReset(configurationTree: string) { return pendingAccountProfileReset(accountTree(configurationTree)); }
+
+  cancelAccountProfileReset(configurationTree: string) { return cancelAccountProfileReset(accountTree(configurationTree)); }
 
   async claimHostAccount(account: string, inputPath: string, displayName?: string, inviteCode?: string): Promise<MutationReceipt["effects"]> {
     try { return await claimHostAccountBootstrap(this.deps, account, inputPath, displayName, inviteCode); }

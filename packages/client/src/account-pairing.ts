@@ -86,51 +86,67 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     // Persisted before the first request. Replays retain the same secret,
     // device and credential even if the host accepted a lost response.
     await new ProtocolClient(pending.origin).claimPairing(pending.pairingID, secrets.payload.pairing.secret, secrets.device);
-    const token = "seed" in secrets
-      ? (await openDeviceSession(pending.origin, identity.profileTree, secrets.device.id, secrets.seed)).token
-      : secrets.credential;
-    const wire = new ProtocolClient(pending.origin, token);
-    const { account } = await wire.account();
-    if (account.device?.id !== secrets.device.id || account.profileTree !== identity.profileTree
-      || !account.community.canonical?.endpoint || new URL(account.community.canonical.endpoint).origin !== pending.origin) {
-      throw new ProtocolError("conflict", "The paired account does not belong to this Mac’s profile identity and community", 409);
-    }
-    const configuration = (await wire.descriptor(account.configuration.id)).tree;
-    const snapshot = await wire.snapshot(configuration.id, configuration.root);
-    const checkout = accountCheckoutPath(configuration.id);
-    const exists = await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return false; throw error;
-    });
-    if (exists) {
-      const local = await resolveSnapshot(await snapshotDirectory(checkout));
-      if (local.root !== snapshot.root) {
-        throw new ProtocolError("conflict", "The existing account checkout has different contents. Preserve and reconcile it before resuming pairing.", 409);
-      }
-    } else {
-      const staging = join(arborPrivateRoot(), `pairing-checkout-${crypto.randomUUID()}`);
-      try {
-        await materializeTree(staging, snapshot.root, async (hash) => {
-          const value = snapshot.objects.get(hash);
-          if (!value) throw new Error(`Account configuration is missing ${hash}`);
-          return value;
-        });
-        await mkdir(join(checkout, ".."), { recursive: true, mode: 0o700 });
-        await rename(staging, checkout);
-      } finally { await rm(staging, { recursive: true, force: true }); }
-    }
-    const connection = {
-      origin: pending.origin, account: `${pending.origin}/~${account.handle ?? account.id}`,
-      accountID: account.id, ...(account.handle ? { handle: account.handle } : {}), profileTree: identity.profileTree,
-      deviceID: secrets.device.id, configurationRef: configuration.root, configurationUpdate: configuration.update,
-    };
-    const store = new HostAccountStore(configuration.id);
-    if ("seed" in secrets) await store.setDeviceKey(secrets.seed, connection);
-    else await store.set(secrets.credential, connection);
-    await saveCurrentAccountDeviceID(configuration.id, secrets.device.id);
+    await connectDevice(pending.origin, identity.profileTree, secrets.device.id,
+      "seed" in secrets ? { seed: secrets.seed } : { credential: secrets.credential }, "The paired account does not belong to this Mac’s profile identity and community");
     await deps.trees.refreshConfiguration();
     // Remove the journal first: a crash may leave an unused secret, never a
     // resumable journal whose exact credential has already been deleted.
     await rm(pendingPath());
     await new HostAccountStore(pending.credentialSlot).remove();
   });
+}
+
+/**
+ * Connect this installation as `device` of `profileTree` at `origin`, once
+ * the host lists it: check the account is that profile's at that community,
+ * install its configuration as the account checkout (or confirm the one
+ * already there), and store the connection. Shared by pairing and by a
+ * completed profile reset.
+ */
+export async function connectDevice(
+  origin: string,
+  profileTree: string,
+  device: string,
+  secret: { seed: string } | { credential: string },
+  mismatch: string,
+): Promise<void> {
+  const token = "seed" in secret ? (await openDeviceSession(origin, profileTree, device, secret.seed)).token : secret.credential;
+  const wire = new ProtocolClient(origin, token);
+  const { account } = await wire.account();
+  if (account.device?.id !== device || account.profileTree !== profileTree
+    || !account.community.canonical?.endpoint || new URL(account.community.canonical.endpoint).origin !== origin) {
+    throw new ProtocolError("conflict", mismatch, 409);
+  }
+  const configuration = (await wire.descriptor(account.configuration.id)).tree;
+  const snapshot = await wire.snapshot(configuration.id, configuration.root);
+  const checkout = accountCheckoutPath(configuration.id);
+  const exists = await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return false; throw error;
+  });
+  if (exists) {
+    const local = await resolveSnapshot(await snapshotDirectory(checkout));
+    if (local.root !== snapshot.root) {
+      throw new ProtocolError("conflict", "The existing account checkout has different contents. Preserve and reconcile it before connecting this device.", 409);
+    }
+  } else {
+    const staging = join(arborPrivateRoot(), `device-checkout-${crypto.randomUUID()}`);
+    try {
+      await materializeTree(staging, snapshot.root, async (hash) => {
+        const value = snapshot.objects.get(hash);
+        if (!value) throw new Error(`Account configuration is missing ${hash}`);
+        return value;
+      });
+      await mkdir(join(checkout, ".."), { recursive: true, mode: 0o700 });
+      await rename(staging, checkout);
+    } finally { await rm(staging, { recursive: true, force: true }); }
+  }
+  const connection = {
+    origin, account: `${origin}/~${account.handle ?? account.id}`,
+    accountID: account.id, ...(account.handle ? { handle: account.handle } : {}), profileTree,
+    deviceID: device, configurationRef: configuration.root, configurationUpdate: configuration.update,
+  };
+  const store = new HostAccountStore(configuration.id);
+  if ("seed" in secret) await store.setDeviceKey(secret.seed, connection);
+  else await store.set(secret.credential, connection);
+  await saveCurrentAccountDeviceID(configuration.id, device);
 }
