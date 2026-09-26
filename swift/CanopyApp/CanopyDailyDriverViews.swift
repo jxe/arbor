@@ -1490,7 +1490,6 @@ struct CanopyLaunchEmptyView: View {
                     Button("Accounts…", action: showAccounts)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
             if !trees.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Trees on this Mac").font(.caption).foregroundStyle(.secondary)

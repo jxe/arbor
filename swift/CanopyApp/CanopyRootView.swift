@@ -1076,7 +1076,8 @@ struct CanopyRootView: View {
                 CanopyLaunchOpeningView(name: name)
             case let .empty(message):
                 CanopyLaunchEmptyView(
-                    message: message,
+                    // A failed open from this view reports here: nothing else is on screen.
+                    message: message ?? workspace.errorMessage,
                     trees: localTreeMenuItems,
                     openTree: jumpToLocalTree,
                     openLocation: { presentedSheet = .openLocation },

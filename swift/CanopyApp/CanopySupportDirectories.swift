@@ -152,29 +152,31 @@ actor NativePlacementStore {
         // else is the original single-record file. Decode errors are reported
         // for the layout the file actually has, never for the other one.
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        if object?["placements"] != nil {
-            let collection = try JSONDecoder().decode(NativePlacementCollection.self, from: data)
-            guard collection.version == 2 else {
+        if let placements = object?["placements"] {
+            guard object?["version"] as? Int == 2, let entries = placements as? [Any] else {
                 throw ProtocolValidationError.invalidValue("Unsupported native placement collection")
             }
-            try validate(collection.placements)
-            return collection
+            // The collection only remembers what the daemon already knows, so a
+            // record this build can no longer read (a retired tree kind, a
+            // configuration an earlier protocol named) is dropped, never fatal.
+            let records = usable(entries.compactMap { entry in
+                (try? JSONSerialization.data(withJSONObject: entry))
+                    .flatMap { try? JSONDecoder().decode(NativePlacementRecord.self, from: $0) }
+            })
+            let selected = (object?["selectedTree"] as? String).flatMap { tree in records.contains { $0.tree.id == tree } ? tree : nil }
+            return NativePlacementCollection(selectedTree: selected, placements: records)
         }
-        let record = try JSONDecoder().decode(NativePlacementRecord.self, from: data)
-        try validate([record])
+        guard let record = usable([try JSONDecoder().decode(NativePlacementRecord.self, from: data)]).first else {
+            return NativePlacementCollection(placements: [])
+        }
         return NativePlacementCollection(selectedTree: record.tree.id, placements: [record])
     }
 
-    private nonisolated static func validate(_ records: [NativePlacementRecord]) throws {
+    /// Records this build can use: a known version and a valid descriptor, the first per tree.
+    private nonisolated static func usable(_ records: [NativePlacementRecord]) -> [NativePlacementRecord] {
         var trees = Set<String>()
-        for record in records {
-            guard record.version == 1 else {
-                throw ProtocolValidationError.invalidValue("Unsupported native placement")
-            }
-            _ = try record.tree.validated()
-            guard trees.insert(record.tree.id).inserted else {
-                throw ProtocolValidationError.invalidValue("Duplicate native tree placement")
-            }
+        return records.filter { record in
+            record.version == 1 && (try? record.tree.validated()) != nil && trees.insert(record.tree.id).inserted
         }
     }
 }

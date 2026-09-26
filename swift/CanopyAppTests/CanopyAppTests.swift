@@ -665,6 +665,35 @@ struct CanopyAppTests {
         #expect(try await store.loadAll() == [legacy])
     }
 
+    @Test("Placement records this build cannot read are dropped, not fatal")
+    func unreadableNativePlacementsAreDropped() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "ArborStaleNativePlacement-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appending(path: "placement.json")
+        let hash = "sha256:\(String(repeating: "c", count: 64))"
+        let good: [String: Any] = [
+            "version": 1, "origin": "https://arbor.example", "configurationTree": "tr_config",
+            "tree": ["id": "tr_todos", "kind": "ordinary", "root": hash, "access": "write", "update": "5094", "conflicted": false,
+                     "canonical": ["path": "/~joe/todos", "endpoint": "https://arbor.example"]],
+            "osPath": "/tmp/todos",
+        ]
+        // A placed account configuration from before tree configurations.
+        let stale: [String: Any] = [
+            "version": 1, "origin": "https://arbor.example", "configurationTree": "tr_config",
+            "tree": ["id": "tr_config", "kind": "account-configuration", "root": hash, "access": "write", "update": "5093", "conflicted": false],
+        ]
+        try JSONSerialization.data(withJSONObject: ["version": 2, "selectedTree": "tr_config", "placements": [stale, good]]).write(to: url)
+        let store = NativePlacementStore(url: url)
+
+        #expect(try await store.loadAll().map(\.tree.id) == ["tr_todos"])
+        #expect(try await store.load()?.tree.id == "tr_todos")
+        let record = try #require(try await store.load())
+        try await store.save(record)
+        #expect(try await store.loadAll() == [record])
+    }
+
     @Test("The app opens the deterministic Home surface")
     func loadsHome() async {
         let model = CanopyAppModel()
