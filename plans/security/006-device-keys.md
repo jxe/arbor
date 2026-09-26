@@ -6,13 +6,18 @@
 - **Effort:** L
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
-- **State:** PROPOSED 2026-09-26. Direction agreed; open questions below.
+- **State:** DESIGNED 2026-09-26, together with
+  [Security 007](007-placement-hosts.md); ready for Phase 1. The decisions are
+  recorded below; the questions left open are details Phase 1 settles.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
   host.
 - **Followed by:** [Security 007](007-placement-hosts.md), which lets other
   hosts accept key devices, and [Security 008](008-portable-profiles.md),
   which retires credential digests.
+- **Sequencing with 007:** one Phase 1 covers both plans' spec edits and
+  vectors, since 007 depends on the session form and the key encoding decided
+  here. Phases 2 to 4 of 006 land and deploy before 007's.
 
 ## The problem
 
@@ -30,84 +35,159 @@ These are the parts of portable profiles that need only one host.
 
 ### Two kinds of device entry
 
-A `devices.yaml` entry holds exactly one of:
+A `devices.yaml` entry either has a `key` or does not:
 
 ```yaml
 dv_mac:
   label: "Joe's Mac"
   administrator: true
-  key: ed25519:3b6a…          # signs requests
+  key: ed25519:O2onvM62…
 dv_phone:
   label: "Joe's iPhone"
-  credential: sha256:9c1d…    # bearer secret, as today
+  key: p256:A3Gu0lH4…
+dv_old_ipad:
+  label: "Joe's iPad"         # a digest device: no key
 ```
 
-- A **key device** signs its requests with a private key that never leaves the
-  device. The host verifies the signature against `key`.
-- A **digest device** presents its bearer credential, as today.
+- A **key device** proves possession of the private key for `key`, which never
+  leaves the device, to open a session (below).
+- A **digest device** presents its bearer credential, as today. Its
+  credential digest stays host state, beside the entry, as it is now; it never
+  enters `devices.yaml`, so it is never copied to administrator devices or
+  backups.
+- `key` is an algorithm tag and the raw public key, unpadded base64url:
+  `ed25519:` for a 32-byte Ed25519 key, `p256:` for a compressed SEC1 P-256
+  key (ECDSA with SHA-256). A host verifies both; clients choose by where the
+  key is stored.
 - Both kinds have the same per-device and administrator rules. Only a key
   device can act on a host other than its home
   ([Security 007](007-placement-hosts.md)).
+
+### Sessions
+
+A key device does not sign each request. It signs a host challenge once and
+gets a short-lived session:
+
+1. The device asks for a challenge naming its profile and DeviceID. The host
+   returns a random, single-use challenge bound to its normalized origin, the
+   profile TreeID, the DeviceID and an expiry of a minute or two.
+2. The device signs the canonical CBOR encoding of the challenge, as claiming
+   already does ([accounts §1.2](../../docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+3. The host verifies the signature against the entry's `key` and returns a
+   random session token with an expiry of at most an hour. It stores only the
+   token's digest.
+4. Requests carry `Authorization: Bearer <session token>` exactly where a
+   device credential goes today, so every route keeps one authentication path.
+
+Deleting a device entry ends its sessions in the same accepted update that
+revokes a digest device's credential. A watch lasts no longer than the session
+it was opened with; the client reopens it with a fresh session. Compared with
+today's credential, a stolen session token works on one host, for at most an
+hour, and cannot open another session.
+
+Signing each request (method, path, body digest) was rejected: canonicalizing
+HTTP requests is a well-known source of verification bugs, and it needs a body
+hash on every upload and a replay cache, where a session reuses the bearer
+check every route already has. Binding sessions to the key, as OAuth DPoP does,
+can come later if a stolen session ever matters.
 
 ### Moving to a key
 
 There is no forced migration. A digest device whose client supports keys
 generates a key pair and submits one update, authenticated with its current
-credential, that replaces its `credential` with `key` under the same DeviceID.
-Pairing a new device writes `key` from then on. Digests are retired in
+credential, that adds `key` to its own entry under the same DeviceID. The host
+deletes the credential binding in the same commit, so the device holds exactly
+one kind from then on. A second move by the same device, or any change to an
+existing `key`, is refused: a device that loses its key is re-paired as a new
+device. Pairing a new device writes `key` from then on. Digests are retired in
 [Security 008](008-portable-profiles.md), as a compatibility cutoff.
+
+### Key storage
+
+- **iPhone:** a Secure Enclave P-256 key. It is not included in device backups,
+  so a restored or replacement iPhone pairs again as a new device, which is the
+  intended meaning of a DeviceID.
+- **Mac, the CLI and Arbor Sync:** Arbor Sync holds its installation's key, an
+  Ed25519 key in operating-system credential storage beside the profile key,
+  and local clients ask it for session tokens instead of the credential it
+  hands out today (`GET /v1/credential`). The Mac app and the CLI never hold
+  the key. Moving the Mac's key into the Secure Enclave needs a signed helper
+  in the app bundle that Arbor Sync can call; that is later hardening, not
+  part of this plan.
 
 ### Recovery
 
 The profile key, kept in its backup
 ([accounts §1.1](../../docs/overstory-spec/04-accounts-and-devices.md#11-beginning-a-person-identity)),
-can authorize one update that replaces `devices.yaml` with a single new
-administrator key device, when the person has no administrator device left.
-The host verifies a challenge signed by the profile key, as claiming already
-does.
+can start a **reset**: one update that replaces `devices.yaml` with a single new
+administrator key device. The host verifies a challenge signed by the profile
+key, as claiming already does.
+
+The host cannot tell whether the person really has no administrator device
+left, since lost devices are still listed, so a reset waits:
+
+- The reset is recorded as pending and shown to every current device.
+- Any current administrator device can cancel it.
+- It takes effect after a fixed wait (72 hours proposed), when it revokes every
+  existing device, of both kinds, and adds the new one.
+- The new device has no authority during the wait.
+- The operator's reset (`ARBOR_RESET_ACCOUNT`) stays as the immediate path.
+
+This changes what the profile-key backup is: after this plan it can take over
+the profile on its home host, not only claim accounts. Phase 3 therefore makes
+backups passphrase-encrypted, and restore still accepts the existing
+unencrypted format.
 
 ## Open questions
 
-1. **What a signature covers:** the method, path, a body digest, the host's
-   origin and a timestamp or nonce, against a session obtained by signing a
-   host challenge once. The per-request form keeps no host state; the session
-   form is cheaper per request and is the likely answer for watches.
-2. **Key storage** on the Mac and iPhone (Secure Enclave keys are P-256, not
-   Ed25519), for the CLI, and for Arbor Sync sharing one installation's key
-   among local clients, as it shares a credential today.
-3. **Recovery limits:** whether a profile-key reset waits or notifies existing
-   devices, since the profile key is one permanent key and its backup is the
-   thing most likely to be stolen.
+Details for Phase 1, not direction:
+
+1. **Lifetimes:** the challenge expiry, the session expiry (at most an hour)
+   and whether a client may renew a session before it ends without a new
+   signature (proposed: no).
+2. **Recovery wait:** its length, and how a pending reset reaches devices that
+   are not running (proposed: shown in every client at its next session, and in
+   the person's profile configuration where administrators already look).
+3. **The backup format:** the key-derivation function and its parameters for
+   passphrase-encrypted backups.
 4. **Two meanings of "administrator"** again, since a key device's flag is
    what another host will read. canopyd 005 kept both names: a profile's
    `admin` on a tree and a device's `administrator` flag.
 
 ## Work
 
-### Phase 1: spec and vectors
+### Phase 1: spec and vectors (shared with Security 007)
 
-- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md) §5 and the
-  `devices.yaml` shape: key devices, moving to a key, recovery.
-- [Access control](../../docs/overstory-spec/05-access-control.md) §2: signed
-  requests or sessions as a credential.
-- Conformance vectors for signatures and the `devices.yaml` shape.
-- **Gate:** `bun run check:links`, a walk-through of the failures: a replayed
-  signature, a signature for another host, a device moving to a key twice, a
-  reset without the profile key.
+- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md) §3 and §5:
+  the `key` field, moving to a key, sessions, and the reset with its wait;
+  §1.1: rewrite "defines no ... recovery" and describe encrypted backups.
+- [Access control](../../docs/overstory-spec/05-access-control.md) §2: a
+  session token as a credential; §3.2: a watch ends with its session.
+- Conformance vectors for both key encodings, challenges and their signatures,
+  and the `devices.yaml` shape.
+- **Gate:** `bun run check:links`, `git diff --check`, and a walk-through of
+  the failures: a replayed or expired challenge, a challenge from another
+  host, a session used after its device is deleted, a device moving to a key
+  twice, a reset without the profile key, a reset cancelled by an
+  administrator device, a new device acting during the wait.
 
 ### Phase 2: protocol and canopyd
 
-- Parse both entry kinds; verify signatures; the key update and the recovery
-  update.
+- The protocol models in TypeScript and Swift; parse both entry kinds;
+  challenges, sessions and their revocation; the key update; the pending
+  reset, its cancellation and its completion.
 - **Gate:** protocol and canopyd suites.
 
 ### Phase 3: clients
 
-- Mac, iPhone, CLI and Arbor Sync: generate and store a key, move to it,
-  pair new devices with keys, sign requests; recovery from the profile-key
-  backup.
+- Arbor Sync: generate and store its key, move to it, open sessions and hand
+  them to local clients, encrypted backups, and the reset.
+- iPhone: a Secure Enclave key, move to it, sessions.
+- Mac and CLI: use Arbor Sync's sessions; show and cancel a pending reset;
+  pair new devices with keys.
 - **Gate:** client suites, and a local end-to-end: move the Mac to a key, pair
-  the iPhone with a key, revoke it, recover from the backup.
+  the iPhone with a key, revoke it and see its session end, start a reset from
+  the backup and cancel it from the Mac, then complete one.
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 

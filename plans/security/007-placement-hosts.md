@@ -5,10 +5,13 @@
 - **Priority:** P3
 - **Effort:** M
 - **Risk:** HIGH. A host accepts devices from a list another host publishes.
-- **State:** PROPOSED 2026-09-26. Direction agreed; open questions below.
+- **State:** DESIGNED 2026-09-26, together with
+  [Security 006](006-device-keys.md); Phase 1 is shared with 006, and Phases 2
+  to 4 follow 006's. The decisions are recorded below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
-  [Security 006](006-device-keys.md) (key devices that sign requests).
+  [Security 006](006-device-keys.md) (key devices, and sessions opened by
+  signing a host challenge).
 - **Followed by:** [Security 008](008-portable-profiles.md).
 
 ## The problem
@@ -35,13 +38,13 @@ host needs, over plain HTTPS with no authentication:
 GET https://A/.arbor/profiles/{ProfileTreeID}/device-keys
 ```
 
-It lists each key device's DeviceID, public key and administrator flag, as of
-the accepted configuration. It leaves out labels and digest devices, which B
-cannot use.
+It lists each key device's DeviceID, `key` (as Security 006 encodes it) and
+administrator flag, as of the accepted configuration. It leaves out labels and
+digest devices, which B cannot use.
 
-This is a known cost: anyone can see how many key devices a profile has and
-when that changes. Limiting it to placement hosts would need hosts to
-authenticate to each other, which this plan avoids.
+This is a known cost: anyone can see how many key devices a profile has, which
+are administrators, and when that changes. Limiting it to placement hosts would
+need hosts to authenticate to each other, which this plan avoids.
 
 ### Placement accounts
 
@@ -59,15 +62,22 @@ rules that name the profile as on any host.
 
 ### Authenticating on B
 
-1. A key device signs its request to B, as Security 006 defines.
-2. B finds the placement account's home host and fetches its device keys,
-   caching them for a short time (about a minute).
-3. B verifies the signature against the listed key and treats the caller as
+1. A key device asks B for a session challenge and signs it, as Security 006
+   defines; the challenge is bound to B's origin, so a session opened on A
+   never works on B.
+2. B finds the placement account's home host and its device keys, from its
+   cache or by fetching them. B keeps a fetched list for about a minute.
+3. B verifies the signature against the listed key and issues a session as
    that profile and device, an administrator device if the list says so.
 4. If B's copy is older than the limit and A cannot be reached, B refuses.
+5. A challenge naming a DeviceID missing from B's copy makes B refetch early,
+   at most once every few seconds per profile, so nobody can use B to flood A.
 
-A revocation at A reaches B within the cache lifetime. Digest devices work
-only at A.
+B refreshes the list of each profile with open sessions, and ends the sessions
+and watches of any device no longer listed. A revocation at A therefore reaches
+B within the cache lifetime; the session expiry is a backstop if B's refresh
+fails, since B refuses to open new sessions once its copy is stale. Digest
+devices work only at A.
 
 ### What B can do
 
@@ -76,8 +86,24 @@ only at A.
   `admin` rules.
 - Declaring, activating and mounting trees under the person's `/~handle`.
 
-Code on B runs with the caller's access only. `apps.yaml` handling across
-hosts, lends included, is [Security 008](008-portable-profiles.md).
+### Code on B
+
+B cannot read the caller's `apps.yaml`, so until
+[Security 008](008-portable-profiles.md) code on B uses only rules B holds:
+
+- `everyone` rules, and
+- rules with an `app` in the `access.yaml` of B's own trees.
+
+Code on B never uses a caller's personal access. A tree's administrators on B
+approve an app for that tree by adding an `app` rule to its configuration,
+which is stored and enforced on B. What this leaves out is an app acting as
+its caller on a tree that grants the caller access but has no `app` rule;
+Security 008 can allow that later without taking anything back.
+
+This does not wait on anything: canopyd runs no hosted app code yet, and
+[Apps 005](../apps/005-source-resolution-and-sidecar.md) owns the execution
+context its sidecar will be issued, including whether code on the home host
+needs the caller's own approval.
 
 ### Trust
 
@@ -88,47 +114,50 @@ the profile key, so that B need not trust A at all, is Security 008.
 
 ## Open questions
 
-1. **Cache lifetime**, and whether B refetches early when a signature names an
-   unknown DeviceID.
-2. **Watches on B:** how a long-lived watch notices a revocation, which is
-   probably B rechecking the cached list when it refreshes.
-3. **The ordinary tree at `/~handle` on B:** its name in the spec, and what
+Details for Phase 1, not direction:
+
+1. **Lifetimes:** the cache lifetime (about a minute), the early-refetch rate
+   limit, and how long B serves from a stale copy while A is unreachable
+   (proposed: not at all past the cache lifetime).
+2. **The ordinary tree at `/~handle` on B:** its name in the spec, and what
    happens to it if the home host changes (Security 008).
-4. **Whether code on B needs app approval** to use a caller's access at
-   all, given `apps.yaml` is not read on B.
 
 ## Work
 
-### Phase 1: spec and vectors
+### Phase 1: spec and vectors (shared with Security 006)
 
 - [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md) §1: home
   and placement hosts; §1.2: claiming a placement account; the published
   device keys.
-- [Access control](../../docs/overstory-spec/05-access-control.md) §2: key
-  devices on a placement host, and the freshness rule.
-- **Gate:** `bun run check:links`, a walk-through of the failures: a digest
-  device on B, a device revoked at A, A unreachable past the limit, a claim
-  naming a home host the profile key did not sign.
+- [Access control](../../docs/overstory-spec/05-access-control.md) §1.1: code
+  on a placement host uses only `everyone` and `app` rules; §2: sessions on a
+  placement host and the freshness rule; §3.2: a watch on B ends when its
+  device leaves the list.
+- **Gate:** `bun run check:links`, `git diff --check`, and a walk-through of
+  the failures: a digest device on B, a session from A presented to B, a device
+  revoked at A with an open watch on B, A unreachable past the limit, a claim
+  naming a home host the profile key did not sign, code on B reaching for the
+  caller's own access.
 
-### Phase 2: canopyd
+### Phase 2: canopyd (after Security 006 Phase 2)
 
 - Home role: the device-keys route.
-- Placement role: placement-account claims, fetching and caching device keys,
-  the ordinary tree at `/~handle`.
+- Placement role: placement-account claims, fetching, caching and refreshing
+  device keys, sessions from them, the ordinary tree at `/~handle`.
 - **Gate:** canopyd suite and a two-host test with two local canopyd
   instances.
 
 ### Phase 3: clients
 
 - The protocol client, CLI, Arbor Sync, Mac and iPhone: record each profile's
-  home host and placement accounts, claim a placement account, sign requests
-  to it.
+  home host and placement accounts, claim a placement account, open sessions
+  on it.
 - **Gate:** client suites and a local two-host end-to-end: claim on B, place a
-  tree, edit it from two devices, revoke one at A and see B refuse it within
-  the cache lifetime.
+  tree, edit it from two devices, revoke one at A and see B end its watch
+  within the cache lifetime.
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- Deploy the home role to the live host. A live placement host needs a second
-  canopyd, which is its own decision.
+- Deploy the home role to the live host, after Security 006 is live. A live
+  placement host needs a second canopyd, which is its own decision.
 - Record the result in `status.md` and delete this plan.

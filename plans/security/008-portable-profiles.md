@@ -24,9 +24,9 @@ configuration:
 - **Placement hosts trust the home host.** Nothing ties the published device
   keys back to the profile key.
 - **Lending stops at the home host.** An `apps.yaml` entry applies only there,
-  so Joe cannot lend or approve apps on a placement host, and code there has
-  only the caller's access. Delegated authorization across servers is
-  [deferred](../../docs/overstory-spec/README.md#deferred), and
+  so Joe cannot lend or approve apps on a placement host, and code there uses
+  only `everyone` rules and the `app` rules of trees there. Delegated
+  authorization across servers is [deferred](../../docs/overstory-spec/README.md#deferred), and
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)
   says its transport is not defined.
 - **The home host is a single point.** When it is unreachable, the person's

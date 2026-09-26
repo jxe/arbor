@@ -98,6 +98,16 @@ Specify host-issued context with actual caller, source TreeID/logical path, pinn
 code root/version, lent grants with their lenders, activation identity and allowed execution
 scope. canopyd already checks each grant against its named lender; the issuer
 chooses lenders in a fixed order: the caller's own access first, then lender TreeID. Bind imported code to the correct executable identity without escalation.
+
+Decide before the sidecar exists whether attested code may use the caller's own
+access without the caller's approval. Today a grant with no lender allows it
+([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority),
+`executionAllows` in `packages/canopyd/src/access.ts`), so any app a person runs
+can do anything that person can. Proposed: code gets `everyone` access and the
+tree's own `app` rules, and anything more of the caller's needs the caller's
+`who: me` entry in `apps.yaml`. This matches what code on a placement host gets
+([Security 007](../security/007-placement-hosts.md#code-on-b)), where no
+`apps.yaml` is readable. The decision edits access control §1.1.
 Strip all client-supplied context headers; never forward browser credentials as
 sidecar service credentials. Sidecar canopyd calls use the host-private execution
 token through ordinary current-tree/object/watch/update APIs; no public mint or
