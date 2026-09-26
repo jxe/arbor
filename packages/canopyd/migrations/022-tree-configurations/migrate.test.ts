@@ -26,6 +26,10 @@ import { readRootProfile, storedProfileOf, writeStoredProfile } from "../../../.
 import { testProfileIdentity } from "../../../../tests/helpers/profile-identity.ts";
 import { createSchema21, type LegacyRule } from "./legacy.ts";
 import { migrateTreeConfigurations, UnmigratableTreeConfigError } from "./run.ts";
+import { rekeyDataHome } from "./rekey-data-home.ts";
+import { HostAccountStore, saveCurrentAccountDeviceID } from "@overstory/protocol";
+import { loadTreeRegistry } from "@overstory/arborsync/state";
+import { readFile, writeFile } from "node:fs/promises";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -204,6 +208,46 @@ describe("migration 022: tree configurations", () => {
       expect((await mac.treeConfiguration(ids.todos)).tree.id).toBe(treeConfigurationID(ids.todos));
       expect(running.canopy.boundary("/~joe/todos")?.id).toBe(ids.todos);
       await running.canopy.verifyIntegrity();
+
+      // The Mac's data home follows: its schema-21 account checkout becomes the profile's configuration.
+      const previousHome = process.env.ARBOR_DATA_HOME, previousStore = process.env.ARBOR_CREDENTIAL_STORE;
+      const home = join(root, "data-home");
+      process.env.ARBOR_DATA_HOME = home;
+      process.env.ARBOR_CREDENTIAL_STORE = "file";
+      try {
+        const oldCheckout = join(home, "accounts", ids.joeConfig);
+        await mkdir(oldCheckout, { recursive: true });
+        for (const name of ["account.yaml", "trees.yaml", "devices.yaml"]) await writeFile(join(oldCheckout, name), "{}\n");
+        const placed = join(root, "todos-folder");
+        await mkdir(placed);
+        await writeFile(join(home, "placements.yaml"), `${ids.joeConfig}:\n  ${JSON.stringify(placed)}: ${ids.todos}\n`);
+        const mac = "dv_joemacaaaaaaaaaaaaaaaaaaaa";
+        await saveCurrentAccountDeviceID(ids.joeConfig, mac);
+        await new HostAccountStore(ids.joeConfig).set(tokens.joeMac, {
+          origin: running.url, account: `${running.url}/~joe`, accountID: ids.joeAccount, handle: "joe", profileTree: ids.joe, deviceID: mac,
+        });
+        const refs = join(home, ".state", "accounts", ids.joeConfig, "refs");
+        await mkdir(refs, { recursive: true });
+        await writeFile(join(refs, `${ids.todos}.json`), JSON.stringify({ ref: "sha256:kept", update: "7" }));
+
+        const rekeyed = await rekeyDataHome();
+        const configuration = treeConfigurationID(ids.joe);
+        expect(rekeyed.accounts).toEqual([{ from: ids.joeConfig, to: configuration, profile: ids.joe, origin: running.url, placements: 1, rekeyed: true }]);
+        expect(await readFile(join(home, "accounts", configuration, "access.yaml"), "utf8")).toContain(ids.joe);
+        expect(await readFile(join(home, "placements.yaml"), "utf8")).toContain(configuration);
+        expect(await readFile(join(home, "placements.yaml"), "utf8")).not.toContain(ids.joeConfig);
+        expect(await readFile(join(home, ".state", "accounts", configuration, "refs", `${ids.todos}.json`), "utf8")).toContain("sha256:kept");
+        expect(await readFile(join(home, ".state", "migration", "022", `accounts-${ids.joeConfig}`, "trees.yaml"), "utf8")).toBe("{}\n");
+        expect(await new HostAccountStore(ids.joeConfig).safe()).toBeNull();
+        expect((await new HostAccountStore(configuration).get())?.accountToken).toBe(tokens.joeMac);
+        const registry = await loadTreeRegistry();
+        expect(registry.diagnostics).toEqual([]);
+        expect(registry.placements.map((placement) => placement.tree).sort()).toEqual([configuration, ids.todos].sort());
+        expect((await rekeyDataHome()).accounts).toEqual([{ from: configuration, to: configuration, profile: ids.joe, origin: running.url, placements: 0, rekeyed: false }]);
+      } finally {
+        if (previousHome === undefined) delete process.env.ARBOR_DATA_HOME; else process.env.ARBOR_DATA_HOME = previousHome;
+        if (previousStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE; else process.env.ARBOR_CREDENTIAL_STORE = previousStore;
+      }
     } finally {
       running.server.stop(true);
       await running.canopy[Symbol.asyncDispose]();

@@ -1,6 +1,8 @@
 // Compare a Canopy data root before and after the offline migration: every
 // tree's current root must decode to the same materialized files, except that
-// the account-configuration tree's trees.yaml loses its kind lines.
+// an account-configuration tree's trees.yaml loses its kind lines, and
+// migration 022 removes every account-configuration tree (the configurations
+// it adds are new trees, which this does not compare).
 //   bun run packages/canopyd/migrations/tools/compare-canopy-roots.ts <original-data-root> <migrated-data-root>
 import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -40,6 +42,7 @@ const after = new Map(trees(migratedRoot).map((tree) => [tree.id, tree]));
 let differences = 0;
 for (const tree of before) {
   const migrated = after.get(tree.id);
+  if (!migrated && tree.policy === "account-config-v2") { console.log(`${tree.id} (${tree.policy}): removed with its account's configuration`); continue; }
   if (!migrated) { console.log(`${tree.id}: MISSING after migration`); differences += 1; continue; }
   if (tree.ref === migrated.ref) { console.log(`${tree.id} (${tree.policy}): root unchanged ${tree.ref}`); continue; }
   const scratch = await mkdtemp(join(tmpdir(), "arbor-compare-"));
