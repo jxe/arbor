@@ -155,13 +155,28 @@ public struct NativeTreeAccessPresentation: Hashable, Sendable {
     public var entries: [NativeTreeAccessEntry]
     public var canEdit: Bool
     public var resourceRules: [ProtocolResourceAccessRule]
+    /// This person's `apps.yaml` approvals whose resource is this tree.
+    public var appApprovals: [NativeAppApproval]
 
-    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool, resourceRules: [ProtocolResourceAccessRule] = []) {
+    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool,
+                resourceRules: [ProtocolResourceAccessRule] = [], appApprovals: [NativeAppApproval] = []) {
         self.tree = tree
         self.canonical = canonical
         self.entries = entries
         self.canEdit = canEdit
         self.resourceRules = resourceRules
+        self.appApprovals = appApprovals
+    }
+}
+
+/// One rule of a profile's `apps.yaml`, under the app it approves.
+public struct NativeAppApproval: Hashable, Sendable {
+    public var app: String
+    public var rule: ProtocolAppAccessRule
+
+    public init(app: String, rule: ProtocolAppAccessRule) {
+        self.app = app
+        self.rule = rule
     }
 }
 
@@ -256,6 +271,13 @@ public enum TreeConfigurationYAML {
     }
 
     /// Rewrite `apps.yaml` after `change`, replacing only the apps it touches.
+    /// The approvals in `apps.yaml` whose resource is `tree`, by app.
+    public static func appApprovals(for tree: String, source: String) throws -> [NativeAppApproval] {
+        try apps(from: source).sorted { $0.key < $1.key }.flatMap { app, rules in
+            rules.filter { $0.resource == tree }.map { NativeAppApproval(app: app, rule: $0) }
+        }
+    }
+
     public static func replacingApps(in source: String, with change: (inout [String: [ProtocolAppAccessRule]]) throws -> Void) throws -> String {
         let original = try apps(from: source)
         var changed = original

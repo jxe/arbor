@@ -541,6 +541,10 @@ func appConsentReview() throws {
         try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
             rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), source: source)
     }
+    let approvals = try TreeConfigurationYAML.appApprovals(for: "tr_notes", source: review.after)
+    #expect(approvals.map(\.app) == ["tr_other", "tr_supplies"])
+    #expect(approvals.last?.rule == rule)
+    #expect(try TreeConfigurationYAML.appApprovals(for: "tr_elsewhere", source: review.after).isEmpty)
     let lent = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.write]), source: source)
     #expect(lent.lendsWrite)

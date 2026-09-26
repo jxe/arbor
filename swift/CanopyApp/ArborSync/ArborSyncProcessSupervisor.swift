@@ -285,7 +285,11 @@ actor ArborSyncProcessSupervisor {
         let handle = try FileHandle(forWritingTo: logs)
         let process = Process()
         process.executableURL = executable
-        let command = ["--control", "--port", String(port)]
+        var command = ["--control", "--port", String(port)]
+        // A hosted test app's helper must not outlive the test run that owns it.
+        if ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1" {
+            command += ["--parent-pid", String(ProcessInfo.processInfo.processIdentifier)]
+        }
         if let script = bundledScript(for: executable) {
             process.arguments = [script.path] + command
         } else {

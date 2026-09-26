@@ -11,19 +11,21 @@ public struct TreeConfigurationClient: Sendable {
     public init(wire: ProtocolClient) { self.wire = wire }
 
     /// A tree's configuration, which only its administrators may read, and
-    /// whether this device is an administrator device of the person's profile.
+    /// whether this device is an administrator device of the person's profile,
+    /// with the person's `apps.yaml`.
     func treeConfiguration(_ tree: String) async throws
-        -> (account: ProtocolAccountDescriptor, configuration: ProtocolTreeDescriptor, snapshot: ProtocolSnapshot, devicesSource: String) {
+        -> (account: ProtocolAccountDescriptor, configuration: ProtocolTreeDescriptor, snapshot: ProtocolSnapshot, devicesSource: String, appsSource: String) {
         let account = try await wire.account().account
         let profile = try account.configuration.validated()
         let profileSnapshot = try await wire.snapshot(tree: profile.id, root: profile.root)
         let devicesSource = try utf8(profileSnapshot.rootFile(named: "devices.yaml"), name: "devices.yaml")
-        if profile.id == treeConfigurationID(tree) { return (account, profile, profileSnapshot, devicesSource) }
+        let appsSource = (try? utf8(profileSnapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
+        if profile.id == treeConfigurationID(tree) { return (account, profile, profileSnapshot, devicesSource, appsSource) }
         let configuration: ProtocolTreeDescriptor
         do { configuration = try await wire.descriptor(tree: treeConfigurationID(tree)).tree.validated() }
         catch { throw ProtocolValidationError.invalidValue("Only this tree's administrators can see and change who has access") }
         let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
-        return (account, configuration, snapshot, devicesSource)
+        return (account, configuration, snapshot, devicesSource, appsSource)
     }
 
     func submitConfiguration(_ configuration: ProtocolTreeDescriptor, snapshot: ProtocolSnapshot, file: String, source: String) async throws {
@@ -38,7 +40,7 @@ public struct TreeConfigurationClient: Sendable {
     }
 
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
-        let (account, _, snapshot, devicesSource) = try await treeConfiguration(tree)
+        let (account, _, snapshot, devicesSource, appsSource) = try await treeConfiguration(tree)
         let accessSource = try utf8(snapshot.rootFile(named: "access.yaml"), name: "access.yaml")
         let canonical = (try? await wire.descriptor(tree: tree).tree.httpURL) ?? nil
         let declaration = try TreeConfigurationYAML.declaration(canonical: canonical ?? "", source: accessSource)
@@ -64,7 +66,8 @@ public struct TreeConfigurationClient: Sendable {
                 deviceID: account.device?.id,
                 devicesSource: devicesSource
             ),
-            resourceRules: declaration.resourceAccess.filter { HostedTreeDeclaration.ordinaryRule($0) == nil }
+            resourceRules: declaration.resourceAccess.filter { HostedTreeDeclaration.ordinaryRule($0) == nil },
+            appApprovals: (try? TreeConfigurationYAML.appApprovals(for: tree, source: appsSource)) ?? []
         )
     }
 
@@ -89,7 +92,7 @@ public struct TreeConfigurationClient: Sendable {
         case .profileApps(let profile, _): profile
         case .treeAccess(let tree): tree
         }
-        let (account, configuration, snapshot, devicesSource) = try await treeConfiguration(governed)
+        let (account, configuration, snapshot, devicesSource, _) = try await treeConfiguration(governed)
         guard configuration.id == review.configurationTree else { throw ResourcePolicyError.invalid }
         let current = (try? utf8(snapshot.rootFile(named: review.target.file), name: review.target.file)) ?? "{}\n"
         let after = try AccountConfigurationYAML.applyingResourceConsent(review, to: current,
@@ -103,7 +106,7 @@ public struct TreeConfigurationClient: Sendable {
         target: NativeTreeAccessTarget,
         access: String
     ) async throws -> NativeTreeAccessPresentation {
-        let (account, configuration, snapshot, _) = try await treeConfiguration(tree)
+        let (account, configuration, snapshot, _, _) = try await treeConfiguration(tree)
         let source = try utf8(snapshot.rootFile(named: "access.yaml"), name: "access.yaml")
         let subject: AccountAccessSubject = switch target {
         case .everyone: .everyone
@@ -139,7 +142,7 @@ public struct TreeConfigurationClient: Sendable {
 
     /// Mount `tree` at `name` in `parent`'s configuration.
     public func mount(tree: String, in parent: String, at name: String) async throws {
-        let (_, configuration, snapshot, _) = try await treeConfiguration(parent)
+        let (_, configuration, snapshot, _, _) = try await treeConfiguration(parent)
         let source = try utf8(snapshot.rootFile(named: "mounts.yaml"), name: "mounts.yaml")
         let next = try TreeConfigurationYAML.replacingMounts(in: source) { mounts in
             guard mounts[name] == nil else { throw ProtocolValidationError.invalidValue("\(name) is already mounted") }

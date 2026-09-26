@@ -5096,6 +5096,13 @@ private struct CanopyResourcePermissionPanel: View {
                             Button(rule.consentDescription) { select(rule) }
                         }
                     }
+                    if !access.appApprovals.isEmpty {
+                        Section("Your app approvals") {
+                            ForEach(access.appApprovals, id: \.self) { approval in
+                                Button(approval.rule.consentDescription(app: approval.app)) { select(approval) }
+                            }
+                        }
+                    }
                     Section("Permission") {
                         TextField("Caller: me, everyone, or profile TreeID", text: $caller)
                         TextField("App TreeID", text: $app)
@@ -5138,6 +5145,16 @@ private struct CanopyResourcePermissionPanel: View {
         case .link: error = "Edit access-link rules in the tree's configuration."; return
         }
         app = rule.app ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow.filter { $0 != .admin })
+    }
+
+    private func select(_ approval: NativeAppApproval) {
+        switch approval.rule.who {
+        case .me, .members: caller = "me"
+        case .everyone: caller = "everyone"
+        case .profile(let tree): caller = tree
+        case .link: error = "Edit access-link rules in the tree's configuration."; return
+        }
+        app = approval.app; scope = approval.rule.within ?? "/"; operations = Set(approval.rule.allow)
     }
 
     private func prepare() async {

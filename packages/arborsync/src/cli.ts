@@ -6,7 +6,7 @@ import { allowCloudPlaceholderDownloads } from "./cloud-placeholders.ts";
 function usage(): never {
   console.error(`Usage:
   arborsync [workspace] [--port <number>] [--runtime-kind <persistent|foreground|cloud>] [--instance-id <id>]
-  arborsync --control [--port <number>] [--runtime-kind <persistent|foreground|cloud>] [--instance-id <id>]`);
+  arborsync --control [--port <number>] [--runtime-kind <persistent|foreground|cloud>] [--instance-id <id>] [--parent-pid <pid>]`);
   process.exit(2);
 }
 
@@ -25,9 +25,12 @@ export async function runArborSyncDaemon(args = process.argv.slice(2)): Promise<
   const instanceIndex = args.indexOf("--instance-id");
   const instanceID = instanceIndex >= 0 ? args[instanceIndex + 1] : undefined;
   if (instanceIndex >= 0 && (!instanceID || instanceID.startsWith("--"))) throw new Error("--instance-id requires a value");
-  const valueIndexes = new Set([portIndex + 1, kindIndex + 1, instanceIndex + 1].filter((index) => index > 0));
+  const parentIndex = args.indexOf("--parent-pid");
+  const parentPID = parentIndex >= 0 ? Number(args[parentIndex + 1]) : undefined;
+  if (parentIndex >= 0 && (!Number.isInteger(parentPID) || parentPID! <= 1)) throw new Error("--parent-pid requires a process ID");
+  const valueIndexes = new Set([portIndex + 1, kindIndex + 1, instanceIndex + 1, parentIndex + 1].filter((index) => index > 0));
   const positionals = args.filter((arg, index) => !arg.startsWith("--") && !valueIndexes.has(index));
-  const known = new Set(["--control", "--port", "--runtime-kind", "--instance-id"]);
+  const known = new Set(["--control", "--port", "--runtime-kind", "--instance-id", "--parent-pid"]);
   const unknown = args.filter((arg) => arg.startsWith("--") && !known.has(arg));
   if (unknown.length || positionals.length > 1 || (control && positionals.length)) usage();
 
@@ -64,6 +67,13 @@ export async function runArborSyncDaemon(args = process.argv.slice(2)): Promise<
   };
   process.on("SIGINT", () => { void shutdown(); });
   process.on("SIGTERM", () => { void shutdown(); });
+  if (parentPID !== undefined) {
+    // A helper launched for one app process stops once that process is gone.
+    setInterval(() => {
+      try { process.kill(parentPID, 0); }
+      catch { void shutdown(); }
+    }, 1000).unref();
+  }
   void running.service.trees.fatalConfiguration.then((error) => {
     console.error(error.message);
     void shutdown(1);
