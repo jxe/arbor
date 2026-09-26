@@ -53,14 +53,23 @@ In practice this shows up as:
 - **The account configuration mixes two things.** Devices and the consents by
   which a person lets code use access they hold (`via` rules) belong to the
   person. A tree's address and ACL belong to the tree.
+- **Code has one sponsor.** The author side of an execution is the one
+  account that owns the code tree. Two people cannot both back code, and a
+  group cannot back code at all, even with access that was granted to the
+  group.
 
 ## The design
 
 Each hosted tree has a private **tree configuration**: a second tree, edited
-only by the tree's administrators, holding who administers it, who may access
-it, which child trees it mounts at which names, and which account sponsors its
-code. The account configuration keeps what belongs to the person: devices and
-consents.
+only by the tree's administrators, holding who may do what to the tree,
+administering it included, and which child trees it mounts at which names. A
+profile tree's configuration also says which apps may use the profile's
+access, for a person or a group alike. The account configuration keeps only
+what belongs to the account: its devices.
+
+The rule field `via` is renamed `app` everywhere, in both configurations and
+the spec's `AccessRule`. Joe is the only user, so this is a clean break at
+cutover.
 
 ### Tree configuration
 
@@ -71,9 +80,9 @@ concern, each a bare top-level shape with no wrapper key:
 
 ```text
 /
-  tree.yaml       administrators and sponsor
-  access.yaml     resource rules
+  access.yaml     who may do what, administrators included
   mounts.yaml     child trees by name
+  apps.yaml       profile trees only: apps that may use the profile's access
 ```
 
 The graph shape identifies the generation. Every other path is rejected. A
@@ -81,46 +90,30 @@ tree configuration has no tree configuration of its own, cannot be mounted,
 and is absent from canonical resolution and public discovery, like the account
 configuration.
 
-**`tree.yaml`**
-
-```yaml
-administrators:
-  - profile: tr_joe_profile
-  - profile: tr_garden_club     # a group: its current members administer
-sponsor: tr_joe_profile         # optional
-```
-
-- `administrators` is a nonempty list of person or group profile TreeIDs,
-  merged by TreeID. A person profile administers directly; a group profile
-  through its current `members`, the one-level membership check access rules
-  already use.
-- An administrator may read the tree configuration and has `write` on the tree,
-  implicitly: no access rule needs to name them.
-- `sponsor` names the person profile whose account's authority backs the
-  tree's executable code ([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
-  It replaces today's `sponsor: tree.accountID`. It must be a person profile
-  that administers the tree directly. Setting it to a profile, or keeping it
-  there through a change of administrators, must be submitted by that
-  profile's own account: nobody lends someone else's authority. Any
-  administrator may remove it. Without it, code in the tree runs with the
-  caller's authority only.
-
 **`access.yaml`**
 
-Today's resource-rule list for this tree, with one change: `who: me` is
-invalid, because a tree configuration has no single policy account. Everything
-else is unchanged: `who` / `via` / `allow` / `within`, merged by canonical
-`(who, via, within)`.
+Today's resource-rule list for this tree, with three changes: `via` is renamed
+`app`, `who: me` is invalid because a tree configuration has no single policy
+account, and a new operation `admin` names the administrators. Rules are
+`who` / `app` / `allow` / `within`, merged by canonical `(who, app, within)`.
 
 ```yaml
-- who: everyone
-  allow: [read]
+- who: {profile: tr_joe}
+  allow: [admin]
 - who: {profile: tr_alice}
-  allow: [write]
-  within: /shared
+  allow: [read, create-child]
 - who: {link: sha256:4f1c…}
   allow: [read]
 ```
+
+- `admin` may only be granted to a person or group profile, alone or with
+  other operations, in a rule with no `app` and no `within`. A person profile
+  administers directly; a group profile through its current `members`, the
+  one-level membership check access rules already use.
+- An administrator may read and edit the tree configuration and has `write` on
+  the whole tree. No other rule needs to name them.
+- `admin` is the only operation a rule cannot narrow: there is no
+  administering a subtree, or administering only through an app.
 
 **`mounts.yaml`**
 
@@ -171,18 +164,21 @@ configuration: this is the tree's configuration, not only its access.
 ### Who may edit it
 
 An update to a tree configuration is authorized when the submitting device is
-an `administrator` device of an account whose profile administers the tree,
+an `administrator` device of an account whose profile has `admin` on the tree,
 directly or through a group. This matches "only administrator devices may edit
 resource policy" ([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)):
-an administrator device acting for an administrator profile. Authorization
+an administrator device acting for an administering profile. Authorization
 reads the current accepted configuration, never the proposed one, so an edit
 cannot add its own submitter.
 
 ### Invariants
 
-- `administrators` is never empty. A merge whose result would empty it is a
-  conflict.
-- A group profile that administers any tree keeps at least one member: an
+- `access.yaml` always has at least one `admin` rule. A merge whose result
+  would remove the last one is a conflict.
+- A person profile's configuration grants `admin` to that person's profile and
+  no one else, so only the person can lend their access. A group profile's may
+  name other administrators; they then act for the group, lending included.
+- A group profile that has `admin` on any tree keeps at least one member: an
   update to that group's `members` that removes the last one is refused. The
   host already indexes `members` in `profile_facts`.
 - Concurrent edits use the account configuration's restrictive merge:
@@ -194,7 +190,7 @@ cannot add its own submitter.
 
 1. **Declare.** A client generates the TreeID and submits the tree
    configuration's first snapshot (base `null`), addressed through that TreeID.
-   The submitter's profile must be in `administrators`. The host reserves the
+   It must give the submitter's profile `admin`. The host reserves the
    TreeID; the tree is `awaiting-initialization`, unreadable and unresolved.
    This replaces adding an entry to `trees.yaml`.
 2. **Activate.** An administrator submits the tree's first snapshot, exactly
@@ -214,20 +210,82 @@ tree retires its configuration.
 /
   account.yaml
   devices.yaml
-  consents.yaml
 ```
 
-`account.yaml` and `devices.yaml` are unchanged. `trees.yaml` becomes
-`consents.yaml`: rules keyed by resource TreeID, as now, with no `canonical`,
-and every rule must carry `via`. A rule without `via` in a person's
-configuration can only narrow access the person already has, so it did
-nothing; what remains is consent for code to act with the person's access,
-which is what Canopy's resource consent already writes
-(`ResourceConsent.swift`). `who: me` keeps its meaning here: this account's
-profile.
+Both are unchanged. `trees.yaml` goes: its hosting half moves to tree
+configurations, and its `via` rules move to `apps.yaml` in the profile's
+configuration. The account configuration then holds credentials, and every
+decision about access lives with a tree or a profile.
 
-A consent applies whether or not the person administers the resource, so the
-consent flow always writes `consents.yaml` and never a tree configuration.
+### `apps.yaml`
+
+What a profile lets each app do with access the profile holds, keyed by the
+app's TreeID, which is how a consent sheet reads ("Supplies may read Alice's
+pantry"). It lives in the configuration of the profile tree, so a person's is
+edited by that person's administrator devices, and a group's by its
+administrators.
+
+```yaml
+# /~joe;arbor-config  apps.yaml
+tr_supplies:
+  - resource: tr_alice_pantry
+    allow: [read, create-child]
+    within: /inventory
+```
+
+- Each entry is a resource rule with `resource` in place of the key and the
+  app implied by the key: `resource` / `who` / `allow` / `within`, merged per
+  app by canonical `(resource, who, within)`. `admin` is invalid here.
+- The default `who` names the profile itself: `me` in a person's file,
+  `members` in a group's. Each is invalid in the other. A person's `me` lets
+  the app use the person's access when the person runs it; a group's `members`
+  approves the app for every current member at once.
+- Any other `who` **lends** the access to other callers of the app; see below.
+- A rule without an app could only narrow access the profile already has, so
+  it has no form here, and `canonical` goes too. What remains is what Canopy's
+  resource consent already writes (`ResourceConsent.swift`).
+
+### Code that lends its author's access
+
+This replaces the sponsoring account
+([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)),
+today `sponsor: tree.accountID`. There is no `sponsor` field.
+
+- **Code always runs as its caller**, or anonymously. Nobody else's identity is
+  ever the actor, and writes are attributed to the caller.
+- **Only the subject a grant names can lend it.** A rule naming
+  `{profile: tr_joe}` is Joe's to lend; a rule naming
+  `{profile: tr_garden_club}` is the club's, and no member may lend it,
+  though each holds it. The granter decides who decides by choosing whom to
+  grant. `everyone` grants need no lending, since a rule without `app` already
+  works through code, and link grants are not lendable.
+- **Approving an app for yourself is not lending.** A person's `who: me` entry
+  may use any access the person holds, including through a group: nobody else
+  gains anything, and the caller is still the person.
+- **Each lent capability is a grant naming its lender**, as
+  `ExecutionGrant.account` already records
+  ([execution-authority.ts](../../packages/canopyd/src/execution-authority.ts)).
+  A grant from one lender never widens another's. Checking one needs to know
+  how the lender holds the access, directly or only through a group, which is
+  grant provenance the spec already keeps.
+- **Several lenders are several grants.** When the granter named several
+  subjects and more than one lends the same capability, either covers the
+  requirement; the host picks one by a fixed order (the caller's own access
+  first, then lender profile TreeID) and records it. If that grant lapses, the
+  execution is revoked like any other lost grant.
+- **Lending can only narrow** what the lending profile currently holds, and
+  lapses when that access does.
+- **Lending trusts the app's administrators**, who may change its code inside
+  the envelope, as the spec already says of maintainers.
+- **Lending write** to callers other than the lender is allowed, and the
+  consent sheet warns before writing it.
+
+Lending is for access a profile holds on a tree it does not govern. A tree's
+administrators grant access through code directly, as tree policy: an
+`access.yaml` rule with `app` applies only to requests through that app, needs
+no lender behind it, and survives any one administrator leaving. The consent
+sheet writes that rule for a tree the approver administers, and `apps.yaml`
+otherwise.
 
 ## Examples
 
@@ -239,14 +297,9 @@ canonical at `https://arb.nxhx.org/`.
 Mounted by the root from its `members` handle `joe`.
 
 ```yaml
-# /~joe;arbor-config  tree.yaml
-administrators:
-  - profile: tr_joe
-sponsor: tr_joe
-```
-
-```yaml
-# access.yaml
+# /~joe;arbor-config  access.yaml
+- who: {profile: tr_joe}
+  allow: [admin]
 - who: everyone
   allow: [read]
 ```
@@ -257,33 +310,29 @@ todos: tr_todos
 notes: tr_notes
 ```
 
+`apps.yaml` holds Joe's app approvals and lends; see below. The configuration
+may name no administrator but `tr_joe`.
+
 ### Joe's private todos, shared with Alice, `/~joe/todos`
 
 ```yaml
-# tree.yaml
-administrators:
-  - profile: tr_joe
-```
-
-```yaml
 # access.yaml
+- who: {profile: tr_joe}
+  allow: [admin]
 - who: {profile: tr_alice}
   allow: [read, create-child]
 ```
 
-Joe needs no rule: he administers it. `mounts.yaml` is `{}`.
+`mounts.yaml` is `{}`.
 
 ### A tree Joe and Alice run together, `/~joe/trip`
 
 ```yaml
-# tree.yaml
-administrators:
-  - profile: tr_joe
-  - profile: tr_alice
-```
-
-```yaml
 # access.yaml
+- who: {profile: tr_joe}
+  allow: [admin]
+- who: {profile: tr_alice}
+  allow: [admin]
 - who: {link: sha256:9b2e…}      # the link Joe texted the hosts
   allow: [read]
 ```
@@ -303,21 +352,17 @@ administrator who also administers the club's profile:
 ```
 
 ```yaml
-# /~garden-club;arbor-config  tree.yaml
-administrators:
-  - profile: tr_garden_club       # the club's members administer its profile
+# /~garden-club;arbor-config  access.yaml
+- who: {profile: tr_garden_club}  # the club's members administer its profile
+  allow: [admin]
 ```
 
 Its plant records, administered by the club and mounted under it:
 
 ```yaml
-# /~garden-club/plants;arbor-config  tree.yaml
-administrators:
-  - profile: tr_garden_club
-```
-
-```yaml
-# access.yaml
+# /~garden-club/plants;arbor-config  access.yaml
+- who: {profile: tr_garden_club}
+  allow: [admin]
 - who: everyone
   allow: [read]
 ```
@@ -328,13 +373,9 @@ The club cannot remove its last member while it administers these trees.
 ### The community root, `/`
 
 ```yaml
-# /;arbor-config  tree.yaml
-administrators:
-  - profile: tr_garden_root       # the root is the community group profile
-```
-
-```yaml
-# access.yaml
+# /;arbor-config  access.yaml
+- who: {profile: tr_garden_root}  # the root is the community group profile
+  allow: [admin]
 - who: everyone
   allow: [read]
 ```
@@ -347,60 +388,75 @@ administrators:
 The community's members administer the community, which is canopyd's policy
 today, now with no `access` table or unowned-tree case behind it.
 
-### Code with a sponsor
+### An administrator's grant to an app
 
-Joe's supplies app reads a private data tree and publishes part of it:
-
-```yaml
-# /~joe/supplies;arbor-config  tree.yaml
-administrators:
-  - profile: tr_joe
-sponsor: tr_joe
-```
+Joe's supplies app publishes part of a private data tree he administers:
 
 ```yaml
 # /~joe/supplies-data;arbor-config  access.yaml
+- who: {profile: tr_joe}
+  allow: [admin]
 - who: everyone
-  via: tr_supplies
+  app: tr_supplies
   allow: [read]
   within: /published
 ```
 
-Anyone may read `/published` of the data tree, but only through the supplies
-app. This rule is the data tree owner's grant, so it lives in the tree
-configuration.
+Anyone may read `/published`, but only through the supplies app. This is the
+data tree's own grant, so it survives Joe losing access elsewhere and would
+work the same if the garden club administered the data.
 
-### `consents.yaml`
+### `apps.yaml`
 
-Joe lets the supplies app use his own access, as Canopy's consent sheet writes
-it:
+Joe lets two apps use his own access, as Canopy's consent sheet writes it:
 
 ```yaml
-# Joe's account configuration  consents.yaml
-tr_alice_pantry:                 # Alice's tree; Joe has write there
-  - who: me
-    via: tr_supplies
+# /~joe;arbor-config  apps.yaml
+tr_supplies:
+  - resource: tr_alice_pantry    # Alice's tree; she granted Joe write
     allow: [read, create-child]
     within: /inventory
-tr_todos:                        # Joe's own tree
-  - who: me
-    via: tr_planner
+tr_planner:
+  - resource: tr_club_calendar   # Joe reads it as a club member
     allow: [read]
 ```
 
-Joe sponsors a public page that shows part of a tree he may read but does not
-own, to anonymous visitors, only through that page's code:
+The planner entry is valid although Joe holds that read only through the club:
+he is approving it for himself.
+
+The library grants Joe read on its catalog by name. He lends it to anonymous
+visitors of his homepage, only through that page's code:
 
 ```yaml
-tr_club_calendar:
-  - who: everyone
-    via: tr_joe_homepage
+tr_joe_homepage:
+  - resource: tr_library_catalog
+    who: everyone
     allow: [read]
-    within: /events
+    within: /new-books
 ```
 
-Each consent can only narrow what Joe's account already holds, and lapses if
-he loses that access.
+### A group lends what it was granted
+
+The club calendar grants `{profile: tr_garden_club}` read. Joe cannot lend that
+to his homepage's visitors, though he is a member; the club can, for its own
+page, and can approve a planner for all its members:
+
+```yaml
+# /~garden-club;arbor-config  apps.yaml
+tr_garden_club_page:
+  - resource: tr_club_calendar
+    who: everyone
+    allow: [read]
+    within: /events
+tr_planner:
+  - resource: tr_club_calendar
+    who: members
+    allow: [read]
+```
+
+Any administrator of the club's profile may edit this file. Members come and
+go without affecting the page, which lapses only if the calendar stops
+granting the club.
 
 ## Decided
 
@@ -420,8 +476,33 @@ he loses that access.
 - **Not a sibling path such as `/~joe/todos.access`.** It takes a real name
   inside the parent, must move with every rename, has nothing to pair with for
   a tree without a canonical path, and publishes a probe for private trees.
-- **A directory of three files, not one file.** A tree root is always a directory, and one file per concern mirrors the account
-  configuration and keeps each file's merge key simple.
+- **A directory of files, not one file.** A tree root is always a directory,
+  and one file per concern mirrors the account configuration and keeps each
+  file's merge key simple.
+- **Administrators are an operation in `access.yaml`, not a separate list.**
+  "Who can do what to this tree" gets one answer, the way a sharing panel shows
+  it. The cost is a few validation rules on `admin`.
+- **No sponsor.** Lending is an `apps.yaml` entry in the lender's own profile
+  configuration, so nobody can lend someone else's authority, several
+  profiles can back one app, and nobody needs to administer an app to back it.
+  A sponsor field would need its own rules (a person profile, a direct
+  administrator, set only by that profile's account) and would still pick one
+  person for a group's code.
+- **`apps.yaml` belongs to a profile, not an account.** Lending is something
+  an identity does, so groups lend exactly as persons do, and the account
+  configuration keeps only credentials.
+- **Only the named subject lends.** Access granted to a group is the group's
+  to lend; the granter's choice of subject settles who decides. The one
+  exception is approving an app for your own use.
+- **`me` for a person, `members` for a group**, one spelling per file, so equal
+  rules never differ by spelling.
+- **`apps.yaml` keyed by app, and `app` for `via`.** Every entry is about an
+  app, so the app is the key and the field disappears there. `app` remains
+  only in `access.yaml`, for an administrator's grant through an app.
+- **Outside administrators of a group act for it.** Whoever administers a
+  group's profile may lend the group's access; governing a group means acting
+  for it.
+- **Lending write warns, it is not refused.**
 - **The address belongs to the parent.** See `mounts.yaml`.
 - **The cost is one-time.** The 2026-09-25 backup has three hosted trees and
   one account. Each gains a configuration of a few hundred bytes.
@@ -436,8 +517,8 @@ he loses that access.
    CLI command is the likely answer; it ties to the catalog's
    [recovery and administrator reset](../catalog.md#product-completion).
 2. **Two meanings of "administrator".** A device's `administrator` flag and a
-   profile in `administrators` are two layers of one idea. Keep both names, or
-   rename one?
+   profile's `admin` on a tree are two layers of one idea. Keep both names, or
+   rename the device flag?
 3. **The derived TreeID's form**, and whether its prefix shows that it is a
    configuration.
 4. **How declaring is addressed**: an update to
@@ -454,12 +535,17 @@ changing the live host.
 
 - Answer the open questions and record the answers here.
 - [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md): §2 and §3
-  for `consents.yaml`; a new section for the tree configuration graph, its
-  files, policy, invariants and merge; §6 rewritten as declare, activate,
+  for the account graph without `trees.yaml`; a new section for the tree
+  configuration graph, its files including a profile's `apps.yaml`, policy,
+  invariants and merge; §6 rewritten as declare, activate,
   mount; §7 for both policies.
-- [Access control](../../docs/overstory-spec/05-access-control.md) §1: define
-  administrators, drop "hosted resource owners", `me` only in consents,
-  `sponsor`.
+- [Access control](../../docs/overstory-spec/05-access-control.md) §1: rename
+  `via` to `app`; add `admin` and define administrators; drop "hosted resource
+  owners"; `me` and `members` only in `apps.yaml`; §1.1 replaces the
+  sponsoring account with lenders, the named-subject rule and its
+  self-approval exception.
+- [Execution sidecar](../../docs/architecture/canopyd/execution-sidecar.md):
+  lenders for the sponsoring account.
 - [Locators](../../docs/overstory-spec/03-locators.md) §3 and §5: the
   `arbor-config` parameter, mounts as the source of canonical boundaries.
 - [Conformance](../../docs/overstory-spec/conformance/README.md): graph,
@@ -469,17 +555,24 @@ changing the live host.
 ### Phase 2: parsers and merge
 
 - Protocol package (TypeScript) and Overstory package (Swift): parse,
-  validate and merge the tree configuration graph and `consents.yaml`; remove
-  the hosting half of the account graph.
+  validate and merge the tree configuration graph, including a profile's
+  `apps.yaml`, with `app` for `via` in `AccessRule`; remove `trees.yaml` from
+  the account graph.
 - **Gate:** both suites pass phase 1's vectors.
 
 ### Phase 3: canopyd
 
-- `tree-config-v1` policy: authorization through administrator profiles and
-  groups, `sponsor` rule, mounts applied as boundary rewrites, invariants
-  including the group-member rule on profile updates.
-- Derived state keyed by tree: rules and administrators per tree, consents per
-  account. Delete `trees.account_id`, adoption, the `access` table, the
+- `tree-config-v1` policy: authorization through administering profiles and
+  groups, mounts applied as boundary rewrites, invariants including the
+  group-member rule on profile updates and a person profile's sole
+  administrator.
+- Execution authority: `ExecutionContext.sponsor` and the `author` role give
+  way to lent grants, each checked against its lender's `apps.yaml` entry and
+  against a rule naming the lender directly, except for self-approval
+  ([execution-authority.ts](../../packages/canopyd/src/execution-authority.ts),
+  [access.ts](../../packages/canopyd/src/access.ts)).
+- Derived state keyed by tree: rules and administrators per tree, app entries
+  per profile. Delete `trees.account_id`, adoption, the `access` table, the
   declared-path rules and the account graph's hosting path.
 - Declaration through the tree configuration; `;arbor-config` resolution.
 - Migration 022 (schema 22), rehearsed on a fresh backup.
@@ -491,7 +584,9 @@ changing the live host.
 
 - CLI tree declaration and mounting.
 - Mac and iPhone: account bootstrap, the sharing panel reading and editing the
-  tree configuration, resource consent writing `consents.yaml`
+  tree configuration, resource consent writing a profile's `apps.yaml` or an
+  `app` rule in a tree it administers, offering to approve for a group the
+  person administers, and warning before lending write
   (`AccountConfigurationYAML.swift`, `ResourceConsent.swift`,
   `Credentials.swift`).
 - **Gate:** Swift suites and a local end-to-end against a phase 3 canopyd.
@@ -505,14 +600,19 @@ changing the live host.
 
 For each hosted tree, one tree configuration:
 
-| Tree | `tree.yaml` | `access.yaml` | `mounts.yaml` |
-|---|---|---|---|
-| `/` | administrators: the root itself | from the `access` table, minus rules the members now hold as administrators | top-level names other than handles |
-| an owned tree | administrators and sponsor: the owner's profile | the owner's `trees.yaml` rules, minus rules naming only the owner | its current nested boundaries |
+| Tree | `access.yaml` | `mounts.yaml` |
+|---|---|---|
+| `/` | `admin` for the root itself, plus the `access` table's rules minus those the members now hold as administrators | top-level names other than handles |
+| an owned tree | `admin` for the owner's profile, plus the owner's `trees.yaml` rules for it, minus `who: me` rules without `via` | its current nested boundaries |
 
-Each account's `trees.yaml` becomes `consents.yaml` with its `via` rules; the
-migration refuses to run while any rule would be dropped other than those
-covered by administration. Drop `trees.account_id` and `access`. As migration
+An owner's rule with `via` and a `who` other than `me` is the owner's grant
+and lands in the tree's `access.yaml` with `app`. Every other `via` rule, on
+any tree, lands in the account's profile configuration's `apps.yaml` under its
+app. The migration refuses to run while any rule would be dropped other than
+those covered by administration, or would lend access its account holds only
+through a group, and lists every lent capability before and after, since code
+that ran with its owner's authority now runs only with what `apps.yaml` and
+`app` rules lend. Drop `trees.account_id` and `access`. As migration
 019 did, the report lists each tree's whole-tree access before and after and
 must show no difference.
 
@@ -520,7 +620,9 @@ must show no difference.
 
 Before phase 1's spec edits: a written walk-through of the design against the
 examples above plus the failures: removing the last administrator, emptying an
-administering group, a co-administrator setting someone else as sponsor, and
-mounting a tree you do not administer. After each phase, its gate. At
+administering group, Alice trying to lend Joe's access, Joe lending access
+granted only to his club, a co-administrator added to a person profile, two
+named lenders covering one requirement and one losing access, and mounting a tree you do not
+administer. After each phase, its gate. At
 cutover, the migration report and a check that `/`, `/~joe` and `/~joe/todos`
 read and write as before.
