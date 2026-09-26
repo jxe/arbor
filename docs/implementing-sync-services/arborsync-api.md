@@ -330,12 +330,14 @@ signature. A pending pairing exposes only its community `origin`. Corrupt
 identity metadata and credential-store failures are errors, not absent identities.
 
 `POST /v1/me` accepts `{ path }` to create an identity idempotently.
-`POST /v1/me/restore` accepts `{ path, backup }`, using the version-1 identity
-backup object; it validates the complete key/TreeID relationship and refuses to
-replace a different identity. `POST /v1/me/backup` accepts `{ destination }` and
-writes a new owner-readable file, refusing to overwrite an existing file. These
-are same-user loopback operations with the same credential boundary described
-above. Backup bodies must never be logged.
+`POST /v1/me/restore` accepts `{ path, backup, passphrase? }`: a version-2
+backup needs its passphrase, and a version-1 backup (the key in the clear, as
+written before Security 006) needs none. It validates the complete key/TreeID
+relationship and refuses to replace a different identity. `POST /v1/me/backup`
+accepts `{ destination, passphrase }` and writes a new owner-readable version-2
+file, refusing to overwrite an existing file or a passphrase shorter than eight
+characters. These are same-user loopback operations with the same credential
+boundary described above. Backup bodies and passphrases must never be logged.
 
 Account bootstrap accepts either a community origin or an exact account URL in
 `account`, plus an optional `inviteCode` for a pending community invitation.

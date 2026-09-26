@@ -69,14 +69,14 @@ export class LocalAccountService {
     return result;
   }
 
-  async restoreProfileIdentity(backup: unknown, inputPath: string) {
-    const result = await identityOperation(() => new ProfileIdentityStore().restoreValue(backup, resolveUserPath(inputPath)));
+  async restoreProfileIdentity(backup: unknown, inputPath: string, passphrase?: string) {
+    const result = await identityOperation(() => new ProfileIdentityStore().restoreValue(backup, resolveUserPath(inputPath), passphrase));
     this.deps.trees.invalidateDescriptors();
     return result;
   }
 
-  async backupProfileIdentity(destination: string) {
-    await identityOperation(() => new ProfileIdentityStore().backup(resolveUserPath(destination)));
+  async backupProfileIdentity(destination: string, passphrase: string) {
+    await identityOperation(() => new ProfileIdentityStore().backup(resolveUserPath(destination), passphrase));
   }
 
   async pendingClaim(): Promise<{ account: string; path: string; canCancel: boolean } | null> {

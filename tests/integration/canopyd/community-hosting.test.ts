@@ -317,11 +317,11 @@ describe("client-generated profile and account bootstrap", () => {
       const originalCredential = await bootstrap.credentialToken(configurationTree);
       const offer = await new ProtocolClient(running.url, originalCredential).createPairing();
       const backupPath = join(sandbox, "charlie-identity-backup.json");
-      await new ProfileIdentityStore().backup(backupPath);
+      await new ProfileIdentityStore().backup(backupPath, "charlie's passphrase");
       const pairedHome = join(sandbox, "charlie-paired-home");
       process.env.ARBOR_DATA_HOME = pairedHome;
       const pairedProfile = join(sandbox, "charlie-recovered-profile");
-      await new ProfileIdentityStore().restore(backupPath, pairedProfile);
+      await new ProfileIdentityStore().restore(backupPath, pairedProfile, "charlie's passphrase");
       const pairedDaemon = await ArborSyncDaemon.open(pairedProfile, {}, { autoSync: false });
       try {
         const paired = new LocalAccountService({ trees: pairedDaemon.trees, events: pairedDaemon.events });

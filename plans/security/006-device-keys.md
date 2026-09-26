@@ -143,7 +143,7 @@ the profile on its home host, not only claim accounts. Phase 3 therefore makes
 backups passphrase-encrypted, and restore still accepts the existing
 unencrypted format.
 
-## Decided in Phases 1 and 2
+## Decided so far
 
 - A session challenge lasts two minutes, a reset challenge five, a session at
   most an hour (`sessionLifetimeMs`), and a session is never renewed without
@@ -156,12 +156,14 @@ unencrypted format.
   is signed by the profile key.
 - Unauthenticated challenge requests are limited to 30 per caller and
   profile per ten minutes.
+- Identity backups (Phase 3) seal the seed with AES-256-GCM under scrypt
+  (N = 2^17, r = 8, p = 1), bound to the profile by the authenticated data;
+  passphrases need eight characters. The format is in
+  [the data home](../../docs/architecture/arborsync/data-home.md#identity-backups).
 
 ## Open questions
 
-1. **The backup format:** the key-derivation function and its parameters for
-   passphrase-encrypted backups (Phase 3).
-2. **Two meanings of "administrator"** again, since a key device's flag is
+1. **Two meanings of "administrator"** again, since a key device's flag is
    what another host will read. canopyd 005 kept both names: a profile's
    `admin` on a tree and a device's `administrator` flag.
 

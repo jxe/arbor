@@ -126,6 +126,18 @@ The reference daemon knows only actual Overstory trees: placed roots, pathless r
 
 A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are scanned into local changes in the folder's change log (`<data home>/.state/trees/<base64url TreeID>/sync/`), and accepted canopyd state is written to the folder only when no local change is pending and the folder still holds what it last wrote or scanned. Editors keep their own working tree, journal, and recovery.
 
+## Identity backups
+
+`arbor me backup` writes version 2: the profile's public TreeID and key in
+the clear, and its 32-byte Ed25519 seed sealed with AES-256-GCM under a key
+scrypt derives from the passphrase (N = 2^17, r = 8, p = 1, a random 16-byte
+salt and 12-byte nonce, all recorded in the file). The authenticated data
+names the format, the profile, its public key and those parameters, so a file
+edited to point at another profile or cheaper parameters does not open.
+Restore accepts N from 2^15 to 2^20 and still reads version 1, the key in the
+clear. scrypt rather than Argon2 because Bun's `node:crypto` provides it
+natively; nothing else reads the file.
+
 ## Loopback credential exposure
 
 The daemon serves the stored canopyd account credential to any local process

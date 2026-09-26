@@ -7,7 +7,7 @@ import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { moveToDeviceKey } from "@overstory/client";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
-import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
+import { addLocalPlacement, backupIsEncrypted, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
@@ -44,6 +44,42 @@ type ShareAudience =
       | { subject: { kind: "everyone" }; access: "read" | "write" }
       | { subject: { kind: "profile"; locator: string }; access: "read" | "write" }
     > };
+
+/**
+ * A passphrase from the terminal without echo, or the first line of standard
+ * input when it is not a terminal. Never an argument, which would reach the
+ * shell's history and the process list.
+ */
+async function readPassphrase(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    passphraseInput ??= new Response(Bun.stdin.stream()).text().then((text) => text.split(/\r?\n/));
+    const line = (await passphraseInput).shift();
+    if (line === undefined) throw new Error("A passphrase is required on standard input");
+    return line;
+  }
+  process.stderr.write(prompt);
+  stdin.setRawMode(true);
+  stdin.resume();
+  try {
+    return await new Promise<string>((resolveLine, reject) => {
+      let value = "";
+      const onData = (chunk: Buffer) => {
+        for (const character of chunk.toString("utf8")) {
+          if (character === "\r" || character === "\n") { stdin.off("data", onData); process.stderr.write("\n"); return resolveLine(value); }
+          if (character === "\u0003") { stdin.off("data", onData); process.stderr.write("\n"); return reject(new Error("Cancelled")); }
+          if (character === "\u007f" || character === "\b") value = [...value].slice(0, -1).join("");
+          else value += character;
+        }
+      };
+      stdin.on("data", onData);
+    });
+  } finally {
+    stdin.setRawMode(false);
+    stdin.pause();
+  }
+}
+let passphraseInput: Promise<string[]> | undefined;
 
 function usage(): never {
   console.error(`Usage:
@@ -1550,15 +1586,20 @@ async function main(): Promise<void> {
     if (action === "backup") {
       if (operands.length !== 1) usage();
       const destination = resolveUserPath(operands[0]!);
-      await store.backup(destination);
+      const passphrase = await readPassphrase("Passphrase for the backup: ");
+      if (process.stdin.isTTY && await readPassphrase("Repeat the passphrase: ") !== passphrase) throw new Error("The passphrases differ; nothing was written");
+      await store.backup(destination, passphrase);
       console.log(`Backed up Arbor identity to ${destination}`);
       return;
     }
     if (action === "restore") {
       if (operands.length < 1 || operands.length > 2) usage();
+      const source = resolveUserPath(operands[0]!);
+      const encrypted = backupIsEncrypted(JSON.parse(await readFile(source, "utf8")));
       const status = await store.restore(
-        resolveUserPath(operands[0]!),
+        source,
         resolveUserPath(operands[1] ?? `${arborDataRoot()}/profile`),
+        encrypted ? await readPassphrase("Backup passphrase: ") : undefined,
       );
       console.log(`Restored ${status.profileTree}`);
       console.log(`Profile folder: ${status.profilePath}`);

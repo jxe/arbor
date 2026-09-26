@@ -1,7 +1,7 @@
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { homedir } from "node:os";
 import type { ProfileIdentity } from "@overstory/protocol";
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
+import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scrypt, sign } from "node:crypto";
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -36,6 +36,83 @@ interface ProfileIdentityBackup {
   profileTree: string;
   publicKey: string;
   privateKey: string;
+}
+
+/**
+ * A backup as written since Security 006: the private key encrypted under a
+ * passphrase. scrypt derives an AES-256-GCM key; the authenticated data binds
+ * the ciphertext to its profile and parameters. Version 1 (the key in the
+ * clear) is still restored.
+ */
+interface EncryptedProfileIdentityBackup {
+  version: 2;
+  profileTree: string;
+  publicKey: string;
+  encryption: { kdf: "scrypt"; N: number; r: number; p: number; salt: string; cipher: "aes-256-gcm"; nonce: string };
+  /** The 32-byte seed's ciphertext followed by the 16-byte tag, unpadded base64url. */
+  encryptedPrivateKey: string;
+}
+
+const BACKUP_KDF = { N: 2 ** 17, r: 8, p: 1 } as const;
+/** Parameters a backup may name: at least the ones written here, and not so large that restoring exhausts memory. */
+const BACKUP_KDF_LIMITS = { minN: 2 ** 15, maxN: 2 ** 20, maxR: 16, maxP: 4 } as const;
+export const MINIMUM_BACKUP_PASSPHRASE_LENGTH = 8;
+
+function passphraseBytes(passphrase: string): Buffer {
+  const normalized = passphrase.normalize("NFC");
+  if ([...normalized].length < MINIMUM_BACKUP_PASSPHRASE_LENGTH) {
+    throw new Error(`A backup passphrase needs at least ${MINIMUM_BACKUP_PASSPHRASE_LENGTH} characters`);
+  }
+  return Buffer.from(normalized, "utf8");
+}
+
+function backupAAD(value: Pick<EncryptedProfileIdentityBackup, "profileTree" | "publicKey" | "encryption">): Buffer {
+  const { N, r, p } = value.encryption;
+  return Buffer.from(`arbor-profile-backup-v2\0${value.profileTree}\0${value.publicKey}\0scrypt\0${N}\0${r}\0${p}\0aes-256-gcm`, "utf8");
+}
+
+function backupKey(passphrase: string, salt: Buffer, parameters: { N: number; r: number; p: number }): Promise<Buffer> {
+  return new Promise((resolveKey, reject) => scrypt(passphraseBytes(passphrase), salt, 32,
+    { ...parameters, maxmem: 256 * parameters.N * parameters.r }, (error, key) => error ? reject(error) : resolveKey(key)));
+}
+
+async function encryptBackup(backup: ProfileIdentityBackup, passphrase: string): Promise<EncryptedProfileIdentityBackup> {
+  const salt = randomBytes(16), nonce = randomBytes(12);
+  const header = {
+    profileTree: backup.profileTree,
+    publicKey: backup.publicKey,
+    encryption: { kdf: "scrypt" as const, ...BACKUP_KDF, salt: base64url(salt), cipher: "aes-256-gcm" as const, nonce: base64url(nonce) },
+  };
+  const cipher = createCipheriv("aes-256-gcm", await backupKey(passphrase, salt, BACKUP_KDF), nonce);
+  cipher.setAAD(backupAAD(header));
+  const sealed = Buffer.concat([cipher.update(bytes(backup.privateKey, 32, "Profile private key")), cipher.final(), cipher.getAuthTag()]);
+  return { version: 2, ...header, encryptedPrivateKey: base64url(sealed) };
+}
+
+/** Whether a parsed backup needs a passphrase to restore. */
+export function backupIsEncrypted(input: unknown): boolean {
+  return !!input && typeof input === "object" && (input as { version?: unknown }).version === 2;
+}
+
+async function decryptBackup(value: EncryptedProfileIdentityBackup, passphrase: string | undefined): Promise<ProfileIdentityBackup> {
+  const encryption = value.encryption;
+  if (!encryption || encryption.kdf !== "scrypt" || encryption.cipher !== "aes-256-gcm"
+    || !Number.isSafeInteger(encryption.N) || encryption.N < BACKUP_KDF_LIMITS.minN || encryption.N > BACKUP_KDF_LIMITS.maxN || (encryption.N & (encryption.N - 1)) !== 0
+    || !Number.isSafeInteger(encryption.r) || encryption.r < 1 || encryption.r > BACKUP_KDF_LIMITS.maxR
+    || !Number.isSafeInteger(encryption.p) || encryption.p < 1 || encryption.p > BACKUP_KDF_LIMITS.maxP
+    || typeof value.encryptedPrivateKey !== "string") {
+    throw new Error("Malformed Arbor identity backup");
+  }
+  if (passphrase === undefined) throw new Error("This identity backup is encrypted; its passphrase is required");
+  const salt = bytes(encryption.salt, 16, "Backup salt"), nonce = bytes(encryption.nonce, 12, "Backup nonce");
+  const sealed = bytes(value.encryptedPrivateKey, 48, "Encrypted private key");
+  const decipher = createDecipheriv("aes-256-gcm", await backupKey(passphrase, salt, encryption), nonce);
+  decipher.setAAD(backupAAD(value));
+  decipher.setAuthTag(sealed.subarray(32));
+  let seed: Buffer;
+  try { seed = Buffer.concat([decipher.update(sealed.subarray(0, 32)), decipher.final()]); }
+  catch { throw new Error("The passphrase does not open this identity backup"); }
+  return { version: 1, profileTree: value.profileTree, publicKey: value.publicKey, privateKey: base64url(seed) };
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -310,27 +387,32 @@ export class ProfileIdentityStore {
     };
   }
 
-  async backup(destinationInput: string): Promise<void> {
+  /** Write the private key, encrypted under `passphrase`, to a new owner-only file. */
+  async backup(destinationInput: string, passphrase: string): Promise<void> {
+    passphraseBytes(passphrase);
     const material = await this.keyMaterial();
     const destination = resolve(destinationInput);
     await mkdir(dirname(destination), { recursive: true });
-    const backup: ProfileIdentityBackup = {
+    const backup = await encryptBackup({
       version: 1,
       profileTree: material.metadata.profileTree,
       publicKey: material.metadata.publicKey,
       privateKey: base64url(material.seed),
-    };
+    }, passphrase);
     await writeFile(destination, `${JSON.stringify(backup, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     await chmod(destination, 0o600);
   }
 
-  async restore(sourceInput: string, profilePath: string): Promise<ProfileIdentityStatus> {
-    return this.restoreValue(JSON.parse(await readFile(resolve(sourceInput), "utf8")), profilePath);
+  async restore(sourceInput: string, profilePath: string, passphrase?: string): Promise<ProfileIdentityStatus> {
+    return this.restoreValue(JSON.parse(await readFile(resolve(sourceInput), "utf8")), profilePath, passphrase);
   }
 
-  async restoreValue(input: unknown, profilePath: string): Promise<ProfileIdentityStatus> {
+  /** Restore a backup: version 2 needs its passphrase, version 1 holds the key in the clear. */
+  async restoreValue(input: unknown, profilePath: string, passphrase?: string): Promise<ProfileIdentityStatus> {
     if (!input || typeof input !== "object") throw new Error("Malformed Arbor identity backup");
-    const value = input as Partial<ProfileIdentityBackup>;
+    const value = (backupIsEncrypted(input)
+      ? await decryptBackup(input as EncryptedProfileIdentityBackup, passphrase)
+      : input) as Partial<ProfileIdentityBackup>;
     if (value.version !== 1 || typeof value.profileTree !== "string" || typeof value.publicKey !== "string" || typeof value.privateKey !== "string") {
       throw new Error("Malformed Arbor identity backup");
     }

@@ -224,14 +224,18 @@ preserving its body and unknown keys. The avatar path must name an existing
 PNG, JPEG, GIF, or WebP file inside the profile folder. These fields are
 presentation only; the Profile TreeID remains the identity.
 
-`arbor me backup` writes a versioned backup containing the same private key to
-a newly created owner-readable file. It never prints the key and refuses to
-overwrite a path. The file is a secret and must be stored accordingly.
-`arbor me restore` validates the backup's public key and Profile TreeID before
-restoring the private key and binding the chosen profile folder; it refuses to
-replace a different local identity. This initial generation has no separate
-recovery key or key rotation: losing every copy of the private key permanently
-loses the ability to prove that identity to another host.
+`arbor me backup` writes a versioned backup of the same private key to a newly
+created owner-readable file, encrypted under a passphrase it asks for twice
+(or reads from standard input when that is not a terminal; never from an
+argument). It never prints the key and refuses to overwrite a path. The
+passphrase matters: the profile key can reset every device of the profile at
+its home host, after a 72-hour wait its devices can cancel. `arbor me restore`
+asks for the passphrase of an encrypted backup, still restores an older
+unencrypted one, and validates the backup's public key and Profile TreeID
+before restoring the private key and binding the chosen profile folder; it
+refuses to replace a different local identity. Losing every copy of the
+private key permanently loses the ability to prove that identity to another
+host or to reset its devices.
 
 ```sh
 arbor me create

@@ -21,6 +21,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+const passphrase = "correct horse battery staple";
+
 describe("onboarding identity preservation", () => {
   test("creation is idempotent and backup recovery preserves identity", async () => {
     const store = new ProfileIdentityStore();
@@ -29,12 +31,34 @@ describe("onboarding identity preservation", () => {
     const first = await store.create(profile);
     expect(await store.create(profile)).toEqual(first);
     const backup = join(root, "backup.json");
-    await store.backup(backup);
+    await expect(store.backup(backup, "short")).rejects.toThrow("at least 8 characters");
+    await store.backup(backup, passphrase);
+    await expect(store.backup(backup, passphrase)).rejects.toThrow("EEXIST");
+    const written = JSON.parse(await readFile(backup, "utf8"));
+    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
+    expect(written).toMatchObject({ version: 2, profileTree: first.profileTree, publicKey: first.publicKey, encryption: { kdf: "scrypt", cipher: "aes-256-gcm" } });
+    expect(JSON.stringify(written)).not.toContain(privateKey);
     process.env.ARBOR_DATA_HOME = join(root, "recovered");
-    const restored = await store.restore(backup, join(root, "new-profile"));
+    await expect(store.restore(backup, join(root, "new-profile"))).rejects.toThrow("passphrase is required");
+    await expect(store.restore(backup, join(root, "new-profile"), "not the passphrase")).rejects.toThrow("does not open");
+    const restored = await store.restore(backup, join(root, "new-profile"), passphrase);
     expect(restored.profileTree).toBe(first.profileTree);
     expect(restored.publicKey).toBe(first.publicKey);
     expect(restored.keyAvailable).toBe(true);
+  });
+
+  test("an encrypted backup is bound to its profile, and the earlier unencrypted format still restores", async () => {
+    const store = new ProfileIdentityStore();
+    const first = await store.create(join(root, "profile"));
+    const backup = join(root, "backup.json");
+    await store.backup(backup, passphrase);
+    const written = JSON.parse(await readFile(backup, "utf8"));
+    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
+    process.env.ARBOR_DATA_HOME = join(root, "recovered");
+    // The header is authenticated: naming other parameters breaks the seal.
+    await expect(store.restoreValue({ ...written, encryption: { ...written.encryption, N: 2 ** 16 } }, join(root, "new-profile"), passphrase)).rejects.toThrow("does not open");
+    const restored = await store.restoreValue({ version: 1, profileTree: first.profileTree, publicKey: first.publicKey, privateKey }, join(root, "new-profile"));
+    expect(restored.profileTree).toBe(first.profileTree);
   });
 
   test("malformed metadata blocks creation and retains exact bytes", async () => {
@@ -72,9 +96,8 @@ describe("onboarding identity preservation", () => {
   test("recovery rejects mismatched material without modifying the identity", async () => {
     const store = new ProfileIdentityStore();
     const first = await store.create(join(root, "profile"));
-    const backup = join(root, "backup.json");
-    await store.backup(backup);
-    const value = JSON.parse(await readFile(backup, "utf8"));
+    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
+    const value = { version: 1, profileTree: first.profileTree, publicKey: first.publicKey, privateKey };
     value.publicKey = Buffer.alloc(32).toString("base64url");
     await expect(store.restoreValue(value, first.profilePath)).rejects.toThrow("does not match");
     expect(await store.status()).toEqual(first);
@@ -158,9 +181,9 @@ describe("onboarding identity preservation", () => {
     const profile = join(root, "profile");
     const first = await store.create(profile);
     const backup = join(root, "backup.json");
-    await store.backup(backup);
+    await store.backup(backup, passphrase);
     await writeFile(join(arborPrivateRoot(), "self.json"), "{damaged");
-    expect(await store.restore(backup, profile)).toEqual(first);
+    expect(await store.restore(backup, profile, passphrase)).toEqual(first);
     const retained = (await readdir(arborPrivateRoot())).find((name) => name.startsWith("self.json.damaged-"));
     expect(await readFile(join(arborPrivateRoot(), retained!), "utf8")).toBe("{damaged");
   });

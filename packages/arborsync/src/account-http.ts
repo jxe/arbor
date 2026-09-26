@@ -19,14 +19,18 @@ export function accountHandler(service: LocalAccountService) {
       return json({ identity: await service.createProfileIdentity(body.path) }, 201);
     }
     if (request.method === "POST" && url.pathname === "/v1/me/restore") {
-      const body = await request.json() as { path?: unknown; backup?: unknown };
-      if (typeof body.path !== "string") throw new ProtocolError("invalid-request", "Identity recovery requires a profile path", 400);
-      return json({ identity: await service.restoreProfileIdentity(body.backup, body.path) }, 201);
+      const body = await request.json() as { path?: unknown; backup?: unknown; passphrase?: unknown };
+      if (typeof body.path !== "string" || (body.passphrase !== undefined && typeof body.passphrase !== "string")) {
+        throw new ProtocolError("invalid-request", "Identity recovery requires a profile path", 400);
+      }
+      return json({ identity: await service.restoreProfileIdentity(body.backup, body.path, body.passphrase as string | undefined) }, 201);
     }
     if (request.method === "POST" && url.pathname === "/v1/me/backup") {
-      const body = await request.json() as { destination?: unknown };
-      if (typeof body.destination !== "string") throw new ProtocolError("invalid-request", "Identity backup requires a destination", 400);
-      await service.backupProfileIdentity(body.destination);
+      const body = await request.json() as { destination?: unknown; passphrase?: unknown };
+      if (typeof body.destination !== "string" || typeof body.passphrase !== "string") {
+        throw new ProtocolError("invalid-request", "Identity backup requires a destination and a passphrase", 400);
+      }
+      await service.backupProfileIdentity(body.destination, body.passphrase);
       return json({ saved: true });
     }
     if (request.method === "POST" && url.pathname === "/v1/device-key") {
