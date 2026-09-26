@@ -24,12 +24,12 @@ const health = await fetch(`${origin}/.arbor/health`).catch(() => null);
 if (!health?.ok) failures.push(`health: ${health?.status ?? "unreachable"}`);
 
 for (const tree of report.trees) {
-  const response = await fetch(`${origin}/.arbor/trees/${tree.id}/ref`).catch(() => null);
+  const response = await fetch(`${origin}/.arbor/trees/${tree.id}`).catch(() => null);
   if (!response) { failures.push(`${tree.id}: unreachable`); continue; }
   if (response.status === 401 || response.status === 403 || response.status === 404) continue; // private; the daemon checks it
   if (!response.ok) { failures.push(`${tree.id}: HTTP ${response.status}`); continue; }
-  const body = await response.json() as { snapshot?: { ref?: string } };
-  if (body.snapshot?.ref !== tree.root) failures.push(`${tree.id}: server ref ${body.snapshot?.ref} != report ${tree.root}`);
+  const body = await response.json() as { tree?: { root?: string } };
+  if (body.tree?.root !== tree.root) failures.push(`${tree.id}: server root ${body.tree?.root} != report ${tree.root}`);
 }
 
 const local = verifySync ? await fetch(`${sync}/v1/trees`).catch(() => null) : null;
