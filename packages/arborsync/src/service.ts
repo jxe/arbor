@@ -131,6 +131,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
     // A folder edit schedules that folder's scan; the scan decides whether it is a change.
     this.unsubscribeEvents = events.subscribe((event) => {
       if (event.kind === "diagnostic" || event.change.origin === "sync") return;
+      // A reloaded placement registry (a claim, a pairing, an edited
+      // placements.yaml) may add placements no folder machine syncs yet.
+      if (event.tree === "system") {
+        if (this.autoSync && trees.sharedPlacements().some((placement) => !this.folders.has(placement.tree))) void this.syncAll();
+        return;
+      }
       this.folders.get(event.tree)?.sync.scheduleScan();
     });
     this.objectCache = new TreeObjectCache({
