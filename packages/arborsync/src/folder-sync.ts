@@ -14,6 +14,7 @@ import {
   ProtocolError,
   protocolEntryObject,
   ProtocolClient,
+  ProtocolHTTPError,
   type LazyTreeSnapshot,
   type ObjectHash,
   type ProtocolDirectoryEntry,
@@ -71,6 +72,8 @@ export interface FolderSyncHost {
   materialized(): void;
   /** The folder's declined paths changed. */
   setDeclined(declined: LocalTreeDescriptor["declined"]): void;
+  /** Drop a key device's session after a 401; true when there was one to drop. */
+  forgetSession?(placement: SharedTreePlacement): Promise<boolean>;
 }
 
 /**
@@ -222,11 +225,20 @@ export class FolderSync implements AcceptedTree {
     this.pausedPath = join(stateRoot, "sync", "paused.json");
     this.declinedPath = join(stateRoot, "sync", "declined.json");
     this.paused = existsSync(this.pausedPath);
+    // A key device's session can end before the store replaces it: forget it and try once more.
+    const authenticated = async <T>(run: (client: ProtocolClient) => Promise<T>): Promise<T> => {
+      try { return await run(await this.client()); }
+      catch (error) {
+        const placement = this.host.placement();
+        if (!(error instanceof ProtocolHTTPError) || error.status !== 401 || !placement || !await this.host.forgetSession?.(placement)) throw error;
+        return run(await this.client());
+      }
+    };
     const transport: UpdateTransport = {
-      submitUpdates: async (tree, request) => (await this.client()).submitUpdates(tree, request),
-      descriptor: async (tree) => (await this.client()).descriptor(tree),
-      object: async (tree, hash) => (await this.client()).object(tree, hash),
-      snapshot: async (tree, root) => (await this.client()).snapshot(tree, root),
+      submitUpdates: (tree, request) => authenticated((client) => client.submitUpdates(tree, request)),
+      descriptor: (tree) => authenticated((client) => client.descriptor(tree)),
+      object: (tree, hash) => authenticated((client) => client.object(tree, hash)),
+      snapshot: (tree, root) => authenticated((client) => client.snapshot(tree, root)),
     };
     this.coordinator = new UpdateCoordinator(tree, this.log, new FileControlStore(stateRoot), transport, this, {
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),

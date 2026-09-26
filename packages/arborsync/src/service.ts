@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@overstory/protocol";
-import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
@@ -526,6 +526,13 @@ export class ArborSyncDaemon implements AsyncDisposable {
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
+      forgetSession: async (current) => {
+        if (!current.configurationTree) return false;
+        const store = new HostAccountStore(current.configurationTree);
+        if (!await store.hasDeviceKey()) return false;
+        await store.forgetSession();
+        return true;
+      },
     }, { pollIntervalMs: this.syncIntervalMs });
     this.folders.set(tree, { root: workspace.root, sync });
     // The folder's object reads and audits follow the root it last held, and
