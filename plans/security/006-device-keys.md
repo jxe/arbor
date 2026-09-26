@@ -6,14 +6,12 @@
 - **Effort:** L
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
-- **State:** PHASES 1–3 IMPLEMENTED; THE HOST DEPLOYED 2026-09-26 (schema 23).
-  Phase 3's hands-on end-to-end has not run, and no device of Joe's has a key. The spec
-  ([accounts §1.1, §3, §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing),
-  [access control §2, §3.2](../../docs/overstory-spec/05-access-control.md#2-authentication-and-secrets)),
-  the vectors (`device-keys.json`), the TypeScript protocol, canopyd and
-  [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
-  are done and tested, and the Swift `Overstory` models, signing bytes and
-  client calls are compiled and pass `device-keys.json`; see
+- **State:** PHASES 1–3 IMPLEMENTED AND DEPLOYED 2026-09-26: the host at
+  schema 23 ([migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)),
+  the clients at `8448a63f`. Joe's Mac (Ed25519, through Arbor Sync) and
+  iPhone (Secure Enclave P-256) moved to keys the same day, and he checked an
+  encrypted backup and session renewal by hand. Pairing and revoking with
+  keys and a reset are covered by tests but not yet tried by hand; see
   [status](../../status.md). What remains is below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
@@ -170,22 +168,19 @@ unencrypted format.
 
 ## Work
 
-### Phase 3 remainder: the hands-on end-to-end
+### Remaining: the hands-on checks, then close out
 
-The client code is in (see [status](../../status.md)): Arbor Sync, the CLI,
-the Mac app and the iPhone app hold keys, use sessions, pair and claim with
-keys, move a digest device to a key, encrypt backups, and request, show,
-cancel and finish resets, each covered by package and integration tests.
+Everything is built and deployed; these are checks by hand, not code.
 
-- **Gate:** a local end-to-end with a debug Canopy and a real iPhone: move the
-  Mac to a key, pair the iPhone with a key (Secure Enclave), revoke it and see
-  its session end, start a reset from the backup and cancel it from the Mac,
-  then complete one. Needs Joe's hands for the iPhone.
-
-### Phase 4: moving Joe's devices
-
-- The host side is live: [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
-  ran on 2026-09-26 and every existing device kept its credential. What is
-  left is moving Joe's devices to keys as their Phase 3 builds are
-  installed; it needs no host step.
-- Record the result in `status.md` and delete this plan.
+- **Pair and revoke with a key:** pair a new device (the simulator or a spare
+  phone), check its `devices.yaml` entry carries a `key`, then deauthorize it
+  from the Mac and see its session and watch end.
+- **Reset, requested and cancelled on the live host:** restore the backup into
+  a scratch data home, `arbor me reset https://arb.nxhx.org`, see the banner on
+  the Mac and iPhone, cancel it from the Mac, and `arbor me reset --discard`.
+  Never let a live reset complete; completing one is covered by
+  `tests/integration/profile-reset.test.ts` against a local canopyd.
+- **The last digest device:** `devices.yaml` still lists an unused "iPhone"
+  (`dv_ry4dqmh32o5ovzccizd2xfhhje`, last used 2026-09-05) with a credential;
+  deauthorize it, so every device of Joe's is a key device.
+- Then record the result in `status.md` and delete this plan.
