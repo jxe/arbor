@@ -89,6 +89,7 @@
         "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "yaml": "2.8.2",
       },
     },
     "packages/canopyd-merge": {
