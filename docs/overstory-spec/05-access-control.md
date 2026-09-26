@@ -144,6 +144,13 @@ own justification. Until
 entry applies only on its profile's home host, and cross-server delegation
 transport is not defined.
 
+**On a placement host**
+([accounts §1.3](04-accounts-and-devices.md#13-claiming-a-placement-account)),
+which cannot read the caller's `apps.yaml`, code has only `everyone` grants
+and the `app` rules of that host's own trees: no grant without a lender is the
+caller's own access, and nothing is lent. A tree's administrators there
+approve an app for the tree with an `app` rule in its configuration.
+
 Rules are edited through governed configuration acceptance, not a separate
 grant CRUD service. Only administrator devices of an administering person may
 edit a tree configuration
@@ -158,11 +165,16 @@ disclosed.
 Authenticated ordinary requests use:
 
 ```text
-Authorization: Bearer <device credential>
+Authorization: Bearer <device credential or device session token>
 Arbor-Access-Link: <access-link secret>
 ```
 
-A device credential identifies one account and contributes its profile TreeID.
+A device credential, sent by a digest device to its home host, or a session
+token a key device opened at this host
+([accounts §5.1](04-accounts-and-devices.md#51-device-sessions)), identifies
+one account and device and contributes the profile TreeID. Both are checked
+against the device's current state on every request: a deleted device, and an
+expired session, authenticate nothing.
 The host establishes executable context separately over an authenticated runtime
 channel. Incoming public requests cannot forge or override it. Across matching
 rules, allowed operations union within their scopes. Caller authentication,
@@ -255,6 +267,8 @@ if the host lacks that facility it rejects the request. Reauthorization and even
 publication must be ordered against policy acceptance so queued events cannot
 escape after revocation. Terminate or invalidate affected streams without
 revealing private details. Reconnect repeats authorization; a cursor is not a grant.
+A stream opened with a device session ends no later than the session expires,
+and when its device is deleted; the client reopens it with a fresh session.
 
 Hosts notify trusted runtimes of policy, device/session, and group-membership
 changes affecting active execution. A disconnected invalidation channel blocks

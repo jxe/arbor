@@ -98,6 +98,7 @@ authority for the implemented subset; the request grammar itself is in
 
 - `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, consumed by `@overstory/protocol` and Swift `Overstory`.
 - `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@overstory/protocol` (derivation also by Swift `Overstory`).
+- `device-keys.json`: device `key` encodings and their DER public keys, and the device-session and profile-reset challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@overstory/protocol`, canopyd and Swift `Overstory`.
 
 ## Index
 
@@ -108,6 +109,7 @@ authority for the implemented subset; the request grammar itself is in
 | `client-state-machines.json` | Document admission and working-tree update machines |
 | `collection-schemas.json` | The declarative collection schema profile: syntax, metadata, values, CSV cells, limits |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
+| `device-keys.json` | Device key encodings, session and reset challenges, and their signatures |
 | `directory-documents.json` | Directory document projection (spec 02) |
 | `entry-actions.json` | Entry move, copy, remove, and restore semantics |
 | `errors.json` | Protocol error shapes and codes |

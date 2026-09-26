@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "keys": {
+    "valid": [
+      {
+        "name": "ed25519",
+        "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "spkiHex": "302a300506032b65700321008a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+      },
+      {
+        "name": "p256-even",
+        "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k",
+        "spkiHex": "3039301306072a8648ce3d020106082a8648ce3d03010703220002550f471003f3df97c3df506ac797f6721fb1a1fb7b8f6f83d224498a65c88e24"
+      },
+      {
+        "name": "p256-odd",
+        "key": "p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+        "spkiHex": "3039301306072a8648ce3d020106082a8648ce3d0301070322000307810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "unknown-algorithm",
+        "key": "rsa:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+      },
+      {
+        "name": "no-tag",
+        "key": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+      },
+      {
+        "name": "short-ed25519",
+        "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb"
+      },
+      {
+        "name": "padded",
+        "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w="
+      },
+      {
+        "name": "standard-base64",
+        "key": "ed25519:+++++++++++++++++++++++++++++++++++++++++++"
+      },
+      {
+        "name": "p256-uncompressed-prefix",
+        "key": "p256:BFUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k"
+      },
+      {
+        "name": "uppercase-tag",
+        "key": "ED25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+      }
+    ]
+  },
+  "sessionChallenges": [
+    {
+      "name": "ed25519",
+      "seedHex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000
+      },
+      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656e6465766963652d73657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
+      "signature": "aY3CQK-wcaLcCf6tAyBATCMMeyINopb5SYNpmvWuV_5Et6IKHwBePx_EEC3R-9OAWkw6KkhlBDKEzIQAXpaBDQ",
+      "deterministic": true,
+      "tamperedSignature": "aY3CQK-wcaLcCf-tAyBATCMMeyINopb5SYNpmvWuV_5Et6IKHwBePx_EEC3R-9OAWkw6KkhlBDKEzIQAXpaBDQ"
+    },
+    {
+      "name": "p256",
+      "privateScalarHex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000
+      },
+      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6969696969696969696969696969696969696969696969696969666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656e6465766963652d73657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
+      "signature": "ogMSckuv6Ldv3DPolab_D7eYoiK5ZKLC0eBXhp6nBH1BrTmqDowCNGdjeHJWGtTMoTu_8wtJD_OOVNNrSX_iTw",
+      "deterministic": false,
+      "tamperedSignature": "ogMSckuv6Ldv3DLolab_D7eYoiK5ZKLC0eBXhp6nBH1BrTmqDowCNGdjeHJWGtTMoTu_8wtJD_OOVNNrSX_iTw"
+    }
+  ],
+  "invalidSessionChallenges": [
+    {
+      "name": "extra-field",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000,
+        "account": "https://canopy.example/~joe"
+      }
+    },
+    {
+      "name": "wrong-purpose",
+      "challenge": {
+        "version": 1,
+        "purpose": "profile-reset",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000
+      }
+    },
+    {
+      "name": "non-canonical-origin",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example/",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000
+      }
+    },
+    {
+      "name": "expired-before-issued",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000000000
+      }
+    },
+    {
+      "name": "device-for-profile",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://canopy.example",
+        "profileTree": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "device": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000120000
+      }
+    }
+  ],
+  "resetChallenges": [
+    {
+      "name": "new-administrator",
+      "profileSeedHex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "profilePublicKey": "_RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg",
+      "challenge": {
+        "version": 1,
+        "purpose": "profile-reset",
+        "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": {
+          "id": "dv_nnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "label": "Joe's new Mac",
+          "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+        },
+        "nonce": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000300000
+      },
+      "cborHex": "a9626964781d61785f6262626262626262626262626262626262626262626262626262656e6f6e6365782b4242424242424242424242424242424242424242424242424242424242424242424242424242424242424266646576696365a3626964781d64765f6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e636b65797833656432353531393a696f6a6a3358514a385a583955747374504c70646373706e436238646c4249623833534941625150623177656c6162656c6d4a6f652773206e6577204d6163666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656d70726f66696c652d72657365746776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c454ffe06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
+      "signature": "6k7eBPakb2-AoS0mwv3HJT9EkcNv362UtQgd5y0mk2w9HI6jcujuVASIE_WnhKAd1ZzV5pQLYz3LLrIl5sBvCw"
+    }
+  ],
+  "invalidResetChallenges": [
+    {
+      "name": "device-without-key",
+      "challenge": {
+        "version": 1,
+        "purpose": "profile-reset",
+        "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": {
+          "id": "dv_nnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "label": "Joe's new Mac"
+        },
+        "nonce": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000300000
+      }
+    },
+    {
+      "name": "session-purpose",
+      "challenge": {
+        "version": 1,
+        "purpose": "device-session",
+        "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": {
+          "id": "dv_nnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "label": "Joe's new Mac",
+          "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+        },
+        "nonce": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000300000
+      }
+    },
+    {
+      "name": "short-device-id",
+      "challenge": {
+        "version": 1,
+        "purpose": "profile-reset",
+        "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": "https://canopy.example",
+        "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
+        "device": {
+          "id": "dv_mac",
+          "label": "Joe's new Mac",
+          "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+        },
+        "nonce": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "issuedAt": 1790000000000,
+        "expiresAt": 1790000300000
+      }
+    }
+  ]
+}

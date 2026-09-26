@@ -56,13 +56,14 @@ an optional presentation hint. Consumers must remain correct when it is absent;
 the profile TreeID is the account identity and the complete host account URL
 is the claim target.
 
-**One host per profile.** Device credentials are bearer secrets whose digests
-one host binds, so a profile's configuration lives on the one host that binds
-them, its **home host**, and a profile is claimed at one host. A host refuses
-a claim for a profile it already has an account for, and clients connect a
-profile to one host. Accounts for one profile at several hosts return with
-device keys that other hosts can verify
-([Security 007](../../plans/security/007-placement-hosts.md)).
+**Home and placement hosts.** A profile's configuration lives on one host,
+its **home host**, which accepts every edit to it and binds its devices'
+credentials. A profile may also hold **placement accounts** at other hosts
+(§1.3), so that a person can place trees under several hosts' canonical URLs.
+A placement host keeps no device list or configuration of the profile: it
+reads the home host's published device keys (§5.4), so only key devices
+(§5.1) act there. A host refuses a claim for a profile it already has an
+account for.
 
 Every account may host trees. Overstory does not define a second account
 species for membership without hosting, a separate principal, or account
@@ -115,17 +116,20 @@ valid profile proof.
 The operation refuses to replace a different local identity or silently adopt
 an ordinary random TreeID as a person identity. Repeating it for the same
 profile and available key is idempotent. This version has one permanent key and
-defines no rotation, successor key, recovery key, delegation, or host-backed
-identity recovery.
+defines no rotation, successor key or delegation. Besides claiming accounts
+(§1.2, §1.3), the profile key has one other use: resetting the profile's
+devices at its home host after a wait its devices can cancel (§5.3).
 
-A backup contains the same private key, not another authority. A conforming
-backup operation writes a versioned, profile-bound secret file with owner-only
-permissions, refuses to overwrite an existing path, and never prints the key.
-Restore validates that the private key derives the recorded public key and
-Profile TreeID before storing it or binding a local profile folder. Losing every
+A backup contains the same private key, not another authority. Because that
+key can reset the profile's devices, a conforming backup operation encrypts it
+under a passphrase the person chooses, writes a versioned, profile-bound secret
+file with owner-only permissions, refuses to overwrite an existing path, and
+never prints the key. Restore validates that the private key derives the
+recorded public key and Profile TreeID before storing it or binding a local
+profile folder, and still reads the earlier unencrypted format. Losing every
 copy of the private key permanently loses the ability to establish that profile
-at another host, though already-paired host devices retain their independent
-account credentials.
+at another host or to reset its devices, though already-paired devices keep
+working.
 
 ### 1.2 Claiming an account with the profile key
 
@@ -167,7 +171,8 @@ other host.
 
 The account-claim body names the host-allocated account locator, that existing
 local profile `TreeID`, its derived configuration `TreeID`, a generated
-`DeviceID`, device label and credential digest, and the complete initial
+`DeviceID`, device label, either a credential digest or a device `key`
+(§5.1), and the complete initial
 snapshot of the profile's tree configuration. It contains no profile snapshot
 or filesystem path. The initial configuration must grant the profile `admin`,
 list the claiming device as its one administrator device, and mount nothing.
@@ -193,6 +198,40 @@ profile from an uploaded snapshot, and the source-host profile-proof routes
 are removed rather than retained as new-account compatibility. A host using
 this generation accepts new person accounts only for self-certifying Profile
 TreeIDs with valid local signatures.
+
+### 1.3 Claiming a placement account
+
+A placement account is claimed with the same two routes and the same
+profile-key proof as §1.2, with two differences:
+
+- The challenge request adds `homeHost`, the origin of the profile's home
+  host, and the returned challenge carries it, so the profile key signs which
+  host the placement host will trust for the profile's devices. The placement
+  host refuses a `homeHost` equal to its own origin.
+- The claim body carries no device and no configuration. The placement host
+  fetches the home host's device keys (§5.4) and refuses the claim unless it
+  can read them.
+
+The placement host records the account (profile TreeID, its local allocation
+such as a handle, and the home host), which is host state like a handle, not
+authored per-account data. The profile tree lives at the home host, so the
+claim instead declares, on the placement host, the profile's **placement
+root**: an ordinary tree with a fresh random TreeID, mounted where the host
+allocates the account (canopyd: `/~handle`), whose configuration grants the
+profile `admin` and mounts nothing. It is the parent of the person's trees on
+that host. Every tree on the placement host has its tree configuration there,
+with rules that name the profile as on any host.
+
+On a placement host the profile's key devices may read, update and watch as
+the profile, edit tree configurations from administrator devices, and declare,
+activate and mount trees under the placement root. Code there has the
+authority [access control §1.1](05-access-control.md#11-execution-authority)
+gives code on a placement host.
+
+The placement host trusts the home host, over HTTPS, for the device keys of
+the profiles whose profile key named that home host, and for nothing else. A
+compromised home host can act as those profiles on the placement host, which
+is no more than it holds already.
 
 ## 2. Tree configuration graph
 
@@ -292,8 +331,12 @@ tr_joe_homepage:
 dv_mac:
   label: "Joe's Mac"
   administrator: true
+  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w
 dv_phone:
   label: "Joe's iPhone"
+  key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k
+dv_ipad:
+  label: "Joe's iPad"
 ```
 
 **`access.yaml`** is the tree's list of [resource rules](05-access-control.md#1-subjects-and-rules)
@@ -321,11 +364,17 @@ other file. Any other `who` lends the access
 ([access control §1.1](05-access-control.md#11-execution-authority)).
 
 **`devices.yaml`** is keyed directly by `DeviceID`. An entry means that device
-has an active credential binding for this person at the home host.
+is active for this person at the home host.
 `administrator` is optional and defaults to `false`. At least one device is an
-administrator. Pairing adds a new ordinary-device entry. Deleting an entry
-atomically revokes its credential and permanently retires its `DeviceID`;
-pairing it again creates a new identity.
+administrator. `key` is optional: an entry with one is a **key device**, which
+authenticates by signing (§5.1); an entry without one is a **digest device**,
+whose bearer credential's digest the home host binds as host state, never in
+this file. `key` is an algorithm tag and a raw public key in unpadded
+base64url: `ed25519:` and 32 bytes, or `p256:` and a 33-byte compressed SEC1
+point. No two entries share a key. Pairing adds a new ordinary-device entry.
+Deleting an entry atomically revokes its credential or key and every session
+it opened, and permanently retires its `DeviceID`; pairing it again creates a
+new identity.
 
 ### 3.1 Who may edit a tree configuration
 
@@ -341,6 +390,11 @@ fields, currently `label`; an administrator device may do the rest, including
 pairing and revoking. A device cannot create its own entry, change its own
 administrator bit, or revive a retired `DeviceID` through a configuration
 edit.
+
+`key` is the one field only its own device sets: a digest device may add a
+`key` to its own entry once (§5.2), and no edit, an administrator's included,
+adds a key to another device's entry or changes or removes an existing key. A
+device that loses its key is deleted and paired again.
 
 **Mounting** a tree additionally requires the submitting device's person to
 administer the child. Renaming or removing a mount needs only this tree's
@@ -384,9 +438,11 @@ The account tokens, and what each survives:
 | person-profile `TreeID` | one person and one public identity key; with the host, one host account | `arbor me create` | all account, canonical-name, and hosting changes |
 | configuration `TreeID` | one tree's configuration | derived from the tree's `TreeID` | everything the tree survives |
 | group-profile `TreeID` | one authored group | the first local workspace | canonical-name and hosting changes |
-| `DeviceID` | one credential binding for one person at the home host | the device | everything except deletion of its `devices.yaml` entry |
+| `DeviceID` | one device of one person, with its credential binding or key | the device | everything except deletion of its `devices.yaml` entry, a reset (§5.3) included |
+| device key | one key device's public key | the device | nothing; a device never changes its key |
+| device session | one key device at one host, for at most an hour | that host | nothing; it expires, and ends when its device is deleted |
 | `PairingID` | one short-lived pairing secret for one account | the server | nothing; it is single use |
-| account challenge | one short-lived, target-bound profile signature | the target host | nothing; it is single use and expires |
+| account, session and reset challenges | one short-lived, host-bound signature | the host that issued it | nothing; each is single use and expires |
 | access-link digest | one access link | hashing the secret, which is shown once and never stored | deleting the rule revokes it |
 
 ## 4. Local placements
@@ -410,22 +466,158 @@ PUT  /.arbor/pairings/{PairingID}/claim
 ```
 
 An authenticated device creates a short-lived, single-use pairing secret for
-its account. The claimant locally generates a new
-`DeviceID` and credential, durably stores the raw credential before claiming,
-and sends only its digest together with its label and pairing secret. The
+its account. The claimant locally generates a new `DeviceID` and either a key
+pair, whose private key never leaves it, or a bearer credential, which it
+durably stores before claiming. It sends its public `key` or only the
+credential's digest, together with its label and the pairing secret. The
 server atomically advances the person profile's tree configuration with an
-ordinary-device entry in `devices.yaml` and binds the digest. Pairing carries
-no placement or local path. Exact claim retry uses the same pairing secret,
-DeviceID, label, and credential digest and is idempotent; concurrent,
-altered, or expired reuse fails. No response returns the raw new credential.
+ordinary-device entry in `devices.yaml`, carrying the `key` when there is one,
+and binds a digest as host state. Pairing carries no placement or local path.
+Exact claim retry uses the same pairing secret, DeviceID, label, and key or
+credential digest and is idempotent; concurrent, altered, or expired reuse
+fails. No response returns a raw credential. Clients that support keys pair
+with one; digest devices remain for compatibility until
+[Security 008](../../plans/security/008-portable-profiles.md) retires them.
 
-Because a profile has one home host (§1), one physical installation has one
+Pairing happens at the home host, so one physical installation has one
 `DeviceID` per profile it acts for, and there is no multi-account pairing
 transaction or global device identity. Several local clients on one
-installation MAY share that installation's device credential: to the host
-they are one device, and their request digests share one scope, which is what
-makes adoption
+installation MAY share that installation's device credential, or sessions its
+key opens: to the host they are one device, and their request digests share
+one scope, which is what makes adoption
 ([working-tree updates §2.2](09-client-synchronization.md#32-entry)) sound.
+Local clients then never hold the key itself.
+
+### 5.1 Device sessions
+
+```text
+POST /.arbor/device-sessions/challenges
+POST /.arbor/device-sessions
+```
+
+A key device never sends a long-lived secret. It asks a host for a challenge,
+naming `profileTree` and `device`, and the host returns a random, single-use
+challenge valid for at most two minutes:
+
+```json
+{
+  "version": 1,
+  "purpose": "device-session",
+  "id": "ax_…",
+  "origin": "https://canopy.example",
+  "profileTree": "tr_…",
+  "device": "dv_…",
+  "nonce": "<32 random bytes, unpadded base64url>",
+  "issuedAt": 1790000000000,
+  "expiresAt": 1790000120000
+}
+```
+
+The host issues one only for a key device listed for that profile: at the home
+host, in the accepted `devices.yaml`; at a placement host, in the home host's
+published device keys (§5.4). The device verifies `origin` is the host it
+meant, signs the canonical CBOR encoding of the challenge
+([encoding §4.1](01-tree-operations.md#41-cbor-and-hashes)), and sends the
+challenge and `signature` back. An `ed25519:` key signs with Ed25519, a
+64-byte signature; a `p256:` key with ECDSA over SHA-256, as the 64-byte
+concatenation of `r` and `s`. The signature is unpadded base64url.
+
+The host checks that the challenge is the one it issued, unexpired and
+unconsumed, that its device is still listed with the same key, and the
+signature. It consumes the challenge and returns a random session token and
+its expiry, at most one hour later:
+
+```json
+{ "token": "ars_…", "device": "dv_…", "expiresAt": 1790003600000 }
+```
+
+The token is a bearer credential for that host alone: requests send it
+exactly where a device credential goes
+([access control §2](05-access-control.md#2-authentication-and-secrets)). The
+host stores only its digest. It stops working when it expires or its device
+is deleted or reset away, whichever comes first, and it cannot open another
+session; the device signs a new challenge instead. A watch ends when its
+session does ([access control §3.2](05-access-control.md#32-watches-and-revocation)).
+
+### 5.2 Moving to a key
+
+A digest device whose client supports keys moves to one without a new
+`DeviceID`: it generates a key pair and submits, authenticated with its
+current credential, an ordinary update of its person's configuration that
+adds `key` to its own entry and changes nothing else. Accepting it deletes
+the device's credential binding in the same commit, so from then on the
+device holds exactly one kind. A second move, or an update that adds a key to
+another device's entry, is refused (§3.1).
+
+### 5.3 Resetting a profile's devices
+
+```text
+POST   /.arbor/profile-resets/challenges
+PUT    /.arbor/profile-resets/{ProfileTreeID}
+GET    /.arbor/profile-resets/{ProfileTreeID}
+DELETE /.arbor/profile-resets/{ProfileTreeID}
+```
+
+A person who has lost every administrator device resets the profile's devices
+with the profile key. The challenge request names `profileTree` and the new
+`device`: a generated `id`, `label` and `key`. The home host returns a
+single-use challenge with `purpose: "profile-reset"`, its `origin`, the
+profile, the new device and a nonce, valid for at most five minutes. The
+client signs its canonical CBOR encoding with the profile key and sends the
+challenge, the raw profile public key and the signature. The host verifies
+them as it verifies an account claim (§1.2) and records a **pending reset**.
+
+The host cannot tell whether the person really has no administrator device
+left, since lost devices remain listed, so a reset waits:
+
+- A pending reset takes effect 72 hours after it is recorded. The response
+  and `GET`, to any device of the profile, return the new device's `id` and
+  `label`, `requestedAt` and `effectiveAt`; clients show it prominently.
+- Any administrator device of the profile may `DELETE` it before then.
+- There is one pending reset per profile; another request while one is
+  pending is refused.
+- The new device has no authority while the reset is pending.
+- When it takes effect, the host advances the profile's configuration so that
+  `devices.yaml` holds only the new device, an administrator key device;
+  every earlier device and its sessions are revoked. From that moment no
+  earlier device authenticates, even if the host completes the update later.
+
+A host may also offer its operator an immediate reset outside this protocol
+(canopyd: `ARBOR_RESET_ACCOUNT`).
+
+### 5.4 Published device keys
+
+```text
+GET /.arbor/profiles/{ProfileTreeID}/device-keys
+```
+
+A home host serves, for each profile it is home to and to anyone without
+authentication, the part of that profile's `devices.yaml` a placement host
+needs, as of the accepted configuration:
+
+```json
+{
+  "profileTree": "tr_…",
+  "devices": [
+    { "id": "dv_mac", "key": "ed25519:…", "administrator": true }
+  ]
+}
+```
+
+It lists key devices only, never labels or digest devices. Anyone can
+therefore see how many key devices a profile has, which are administrators,
+and when that changes; limiting that would need hosts to authenticate to each
+other.
+
+A placement host opens a session (§5.1) for a device listed in its copy of
+the home host's device keys, treating the caller as that profile and device,
+an administrator device if listed as one. It keeps a copy for at most about a
+minute and refuses to open a session from an older copy it cannot refresh. A
+challenge request naming a DeviceID missing from its copy makes it refetch
+early, at most once every few seconds per profile. It refreshes the copy of
+every profile with open sessions and ends the sessions and watches of any
+device no longer listed, so a deletion at the home host reaches it within the
+copy's lifetime. Digest devices act only at their home host.
 
 ## 6. Declaring, activating and mounting a tree
 

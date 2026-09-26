@@ -74,6 +74,27 @@
         "mounts.yaml": "plants: tr_pppppppppppppppppppppppppp\n",
         "apps.yaml": "tr_wwwwwwwwwwwwwwwwwwwwwwwwww:\n  - resource: tr_eeeeeeeeeeeeeeeeeeeeeeeeee\n    who: everyone\n    allow: [read]\n    within: /events\ntr_nnnnnnnnnnnnnnnnnnnnnnnnnn:\n  - resource: tr_eeeeeeeeeeeeeeeeeeeeeeeeee\n    who: members\n    allow: [read]\n"
       }
+    },
+    {
+      "name": "person-with-key-devices",
+      "kind": "person",
+      "tree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+      "files": {
+        "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n",
+        "mounts.yaml": "{}\n",
+        "apps.yaml": "{}\n",
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n  key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k\ndv_dddddddddddddddddddddddddd:\n  label: Joe's iPad\n"
+      },
+      "values": {
+        "access": [{ "who": { "profile": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq" }, "allow": ["admin"] }],
+        "mounts": {},
+        "apps": {},
+        "devices": {
+          "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Joe's Mac", "administrator": true, "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" },
+          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" },
+          "dv_dddddddddddddddddddddddddd": { "id": "dv_dddddddddddddddddddddddddd", "label": "Joe's iPad", "administrator": false }
+        }
+      }
     }
   ],
   "invalid": [
@@ -99,7 +120,10 @@
     { "name": "missing-administrator-device", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n" },
     { "name": "credential-in-devices", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  credential: secret\n" },
     { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "canopy: https://community.example\n" },
-    { "name": "trees-yaml", "kind": "person", "file": "trees.yaml", "source": "{}\n" }
+    { "name": "trees-yaml", "kind": "person", "file": "trees.yaml", "source": "{}\n" },
+    { "name": "malformed-device-key", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=\n" },
+    { "name": "unknown-key-algorithm", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: rsa:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\n" },
+    { "name": "one-key-two-devices", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Phone\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\n" }
   ],
   "merges": [
     {
@@ -153,6 +177,23 @@
       "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true } } },
       "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Old phone", "administrator": false } } },
       "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true } } },
+      "conflicts": []
+    },
+    {
+      "name": "concurrent-keys-for-one-device",
+      "kind": "person",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false } } },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" } } },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false, "key": "p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR" } } },
+      "conflicts": [{ "file": "devices.yaml", "policy": false }]
+    },
+    {
+      "name": "key-added-beside-label-edit",
+      "kind": "person",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false } } },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" } } },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's phone", "administrator": false } } },
+      "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's phone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" } } },
       "conflicts": []
     }
   ]

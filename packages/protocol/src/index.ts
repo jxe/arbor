@@ -9,6 +9,7 @@ export * from "./model/cbor.ts";
 export * from "./model/page-id.ts";
 export * from "./model/identity.ts";
 export * from "./model/profile-identity.ts";
+export * from "./model/device-keys.ts";
 export * from "./model/identifiers.ts";
 export * from "./model/protocol.ts";
 export * from "./model/sse.ts";

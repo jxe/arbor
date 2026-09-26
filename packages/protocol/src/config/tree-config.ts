@@ -9,6 +9,7 @@ import {
 } from "../objects.ts";
 import { encodeBase32 } from "../model/identity.ts";
 import { sha256 } from "../model/hash.ts";
+import { isDeviceKey } from "../model/device-keys.ts";
 import { stableJSONString } from "../model/protocol.ts";
 import {
   intersectResourceRules,
@@ -38,6 +39,9 @@ export interface TreeConfigDevice {
   id: string;
   label: string;
   administrator: boolean;
+  /** A key device's public key (`ed25519:…` or `p256:…`); absent for a
+   * digest device, whose credential digest is host state. */
+  key?: string;
 }
 
 /** One `apps.yaml` rule: the access a profile lets one app use. */
@@ -180,14 +184,17 @@ export function parseDevicesYAML(source: string): Record<string, TreeConfigDevic
   for (const [idValue, candidate] of Object.entries(value)) {
     const id = deviceID(idValue, `devices.yaml key ${idValue}`);
     const device = mapping(candidate, `devices.yaml.${id}`);
-    const unknown = Object.keys(device).filter((key) => key !== "label" && key !== "administrator");
+    const unknown = Object.keys(device).filter((key) => key !== "label" && key !== "administrator" && key !== "key");
     if (unknown.length) throw new Error(`devices.yaml.${id} has unknown fields: ${unknown.join(", ")}`);
     if (typeof device.label !== "string" || !device.label.trim()) throw new Error(`devices.yaml.${id}.label must be nonempty`);
     if (device.administrator !== undefined && typeof device.administrator !== "boolean") {
       throw new Error(`devices.yaml.${id}.administrator must be true or false`);
     }
-    devices[id] = { id, label: device.label, administrator: device.administrator === true };
+    if (device.key !== undefined && !isDeviceKey(device.key)) throw new Error(`devices.yaml.${id}.key is not a device key`);
+    devices[id] = { id, label: device.label, administrator: device.administrator === true, ...(device.key !== undefined ? { key: device.key as string } : {}) };
   }
+  const keys = Object.values(devices).flatMap((device) => device.key ? [device.key] : []);
+  if (new Set(keys).size !== keys.length) throw new Error("devices.yaml lists one key for two devices");
   if (!Object.values(devices).some((device) => device.administrator)) throw new Error("devices.yaml must contain an administrator");
   return devices;
 }
@@ -290,6 +297,7 @@ export function treeConfigSources(values: TreeConfigValues): Partial<Record<Tree
     ...(values.devices ? { "devices.yaml": yaml(Object.fromEntries(Object.entries(values.devices).map(([id, device]) => [id, {
       label: device.label,
       ...(device.administrator ? { administrator: true } : {}),
+      ...(device.key ? { key: device.key } : {}),
     }]))) } : {}),
   };
 }
@@ -316,12 +324,12 @@ export function snapshotTreeConfig(values: TreeConfigValues): TreeSnapshot {
 
 /** The initial configuration of a person's profile: that person administers
  * it from one administrator device. */
-export function initialPersonConfig(profile: string, device: { id: string; label: string }): TreeConfigValues {
+export function initialPersonConfig(profile: string, device: { id: string; label: string; key?: string }): TreeConfigValues {
   return {
     access: [{ who: { profile }, allow: ["admin"] }],
     mounts: {},
     apps: {},
-    devices: { [device.id]: { id: device.id, label: device.label, administrator: true } },
+    devices: { [device.id]: { id: device.id, label: device.label, administrator: true, ...(device.key ? { key: device.key } : {}) } },
   };
 }
 
@@ -338,7 +346,7 @@ export function semanticTreeConfig(values: TreeConfigValues): Record<string, any
     access: Object.fromEntries(values.access.map((r) => [resourceRuleKey(r), rule(r)])),
     mounts: { ...values.mounts },
     ...(values.apps ? { apps: Object.fromEntries(Object.entries(values.apps).map(([app, rules]) => [app, Object.fromEntries(rules.map((r) => [appRuleKey(r), rule(r)]))])) } : {}),
-    ...(values.devices ? { devices: Object.fromEntries(Object.entries(values.devices).map(([id, device]) => [id, { label: device.label, administrator: device.administrator }])) } : {}),
+    ...(values.devices ? { devices: Object.fromEntries(Object.entries(values.devices).map(([id, device]) => [id, { label: device.label, administrator: device.administrator, ...(device.key ? { key: device.key } : {}) }])) } : {}),
   };
 }
 
@@ -347,7 +355,7 @@ function fromSemantic(value: Record<string, any>): TreeConfigValues {
     access: Object.values(value.access ?? {}) as ResourceAccessRule[],
     mounts: { ...(value.mounts ?? {}) },
     ...(value.apps ? { apps: Object.fromEntries(Object.entries(value.apps).map(([app, rules]) => [app, Object.values(rules as object) as AppAccessRule[]])) } : {}),
-    ...(value.devices ? { devices: Object.fromEntries(Object.entries(value.devices).map(([id, raw]: [string, any]) => [id, { id, label: raw.label, administrator: raw.administrator === true }])) } : {}),
+    ...(value.devices ? { devices: Object.fromEntries(Object.entries(value.devices).map(([id, raw]: [string, any]) => [id, { id, label: raw.label, administrator: raw.administrator === true, ...(raw.key ? { key: raw.key } : {}) }])) } : {}),
   };
 }
 

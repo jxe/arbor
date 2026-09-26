@@ -105,9 +105,10 @@ Authentication headers apply to every route ([access control §2](05-access-cont
 - A **Overstory host** represents one host and owns its local accounts, allocation policy,
   governed private tree configurations, hosted-tree boundaries,
   mutable refs, immutable objects, claims, access enforcement, and watch
-  streams. A profile `TreeID` has one home host until
-  [Security 007](../../plans/security/007-placement-hosts.md); no host owns
-  that identity merely because it allocated one of its names. A host
+  streams. A profile `TreeID` has one home host, which holds its
+  configuration, and may hold placement accounts at other hosts
+  ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts));
+  no host owns that identity merely because it allocated one of its names. A host
   does not need local filesystem materialization.
 - A **Overstory client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **backing adapter** supplies the common node/children primitives from one
