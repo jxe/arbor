@@ -16,13 +16,14 @@ dependency of it. The Swift twin is `swift/Packages/Overstory`.
 - `transport.ts`: the HTTP and SSE client (`ProtocolClient`) a host speaks to.
 - `documents/`: the Markdown and directory-document format (spec 02): parsing,
   child links, document icons, display titles, and document merge.
-- `config/`: `account.yaml`, `trees.yaml`, `devices.yaml`, and resource
-  configuration (spec 04 and 05), tree placements, the host account stores,
-  and the private data-home root.
+- `config/`: the tree configuration graph (`tree-config.ts`: `access.yaml`,
+  `mounts.yaml`, `apps.yaml`, `devices.yaml`, derived configuration TreeIDs,
+  validation and merge; spec 04 and 05), the local account checkout, tree
+  placements, the host account stores, and the private data-home root.
 
 Subpath exports exist for `hash`, `logical-path`, `logical-url`, `node-key`,
 `node-model`, `path`, `sse`, `utf8`, `file-ops`, and `account-config`.
-Only the plural v2 account configuration is supported.
+Only `tree-config-v1` configurations are supported.
 
 This package must not depend on the host, SQLite, server history, access
 internals, or the merge engine.

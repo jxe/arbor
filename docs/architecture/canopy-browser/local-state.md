@@ -52,9 +52,11 @@ written beneath the app's support directory:
 ```
 
 The daemon's per-tree state, the folder itself, and the configuration checkout
-stay under the data home; the app edits `~/.arbor/accounts/<cfg>/trees.yaml`
-and `devices.yaml` on disk exactly as the CLI does and asks the daemon to
-synchronize. The Mac's identity and account credentials are data-home state
+stay under the data home; the app edits the profile configuration's files
+under `~/.arbor/accounts/<cfg>/` (`mounts.yaml`, `apps.yaml`, `devices.yaml`,
+and `access.yaml` for the profile tree itself) on disk exactly as the CLI does
+and asks the daemon to synchronize. Other trees' configurations are read and
+edited through the host (`TreeConfigurationClient`). The Mac's identity and account credentials are data-home state
 shared with the CLI and the daemon (the profile identity, each account's
 connection record and credential in the operating-system store), not the
 iOS app's Keychain stores. The data home owns them (Native 011 chose it over

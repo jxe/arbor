@@ -144,7 +144,7 @@ type CurrentTree = {
 
 type RemoteTreeDescriptor = {
   id: TreeID;
-  kind: "ordinary" | "account-configuration";
+  kind: "ordinary" | "tree-configuration";
   access: "none" | "read" | "write";
   root: Hash;
   update: string;
@@ -932,7 +932,7 @@ applies a watch frame. A result whose projected root equals the candidate return
 metadata-only acceptance. Its accepted identity still must be applied.
 
 A rejected reconciliation uses the shared `OverstoryError` envelope with
-`details.kind: "server-update" | "account-configuration"`. Its details include
+`details.kind: "server-update" | "tree-configuration"`. Its details include
 `completed`, the ordered successful prefix results; `failedIndex`; the current
 `AcceptedUpdate`; the logical base and candidate roots; structured conflict
 reasons naming each conflicting node; and `draft`, the transition from the
@@ -1163,7 +1163,7 @@ derived state with `ready`; reconnection repeats the complete query.
 The shared error envelope and common codes are normative. Narrow server-only
 codes include `already-claimed`. Base/update mismatch,
 reserved boundaries, policy failures, and merge conflicts use `conflict` with
-discriminated `server-update` or `account-configuration` details where
+discriminated `server-update` or `tree-configuration` details where
 applicable.
 
 ### 4.3 Other constraints

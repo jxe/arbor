@@ -92,8 +92,8 @@ type LocatorResolution = {
   `Overstory` and the Mac app's daemon client share `ProtocolCanonicalDescriptor`); a
   local descriptor adds only what a local daemon knows.
 - `GET /v1/trees` returns `LocalTreeDescriptor`s. Hosted ordinary trees have
-  non-null canonical data and the private account-configuration tree has
-  `canonical: null`.
+  non-null canonical data and the account's private profile configuration
+  (`kind: "tree-configuration"`) has `canonical: null`.
 - `LocatorResolution.enclosingTree` is present whenever the daemon knows the
   tree locally; on the protocol it is always present.
 
@@ -114,7 +114,7 @@ Every non-2xx JSON error uses the protocol's `OverstoryError` envelope with
 `permission-denied`, `not-found`, `conflict`, `read-only`,
 `unsupported-operation`, `resync-required`, `rate-limited`, `quota-exceeded`,
 and `internal-error`. Conflict details are discriminated as `server-update`,
-`workspace-revision`, or `account-configuration`; domain-specific fields live
+`workspace-revision`, or `tree-configuration`; domain-specific fields live
 inside `details`, not alongside the envelope. Clients tolerate unknown codes
 and fields but never reinterpret malformed required data.
 
@@ -167,7 +167,7 @@ operation in it, or a read-only placement has local edits. `declined` lists
 the folder paths whose changes the host declined; they stay on disk
 unpublished while the rest of the folder keeps syncing (§4).
 It includes placed trees, pathless replicas, known remote placements, and the
-implicit authenticated account-configuration tree.
+implicit authenticated profile configuration.
 
 `GET /v1/accounts` returns `{ accounts: LocalAccountSummary[], identity }`, a
 safe list keyed by configuration TreeID. Each
@@ -356,7 +356,8 @@ credential local.
 Steady-state placement, ACL, canonical-boundary, profile/community,
 administrator, and device-revocation changes are not arborsync operations.
 Human clients and the CLI perform source-preserving transformations of
-`account.yaml`, `trees.yaml`, or the authorized device file, and
+the profile configuration's `mounts.yaml`, `apps.yaml` or `devices.yaml`, or
+write another tree's configuration through the host, and
 `POST /v1/sync` lets them wait for the daemon's resulting pass. REST v1
 therefore has no `connectCommunity`, `disconnectCommunity`,
 `createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`,

@@ -159,16 +159,18 @@ In Canopy for the web:
 3. Select **Claim profile** in the sheet.
 
 The local profile and its self-certifying Profile TreeID already exist before
-the claim. Arbor Sync generates the account-configuration TreeID, DeviceID, and
-device credential locally, signs canopyd's challenge with the profile key, and
-submits the initial configuration. canopyd verifies the exact reserved profile,
-stores only the credential digest, and never receives the profile private key
-or returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and
+the claim. Arbor Sync derives the profile's configuration TreeID, generates the
+DeviceID and device credential locally, signs canopyd's challenge with the
+profile key, and submits the profile's first tree configuration. canopyd
+verifies the exact reserved profile, declares the profile tree, stores only the
+credential digest, and never receives the profile private key or returns the
+raw credential. Arbor Sync then activates the profile tree, which canopyd
+mounts at `/~joe`. The resulting `access.yaml`, `mounts.yaml`, `apps.yaml` and
 `devices.yaml` checkout is installed beneath
 `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded
 `.state` mount.
 
-After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. The UI obtains a fresh client-generated TreeID, source-preservingly adds its declaration and `everyone: read` rule to `trees.yaml`, adds the local path to the current device's `placements`, and initializes the reserved tree. Verify `https://garden.example.com/~joe/test` remotely. The source folder remains at its original OS path.
+After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. The UI obtains a fresh client-generated TreeID, declares it with a tree configuration granting Joe `admin` and everyone `read`, mounts it as `test` in the profile's `mounts.yaml`, adds the local path to the current device's `placements`, and initializes the reserved tree. Verify `https://garden.example.com/~joe/test` remotely. The source folder remains at its original OS path.
 
 The reservation names one exact self-certifying Profile TreeID, so an unrelated
 client cannot win the account by claiming first. Treat the deployment as
@@ -255,7 +257,7 @@ For an existing canopyd:
    objects, accounts, and active devices.
 4. Rehearse each real local data home from a copy. Require preserved authored
    bytes and placement metadata, private state beneath `.state`, and a valid
-   installed account-configuration checkout.
+   installed profile configuration checkout.
 5. Package the way production does: copy the Dockerfile's package payload to
    an isolated directory, install with frozen production-only dependencies
    under Bun 1.4.2, run the merge worker outside the checkout, and push one

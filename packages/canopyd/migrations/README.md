@@ -176,6 +176,7 @@ than it understands. The stamps that have shipped:
 | 19 | Accepted history as log entries (migration 018, canopyd 016): each accepted update is an immutable canonical-JSON entry in `objects/` naming its predecessor's; `accepted_updates.entry` names it, and `accepted_merge_states` is dropped. Decisions live only in entries, under their old keys, so public decision and alternative ids are unchanged; an alternative's `revision` now names its value. No wire change. |
 | 20 | One access store (migration 019): a tree an account hosts in its `trees.yaml` and no account owned becomes that account's (`trees.account_id`); an owned tree is governed by its owner's `resource_policy` rules alone, which the migration rederives from every accepted configuration, and its `access` rows are deleted; `access` keeps only trees no account owns. `trees.updated_at`, `tree_reservations.status` and `.error`, `account_challenges.claim_digest` and the `community_name` meta row are dropped. `GET /access` serves an owned tree's `snapshot` from its rules, so no wire change. |
 | 21 | Profile facts per tree (migration 020, canopyd 018): `profile_facts` holds one row per tree whose head declares `type: person` or `type: group` (`tree_id`, the head's `index_hash`, the declared `avatar_path`, the `facts` JSON), rewritten only when an update touches `_index.md` or that avatar; every `meta` `profile:<root>` row is deleted, so `meta` holds only configuration keys. No wire change. |
+| 22 | Tree configurations (migration 022, canopyd 005): every active ordinary tree gets a `tree-config-v1` configuration tree at its derived TreeID (`trees.governs` names the tree it configures); `tree_policy`, `tree_admins`, `app_policy` and `mounts` index accepted configurations, and boundaries are recomputed from `mounts`; `accounts` keeps `id` (now the profile TreeID), `handle`, `enabled` and `claim_digest`; `trees.account_id`, account-configuration trees, `access`, `resource_policy` and `tree_reservations` are dropped. Wire change: `tree-configuration` kind, `;arbor-config` routes, claims declare the profile tree; Mac, CLI and iPhone clients are replaced together. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local
@@ -183,7 +184,7 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent migration directory (today `020-profile-facts-per-tree/`) as the template: a `README.md` with the
+Copy the most recent schema migration directory (today `022-tree-configurations/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice)
 and ends by checking the result with both `assertCurrentHostSchema` and

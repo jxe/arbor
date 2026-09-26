@@ -56,7 +56,7 @@ observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
 the event epoch and clients resynchronize. Private paths are documented for
 maintainers and migration tooling only, in [the local system](data-home.md);
 other implementations may choose a different layout. The synchronized
-[`trees.yaml`](../../overstory-spec/04-accounts-and-devices.md#3-configuration-yaml)
+[tree configuration](../../overstory-spec/04-accounts-and-devices.md#3-configuration-yaml)
 contract is normative.
 
 See [the data home](data-home.md), [CLI reference](../../getting-started/cli.md), and [loopback API](../../implementing-sync-services/arborsync-api.md).

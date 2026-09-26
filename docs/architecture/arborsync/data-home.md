@@ -9,23 +9,31 @@ keeps on disk is in [Canopy local state](../canopy-browser/local-state.md).
 ## Data home
 
 The reference implementation uses `${ARBOR_DATA_HOME:-~/.arbor}` as one
-private-state and credential namespace containing several account checkouts:
+private-state and credential namespace containing its account checkouts:
 
 ```text
 ${ARBOR_DATA_HOME:-~/.arbor}/
   placements.yaml
   accounts/
     <ConfigurationTreeID>/
-      account.yaml
-      trees.yaml
+      access.yaml
+      mounts.yaml
+      apps.yaml
       devices.yaml
   .state/
     ...private arborsync state...
 ```
 
-Each directory under `accounts/` is the source-preserving checkout of the
-configuration tree named by that directory. `placements.yaml` is local-only
-and groups absolute filesystem paths by configuration TreeID. The plural layout above is the only supported account layout. The former
+Each directory under `accounts/` is the source-preserving checkout of a
+person profile's tree configuration, named by its derived configuration
+TreeID; the account's host origin and profile TreeID are kept with its
+credential record, not in the checkout. A profile has one home host, so one
+profile has one checkout. `placements.yaml` is local-only and groups absolute
+filesystem paths by configuration TreeID. Other trees' configurations are
+never checked out; clients read and edit them through the host.
+`packages/canopyd/migrations/022-tree-configurations/rekey-data-home.ts`
+moves a data home from the earlier random account-configuration TreeID to the
+derived one. The plural layout above is the only supported account layout. The former
 root-level account graph and singleton credential record were retired on
 2026-09-21. Workspace registry records require `stateID`, `rootID`, and `path`;
 existing `rt_` and `tr_` root identities are preserved unchanged. Incomplete
@@ -53,8 +61,7 @@ fetch-through cache for objects that live only on canopyd is in memory and
 bounded.
 
 Raw credentials use the platform credential facility where available and are
-scoped by the selected data home and configuration TreeID. Origin alone is not
-a credential key because two accounts may use one host. Other
+scoped by the selected data home and configuration TreeID. Other
 implementations may use an equivalent secret facility, but no raw credential
 or access-link secret belongs in synchronized configuration or authored trees.
 
@@ -75,7 +82,7 @@ produce safe diagnostics.
 
 The configuration checkout is edited on disk, not through the daemon. The CLI
 (`arbor place`, `arbor mv`, cloud bundle revocation) and, later, the Mac app
-rewrite `trees.yaml`, `account.yaml`, or `devices.yaml` in place under
+rewrite `access.yaml`, `mounts.yaml`, `apps.yaml` or `devices.yaml` in place under
 `accounts/<ConfigurationTreeID>/` with an atomic temporary-file-and-rename
 write, then ask Arbor Sync to synchronize that account. The checkout is a placed
 folder like any other: the daemon watches it, validates the candidate, and
@@ -114,7 +121,7 @@ rules ignored, and publishes content that a removed rule uncovered.
 
 ## Scopes and durability
 
-The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, held changes, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `POST /v1/held/discard`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
+The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account's profile configuration, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, held changes, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `POST /v1/held/discard`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
 
 A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are scanned into local changes in the folder's change log (`<data home>/.state/trees/<base64url TreeID>/sync/`), and accepted canopyd state is written to the folder only when no local change is pending and the folder still holds what it last wrote or scanned. Editors keep their own working tree, journal, and recovery.
 

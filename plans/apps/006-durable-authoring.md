@@ -33,13 +33,14 @@ plans; do not execute arbitrary callbacks per row or lose finite source bounds.
 ## Compiler and permission integration
 
 Compile requirements to concrete source bindings or bounded validated selections;
-keep author/user provenance separate for coverage checks, then combine authority.
-Generate human descriptions and consent diffs using accepted `trees.yaml` rules.
+keep each grant's lender separate for coverage checks, then combine authority.
+Generate human descriptions and consent diffs using accepted `access.yaml` and
+`apps.yaml` rules.
 No additional consent for ordinary public access or already-covered requirements.
 Only expansion/new targets require approval by the affected grantor. New versions
 inside an existing tree envelope remain trusted; code/module refactors do not erase
 policy. Imported library code gains no grant independently. Host activation binds
-the sponsor and coherent code version. Public bundle inspection must prove absence
+the lenders and coherent code version. Public bundle inspection must prove absence
 of server implementations, backing credentials and private schema.
 
 ## Runtime durability

@@ -175,7 +175,7 @@ its interpretation and validation are defined by
 
 - `_index.md` is its directory's own content and is never exposed as a child.
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
-- `.state` is forbidden in an account-configuration graph as specified by [configuration](04-accounts-and-devices.md).
+- `.state` is forbidden in a tree configuration graph as specified by [configuration](04-accounts-and-devices.md#2-tree-configuration-graph).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.
 

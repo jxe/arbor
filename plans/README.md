@@ -11,7 +11,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 
 | Plan | What it does |
 |---|---|
-| canopyd [005](soon/005-tree-configuration-trees.md) | Per-tree configuration, co-administration, profile configuration in place of the account configuration, and lending |
+| canopyd [005](soon/005-tree-configuration-trees.md) | Cutover of per-tree configuration (implemented): run migration 022 and install the clients |
 
 ## Remaining outcomes
 
