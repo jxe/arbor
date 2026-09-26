@@ -587,10 +587,7 @@ public actor ProtocolClient {
     }
 
     /// This client's origin as a challenge spells it: `scheme://host[:port]`.
-    private var canonicalOrigin: String {
-        let port = origin.port.map { ":\($0)" } ?? ""
-        return "\(origin.scheme?.lowercased() ?? "")://\(origin.host()?.lowercased() ?? "")\(port)"
-    }
+    private var canonicalOrigin: String { webOrigin(origin) ?? "" }
 
     private func component(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/")))!

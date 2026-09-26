@@ -69,6 +69,10 @@ public struct ProtocolDeviceKey: Sendable, Equatable {
 
 /// What a key device signs to open a session at `origin` (accounts §5.1).
 public struct ProtocolDeviceSessionChallenge: Codable, Sendable, Equatable {
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case version, purpose, id, origin, profileTree, device, nonce, issuedAt, expiresAt
+    }
+
     public var version: Int
     public var purpose: String
     public var id: String
@@ -90,6 +94,22 @@ public struct ProtocolDeviceSessionChallenge: Codable, Sendable, Equatable {
             throw ProtocolValidationError.invalidValue("Malformed device session challenge")
         }
         return self
+    }
+}
+
+extension ProtocolDeviceSessionChallenge {
+    public init(from decoder: Decoder) throws {
+        try requireExactFields(decoder, CodingKeys.self)
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        purpose = try values.decode(String.self, forKey: .purpose)
+        id = try values.decode(String.self, forKey: .id)
+        origin = try values.decode(String.self, forKey: .origin)
+        profileTree = try values.decode(String.self, forKey: .profileTree)
+        device = try values.decode(String.self, forKey: .device)
+        nonce = try values.decode(String.self, forKey: .nonce)
+        issuedAt = try values.decode(Int.self, forKey: .issuedAt)
+        expiresAt = try values.decode(Int.self, forKey: .expiresAt)
     }
 }
 
@@ -118,6 +138,8 @@ public struct ProtocolDeviceSession: Codable, Sendable, Equatable {
 
 /// The new administrator device a profile-key reset installs.
 public struct ProtocolProfileResetDevice: Codable, Sendable, Equatable {
+    enum CodingKeys: String, CodingKey, CaseIterable { case id, label, key }
+
     public var id: String
     public var label: String
     public var key: String
@@ -126,6 +148,14 @@ public struct ProtocolProfileResetDevice: Codable, Sendable, Equatable {
         self.id = id
         self.label = label
         self.key = key
+    }
+
+    public init(from decoder: Decoder) throws {
+        try requireExactFields(decoder, CodingKeys.self)
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: values.decode(String.self, forKey: .id),
+                      label: values.decode(String.self, forKey: .label),
+                      key: values.decode(String.self, forKey: .key))
     }
 
     public func validated() throws -> Self {
@@ -141,6 +171,10 @@ public struct ProtocolProfileResetDevice: Codable, Sendable, Equatable {
 
 /// What the profile key signs to reset its devices at `origin` (accounts §5.3).
 public struct ProtocolProfileResetChallenge: Codable, Sendable, Equatable {
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case version, purpose, id, origin, profileTree, device, nonce, issuedAt, expiresAt
+    }
+
     public var version: Int
     public var purpose: String
     public var id: String
@@ -162,6 +196,22 @@ public struct ProtocolProfileResetChallenge: Codable, Sendable, Equatable {
         }
         _ = try device.validated()
         return self
+    }
+}
+
+extension ProtocolProfileResetChallenge {
+    public init(from decoder: Decoder) throws {
+        try requireExactFields(decoder, CodingKeys.self)
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        purpose = try values.decode(String.self, forKey: .purpose)
+        id = try values.decode(String.self, forKey: .id)
+        origin = try values.decode(String.self, forKey: .origin)
+        profileTree = try values.decode(String.self, forKey: .profileTree)
+        device = try values.decode(ProtocolProfileResetDevice.self, forKey: .device)
+        nonce = try values.decode(String.self, forKey: .nonce)
+        issuedAt = try values.decode(Int.self, forKey: .issuedAt)
+        expiresAt = try values.decode(Int.self, forKey: .expiresAt)
     }
 }
 
@@ -198,11 +248,28 @@ public struct ProtocolPendingProfileReset: Codable, Sendable, Equatable {
     public var effectiveAt: Int
 }
 
+/// Signed challenges carry exactly their own fields, as canopyd checks them;
+/// an unknown field would otherwise vanish from the signed bytes.
+private func requireExactFields<Keys: CodingKey & CaseIterable>(_ decoder: Decoder, _: Keys.Type) throws {
+    let present = try decoder.container(keyedBy: ProtocolSemanticCodingKey.self).allKeys.map(\.stringValue)
+    guard Set(present).isSubset(of: Keys.allCases.map(\.stringValue)) else {
+        throw ProtocolValidationError.invalidValue("Unknown challenge field")
+    }
+}
+
 private func isCanonicalOrigin(_ value: String) -> Bool {
-    guard let url = URL(string: value), let scheme = url.scheme, let host = url.host(), url.path.isEmpty,
-          url.query == nil, url.fragment == nil, url.user == nil else { return false }
-    let port = url.port.map { ":\($0)" } ?? ""
-    return value == "\(scheme.lowercased())://\(host.lowercased())\(port)"
+    guard let url = URL(string: value), url.path.isEmpty, url.query == nil, url.fragment == nil,
+          url.user == nil, url.password == nil else { return false }
+    return webOrigin(url) == value
+}
+
+/// `scheme://host[:port]` as a WHATWG URL's `origin` spells it, which is how
+/// canopyd names itself in a challenge: lowercase, default port omitted.
+func webOrigin(_ url: URL) -> String? {
+    guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
+    let defaultPort = ["http": 80, "https": 443][scheme]
+    let port = url.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""
+    return "\(scheme)://\(host.contains(":") ? "[\(host)]" : host)\(port)"
 }
 
 func decodeBase64URL(_ value: String) -> Data? {

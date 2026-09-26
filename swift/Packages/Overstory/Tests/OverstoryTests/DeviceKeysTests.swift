@@ -89,6 +89,18 @@ struct DeviceKeysTests {
         }
     }
 
+    @Test func originsAreSpelledAsWebOrigins() throws {
+        var challenge = try vectors().sessionChallenges[0].challenge
+        for origin in ["http://127.0.0.1:4317", "http://[::1]:4317", "https://canopy.example:8443"] {
+            challenge.origin = origin
+            #expect(throws: Never.self, "\(origin)") { try challenge.validated() }
+        }
+        for origin in ["https://canopy.example:443", "http://localhost:80", "HTTPS://canopy.example", "https://Canopy.example", "https://canopy.example/"] {
+            challenge.origin = origin
+            #expect(throws: (any Error).self, "\(origin)") { try challenge.validated() }
+        }
+    }
+
     @Test func keysSignWhatTheyVerify() throws {
         let challenge = try vectors().sessionChallenges[0].challenge
         let bytes = try deviceSessionChallengeSigningBytes(challenge)
