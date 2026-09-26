@@ -1,4 +1,4 @@
-# canopyd 005: Configure each hosted tree in its own configuration tree
+# canopyd 005: Configure each hosted tree, profiles included, in its own configuration tree
 
 Historical identifier: **Security 005** (moved to canopyd 2026-09-24; not the
 earlier Security 005 that became Filesystem 005).
@@ -7,12 +7,15 @@ earlier Security 005 that became Filesystem 005).
 
 - **Priority:** P3
 - **Effort:** L
-- **Risk:** HIGH. It changes who may change a tree's access and address, the
-  account configuration graph that every client edits, and the host's
-  authorization model, and it needs a live migration.
+- **Risk:** HIGH. It changes who may change a tree's access and address,
+  replaces the account configuration that every client edits and pairs
+  devices through, changes the host's authorization model, and needs a live
+  migration.
 - **State:** ADOPTED 2026-09-25. The design below is proposed; the remaining
   open questions are listed at the end. Nothing here changes the spec until
   phase 1.
+- **Followed by:** [Security 006](../security/006-portable-profiles.md), which
+  makes a profile's configuration portable across hosts.
 - **Builds on:** schema 21. [Migration 019](../../packages/canopyd/migrations/019-one-access-store/README.md)
   (schema 20, one access store) is the ownership model this replaces.
 
@@ -53,6 +56,12 @@ In practice this shows up as:
 - **The account configuration mixes two things.** Devices and the consents by
   which a person lets code use access they hold (`via` rules) belong to the
   person. A tree's address and ACL belong to the tree.
+- **An account duplicates its profile.** Apart from the hosting half of
+  `trees.yaml`, nothing in the account configuration is about the host:
+  `account.yaml` repeats what the host recorded at claim, and devices and
+  consents describe the person. Yet it is a second governed tree per person,
+  with its own policy (`account-config-v2`) and its own TreeID standing for
+  the account.
 - **Code has one sponsor.** The author side of an execution is the one
   account that owns the code tree. Two people cannot both back code, and a
   group cannot back code at all, even with access that was granted to the
@@ -60,35 +69,41 @@ In practice this shows up as:
 
 ## The design
 
-Each hosted tree has a private **tree configuration**: a second tree, edited
+Every hosted tree has a private **tree configuration**: a second tree, edited
 only by the tree's administrators, holding who may do what to the tree,
 administering it included, and which child trees it mounts at which names. A
-profile tree's configuration also says which apps may use the profile's
-access, for a person or a group alike. The account configuration keeps only
-what belongs to the account: its devices.
+profile tree's configuration also holds what belongs to the profile: which
+apps may use its access and, for a person, their devices. There is no
+separate account configuration. A **host account** becomes host state: this
+profile is claimed here, with this handle.
 
-The rule field `via` is renamed `app` everywhere, in both configurations and
+The rule field `via` is renamed `app` everywhere, in the configuration and
 the spec's `AccessRule`. Joe is the only user, so this is a clean break at
 cutover.
 
 ### Tree configuration
 
 A private, noncanonical Overstory tree with the closed, code-defined server
-policy `tree-config-v1`, a sibling of `account-config-v2` and likewise not a
-plugin mechanism. Its graph mirrors the account configuration's, one file per
-concern, each a bare top-level shape with no wrapper key:
+policy `tree-config-v1`, which replaces `account-config-v2` and is likewise not
+a plugin mechanism. One file per concern, each a bare top-level shape with no
+wrapper key:
 
 ```text
 /
-  access.yaml     who may do what, administrators included
-  mounts.yaml     child trees by name
-  apps.yaml       profile trees only: apps that may use the profile's access
+  access.yaml     every tree: who may do what, administrators included
+  mounts.yaml     every tree: child trees by name
+  apps.yaml       profile trees: apps that may use the profile's access
+  devices.yaml    person profiles: the person's devices
 ```
 
-The graph shape identifies the generation. Every other path is rejected. A
-tree configuration has no tree configuration of its own, cannot be mounted,
-and is absent from canonical resolution and public discovery, like the account
-configuration.
+Which files are allowed depends on the tree's kind. A person profile is known
+from its self-certifying TreeID, which the host verifies at claim; a group
+profile from its accepted root, as `profile_facts` already records. If a tree
+stops being a group profile, its `apps.yaml` stops applying and further edits
+must remove it. Every other path is rejected, and the graph shape identifies
+the generation. A tree configuration has no tree configuration of its own,
+cannot be mounted, and is absent from canonical resolution and public
+discovery.
 
 **`access.yaml`**
 
@@ -127,7 +142,7 @@ projects/garden: tr_garden
 - The host maintains each mount as the boundary entry in this tree's content,
   as it does for declarations today, and the child's canonical URL follows from
   the parent's. A tree is mounted at most once.
-- **Mounting** a tree requires the submitting account's profile to administer
+- **Mounting** a tree requires the submitting device's profile to administer
   both this tree and the child. That stops anyone giving your tree an address
   you did not choose. **Renaming or removing** a mount needs only this tree's
   administrators: the parent controls its namespace.
@@ -158,26 +173,34 @@ It follows renames, works for a tree with no canonical path, and cannot
 collide with a filename (a literal `;` is `%3B`,
 [locators §3](../../docs/overstory-spec/03-locators.md#3-parsing-and-canonicalization)).
 The host answers it only to administrators and otherwise exactly as it answers
-the tree's own URL, so it reveals nothing more. The name matches the account
-configuration: this is the tree's configuration, not only its access.
+the tree's own URL, so it reveals nothing more. It is the tree's configuration,
+not only its access, so the name is not `;arbor-access`.
 
 ### Who may edit it
 
 An update to a tree configuration is authorized when the submitting device is
-an `administrator` device of an account whose profile has `admin` on the tree,
-directly or through a group. This matches "only administrator devices may edit
+an `administrator` device in the `devices.yaml` of a person profile that has
+`admin` on the tree, directly or through a group. This matches "only administrator devices may edit
 resource policy" ([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)):
 an administrator device acting for an administering profile. Authorization
-reads the current accepted configuration, never the proposed one, so an edit
+reads the current accepted configurations, never the proposed one, so an edit
 cannot add its own submitter.
+
+A person profile's configuration governs itself, as the account configuration
+does today: its own `devices.yaml` names the devices that may edit it, with
+today's per-device rules (any listed device may change its own label;
+administrator devices may do the rest, including pairing and revoking).
 
 ### Invariants
 
 - `access.yaml` always has at least one `admin` rule. A merge whose result
   would remove the last one is a conflict.
 - A person profile's configuration grants `admin` to that person's profile and
-  no one else, so only the person can lend their access. A group profile's may
-  name other administrators; they then act for the group, lending included.
+  no one else, so only the person can pair devices or lend their access. A
+  group profile's may name other administrators; they then act for the group,
+  lending included.
+- A person profile's `devices.yaml` always has at least one administrator
+  device, as the account configuration's does today.
 - A group profile that has `admin` on any tree keeps at least one member: an
   update to that group's `members` that removes the last one is refused. The
   host already indexes `members` in `profile_facts`.
@@ -204,18 +227,33 @@ Each step is an ordinary update of one tree. Remote deletion stays deferred
 ([spec deferred 1](../../docs/overstory-spec/README.md#deferred)); retiring a
 tree retires its configuration.
 
-### The account configuration
+### Host accounts
 
-```text
-/
-  account.yaml
-  devices.yaml
-```
+A host account is the host's record that a profile is claimed here: the
+profile TreeID, the handle, and the credential bindings of that profile's
+devices. It has no authored tree. Its identity is the pair of host and profile
+TreeID, which replaces the configuration TreeID as account identity
+([accounts §1](../../docs/overstory-spec/04-accounts-and-devices.md#1-profiles-and-host-accounts)).
 
-Both are unchanged. `trees.yaml` goes: its hosting half moves to tree
-configurations, and its `via` rules move to `apps.yaml` in the profile's
-configuration. The account configuration then holds credentials, and every
-decision about access lives with a tree or a profile.
+Claiming ([accounts §1.2](../../docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key))
+keeps its challenge and profile-key proof. The challenge's `configurationTree`
+becomes the profile's derived configuration TreeID instead of a fresh one, and
+the claim declares the profile tree: it creates its configuration with the
+first administrator device and `admin` for the profile, and the profile tree
+is `awaiting-initialization` until the person activates it. Pairing
+([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing))
+edits the profile configuration's `devices.yaml`.
+
+**One host per profile, until Security 006.** Device credentials stay
+bearer secrets whose digests one host binds, so a profile's configuration
+lives on the one host that binds them. Clients connect a profile to one host; the spec's several accounts per
+profile returns with [Security 006](../security/006-portable-profiles.md). Joe
+has one host and one account, so nothing is lost at cutover.
+
+`trees.yaml` goes: its hosting half moves to tree configurations, and its
+`via` rules to the profile's `apps.yaml`. `account.yaml` goes: `canopy` is the
+host itself and `profile` is the tree the configuration belongs to.
+`devices.yaml` moves unchanged.
 
 ### `apps.yaml`
 
@@ -223,7 +261,8 @@ What a profile lets each app do with access the profile holds, keyed by the
 app's TreeID, which is how a consent sheet reads ("Supplies may read Alice's
 pantry"). It lives in the configuration of the profile tree, so a person's is
 edited by that person's administrator devices, and a group's by its
-administrators.
+administrators. Until Security 006, an entry applies only on the host that
+holds the configuration.
 
 ```yaml
 # /~joe;arbor-config  apps.yaml
@@ -310,8 +349,18 @@ todos: tr_todos
 notes: tr_notes
 ```
 
+```yaml
+# devices.yaml
+dv_mac:
+  label: "Joe's Mac"
+  administrator: true
+dv_phone:
+  label: "Joe's iPhone"
+```
+
 `apps.yaml` holds Joe's app approvals and lends; see below. The configuration
-may name no administrator but `tr_joe`.
+may name no administrator but `tr_joe`. This one tree replaces Joe's account
+configuration.
 
 ### Joe's private todos, shared with Alice, `/~joe/todos`
 
@@ -477,8 +526,14 @@ granting the club.
   inside the parent, must move with every rename, has nothing to pair with for
   a tree without a canonical path, and publishes a probe for private trees.
 - **A directory of files, not one file.** A tree root is always a directory,
-  and one file per concern mirrors the account configuration and keeps each
-  file's merge key simple.
+  and one file per concern keeps each file's merge key simple.
+- **No account configuration.** A profile tree's configuration holds the
+  person's devices and app entries, and an account is host state. One kind of
+  configuration, one policy and one way to find it, `;arbor-config`, replace
+  two. The cost is one host per profile until
+  [Security 006](../security/006-portable-profiles.md) makes the configuration
+  portable. Merging now, rather than with Security 006, avoids a second live
+  migration.
 - **Administrators are an operation in `access.yaml`, not a separate list.**
   "Who can do what to this tree" gets one answer, the way a sharing panel shows
   it. The cost is a few validation rules on `admin`.
@@ -489,8 +544,7 @@ granting the club.
   administrator, set only by that profile's account) and would still pick one
   person for a group's code.
 - **`apps.yaml` belongs to a profile, not an account.** Lending is something
-  an identity does, so groups lend exactly as persons do, and the account
-  configuration keeps only credentials.
+  an identity does, so groups lend exactly as persons do.
 - **Only the named subject lends.** Access granted to a group is the group's
   to lend; the granter's choice of subject settles who decides. The one
   exception is approving an app for your own use.
@@ -513,7 +567,9 @@ granting the club.
 
 1. **Recovering a tree with no reachable administrator.** The invariants stop
    an empty list and an empty administering group, but not administrators
-   whose accounts are disabled or whose devices are all lost. A host-operator
+   whose accounts are disabled or whose devices are all lost. For a person
+   profile, the profile key could authorize a reset of `devices.yaml`, which
+   Security 006 may need anyway. A host-operator
    CLI command is the likely answer; it ties to the catalog's
    [recovery and administrator reset](../catalog.md#product-completion).
 2. **Two meanings of "administrator".** A device's `administrator` flag and a
@@ -534,11 +590,13 @@ changing the live host.
 ### Phase 1: spec and vectors
 
 - Answer the open questions and record the answers here.
-- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md): §2 and §3
-  for the account graph without `trees.yaml`; a new section for the tree
-  configuration graph, its files including a profile's `apps.yaml`, policy,
-  invariants and merge; §6 rewritten as declare, activate,
-  mount; §7 for both policies.
+- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md): §1 for
+  host accounts as host state, identified by host and profile, and one host
+  per profile until Security 006; §1.2 for claiming as declaring the profile
+  tree; §2 and §3 replaced by the tree configuration graph, its files by tree
+  kind, invariants and merge; §5 for pairing through the profile's
+  `devices.yaml`; §6 rewritten as declare, activate, mount; §7 for
+  `tree-config-v1`, retiring `account-config-v2`.
 - [Access control](../../docs/overstory-spec/05-access-control.md) §1: rename
   `via` to `app`; add `admin` and define administrators; drop "hosted resource
   owners"; `me` and `members` only in `apps.yaml`; §1.1 replaces the
@@ -550,14 +608,17 @@ changing the live host.
   `arbor-config` parameter, mounts as the source of canonical boundaries.
 - [Conformance](../../docs/overstory-spec/conformance/README.md): graph,
   validation and merge vectors for both configurations.
+- Remove "no distinguished home host" only as far as one host per profile
+  requires, and link Security 006.
 - **Gate:** `bun run check:links`, the walk-through below.
 
 ### Phase 2: parsers and merge
 
 - Protocol package (TypeScript) and Overstory package (Swift): parse,
   validate and merge the tree configuration graph, including a profile's
-  `apps.yaml`, with `app` for `via` in `AccessRule`; remove `trees.yaml` from
-  the account graph.
+  `apps.yaml` and `devices.yaml`, with `app` for `via` in `AccessRule`; delete
+  the account configuration graph (`account-config-graph.ts`,
+  `account-config.ts`).
 - **Gate:** both suites pass phase 1's vectors.
 
 ### Phase 3: canopyd
@@ -565,16 +626,19 @@ changing the live host.
 - `tree-config-v1` policy: authorization through administering profiles and
   groups, mounts applied as boundary rewrites, invariants including the
   group-member rule on profile updates and a person profile's sole
-  administrator.
+  administrator, and device authorization and credential revocation read from
+  person profile configurations.
 - Execution authority: `ExecutionContext.sponsor` and the `author` role give
   way to lent grants, each checked against its lender's `apps.yaml` entry and
   against a rule naming the lender directly, except for self-approval
   ([execution-authority.ts](../../packages/canopyd/src/execution-authority.ts),
   [access.ts](../../packages/canopyd/src/access.ts)).
 - Derived state keyed by tree: rules and administrators per tree, app entries
-  per profile. Delete `trees.account_id`, adoption, the `access` table, the
-  declared-path rules and the account graph's hosting path.
-- Declaration through the tree configuration; `;arbor-config` resolution.
+  per profile, devices per person profile. Accounts keyed by profile, not
+  configuration TreeID. Delete `trees.account_id`, adoption, the `access`
+  table, the declared-path rules and the account configuration tree.
+- Declaration through the tree configuration; claiming as declaring the
+  profile tree; `;arbor-config` resolution.
 - Migration 022 (schema 22), rehearsed on a fresh backup.
 - Update [canopyd's README](../../docs/architecture/canopyd/README.md#accounts-and-canonical-paths)
   here, when its policy changes.
@@ -582,14 +646,19 @@ changing the live host.
 
 ### Phase 4: clients
 
-- CLI tree declaration and mounting.
-- Mac and iPhone: account bootstrap, the sharing panel reading and editing the
-  tree configuration, resource consent writing a profile's `apps.yaml` or an
+- CLI tree declaration and mounting; the CLI and Arbor Sync store the derived
+  profile configuration TreeID where they store the account configuration's
+  (`packages/cli`, `packages/arborsync/src/state/local-accounts.ts`,
+  `packages/client/src/account-bootstrap.ts`).
+- Mac and iPhone: account bootstrap and pairing through the profile
+  configuration, the sharing panel reading and editing the tree configuration, resource consent writing a profile's `apps.yaml` or an
   `app` rule in a tree it administers, offering to approve for a group the
   person administers, and warning before lending write
   (`AccountConfigurationYAML.swift`, `ResourceConsent.swift`,
   `Credentials.swift`).
-- **Gate:** Swift suites and a local end-to-end against a phase 3 canopyd.
+- **Gate:** Swift suites, the Arbor Sync and CLI suites, and a local
+  end-to-end against a phase 3 canopyd: claim, pair a second device, revoke
+  it, share a tree, approve an app.
 
 ### Phase 5: cutover (needs Joe's go-ahead)
 
@@ -598,21 +667,28 @@ changing the live host.
 
 ### Migration 022
 
-For each hosted tree, one tree configuration:
+For each hosted tree, one tree configuration, and for each account, its
+account configuration folded into its profile's:
 
 | Tree | `access.yaml` | `mounts.yaml` |
 |---|---|---|
 | `/` | `admin` for the root itself, plus the `access` table's rules minus those the members now hold as administrators | top-level names other than handles |
 | an owned tree | `admin` for the owner's profile, plus the owner's `trees.yaml` rules for it, minus `who: me` rules without `via` | its current nested boundaries |
 
+A person profile, an owned tree like any other, also gets its account's `devices.yaml`
+unchanged, and each credential binding moves to it with the same DeviceID, so
+paired devices keep working once their clients store the new configuration
+TreeID.
+
 An owner's rule with `via` and a `who` other than `me` is the owner's grant
 and lands in the tree's `access.yaml` with `app`. Every other `via` rule, on
-any tree, lands in the account's profile configuration's `apps.yaml` under its
+any tree, lands in the `apps.yaml` of the account's profile under its
 app. The migration refuses to run while any rule would be dropped other than
 those covered by administration, or would lend access its account holds only
 through a group, and lists every lent capability before and after, since code
 that ran with its owner's authority now runs only with what `apps.yaml` and
-`app` rules lend. Drop `trees.account_id` and `access`. As migration
+`app` rules lend. Drop `trees.account_id`, `access` and each account
+configuration tree, and rekey accounts by profile. As migration
 019 did, the report lists each tree's whole-tree access before and after and
 must show no difference.
 
@@ -622,7 +698,8 @@ Before phase 1's spec edits: a written walk-through of the design against the
 examples above plus the failures: removing the last administrator, emptying an
 administering group, Alice trying to lend Joe's access, Joe lending access
 granted only to his club, a co-administrator added to a person profile, two
-named lenders covering one requirement and one losing access, and mounting a tree you do not
-administer. After each phase, its gate. At
+named lenders covering one requirement and one losing access, a
+non-administrator device editing another device, revoking the last
+administrator device, and mounting a tree you do not administer. After each phase, its gate. At
 cutover, the migration report and a check that `/`, `/~joe` and `/~joe/todos`
-read and write as before.
+read and write as before from the Mac and the iPhone.
