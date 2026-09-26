@@ -97,9 +97,9 @@ public extension AccountConfigurationYAML {
     ) throws -> NativeResourceConsent {
         guard TreeID.isWellFormed(app), TreeID.isWellFormed(profile) else { throw ResourcePolicyError.invalid }
         guard rule.who != (group ? .me : .members) else { throw ResourcePolicyError.invalid }
-        let prior = try TreeConfigurationYAML.apps(from: source)[app] ?? []
+        let prior = try TreeConfigurationYAML.apps(from: source, group: group)[app] ?? []
         let previous = prior.first { $0.sameConsentKey(as: rule) }
-        let after = try TreeConfigurationYAML.replacingApps(in: source) { apps in
+        let after = try TreeConfigurationYAML.replacingApps(in: source, group: group) { apps in
             var rules = (apps[app] ?? []).filter { !$0.sameConsentKey(as: rule) }
             if !removing { rules.append(rule) }
             apps[app] = rules

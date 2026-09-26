@@ -37,6 +37,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `canopyd/` — Merge policy, retained state, accepted history, provenance and hosted-tree configuration.
 
+- [Cleanup 007 — Remove legacy compatibility now that the one install is converted](soon/007-remove-legacy-compatibility.md) — **SOON · P2 · PLANNED 2026-09-26.** Migration 022's iPhone rekey and scripts, older member/layout/identity shims, and naming the data home's configuration checkouts.
 - [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
 - [canopyd 006 — Record who submitted each update and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; after canopyd 007.** Record a safe actor on each accepted update, replace the public `subject` with it, and compute current-line blame over the `document_versions` rows; versions from before the migration 016 squash show an unknown actor.
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.

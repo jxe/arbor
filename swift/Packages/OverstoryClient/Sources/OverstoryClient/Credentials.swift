@@ -692,8 +692,8 @@ public actor NativeAccountService {
         try await TreeConfigurationClient(wire: client()).access(tree: tree)
     }
 
-    public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
-        try await TreeConfigurationClient(wire: client()).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
+    public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false, group: String? = nil) async throws -> NativeResourceConsent {
+        try await TreeConfigurationClient(wire: client()).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing, group: group)
     }
 
     public func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation? {

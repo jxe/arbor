@@ -393,8 +393,19 @@ export class ProtocolClient {
 
 
   async resolve(path: string): Promise<LocatorResolution> {
-    const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
-    const response = await this.checked(await this.request(`/.well-known/arbor${canonical}`, {
+    const response = await this.checked(await this.request(`/.well-known/arbor${encodedCanonicalPath(path)}`, {
+      headers: this.headers(),
+    }));
+    return response.json();
+  }
+
+  /**
+   * The configuration of the tree whose canonical root is `path`
+   * (`/~joe/todos;arbor-config`). Hosts answer only the tree's
+   * administrators; anyone else gets the 404 of an unreadable tree.
+   */
+  async resolveConfiguration(path: string): Promise<LocatorResolution> {
+    const response = await this.checked(await this.request(`/.well-known/arbor${encodedCanonicalPath(path) || "/"};arbor-config`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -519,4 +530,9 @@ export class ProtocolClient {
     return new Uint8Array(await response.arrayBuffer());
   }
 
+}
+
+/** A canonical path as URL segments, each encoded once; `/` is empty. */
+function encodedCanonicalPath(path: string): string {
+  return path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
 }

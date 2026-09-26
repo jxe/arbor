@@ -22,7 +22,7 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-test("a running daemon starts syncing the configuration an account claim places", async () => {
+test("a running daemon syncs the configuration an account claim places, and resolves it by ;arbor-config", async () => {
   const profile = join(sandbox, "profile");
   await mkdir(profile, { recursive: true });
   const identity = await new ProfileIdentityStore().create(profile);
@@ -47,6 +47,14 @@ test("a running daemon starts syncing the configuration an account claim places"
       if (sync !== "idle") await Bun.sleep(100);
     }
     expect(sync).toBe("idle");
+
+    // `;arbor-config` locators name the configuration: by TreeID from this
+    // device's checkout, by canonical URL through the host.
+    const resolve = async (locator: string) =>
+      (await fetch(`${daemon.url}/v1/resolve?locator=${encodeURIComponent(locator)}`)).json() as Promise<{ ref: { tree: string; path: string } }>;
+    expect((await resolve(`arbor://${identity.profileTree};arbor-config`)).ref).toMatchObject({ tree: configuration, path: "/" });
+    expect((await resolve(`${host.url}/~tess;arbor-config`)).ref).toMatchObject({ tree: configuration, path: "/" });
+    expect((await fetch(`${daemon.url}/v1/resolve?locator=${encodeURIComponent(`arbor://${identity.profileTree}/notes;arbor-config`)}`)).status).toBe(400);
   } finally {
     daemon.server.stop(true);
     await daemon.service[Symbol.asyncDispose]();

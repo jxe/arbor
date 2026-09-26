@@ -5056,6 +5056,8 @@ private struct CanopyResourcePermissionPanel: View {
     let access: NativeTreeAccessPresentation
     let applied: (NativeTreeAccessPresentation) -> Void
     @State private var caller = "me"
+    /// Whose `apps.yaml` an approval goes in: "" for this person, else a group's TreeID.
+    @State private var approveFor = ""
     @State private var app = ""
     @State private var scope = "/"
     @State private var operations: Set<ProtocolResourceOperation> = [.read]
@@ -5100,12 +5102,18 @@ private struct CanopyResourcePermissionPanel: View {
                     if !access.appApprovals.isEmpty {
                         Section("Your app approvals") {
                             ForEach(access.appApprovals, id: \.self) { approval in
-                                Button(approval.rule.consentDescription(app: approval.app)) { select(approval) }
+                                Button(approvalDescription(approval)) { select(approval) }
                             }
                         }
                     }
                     Section("Permission") {
-                        TextField("Caller: me, everyone, or profile TreeID", text: $caller)
+                        if !access.approvalGroups.isEmpty {
+                            Picker("Approve for", selection: $approveFor) {
+                                Text("Me").tag("")
+                                ForEach(access.approvalGroups) { group in Text(group.label).tag(group.tree) }
+                            }
+                        }
+                        TextField(approveFor.isEmpty ? "Caller: me, everyone, or profile TreeID" : "Caller: me (the group's members), everyone, or profile TreeID", text: $caller)
                         TextField("App TreeID", text: $app)
                         TextField("Within", text: $scope)
                         ForEach(ProtocolResourceOperation.allCases.filter { $0 != .admin }, id: \.self) { operation in
@@ -5133,8 +5141,10 @@ private struct CanopyResourcePermissionPanel: View {
         switch target {
         case .treeAccess:
             "A rule of this tree, which you administer: it applies only through the app and needs no one's access behind it."
-        case .profileApps:
+        case .profileApps(_, group: false):
             "An approval in your profile's apps.yaml: the app may use only access you hold, and access granted to you by name when it lends to others."
+        case .profileApps(_, group: true):
+            "An approval in the group's apps.yaml: the app may use only access the group holds, for its members, and access granted to the group by name when it lends to others."
         }
     }
 
@@ -5148,7 +5158,14 @@ private struct CanopyResourcePermissionPanel: View {
         app = rule.app ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow.filter { $0 != .admin })
     }
 
+    private func approvalDescription(_ approval: NativeAppApproval) -> String {
+        let description = approval.rule.consentDescription(app: approval.app)
+        guard let group = approval.group else { return description }
+        return "\(access.approvalGroups.first { $0.tree == group }?.label ?? group): \(description)"
+    }
+
     private func select(_ approval: NativeAppApproval) {
+        approveFor = approval.group ?? ""
         switch approval.rule.who {
         case .me, .members: caller = "me"
         case .everyone: caller = "everyone"
@@ -5163,10 +5180,12 @@ private struct CanopyResourcePermissionPanel: View {
         defer { busy = false }
         do {
             guard !app.isEmpty else { throw ProtocolValidationError.invalidValue("Enter the app's TreeID") }
-            let who: ProtocolResourceWho = caller == "me" ? .me : caller == "everyone" ? .everyone : .profile(caller)
+            let group = approveFor.isEmpty ? nil : approveFor
+            // A group's own use is spelled `members` in its file, a person's `me`.
+            let who: ProtocolResourceWho = caller == "me" ? (group == nil ? .me : .members) : caller == "everyone" ? .everyone : .profile(caller)
             let rule = try ProtocolAppAccessRule(resource: access.tree, who: who,
                 allow: ProtocolResourceOperation.allCases.filter { operations.contains($0) && $0 != .admin }, within: scope)
-            review = try await workspace.prepareResourceConsent(tree: access.tree, app: app, rule: rule, removing: removing)
+            review = try await workspace.prepareResourceConsent(tree: access.tree, app: app, rule: rule, removing: removing, group: group)
         } catch { self.error = error.localizedDescription }
     }
 }

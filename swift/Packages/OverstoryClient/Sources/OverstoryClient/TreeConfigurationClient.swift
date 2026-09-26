@@ -53,6 +53,16 @@ public struct TreeConfigurationClient: Sendable {
         if let profileTree = account.profileTree, let profileURL = account.profileURL {
             profileLocators[profileTree] = profileURL
         }
+        // Groups this person administers: the writable profiles, other than
+        // their own, whose configuration the host lets them read.
+        var approvals = (try? TreeConfigurationYAML.appApprovals(for: tree, source: appsSource)) ?? []
+        var groups: [NativeApprovalGroup] = []
+        for profile in account.writableProfiles where profile.id != account.profileTree {
+            guard let group = try? await treeConfiguration(profile.id) else { continue }
+            groups.append(NativeApprovalGroup(tree: profile.id, label: profile.canonical?.path ?? profile.id))
+            let source = (try? utf8(group.snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
+            approvals += (try? TreeConfigurationYAML.appApprovals(for: tree, source: source, group: profile.id)) ?? []
+        }
         return NativeTreeAccessPresentation(
             tree: tree,
             canonical: declaration.canonical,
@@ -67,14 +77,21 @@ public struct TreeConfigurationClient: Sendable {
                 devicesSource: devicesSource
             ),
             resourceRules: declaration.resourceAccess.filter { HostedTreeDeclaration.ordinaryRule($0) == nil },
-            appApprovals: (try? TreeConfigurationYAML.appApprovals(for: tree, source: appsSource)) ?? []
+            appApprovals: approvals,
+            approvalGroups: groups
         )
     }
 
-    /// Review an app's access to `tree`: the tree's own rule through the app
-    /// when this person administers the tree and the rule is not their own
-    /// approval, otherwise an entry in the person's `apps.yaml`.
-    public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+    /// Review an app's access to `tree`: with `group`, an entry in that group's
+    /// `apps.yaml` (the person must administer the group); otherwise the tree's
+    /// own rule through the app when this person administers the tree and the
+    /// rule is not their own approval, or else an entry in their `apps.yaml`.
+    public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false, group: String? = nil) async throws -> NativeResourceConsent {
+        if let group {
+            let config = try await treeConfiguration(group)
+            let source = (try? utf8(config.snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
+            return try AccountConfigurationYAML.prepareAppConsent(profile: group, group: true, app: app, rule: rule, removing: removing, source: source)
+        }
         let account = try await wire.account().account
         if rule.who != .me, let treeConfig = try? await treeConfiguration(tree) {
             return try AccountConfigurationYAML.prepareTreeAppConsent(tree: tree, app: app, rule: rule, removing: removing,

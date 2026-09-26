@@ -570,6 +570,22 @@ func appConsentReview() throws {
     #expect(approvals.map(\.app) == ["tr_other", "tr_supplies"])
     #expect(approvals.last?.rule == rule)
     #expect(try TreeConfigurationYAML.appApprovals(for: "tr_elsewhere", source: review.after).isEmpty)
+    // A group's own use is `members`; its approvals carry the group they belong to.
+    let forGroup = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+        rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), source: "{}\n")
+    #expect(forGroup.target == .profileApps(profile: "tr_garden", group: true))
+    #expect(forGroup.configurationTree == treeConfigurationID("tr_garden"))
+    #expect(try TreeConfigurationYAML.appApprovals(for: "tr_notes", source: forGroup.after, group: "tr_garden").map(\.rule.who) == [.members])
+    // The group's own use is written without `who`, and reads back as `members`: removing it finds it.
+    #expect(!forGroup.after.contains("who"))
+    let groupRemoval = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+        rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), removing: true, source: forGroup.after)
+    #expect(groupRemoval.previous != nil)
+    #expect(try TreeConfigurationYAML.apps(from: groupRemoval.after, group: true).isEmpty)
+    #expect(throws: (any Error).self) {
+        try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+            rule: ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read]), source: "{}\n")
+    }
     let lent = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.write]), source: source)
     #expect(lent.lendsWrite)

@@ -1,6 +1,8 @@
 import Foundation
 
 public struct ResolvedLocatorState: Sendable, Equatable {
+    /// `;arbor-config`: the locator names the configuration of the tree whose root it names.
+    public var configuration = false
     public var stableKey: String?
     public var revision: String?
     public var applicationQuery: String?
@@ -184,12 +186,16 @@ public func decodeStableKey(_ token: String) -> String? {
 
 /// Split the final raw segment's `;arbor-key=…;arbor-rev=…` parameter block from the path.
 /// Parameters appear in that order at most once each; anything else after the first
-/// `;arbor-` marker is invalid rather than path data.
-private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?)? {
+/// `;arbor-` marker is invalid rather than path data. `;arbor-config` takes no value
+/// and stands alone.
+private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?, configuration: Bool)? {
     let segmentStart = rawPathWithParameters.lastIndex(of: "/").map { rawPathWithParameters.index(after: $0) }
         ?? rawPathWithParameters.startIndex
     guard let marker = rawPathWithParameters[segmentStart...].range(of: parameterMarker) else {
-        return (rawPathWithParameters, nil, nil)
+        return (rawPathWithParameters, nil, nil, false)
+    }
+    if rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...] == "arbor-config" {
+        return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, true)
     }
     var stableKey: String?
     var revision: String?
@@ -209,12 +215,14 @@ private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: Str
             return nil
         }
     }
-    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision)
+    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision, false)
 }
 
 private func locatorState(destination: String, fragment: String?) -> (rawPath: String, locator: ResolvedLocatorState)? {
     let (rawPathWithParameters, applicationQuery) = splitOnce(destination, separator: "?")
-    guard let (rawPath, pathStableKey, revision) = segmentParameters(rawPathWithParameters) else { return nil }
+    guard let (rawPath, pathStableKey, revision, configuration) = segmentParameters(rawPathWithParameters) else { return nil }
+    // A configuration is addressed as a whole: no key, fragment or query goes with it.
+    if configuration, fragment != nil || applicationQuery != nil { return nil }
 
     var markdownStableKey: String?
     if let fragment, fragment.hasPrefix(markdownKeyPrefix) {
@@ -223,15 +231,14 @@ private func locatorState(destination: String, fragment: String?) -> (rawPath: S
     }
     guard pathStableKey == nil || markdownStableKey == nil else { return nil }
     let ordinaryFragment = markdownStableKey == nil && !(fragment?.isEmpty ?? true) ? fragment : nil
-    return (
-        rawPath,
-        ResolvedLocatorState(
-            stableKey: pathStableKey ?? markdownStableKey,
-            revision: revision,
-            applicationQuery: applicationQuery,
-            contentFragment: ordinaryFragment
-        )
+    var state = ResolvedLocatorState(
+        stableKey: pathStableKey ?? markdownStableKey,
+        revision: revision,
+        applicationQuery: applicationQuery,
+        contentFragment: ordinaryFragment
     )
+    state.configuration = configuration
+    return (rawPath, state)
 }
 
 /// Canonical browser/API identity for an already decoded x.md, x/, or x/_index.md path.
@@ -286,6 +293,8 @@ private func parseArborURL(_ href: String) -> ResolvedLink? {
     if authorityPart.hasPrefix("tr_"), !isTreeID { return nil }
     let authority: ArborAuthority = isTreeID ? .treeID(authorityPart) : .dns(authorityPart)
     guard let path = resolveTreePath(sourceDirectory: "/", rawDestination: parts.joined(separator: "/")) else { return nil }
+    // `arbor://<TreeID>;arbor-config` names the tree's root; any other path is invalid.
+    if parsed.locator.configuration, isTreeID, path != "/" { return nil }
     return .arbor(authority: authority, path: path, locator: parsed.locator)
 }
 

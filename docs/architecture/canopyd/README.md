@@ -25,6 +25,12 @@ The spec leaves placement to each host; this is canopyd's policy. Why tree
 configurations have their shape, and the tests for each refused case, are in
 [tree configurations](tree-configurations.md).
 
+- **Finding a configuration.** `;arbor-config` is honoured on a tree's root
+  only, in the raw path (`%3B` is a filename): `/.arbor/trees/tr_x;arbor-config`
+  serves it, `/.well-known/arbor/<canonical root>;arbor-config` resolves to it,
+  and the canonical URL sends an administrator to the first with `303`. Anyone
+  else gets what an unreadable tree gets.
+
 - **Community profile.** The tree canonical at `/` is the community's
   membership profile and keeps `type: group`. Its tree configuration grants
   the root itself `admin`, so its members are the Canopy's administrators.

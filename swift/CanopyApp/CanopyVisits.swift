@@ -96,6 +96,8 @@ private extension JSONDecoder {
 struct ArborRemoteLocator: Equatable, Sendable {
     let origin: URL
     let path: String
+    /// `…;arbor-config`: the configuration of the tree whose root `path` names.
+    let configuration: Bool
 
     init?(_ locator: String) {
         guard let url = URL(string: locator.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -111,7 +113,11 @@ struct ArborRemoteLocator: Equatable, Sendable {
         }
         guard let origin = components.url else { return nil }
         self.origin = origin
-        let raw = url.path(percentEncoded: false)
+        // Read the parameter from the encoded path: a `%3B` filename is data.
+        let suffix = ";arbor-config"
+        self.configuration = url.path(percentEncoded: true).hasSuffix(suffix)
+        var raw = url.path(percentEncoded: false)
+        if configuration { raw.removeLast(suffix.count) }
         self.path = raw.isEmpty ? "/" : raw
     }
 
