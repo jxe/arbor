@@ -64,6 +64,13 @@ public final class IgnorePolicy {
         name.contains(".arbor-write-") || name.contains(".arbor-txn-")
     }
 
+    /// macOS Finder and filesystem metadata: `.DS_Store`, and the AppleDouble
+    /// `._name` companions written on volumes without extended attributes. The
+    /// system rewrites them on its own, so they are never tree content.
+    public static func isPlatformMetadataName(_ name: String) -> Bool {
+        name == ".DS_Store" || (name.hasPrefix("._") && name.count > 2)
+    }
+
     static func isCloudPlaceholderName(_ name: String) -> Bool {
         name.hasPrefix(".") && name.hasSuffix(".icloud") && name.count > ".icloud".count + 1
     }
@@ -75,6 +82,7 @@ public final class IgnorePolicy {
             let name = segments[index]
             return Self.isTransactionTemporaryName(name)
                 || Self.isCloudPlaceholderName(name)
+                || Self.isPlatformMetadataName(name)
                 || ((index < segments.count - 1 || isDirectory) && Self.mandatoryDirectoryNames.contains(name))
         }
     }

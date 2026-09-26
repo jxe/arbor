@@ -18,6 +18,7 @@ import { toTreePath } from "@overstory/protocol/path";
 import { writeAtomic } from "@overstory/protocol/file-ops";
 import {
   isCloudPlaceholderName,
+  isPlatformMetadataName,
   isTransactionTemporaryName,
   MANDATORY_DIRECTORY_NAMES,
   type SkipPath,
@@ -144,7 +145,7 @@ export async function snapshotDirectory(
     let childrenSource: CollectionFileDescriptor | undefined;
     const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareProtocolNames(a.name, b.name))) {
-      if (isTransactionTemporaryName(entry.name)) continue;
+      if (isTransactionTemporaryName(entry.name) || isPlatformMetadataName(entry.name)) continue;
       if (isCloudPlaceholderName(entry.name)) {
         // An evicted file that is not tree content is not needed.
         const logical = join(directory, entry.name.slice(1, -".icloud".length));
@@ -230,6 +231,27 @@ function contained(root: string, path: string): string {
   return target;
 }
 
+/**
+ * `root` as a folder can hold it: without platform metadata, which a root
+ * written before it was excluded may still hold. Unchanged roots keep their
+ * hash; directory objects load through `load`.
+ */
+export async function withoutPlatformMetadata(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ObjectHash> {
+  const visit = async (hash: ObjectHash): Promise<ObjectHash> => {
+    const directory = decodeProtocolDirectory(await load(hash));
+    let changed = false;
+    const entries: ProtocolDirectoryEntry[] = [];
+    for (const entry of directory.entries) {
+      if (isPlatformMetadataName(entry.name)) { changed = true; continue; }
+      const nested = entry.directory ? await visit(entry.directory) : undefined;
+      if (nested && nested !== entry.directory) { changed = true; entries.push({ name: entry.name, directory: nested }); continue; }
+      entries.push(entry);
+    }
+    return changed ? hashObject(encodeProtocolDirectory({ ...directory, entries })) : hash;
+  };
+  return visit(root);
+}
+
 export async function materializeTree(
   root: string,
   rootHash: ObjectHash,
@@ -238,7 +260,8 @@ export async function materializeTree(
   excludedRoots: readonly string[] = [],
   /**
    * Keeps local content the tree does not own: cleanup never deletes a path
-   * `skip` leaves out. Entries of the written root are always written.
+   * `skip` leaves out. Entries of the written root are always written, except
+   * platform metadata.
    */
   skip?: SkipPath,
 ): Promise<void> {
@@ -270,11 +293,14 @@ export async function materializeTree(
     await mkdir(path, { recursive: true });
     const expected = new Set(object.entries.map((entry) => entry.name));
     for (const existing of await readdir(path, { withFileTypes: true })) {
-      if (MANDATORY_DIRECTORY_NAMES.has(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
+      if (MANDATORY_DIRECTORY_NAMES.has(existing.name) || isPlatformMetadataName(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
       if (skip && await skip(toTreePath(canonicalDestination, join(path, existing.name)), existing.isDirectory())) continue;
       await rm(contained(canonicalDestination, join(path, existing.name)), { recursive: true, force: true });
     }
     for (const entry of object.entries) {
+      // A root written before platform metadata was excluded may still hold
+      // some; the system owns the local file, so it is neither written nor removed.
+      if (isPlatformMetadataName(entry.name)) continue;
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);

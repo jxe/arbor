@@ -15,6 +15,8 @@ export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   ...[...IGNORED_WORKSPACE_DIRECTORIES].map((name) => `**/${name}/**`),
   "**/*.arbor-txn-*",
   "**/*.arbor-write-*",
+  "**/.DS_Store",
+  "**/._*",
 ];
 
 export interface DiscoveredWorkspaceFile {

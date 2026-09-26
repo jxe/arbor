@@ -18,6 +18,7 @@ import {
   resolveSnapshot,
   snapshotDirectory,
   trackedEntries,
+  withoutPlatformMetadata,
   type SnapshotObjectIndex,
 } from "@overstory/fs";
 
@@ -357,6 +358,39 @@ describe("canonical tree objects", () => {
     } finally {
       await collections[Symbol.asyncDispose]();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("platform metadata is never snapshotted, written or removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-platform-metadata-"));
+    const destination = await mkdtemp(join(tmpdir(), "arbor-platform-metadata-out-"));
+    try {
+      await mkdir(join(root, "notes"));
+      await writeFile(join(root, "note.md"), "# Note\n");
+      await writeFile(join(root, "notes", "idea.md"), "# Idea\n");
+      const clean = await resolveSnapshot(await snapshotDirectory(root));
+      await writeFile(join(root, ".DS_Store"), "finder");
+      await writeFile(join(root, "notes", "._idea.md"), "appledouble");
+      expect((await snapshotDirectory(root)).root).toBe(clean.root);
+
+      // A root written before the exclusion still names Finder's file.
+      const objects = new Map(clean.objects);
+      const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
+      const top = decodeProtocolDirectory(objects.get(clean.root)!);
+      const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")) }, ...top.entries] }));
+      const load = async (hash: string) => objects.get(hash)!;
+      expect(await withoutPlatformMetadata(legacy, load)).toBe(clean.root);
+      expect(await withoutPlatformMetadata(clean.root, load)).toBe(clean.root);
+
+      await writeFile(join(destination, ".DS_Store"), "local finder");
+      await materializeTree(destination, legacy, load);
+      expect(await readFile(join(destination, ".DS_Store"), "utf8")).toBe("local finder");
+      await materializeTree(destination, clean.root, load);
+      expect(await readFile(join(destination, ".DS_Store"), "utf8")).toBe("local finder");
+      expect(await readFile(join(destination, "notes", "idea.md"), "utf8")).toBe("# Idea\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
     }
   });
 

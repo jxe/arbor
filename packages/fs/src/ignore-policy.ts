@@ -37,6 +37,15 @@ export function isTransactionTemporaryName(name: string): boolean {
   return name.includes(".arbor-write-") || name.includes(".arbor-txn-");
 }
 
+/**
+ * macOS Finder and filesystem metadata: `.DS_Store`, and the AppleDouble
+ * `._name` companions written on volumes without extended attributes. The
+ * system rewrites them on its own, so they are never tree content.
+ */
+export function isPlatformMetadataName(name: string): boolean {
+  return name === ".DS_Store" || (name.startsWith("._") && name.length > 2);
+}
+
 /** iCloud's stand-in `.name.icloud` for an evicted file. */
 export function isCloudPlaceholderName(name: string): boolean {
   return name.startsWith(".") && name.endsWith(".icloud") && name.length > ".icloud".length + 1;
@@ -258,6 +267,7 @@ export class IgnorePolicy {
     return segments.some((name, index) =>
       isTransactionTemporaryName(name)
       || isCloudPlaceholderName(name)
+      || isPlatformMetadataName(name)
       || ((index < segments.length - 1 || isDirectory) && MANDATORY_DIRECTORY_NAMES.has(name))
     );
   }

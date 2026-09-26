@@ -101,8 +101,9 @@ scanned into a change, uploaded, overwritten, or deleted by a pull, and stays
 out of discovery, search, and generated types. `.gitignore` is read for
 compatibility with the same grammar; `.arborignore` is the portable spelling
 and wins beside it. The mandatory exclusions (`.git`, `node_modules`, `.arbor`,
-`Trash`, `.build`, `DerivedData`, transaction temporaries, iCloud placeholders,
-nested mounts) apply whatever the rules say. Git is never run, and
+`Trash`, `.build`, `DerivedData`, transaction temporaries, Finder's `.DS_Store`
+and AppleDouble `._name` files, iCloud placeholders, nested mounts) apply
+whatever the rules say. Git is never run, and
 `.git/info/exclude`, `core.excludesFile`, and global Git ignore files are not
 read, so a folder yields the same tree on every device.
 

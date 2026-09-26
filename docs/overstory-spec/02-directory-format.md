@@ -190,10 +190,14 @@ local tools may open it, but it belongs to that placement, not to the tree.
 **Mandatory exclusions.** These are never tree content, whatever an ignore file
 says: directories named `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, or
 `DerivedData` and everything beneath them; write and transaction temporaries
-(names containing `.arbor-write-` or `.arbor-txn-`); a cloud provider's
+(names containing `.arbor-write-` or `.arbor-txn-`); operating-system metadata
+the system rewrites on its own, namely macOS Finder's `.DS_Store` and
+AppleDouble `._name` files, at any depth; a cloud provider's
 placeholder for an evicted file, such as iCloud's `.name.icloud`, which stands
 for its logical file; symbolic links; and the root of a nested tree mounted in
-the directory, whose content belongs to that tree.
+the directory, whose content belongs to that tree. A root accepted before an
+exclusion applied may still name such a path; a folder client neither writes
+nor removes the local file there, and publishes the root without it.
 
 **Ignore files.** `.arborignore` is the portable spelling of an ignore file.
 `.gitignore` is read with the same meaning for compatibility. Each applies from
