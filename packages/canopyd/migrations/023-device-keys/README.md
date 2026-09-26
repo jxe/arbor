@@ -81,3 +81,18 @@ device's key binding, so it must pair again.
   new tables are present, and `compare-canopy-roots` found all seven roots
   unchanged. Served with the new build, `/.arbor/integrity` was ok once and
   the Mac's existing credential read `/~joe` and its private Console tree.
+
+## Cutover
+
+2026-09-26, build `0621789b`: backup `/data/backups/023-device-keys`
+(local copy `.backups/railway/20260926T172800Z/`, with `dot-arbor.before`
+and the rehearsal copies; keep until about 2026-10-10). The live report
+matched the rehearsal (`migrated: true, devices: 4`); after the redeploy
+health and `/.arbor/integrity` (called once) were ok, all seven roots
+matched the rehearsal, and a round-trip edit through Joe's profile was
+accepted and removed (updates 5131/5132). The Mac's Console placement
+was already in `error` before the cutover ("The folder does not hold the
+accepted root it was given", an Arbor Sync problem unrelated to this
+migration); on restart Arbor Sync merged the host's newer content into
+it without losing Joe's queued edit, which is why `verify.ts` reports it
+and its two changed files.

@@ -6,7 +6,7 @@
 - **Effort:** L
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
-- **State:** PHASES 1 AND 2 IMPLEMENTED 2026-09-26, not deployed. The spec
+- **State:** PHASES 1 AND 2 IMPLEMENTED AND THE HOST DEPLOYED 2026-09-26 (schema 23). The spec
   ([accounts §1.1, §3, §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing),
   [access control §2, §3.2](../../docs/overstory-spec/05-access-control.md#2-authentication-and-secrets)),
   the vectors (`device-keys.json`), the TypeScript protocol, canopyd and
@@ -178,9 +178,10 @@ unencrypted format.
   the iPhone with a key, revoke it and see its session end, start a reset from
   the backup and cancel it from the Mac, then complete one.
 
-### Phase 4: deployment (needs Joe's go-ahead)
+### Phase 4: moving Joe's devices
 
-- Run [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
-  and deploy the host; it can go before Phase 3, since existing clients keep
-  working. Move Joe's devices to keys as their builds are installed.
+- The host side is live: [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
+  ran on 2026-09-26 and every existing device kept its credential. What is
+  left is moving Joe's devices to keys as their Phase 3 builds are
+  installed; it needs no host step.
 - Record the result in `status.md` and delete this plan.
