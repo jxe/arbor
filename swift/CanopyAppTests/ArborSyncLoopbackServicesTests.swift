@@ -60,7 +60,7 @@ struct LoopbackServicesTests {
         let body = Data(#"{"error":"conflict","message":"Existing identity differs","retryable":false}"#.utf8)
         await LoopbackStub.state.install { _, _ in (409, body, "application/json") }
         do {
-            try await stubbedClient().restoreIdentity(backup: Data("{}".utf8), path: "/profile")
+            try await stubbedClient().restoreIdentity(backup: Data("{}".utf8), path: "/profile", passphrase: nil)
             Issue.record("Expected identity conflict")
         } catch let error as ArborSyncServerError {
             #expect(error.value.message == "Existing identity differs")

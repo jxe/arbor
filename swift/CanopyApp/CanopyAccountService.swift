@@ -103,8 +103,16 @@ protocol CanopyAccountService: Sendable {
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider
 
     func createIdentity() async throws
-    func restoreIdentity(backup: Data) async throws
-    func backupIdentity(to destination: URL) async throws
+    /// A version-2 backup is encrypted and needs its passphrase.
+    func restoreIdentity(backup: Data, passphrase: String?) async throws
+    func backupIdentity(to destination: URL, passphrase: String) async throws
+
+    /// The pending reset of the account's profile (accounts §5.3), which every
+    /// device sees and an administrator device may cancel.
+    func pendingProfileReset(for account: CanopyAccount) async throws -> ProtocolPendingProfileReset?
+    func cancelProfileReset(for account: CanopyAccount) async throws
+    /// Move this device for the account to a key, keeping its DeviceID (accounts §5.2).
+    func moveToDeviceKey(for account: CanopyAccount) async throws
 
     /// Claim `account` (an account URL on a Canopy) with this device's profile
     /// identity, resuming a pending claim for it. The data home names its own
@@ -171,12 +179,27 @@ struct KeychainAccountService: CanopyAccountService {
         _ = try await KeychainProfileIdentityStore().create()
     }
 
-    func restoreIdentity(backup _: Data) async throws {
+    func restoreIdentity(backup _: Data, passphrase _: String?) async throws {
         throw CanopyAccountServiceError.unsupported(.restoreIdentity)
     }
 
-    func backupIdentity(to _: URL) async throws {
+    func backupIdentity(to _: URL, passphrase _: String) async throws {
         throw CanopyAccountServiceError.unsupported(.backupIdentity)
+    }
+
+    func pendingProfileReset(for account: CanopyAccount) async throws -> ProtocolPendingProfileReset? {
+        guard let profileTree = account.profileTree else { return nil }
+        return try await client(for: account).pendingProfileReset(profileTree: profileTree)
+    }
+
+    func cancelProfileReset(for account: CanopyAccount) async throws {
+        guard let profileTree = account.profileTree else { throw CanopyAccountServiceError.invalidAccount("The account names no profile") }
+        try await client(for: account).cancelProfileReset(profileTree: profileTree)
+    }
+
+    func moveToDeviceKey(for account: CanopyAccount) async throws {
+        guard let origin = account.origin else { throw CanopyAccountServiceError.invalidAccount("The Canopy account names no Canopy") }
+        try await NativeAccountService(origin: origin, configurationTree: account.configurationTree).moveToDeviceKey()
     }
 
     func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws {

@@ -235,7 +235,7 @@ struct CanopyMacOnboarding: View {
             if !addingAccount, reconciliation == .adoptNative {
                 // Adopt the identity this app kept in its own keychain before
                 // the data home held one.
-                try await workspace.accountService.restoreIdentity(backup: KeychainProfileIdentityStore().backupData())
+                try await workspace.accountService.restoreIdentity(backup: KeychainProfileIdentityStore().backupData(), passphrase: nil)
                 try await reload()
             }
             if reconciliation == .chooseExisting, let identity = state?.identity, let legacy {
@@ -278,23 +278,16 @@ struct CanopyMacOnboarding: View {
     }
 
     private func recover() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose your Arbor identity backup."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let (backup, passphrase) = CanopyIdentityBackupPrompt.chooseBackup() else { return }
         run { service in
-            try await service.restoreIdentity(backup: Data(contentsOf: url))
+            try await service.restoreIdentity(backup: backup, passphrase: passphrase)
             try await reload()
         }
     }
 
     private func backup() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Arbor Identity.json"
-        panel.message = "This backup contains your private identity key. Keep it somewhere secure. Choose a new file."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        run { service in try await service.backupIdentity(to: url) }
+        guard let (url, passphrase) = CanopyIdentityBackupPrompt.chooseDestination() else { return }
+        run { service in try await service.backupIdentity(to: url, passphrase: passphrase) }
     }
 
     private func chooseTrees(_ account: CanopyAccount) async throws {
@@ -306,5 +299,58 @@ struct CanopyMacOnboarding: View {
 
     /// The data home names this Mac's device itself and ignores the label.
     private static let deviceLabel = "Mac"
+}
+/// The panels around an identity backup. A backup is encrypted under a
+/// passphrase, because the profile key it holds can reset every device of the
+/// profile; an older backup without one still restores.
+enum CanopyIdentityBackupPrompt {
+    static let minimumPassphraseLength = 8
+
+    /// A new backup file and its passphrase, entered twice; nil when cancelled.
+    @MainActor static func chooseDestination() -> (URL, String)? {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Arbor Identity.json"
+        panel.message = "This backup contains your private identity key, encrypted under a passphrase you choose. Choose a new file."
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        var message = "Choose a passphrase of at least \(minimumPassphraseLength) characters. Without it the backup cannot be restored."
+        while true {
+            guard let entered = passphrase(title: "Encrypt the backup", message: message, confirm: true) else { return nil }
+            if entered.0.count < minimumPassphraseLength { message = "The passphrase needs at least \(minimumPassphraseLength) characters." }
+            else if entered.0 != entered.1 { message = "The two passphrases differ. Enter them again." }
+            else { return (url, entered.0) }
+        }
+    }
+
+    /// A backup file's contents, and its passphrase when it is encrypted; nil when cancelled.
+    @MainActor static func chooseBackup() -> (Data, String?)? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose your Arbor identity backup."
+        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return nil }
+        let version = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["version"] as? Int
+        guard version == 2 else { return (data, nil) }
+        guard let entered = passphrase(title: "Open the backup", message: "Enter the passphrase this backup was encrypted with.", confirm: false) else { return nil }
+        return (data, entered.0)
+    }
+
+    @MainActor private static func passphrase(title: String, message: String, confirm: Bool) -> (String, String)? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let first = NSSecureTextField(frame: NSRect(x: 0, y: confirm ? 30 : 0, width: 260, height: 24))
+        first.placeholderString = "Passphrase"
+        let second = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        second.placeholderString = "Repeat the passphrase"
+        let stack = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: confirm ? 54 : 24))
+        stack.addSubview(first)
+        if confirm { stack.addSubview(second) }
+        alert.accessoryView = stack
+        alert.window.initialFirstResponder = first
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return (first.stringValue, confirm ? second.stringValue : first.stringValue)
+    }
 }
 #endif

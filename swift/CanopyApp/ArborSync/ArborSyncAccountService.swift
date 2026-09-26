@@ -42,13 +42,25 @@ struct ArborSyncAccountService: CanopyAccountService {
         try await client.createIdentity(path: Self.profilePath(try await client.onboardingState()))
     }
 
-    func restoreIdentity(backup: Data) async throws {
+    func restoreIdentity(backup: Data, passphrase: String?) async throws {
         let client = try await connect()
-        try await client.restoreIdentity(backup: backup, path: Self.profilePath(try await client.onboardingState()))
+        try await client.restoreIdentity(backup: backup, path: Self.profilePath(try await client.onboardingState()), passphrase: passphrase)
     }
 
-    func backupIdentity(to destination: URL) async throws {
-        try await connect().backupIdentity(destination: destination.path)
+    func backupIdentity(to destination: URL, passphrase: String) async throws {
+        try await connect().backupIdentity(destination: destination.path, passphrase: passphrase)
+    }
+
+    func pendingProfileReset(for account: CanopyAccount) async throws -> ProtocolPendingProfileReset? {
+        try await connect().pendingProfileReset(configurationTree: account.configurationTree)
+    }
+
+    func cancelProfileReset(for account: CanopyAccount) async throws {
+        try await connect().cancelProfileReset(configurationTree: account.configurationTree)
+    }
+
+    func moveToDeviceKey(for account: CanopyAccount) async throws {
+        try await connect().moveToDeviceKey(configurationTree: account.configurationTree)
     }
 
     func claimAccount(_ account: String, deviceLabel _: String, inviteCode: String?) async throws {

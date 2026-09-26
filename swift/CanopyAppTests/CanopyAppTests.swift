@@ -1264,10 +1264,10 @@ struct CanopyAppTests {
         let service = KeychainAccountService()
         #expect(service.capabilities == [.forget])
         await #expect(throws: CanopyAccountServiceError.unsupported(.restoreIdentity)) {
-            try await service.restoreIdentity(backup: Data())
+            try await service.restoreIdentity(backup: Data(), passphrase: nil)
         }
         await #expect(throws: CanopyAccountServiceError.unsupported(.backupIdentity)) {
-            try await service.backupIdentity(to: URL(fileURLWithPath: "/dev/null"))
+            try await service.backupIdentity(to: URL(fileURLWithPath: "/dev/null"), passphrase: "a passphrase")
         }
         await #expect(throws: CanopyAccountServiceError.unsupported(.resumePairing)) {
             try await service.resumePairing()
@@ -1352,8 +1352,11 @@ private actor RecordingAccountService: CanopyAccountService {
         throw CanopyAccountServiceError.invalidAccount("No credential in the test store")
     }
     func createIdentity() {}
-    func restoreIdentity(backup _: Data) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
-    func backupIdentity(to _: URL) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
+    func restoreIdentity(backup _: Data, passphrase _: String?) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
+    func backupIdentity(to _: URL, passphrase _: String) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
+    func pendingProfileReset(for _: CanopyAccount) -> ProtocolPendingProfileReset? { nil }
+    func cancelProfileReset(for _: CanopyAccount) {}
+    func moveToDeviceKey(for _: CanopyAccount) {}
     func claimAccount(_: String, deviceLabel _: String, inviteCode _: String?) {}
     func cancelPendingClaim() throws { throw CanopyAccountServiceError.unsupported(.cancelPendingClaim) }
     func claimPairing(_: Data, deviceLabel _: String) -> CanopyPairingClaim {

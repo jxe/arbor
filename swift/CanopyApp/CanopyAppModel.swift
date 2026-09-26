@@ -83,6 +83,8 @@ struct LocalArborSyncDevicePresentation: Identifiable, Sendable, Equatable {
     let label: String
     let isAdministrator: Bool
     let isCurrent: Bool
+    /// Signs in with a device key rather than a credential (accounts §5).
+    var hasKey = false
 }
 
 struct LocalArborSyncOverview: Sendable, Equatable {
@@ -631,7 +633,8 @@ final class CanopyWorkspaceState {
                     id: id,
                     label: device.label,
                     isAdministrator: device.administrator == true,
-                    isCurrent: id == account.deviceID
+                    isCurrent: id == account.deviceID,
+                    hasKey: device.key != nil
                 )
             }
             .sorted { lhs, rhs in

@@ -100,13 +100,37 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/me", body: ["path": path])
     }
 
-    func restoreIdentity(backup: Data, path: String) async throws {
+    /// A version-2 backup needs its passphrase; a version-1 backup has none.
+    func restoreIdentity(backup: Data, path: String, passphrase: String?) async throws {
         let value = try JSONSerialization.jsonObject(with: backup)
-        try await onboardingPost("/v1/me/restore", body: ["path": path, "backup": value])
+        var body: [String: Any] = ["path": path, "backup": value]
+        if let passphrase { body["passphrase"] = passphrase }
+        try await onboardingPost("/v1/me/restore", body: body)
     }
 
-    func backupIdentity(destination: String) async throws {
-        try await onboardingPost("/v1/me/backup", body: ["destination": destination])
+    func backupIdentity(destination: String, passphrase: String) async throws {
+        try await onboardingPost("/v1/me/backup", body: ["destination": destination, "passphrase": passphrase])
+    }
+
+    /// Move this installation's device for an account to a key (`arbor device move-to-key`).
+    func moveToDeviceKey(configurationTree: String) async throws {
+        try await onboardingPost("/v1/device-key", body: ["configurationTree": configurationTree])
+    }
+
+    /// The pending reset of an account's profile, as its devices see it.
+    func pendingProfileReset(configurationTree: String) async throws -> ProtocolPendingProfileReset? {
+        struct Envelope: Decodable { var reset: ProtocolPendingProfileReset? }
+        let envelope: Envelope = try await get(path: "/v1/profile-reset", items: [URLQueryItem(name: "configurationTree", value: configurationTree)])
+        return envelope.reset
+    }
+
+    func cancelProfileReset(configurationTree: String) async throws {
+        struct Response: Decodable { var cancelled: Bool }
+        var components = URLComponents(url: url("/v1/profile-reset"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "configurationTree", value: configurationTree)]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "DELETE"
+        let _: Response = try await perform(request)
     }
 
     func claimPairing(payload: Data? = nil) async throws {
