@@ -1257,7 +1257,7 @@ struct CanopyRootView: View {
             (overview?.accounts ?? []).map { ($0.configurationTree, $0.accountDisplayLabel) },
             uniquingKeysWith: { first, _ in first }
         )
-        let values = (overview?.trees ?? []).filter { $0.kind != CanopyTreeKind.accountConfiguration && $0.path != nil }.map { tree in
+        let values = (overview?.trees ?? []).filter { $0.kind != CanopyTreeKind.treeConfiguration && $0.path != nil }.map { tree in
             SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
                 account: tree.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
@@ -2006,7 +2006,7 @@ struct CanopyRootView: View {
 
 #if os(macOS)
     private func localTreeTitle(_ tree: LocalArborSyncTreePresentation) -> String {
-        guard tree.kind == CanopyTreeKind.accountConfiguration else {
+        guard tree.kind == CanopyTreeKind.treeConfiguration else {
             return tree.canonicalPath ?? tree.name
         }
         let account = workspace.localArborSyncOverview?.accounts.first {
@@ -5055,7 +5055,7 @@ private struct CanopyResourcePermissionPanel: View {
     let access: NativeTreeAccessPresentation
     let applied: (NativeTreeAccessPresentation) -> Void
     @State private var caller = "me"
-    @State private var via = ""
+    @State private var app = ""
     @State private var scope = "/"
     @State private var operations: Set<ProtocolResourceOperation> = [.read]
     @State private var removing = false
@@ -5068,11 +5068,15 @@ private struct CanopyResourcePermissionPanel: View {
             Form {
                 if let review {
                     Section("Review permission change") {
-                        Text("Account configuration: \(review.configurationTree)")
+                        Text(review.configurationTree == access.tree ? "Tree configuration" : "Configuration: \(review.configurationTree)")
                         Text("Resource: \(review.tree)")
-                        Text("Before: \(review.previous?.consentDescription ?? "No matching rule")")
-                        Text("After: \(review.removing ? "Remove this rule" : review.rule.consentDescription)")
-                        Text("This grants only authority this account currently holds. Other matching rules may also grant access.")
+                        Text("Before: \(review.previous?.consentDescription(app: review.app) ?? "No matching rule")")
+                        Text("After: \(review.removing ? "Remove this rule" : review.rule.consentDescription(app: review.app))")
+                        if review.lendsWrite {
+                            Text("This lends write access to people other than you: anyone the rule names may change the tree through this app.")
+                                .foregroundStyle(.orange)
+                        }
+                        Text(Self.explanation(review.target))
                             .foregroundStyle(.secondary)
                         Button("Back") { self.review = nil }
                         Button(review.removing ? "Remove permission" : "Grant permission") {
@@ -5080,7 +5084,7 @@ private struct CanopyResourcePermissionPanel: View {
                                 busy = true
                                 defer { busy = false }
                                 do {
-                                    applied(try await workspace.applyResourceConsent(review))
+                                    if let presentation = try await workspace.applyResourceConsent(review) { applied(presentation) }
                                     dismiss()
                                 } catch { self.error = error.localizedDescription }
                             }
@@ -5094,9 +5098,9 @@ private struct CanopyResourcePermissionPanel: View {
                     }
                     Section("Permission") {
                         TextField("Caller: me, everyone, or profile TreeID", text: $caller)
-                        TextField("Executable TreeID (optional)", text: $via)
+                        TextField("App TreeID", text: $app)
                         TextField("Within", text: $scope)
-                        ForEach(ProtocolResourceOperation.allCases, id: \.self) { operation in
+                        ForEach(ProtocolResourceOperation.allCases.filter { $0 != .admin }, id: \.self) { operation in
                             Toggle(operation.rawValue, isOn: Binding(
                                 get: { operations.contains(operation) },
                                 set: { if $0 { operations.insert(operation) } else { operations.remove(operation) } }
@@ -5117,24 +5121,34 @@ private struct CanopyResourcePermissionPanel: View {
 #endif
     }
 
+    private static func explanation(_ target: NativeResourceConsentTarget) -> String {
+        switch target {
+        case .treeAccess:
+            "A rule of this tree, which you administer: it applies only through the app and needs no one's access behind it."
+        case .profileApps:
+            "An approval in your profile's apps.yaml: the app may use only access you hold, and access granted to you by name when it lends to others."
+        }
+    }
+
     private func select(_ rule: ProtocolResourceAccessRule) {
         switch rule.who {
-        case .me: caller = "me"
+        case .me, .members: caller = "me"
         case .everyone: caller = "everyone"
         case .profile(let tree): caller = tree
-        case .link: error = "Use the account configuration to edit access-link rules."; return
+        case .link: error = "Edit access-link rules in the tree's configuration."; return
         }
-        via = rule.via ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow)
+        app = rule.app ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow.filter { $0 != .admin })
     }
 
     private func prepare() async {
         busy = true; error = nil
         defer { busy = false }
         do {
+            guard !app.isEmpty else { throw ProtocolValidationError.invalidValue("Enter the app's TreeID") }
             let who: ProtocolResourceWho = caller == "me" ? .me : caller == "everyone" ? .everyone : .profile(caller)
-            let rule = try ProtocolResourceAccessRule(who: who, via: via.isEmpty ? nil : via,
-                allow: ProtocolResourceOperation.allCases.filter { operations.contains($0) }, within: scope)
-            review = try await workspace.prepareResourceConsent(tree: access.tree, rule: rule, removing: removing)
+            let rule = try ProtocolAppAccessRule(resource: access.tree, who: who,
+                allow: ProtocolResourceOperation.allCases.filter { operations.contains($0) && $0 != .admin }, within: scope)
+            review = try await workspace.prepareResourceConsent(tree: access.tree, app: app, rule: rule, removing: removing)
         } catch { self.error = error.localizedDescription }
     }
 }

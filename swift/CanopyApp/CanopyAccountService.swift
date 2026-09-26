@@ -156,7 +156,11 @@ struct KeychainAccountService: CanopyAccountService {
     }
 
     func accounts() async throws -> [CanopyAccount] {
-        try await KeychainDeviceCredentialStore().accounts().map { CanopyAccount($0) }
+        let store = KeychainDeviceCredentialStore()
+        // Accounts saved before tree configurations are keyed by their old
+        // random configuration TreeID; move them to the derived one first.
+        try await rekeyStoredAccounts(in: store)
+        return try await store.accounts().map { CanopyAccount($0) }
     }
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {

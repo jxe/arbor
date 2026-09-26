@@ -782,8 +782,9 @@ struct LiveProtocolTests {
         let client = ProtocolClient(origin: origin, credential: token, retryDelay: { _ in })
         let account = try await client.account()
         let configuration = account.account.configuration
-        #expect(configuration.kind == "account-configuration")
+        #expect(configuration.kind == "tree-configuration")
         #expect(configuration.canonical == nil)
+        #expect(configuration.id == treeConfigurationID(account.account.profileTree))
         let ref = try await client.descriptor(tree: configuration.id)
         #expect(ref.tree.root == configuration.root)
         #expect(!ref.observedThrough.isEmpty)
@@ -922,7 +923,7 @@ struct ProtocolValueVectorTests {
         #expect(remote.canonical?.httpURL == "https://community.example/~joe")
         #expect(remote.canonical?.arborURL == "arbor://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
-        // TODO: `treeDescriptor`, `accountConfigurationDescriptor`, and `resolution.enclosingTree`
+        // TODO: `treeDescriptor`, `treeConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. Overstory models only the remote
         // shape (`ProtocolTreeDescriptor` requires both), so they cannot be decoded here yet.
 

@@ -48,45 +48,60 @@ struct NativeAccountPairingTests {
         #expect(try payload.validated() == payload)
     }
 
-    @Test("Account configuration access edits preserve every tree and untouched source")
-    func accountAccessYAML() throws {
+    @Test("Sharing edits to access.yaml keep administrators and scoped rules; mount edits keep untouched source")
+    func treeConfigurationYAML() throws {
         let source = """
-        # Keep this account-level note.
-        tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
-          canonical: https://canopy.example/~joe/notes
-          access:
-            - who: everyone
-              allow: [read]
-
-        # Keep the private tree exactly as its owner wrote it.
-        tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:
-          canonical: 'https://canopy.example/~joe/private'
-          access: []
+        - who:
+            profile: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa
+          allow: [admin]
+        - who: everyone
+          allow: [read]
+        - who: everyone
+          app: tr_supplies
+          allow: [create-child]
+          within: /inbox
         """
-        let changed = try AccountConfigurationYAML.replacingTrees(in: source) { trees in
-            trees["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access = [
-                AccountAccessRule(
-                    subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
-                    access: "write"
-                )
-            ]
+        let changed = try TreeConfigurationYAML.replacingAccess(in: source) { declaration in
+            declaration.access = [AccountAccessRule(subject: .profile(tree: "tr_cccccccccccccccccccccccccc"), access: "write")]
         }
-        let decoded = try AccountConfigurationYAML.trees(from: changed)
+        let rules = try TreeConfigurationYAML.access(from: changed)
+        #expect(rules.first == (try ProtocolResourceAccessRule(who: .profile("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"), allow: [.admin])))
+        #expect(rules.contains(try ProtocolResourceAccessRule(who: .profile("tr_cccccccccccccccccccccccccc"), allow: [.write])))
+        #expect(rules.contains { $0.app == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" })
+        #expect(!rules.contains(try ProtocolResourceAccessRule(who: .everyone, allow: [.read])))
+        #expect(try TreeConfigurationYAML.replacingAccess(in: source) { _ in } == source)
+        #expect(throws: (any Error).self) {
+            try TreeConfigurationYAML.replacingAccess(in: source) { declaration in
+                declaration.resourceAccess = []; declaration.access = []
+            }
+        }
 
-        #expect(decoded.count == 2)
-        #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access == [
-            AccountAccessRule(
-                subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
-                access: "write"
-            )
+        let mounts = "# Keep this note.\nnotes: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\nprivate: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+        let moved = try TreeConfigurationYAML.replacingMounts(in: mounts) { mounts in
+            mounts["private"] = nil
+            mounts["archive/private"] = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+        #expect(moved.hasPrefix("# Keep this note.\nnotes: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\n"))
+        #expect(try TreeConfigurationYAML.mounts(from: moved) == [
+            "notes": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "archive/private": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
         ])
-        #expect(decoded["tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"]?.canonical == "https://canopy.example/~joe/private")
-        #expect(changed.contains("""
-        # Keep the private tree exactly as its owner wrote it.
-        tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:
-          canonical: 'https://canopy.example/~joe/private'
-          access: []
-        """))
+        for invalid in ["/notes: tr_aaaa\n", "notes/: tr_aaaa\n", "a/../b: tr_aaaa\n", "a: tr_aaaa\nb: tr_aaaa\n", "a: notatree\n"] {
+            #expect(throws: (any Error).self) { try TreeConfigurationYAML.mounts(from: invalid) }
+        }
+    }
+
+    @Test("A person's first configuration has one administrator device and a readable profile")
+    func initialPersonConfiguration() throws {
+        let files = try TreeConfigurationYAML.initialPersonFiles(profileTree: "tr_joe", deviceID: "dv_mac", label: "Mac")
+        #expect(files.keys.sorted() == ["access.yaml", "apps.yaml", "devices.yaml", "mounts.yaml"])
+        let access = try TreeConfigurationYAML.access(from: files["access.yaml"]!)
+        #expect(access == [
+            try ProtocolResourceAccessRule(who: .profile("tr_joe"), allow: [.admin]),
+            try ProtocolResourceAccessRule(who: .everyone, allow: [.read]),
+        ])
+        #expect(try AccountConfigurationYAML.isAdministrator(deviceID: "dv_mac", devicesSource: files["devices.yaml"]!))
+        #expect(treeConfigurationID("tr_joe").hasPrefix("tr_"))
+        #expect(treeConfigurationID("tr_joe").count == 55)
     }
 
     @Test("Device administrator edits preserve other device source")
@@ -191,27 +206,27 @@ struct NativeAccountPairingTests {
         let checkout = AccountConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
         #expect(checkout.path.hasSuffix("/accounts/tr_config"))
         try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
-        let source = "# hosted trees\ntr_first:\n  canonical: /~joe/first\n  access: []\n"
-        try source.write(to: checkout.appending(path: "trees.yaml"), atomically: true, encoding: .utf8)
+        let source = "# mounted trees\nfirst: tr_first\n"
+        try source.write(to: checkout.appending(path: "mounts.yaml"), atomically: true, encoding: .utf8)
 
-        let written = try AccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { current in
-            try AccountConfigurationYAML.replacingTrees(in: current) { trees in
-                trees["tr_second"] = HostedTreeDeclaration(canonical: "/~joe/second", access: [])
+        let written = try AccountConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { current in
+            try TreeConfigurationYAML.replacingMounts(in: current) { mounts in
+                mounts["second"] = "tr_second"
             }
         } validate: { next in
-            _ = try AccountConfigurationYAML.trees(from: next)
+            _ = try TreeConfigurationYAML.mounts(from: next)
         }
-        #expect(written.hasPrefix("# hosted trees\ntr_first:"))
-        #expect(try String(contentsOf: checkout.appending(path: "trees.yaml"), encoding: .utf8) == written)
-        #expect(try AccountConfigurationYAML.trees(from: written).keys.sorted() == ["tr_first", "tr_second"])
+        #expect(written.hasPrefix("# mounted trees\nfirst: tr_first"))
+        #expect(try String(contentsOf: checkout.appending(path: "mounts.yaml"), encoding: .utf8) == written)
+        #expect(try TreeConfigurationYAML.mounts(from: written).keys.sorted() == ["first", "second"])
 
         struct Rejected: Error {}
         #expect(throws: Rejected.self) {
-            try AccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
+            try AccountConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
                 throw Rejected()
             }
         }
-        #expect(try String(contentsOf: checkout.appending(path: "trees.yaml"), encoding: .utf8) == written)
+        #expect(try String(contentsOf: checkout.appending(path: "mounts.yaml"), encoding: .utf8) == written)
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: checkout.path).filter { $0.hasSuffix(".tmp") }
         #expect(leftovers.isEmpty)
 
@@ -405,7 +420,7 @@ private actor PairingURLProtocolState {
                         "canonical": ["path": "/", "endpoint": "https://canopy.test/.well-known/arbor"],
                     ],
                     "configuration": [
-                        "id": "tr_configexact", "kind": "account-configuration", "access": "write", "root": one, "update": "up_config", "conflicted": false,
+                        "id": "tr_configexact", "kind": "tree-configuration", "access": "write", "root": one, "update": "up_config", "conflicted": false,
                     ],
                     "writableProfiles": [],
                     "device": ["id": id, "label": label],
@@ -466,57 +481,25 @@ private final class PairingURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-@Test("New resource policy sharing edits preserve scoped grants and non-hosting entries")
-func resourcePolicyEditing() throws {
+@Test("App consent reviews replace one exact key and reject stale or non-admin application")
+func appConsentReview() throws {
     let source = """
-    tr_notes:
-      canonical: https://example.test/~joe/notes
-
-      # A blank line inside a declaration must not truncate its replacement.
-      access:
-        - who: everyone
-          allow: [read]
-        - who: me
-          via: tr_supplies
-          allow: [create-child]
-          within: /inbox
-    # Preserve foreign grants exactly.
-    tr_foreign:
-      access:
-        - who: me
-          via: tr_supplies
-          allow: [read]
+    # Keep this note.
+    tr_supplies:
+      - resource: tr_notes
+        allow: [read]
+    tr_other:
+      - resource: tr_notes
+        allow: [read]
     """
-    let original = try AccountConfigurationYAML.trees(from: source)
-    #expect(original.count == 1)
-    #expect(original["tr_notes"]?.access == [AccountAccessRule(subject: .everyone, access: "read")])
-    let changed = try AccountConfigurationYAML.replacingTrees(in: source) { trees in
-        trees["tr_notes"]!.access = [AccountAccessRule(subject: .everyone, access: "write")]
-    }
-    let parsed = try AccountConfigurationYAML.trees(from: changed)
-    #expect(parsed["tr_notes"]?.resourceAccess.contains(where: { $0.via == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" }) == true)
-    #expect(parsed["tr_notes"]?.access.first?.access == "write")
-    #expect(changed.contains("# Preserve foreign grants exactly.\ntr_foreign:\n  access:\n    - who: me\n      via: tr_supplies\n      allow: [read]"))
-    #expect(!changed.contains("subject:"))
-    #expect(try AccountConfigurationYAML.replacingTrees(in: source) { _ in } == source)
-}
-
-@Test("Resource consent reviews replace one exact key, redact links, and reject stale or non-admin application")
-func resourceConsentReview() throws {
-    let source = """
-    tr_notes:
-      canonical: https://example.test/~joe/notes
-      access:
-        - who: me
-          via: tr_supplies
-          allow: [read]
-    tr_foreign:
-      access: []
-    """
-    let rule = try ProtocolResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read, .createChild], within: "/")
-    let review = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, source: source)
+    let rule = try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read, .createChild])
+    let review = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, source: source)
     #expect(review.previous?.allow == [.read])
-    #expect(review.rule.consentDescription.contains("Me via tr_supplies"))
+    #expect(review.configurationTree == treeConfigurationID("tr_joe"))
+    #expect(!review.lendsWrite)
+    #expect(review.rule.consentDescription(app: "tr_supplies").contains("Me through app tr_supplies"))
+    #expect(try TreeConfigurationYAML.apps(from: review.after)["tr_other"] == [try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read])])
+    #expect(review.after.contains("# Keep this note."))
     let devices = "dv_admin:\n  label: Mac\n  administrator: true\ndv_phone:\n  label: Phone\n"
     #expect(try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
     #expect(throws: (any Error).self) {
@@ -525,36 +508,51 @@ func resourceConsentReview() throws {
     #expect(throws: (any Error).self) {
         try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
     }
-    let removal = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, removing: true, source: review.after)
-    #expect(try AccountConfigurationYAML.trees(from: removal.after)["tr_notes"]?.resourceAccess == [])
-    let foreign = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_foreign", rule: rule, source: source)
-    #expect(!foreign.after.components(separatedBy: "tr_foreign:")[1].contains("canonical:"))
+    let removal = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, removing: true, source: review.after)
+    #expect(try TreeConfigurationYAML.apps(from: removal.after)["tr_supplies"] == nil)
+    // A person's apps.yaml never says `members`; a group's never says `me`.
+    #expect(throws: (any Error).self) {
+        try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+            rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), source: source)
+    }
+    let lent = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+        rule: ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.write]), source: source)
+    #expect(lent.lendsWrite)
+    #expect(lent.after.contains("who: everyone"))
+}
+
+@Test("A tree's own app rule is written to its access.yaml beside its administrators")
+func treeAppConsent() throws {
+    let source = "- who:\n    profile: tr_joe\n  allow: [admin]\n"
+    let rule = try ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.createChild], within: "/inbox")
+    let review = try AccountConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies", rule: rule, source: source)
+    #expect(review.target == .treeAccess(tree: "tr_notes"))
+    #expect(review.configurationTree == treeConfigurationID("tr_notes"))
+    let rules = try TreeConfigurationYAML.access(from: review.after)
+    #expect(rules.first?.isAdministrator == true)
+    #expect(rules.contains(try ProtocolResourceAccessRule(who: .everyone, app: "tr_supplies", allow: [.createChild], within: "/inbox")))
+    #expect(throws: (any Error).self) {
+        try AccountConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies",
+            rule: ProtocolAppAccessRule(resource: "tr_other", who: .everyone, allow: [.read]), source: source)
+    }
     let link = try ProtocolResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])
     #expect(!link.consentDescription.contains("sha256:"))
 }
 
-@Test("trees.yaml accepts resource rules only; the earlier subject/access rules are rejected")
-func legacyTreesRejected() throws {
-    let legacy = "tr_notes:\n  canonical: https://example.test/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n"
-    #expect(throws: (any Error).self) { try AccountConfigurationYAML.trees(from: legacy) }
-    #expect(throws: (any Error).self) { try AccountConfigurationYAML.replacingTrees(in: legacy) { _ in } }
-    let written = try AccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
-        trees["tr_notes"] = HostedTreeDeclaration(canonical: "https://example.test/~joe/notes",
-            access: [AccountAccessRule(subject: .everyone, access: "read")])
-    }
-    #expect(!written.contains("subject:"))
-    #expect(try AccountConfigurationYAML.trees(from: written)["tr_notes"]?.resourceAccess == [ProtocolResourceAccessRule(who: .everyone, allow: [.read])])
-}
-
-@Test("Policy editors reject duplicate YAML keys, aliases, unknown fields and equivalent rule keys")
-func ambiguousPolicySources() throws {
+@Test("access.yaml accepts resource rules only, with an administrator, and no ambiguous source")
+func ambiguousAccessSources() throws {
     for source in [
-        "tr_notes:\n  access: []\n  access: []\n",
-        "tr_notes: &rule\n  access: []\ntr_other: *rule\n",
-        "tr_notes:\n  access: []\n  unexpected: true\n",
-        "tr_notes:\n  access:\n    - who: me\n      allow: [read]\n    - who: me\n      within: /\n      allow: [write]\n"
+        "- who: everyone\n  allow: [read]\n",
+        "- subject:\n    kind: everyone\n  access: read\n",
+        "- who:\n    profile: tr_joe\n  allow: [admin]\n  allow: [read]\n",
+        "- &rule\n  who:\n    profile: tr_joe\n  allow: [admin]\n- *rule\n",
+        "- who:\n    profile: tr_joe\n  allow: [admin]\n  unexpected: true\n",
+        "- who:\n    profile: tr_joe\n  allow: [admin]\n- who: everyone\n  allow: [read]\n- who: everyone\n  within: /\n  allow: [write]\n",
+        "- who: me\n  allow: [read]\n- who:\n    profile: tr_joe\n  allow: [admin]\n",
+        "- who:\n    profile: tr_joe\n  app: tr_supplies\n  allow: [admin]\n",
+        "- who: everyone\n  via: tr_supplies\n  allow: [read]\n- who:\n    profile: tr_joe\n  allow: [admin]\n",
     ] {
-        #expect(throws: (any Error).self) { try AccountConfigurationYAML.trees(from: source) }
+        #expect(throws: (any Error).self) { try TreeConfigurationYAML.access(from: source) }
     }
 }
 
@@ -566,20 +564,6 @@ func sharingOverGranularPermission() throws {
     let complete = try declaration.completeResourceAccess()
     #expect(complete.count == 1)
     #expect(complete[0].allow == [.read, .createChild])
-}
-
-@Test("Resource editors handle the first and last declaration as one YAML mapping")
-func emptyPolicyEditing() throws {
-    let first = try AccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
-        trees["tr_notes"] = HostedTreeDeclaration(canonical: "https://example.test/~joe/notes", access: [])
-    }
-    #expect(try AccountConfigurationYAML.trees(from: first).count == 1)
-    let empty = try AccountConfigurationYAML.replacingTrees(in: first) { $0.removeAll() }
-    #expect(try AccountConfigurationYAML.trees(from: empty).isEmpty)
-    let review = try AccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes",
-        rule: ProtocolResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read]), source: "{}\n")
-    #expect(review.after.contains("tr_notes:"))
-    #expect(!review.after.contains("canonical:"))
 }
 
 @Test("Keychain saves replace an existing credential in place")

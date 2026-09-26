@@ -21,11 +21,25 @@ struct ResourcePolicyTests {
             let bytes = try JSONSerialization.data(withJSONObject: response)
             let projection = try JSONDecoder().decode(ProtocolTreeAccessSnapshot.self, from: bytes)
             #expect(projection.policy?.first?.who == .link)
-            #expect(projection.policy?.first?.via == "tr_supplies")
+            #expect(projection.policy?.first?.app == "tr_supplies")
         }
         for vector in fixture["invalid"] ?? [] {
             let bytes = try JSONSerialization.data(withJSONObject: vector["rule"]!)
             #expect(throws: (any Error).self) { try JSONDecoder().decode(ProtocolResourceAccessRule.self, from: bytes) }
+        }
+    }
+}
+
+@Suite("Tree configuration contract")
+struct TreeConfigurationTests {
+    @Test func derivedConfigurationTreeIDs() throws {
+        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
+        let data = try Data(contentsOf: root.appending(path: "tree-configuration.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let derivation = try #require(fixture["derivation"] as? [[String: String]])
+        for vector in derivation {
+            #expect(treeConfigurationID(vector["tree"]!) == vector["configuration"]!)
         }
     }
 }

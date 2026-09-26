@@ -40,7 +40,7 @@ enum CanopyTreeAccess: String, CaseIterable, Sendable {
 /// Tree kinds the app treats specially.
 enum CanopyTreeKind {
     static let ordinary = "ordinary"
-    static let accountConfiguration = "account-configuration"
+    static let treeConfiguration = "tree-configuration"
 }
 
 extension ProtocolTreeDescriptor {
@@ -515,72 +515,52 @@ final class CanopyWorkspaceState {
             configurationTree: placement.configurationTree
         ).setAccess(tree: tree, target: target, access: access.rawValue)
 #else
-        guard let overview = localArborSyncOverview,
-              let placedTree = overview.trees.first(where: { $0.id == tree }),
-              let configurationTree = placedTree.configurationTree else {
-            throw ProtocolValidationError.invalidValue("The current tree has no editable account configuration")
-        }
-        let subject: AccountAccessSubject = switch target {
-        case .everyone: .everyone
-        case .existing(let subject): subject
-        case .profile(let locator): .profile(tree: try await resolveLocalProfile(locator, overview: overview, configurationTree: configurationTree))
-        }
-        let account = overview.accounts.first { $0.configurationTree == configurationTree }
-        try AccountConfigurationYAML.validateAccessChange(
-            subject: subject,
-            access: access.rawValue,
-            currentProfileTree: account?.profileTree
-        )
-        try await editAccountConfigurationFile(configurationTree, named: "trees.yaml") { source in
-            try AccountConfigurationYAML.replacingTrees(in: source) { trees in
-                guard var declaration = trees[tree] else {
-                    throw ProtocolValidationError.invalidValue("The current tree is not declared by this account")
-                }
-                declaration.access.removeAll { $0.subject == subject }
-                if access != .noAccess {
-                    declaration.access.append(AccountAccessRule(subject: subject, access: access.rawValue))
-                }
-                trees[tree] = declaration
-            }
-        } validate: { next in
-            _ = try AccountConfigurationYAML.trees(from: next)
-        }
+        // A tree's rules live in its own configuration, which the host holds;
+        // any administrator's device edits it there.
+        let result = try await treeConfigurationClient(for: tree).setAccess(tree: tree, target: target, access: access.rawValue)
         await refreshLocalArborSyncOverview()
-        return try await loadLocalTreeAccess(tree: tree)
+        return result
 #endif
     }
 
-    func prepareResourceConsent(tree: String, rule: ProtocolResourceAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+    /// Review an app's access to `tree`: the tree's own rule through the app
+    /// where this person administers the tree, otherwise their `apps.yaml`.
+    func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
 #if os(iOS)
         guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else { throw ResourcePolicyError.invalid }
         return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree)
-            .prepareResourceConsent(tree: tree, rule: rule, removing: removing)
+            .prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
 #else
-        guard let placed = localArborSyncOverview?.trees.first(where: { $0.id == tree }),
-              let configuration = placed.configurationTree else { throw ResourcePolicyError.invalid }
-        return try AccountConfigurationYAML.prepareResourceConsent(configurationTree: configuration,
-            tree: tree, rule: rule, removing: removing,
-            source: readAccountConfigurationFile(configuration, named: "trees.yaml"))
+        return try await treeConfigurationClient(for: tree).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
 #endif
     }
 
-    func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation {
+    func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation? {
 #if os(iOS)
-        guard let placement = nativePlacements.first(where: { $0.tree.id == review.tree }),
-              placement.configurationTree == review.configurationTree else { throw ResourcePolicyError.invalid }
+        guard let placement = nativePlacements.first(where: { $0.tree.id == review.tree }) else { throw ResourcePolicyError.invalid }
         return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree)
             .applyResourceConsent(review)
 #else
-        guard let account = localArborSyncOverview?.accounts.first(where: { $0.configurationTree == review.configurationTree }) else { throw ResourcePolicyError.invalid }
-        let devices = try readAccountConfigurationFile(review.configurationTree, named: "devices.yaml")
-        try await editAccountConfigurationFile(review.configurationTree, named: "trees.yaml") { source in
-            try AccountConfigurationYAML.applyingResourceConsent(review, to: source,
-                deviceID: account.deviceID, devicesSource: devices)
-        }
+        let result = try await treeConfigurationClient(for: review.tree).applyResourceConsent(review)
         await refreshLocalArborSyncOverview()
-        return try await loadLocalTreeAccess(tree: review.tree)
+        return result
 #endif
     }
+
+#if os(macOS)
+    /// The protocol client, with the placing account's credential, that edits
+    /// tree configurations for a tree placed on this Mac.
+    private func treeConfigurationClient(for tree: String) async throws -> TreeConfigurationClient {
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        guard let overview = localArborSyncOverview,
+              let placedTree = overview.trees.first(where: { $0.id == tree }),
+              let origin = overview.accounts.first(where: { $0.configurationTree == placedTree.configurationTree })?.canopy,
+              let originURL = URL(string: origin) else {
+            throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
+        }
+        return TreeConfigurationClient(wire: try await accountClient(origin: originURL))
+    }
+#endif
 
 #if os(macOS)
     // MARK: Account configuration on disk
@@ -602,7 +582,7 @@ final class CanopyWorkspaceState {
         try AccountConfigurationYAML.readFile(named: filename, in: accountCheckout(configurationTree))
     }
 
-    /// Edit one account-configuration file on disk, then ask the daemon to push
+    /// Edit one file of the account checkout on disk, then ask the daemon to push
     /// the checkout now. Refused while the daemon reports the configuration
     /// tree in conflict: a disk edit would only pile onto the review.
     private func editAccountConfigurationFile(
@@ -831,42 +811,7 @@ final class CanopyWorkspaceState {
     }
 
     private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
-        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
-        guard let overview = localArborSyncOverview,
-              let placedTree = overview.trees.first(where: { $0.id == tree }),
-              let configurationTree = placedTree.configurationTree,
-              let account = overview.accounts.first(where: { $0.configurationTree == configurationTree }) else {
-            throw ProtocolValidationError.invalidValue("The current tree has no editable account configuration")
-        }
-        let treesSource = try readAccountConfigurationFile(configurationTree, named: "trees.yaml")
-        let devicesSource = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
-        let trees = try AccountConfigurationYAML.trees(from: treesSource)
-        guard let declaration = trees[tree] else {
-            throw ProtocolValidationError.invalidValue("The current tree is not declared by this account")
-        }
-        let profileLocators = Dictionary(uniqueKeysWithValues: overview.trees.compactMap { profile -> (String, String)? in
-            guard let path = profile.canonicalPath,
-                  let origin = overview.accounts.first(where: { $0.configurationTree == profile.configurationTree })?.canopy else {
-                return nil
-            }
-            return (profile.id, origin + path)
-        })
-        let entries = AccountConfigurationYAML.presentedAccessEntries(
-            rules: declaration.access,
-            profileLocators: profileLocators,
-            currentProfileTree: account.profileTree,
-            currentHandle: account.handle
-        )
-        return NativeTreeAccessPresentation(
-            tree: tree,
-            canonical: declaration.canonical,
-            entries: entries,
-            canEdit: try AccountConfigurationYAML.isAdministrator(
-                deviceID: account.deviceID,
-                devicesSource: devicesSource
-            ),
-            resourceRules: declaration.resourceAccess.filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
-        )
+        try await treeConfigurationClient(for: tree).access(tree: tree)
     }
 
     /// A person or group as a profile TreeID: a bare TreeID, a `~handle` on the
@@ -985,10 +930,6 @@ final class CanopyWorkspaceState {
             throw ProtocolValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
         }
         let tree = try generateArborID(prefix: "tr")
-        // The placement first: a declared tree without a placement is only an
-        // empty hosted tree, while a placement for an undeclared tree is an
-        // error the daemon reports. Both are written on disk; nothing is pushed
-        // until the daemon synchronizes.
         let placementsURL = CanopySupportDirectories.dataHome.appending(path: "placements.yaml")
         let placementsSource = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
         let placements = try LocalPlacementsYAML.adding(
@@ -997,36 +938,20 @@ final class CanopyWorkspaceState {
             tree: tree,
             to: placementsSource
         )
-        try AccountConfigurationYAML.editFile(
-            named: "trees.yaml",
-            in: accountCheckout(account.configurationTree)
-        ) { source in
-            try AccountConfigurationYAML.replacingTrees(in: source) { trees in
-                guard trees[tree] == nil else {
-                    throw ProtocolValidationError.invalidValue("The new TreeID is already declared")
-                }
-                trees[tree] = HostedTreeDeclaration(canonical: canonical, access: rules)
-            }
-        } validate: { next in
-            _ = try AccountConfigurationYAML.trees(from: next)
-        }
-        do {
-            try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
-        } catch {
-            do {
-                try AccountConfigurationYAML.editFile(
-                    named: "trees.yaml",
-                    in: accountCheckout(account.configurationTree)
-                ) { latest in
-                    try AccountConfigurationYAML.replacingTrees(in: latest) { $0[tree] = nil }
-                }
-            } catch let rollbackError {
-                throw ProtocolValidationError.invalidValue(
-                    "\(error.localizedDescription) Removing \(tree) from trees.yaml again also failed: \(rollbackError.localizedDescription)"
-                )
-            }
-            throw error
-        }
+        // Declare the tree with its configuration and mount it where its URL
+        // says; the daemon activates it with the folder's content once placed.
+        let wire = try await accountClient(origin: accountOrigin)
+        let segments = canonicalURL.path.split(separator: "/").map(String.init)
+        guard let last = segments.last else { throw ProtocolValidationError.invalidValue("The community root cannot be placed again") }
+        let parent = try await wire.resolve(path: "/" + segments.dropLast().joined(separator: "/"))
+        let within = parent.ref.path == "/" ? "" : String(parent.ref.path.dropFirst())
+        try await TreeConfigurationClient(wire: wire).declareAndMount(
+            tree: tree,
+            rules: try rules.map { try $0.resourceRule() },
+            parent: parent.ref.tree,
+            name: within.isEmpty ? last : "\(within)/\(last)"
+        )
+        try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
         do {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
         } catch {
@@ -1501,7 +1426,7 @@ final class CanopyWorkspaceState {
         async let treeListRequest = client.trees()
         async let accountsRequest = client.accounts()
         let (treeList, accounts) = try await (treeListRequest, accountsRequest)
-        let configurationTree = treeList.snapshot.first { $0.kind == CanopyTreeKind.accountConfiguration }?.id
+        let configurationTree = treeList.snapshot.first { $0.kind == CanopyTreeKind.treeConfiguration }?.id
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
                 id: $0.id,

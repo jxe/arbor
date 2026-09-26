@@ -51,10 +51,16 @@ public struct AccountAccessRule: Codable, Hashable, Sendable {
     }
 }
 
-/// The hosting view of one `trees.yaml` entry. `resourceAccess` is the entry's
-/// complete resource policy; `access` projects its unscoped read/write rules for
-/// the ordinary sharing UI, which edits only those. Other rules are never
-/// flattened, and the entry is always written back as resource rules.
+public extension AccountAccessRule {
+    /// This read/write grant as an `access.yaml` rule.
+    func resourceRule() throws -> ProtocolResourceAccessRule { try HostedTreeDeclaration.resourceRule(self) }
+}
+
+/// The sharing view of one tree's `access.yaml`. `resourceAccess` is the
+/// tree's complete rule list, administrators included; `access` projects its
+/// unscoped read/write rules for the ordinary sharing UI, which edits only
+/// those. Other rules (administrators, scoped and app rules) are never
+/// flattened, and the list is always written back as resource rules.
 public struct HostedTreeDeclaration: Hashable, Sendable {
     public var canonical: String
     private var ordinaryAccess: [AccountAccessRule]
@@ -70,7 +76,7 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
             if let index = retained.firstIndex(where: { $0.sameConsentKey(as: rule) }) {
                 let previous = retained[index]
                 let combined = ProtocolResourceOperation.allCases.filter { previous.allow.contains($0) || rule.allow.contains($0) }
-                retained[index] = try ProtocolResourceAccessRule(who: previous.who, via: previous.via,
+                retained[index] = try ProtocolResourceAccessRule(who: previous.who, app: previous.app,
                     allow: combined.contains(.write) ? [.write] : combined, within: previous.within)
             } else { retained.append(rule) }
         }
@@ -84,14 +90,14 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
         self.canonical = canonical; self.ordinaryAccess = resourceAccess.compactMap(Self.ordinaryRule); self.resourceAccess = resourceAccess
     }
     static func ordinaryRule(_ rule: ProtocolResourceAccessRule) -> AccountAccessRule? {
-        guard rule.via == nil, rule.within == nil || rule.within == "/",
+        guard rule.app == nil, rule.within == nil || rule.within == "/",
               rule.allow == [.read] || rule.allow == [.write] else { return nil }
         let subject: AccountAccessSubject
         switch rule.who {
         case .everyone: subject = .everyone
         case .profile(let tree): subject = .profile(tree: tree)
         case .link(let digest): subject = .link(digest: digest)
-        case .me: return nil
+        case .me, .members: return nil
         }
         return AccountAccessRule(subject: subject, access: rule.allow[0].rawValue)
     }
@@ -106,11 +112,6 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
         // Rules produced by the sharing controls have validated subjects/access.
         return try ProtocolResourceAccessRule(who: who, allow: [rule.access == "write" ? .write : .read])
     }
-}
-
-public struct ResourceDeclaration: Codable, Hashable, Sendable {
-    public var canonical: String?
-    public var access: [ProtocolResourceAccessRule]
 }
 
 public struct AccountDeviceDeclaration: Codable, Hashable, Sendable {
@@ -170,59 +171,126 @@ public enum NativeTreeAccessTarget: Hashable, Sendable {
     case existing(AccountAccessSubject)
 }
 
-public enum AccountConfigurationYAML {
-    /// Parse `trees.yaml`, which holds resource rules (`who` / `allow` /
-    /// `within` / `via`) only; the earlier `subject` / `access` rules are rejected.
-    private static func parseResources(_ source: String) throws -> [String: ResourceDeclaration] {
-        try validatePolicyYAML(source)
-        return try YAMLDecoder().decode([String: ResourceDeclaration].self, from: source)
-    }
-
-    /// The hosted entries of `trees.yaml`; policy-only entries have no canonical URL.
-    public static func trees(from source: String) throws -> [String: HostedTreeDeclaration] {
-        try parseResources(source).compactMapValues { value in
-            value.canonical.map { HostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+/// The files of a tree configuration (`tree-config-v1`): `access.yaml` for
+/// every tree, `mounts.yaml` for every tree, `apps.yaml` for a profile and
+/// `devices.yaml` for a person. A person's own configuration is their account
+/// checkout; every other configuration is edited through the host.
+public enum TreeConfigurationYAML {
+    /// `access.yaml`: resource rules (`who` / `app` / `allow` / `within`),
+    /// at least one of which grants `admin`.
+    public static func access(from source: String) throws -> [ProtocolResourceAccessRule] {
+        try validateAccessYAML(source)
+        let rules = try YAMLDecoder().decode([ProtocolResourceAccessRule].self, from: source)
+        guard rules.contains(where: \.isAdministrator) else {
+            throw ProtocolValidationError.invalidValue("access.yaml must grant admin to at least one profile")
         }
+        return rules
     }
 
-    public static func replacingTrees(
+    /// The sharing view of `access.yaml` for a tree at `canonical`.
+    public static func declaration(canonical: String, source: String) throws -> HostedTreeDeclaration {
+        HostedTreeDeclaration(canonical: canonical, resourceAccess: try access(from: source))
+    }
+
+    /// Rewrite `access.yaml` after `change` edits its sharing view. Administrators
+    /// and every rule the sharing controls do not show are kept exactly.
+    public static func replacingAccess(
         in source: String,
-        with change: (inout [String: HostedTreeDeclaration]) throws -> Void
+        canonical: String = "",
+        with change: (inout HostedTreeDeclaration) throws -> Void
     ) throws -> String {
-        var resources = try parseResources(source)
-        let original = resources.compactMapValues { value in
-            value.canonical.map { HostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+        var declaration = try declaration(canonical: canonical, source: source)
+        let original = declaration
+        try change(&declaration)
+        if declaration == original { return source }
+        let rules = try declaration.completeResourceAccess()
+        let next = try encodeAccess(rules)
+        _ = try access(from: next)
+        return next
+    }
+
+    /// `access.yaml` in canonical form: administrators first.
+    public static func encodeAccess(_ rules: [ProtocolResourceAccessRule]) throws -> String {
+        let ordered = rules.filter(\.isAdministrator) + rules.filter { !$0.isAdministrator }
+        return try YAMLEncoder().encode(ordered)
+    }
+
+    /// `mounts.yaml`: child trees by logical path below this tree.
+    public static func mounts(from source: String) throws -> [String: String] {
+        let value = try YAMLDecoder().decode([String: String]?.self, from: source) ?? [:]
+        for (path, tree) in value {
+            guard tree.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil,
+                  !path.isEmpty, !path.hasPrefix("/"), !path.hasSuffix("/"),
+                  !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+                throw ProtocolValidationError.invalidValue("Invalid mount \(path)")
+            }
         }
+        guard Set(value.values).count == value.count else { throw ProtocolValidationError.invalidValue("mounts.yaml mounts a tree twice") }
+        return value
+    }
+
+    /// Rewrite `mounts.yaml`, replacing only the entries `change` touches.
+    public static func replacingMounts(in source: String, with change: (inout [String: String]) throws -> Void) throws -> String {
+        let original = try mounts(from: source)
         var changed = original
         try change(&changed)
-        let wasEmpty = resources.isEmpty
         let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
-        for key in keys {
-            if let tree = changed[key] {
-                resources[key] = ResourceDeclaration(canonical: tree.canonical,
-                    access: try tree.completeResourceAccess())
-            } else { resources[key] = nil }
-        }
         if keys.isEmpty { return source }
-        // Adding the first entry/removing the last requires changing the
-        // empty mapping representation itself, not appending another root.
-        if wasEmpty || resources.isEmpty { return try YAMLEncoder().encode(resources) }
+        if original.isEmpty || changed.isEmpty { return changed.isEmpty ? "{}\n" : try YAMLEncoder().encode(changed) }
         var result = source
         for key in keys.sorted() {
-            let replacement = try resources[key].map { try YAMLEncoder().encode([key: $0]) } ?? ""
+            let replacement = try changed[key].map { try YAMLEncoder().encode([key: $0]) } ?? ""
             if let range = topLevelYAMLBlock(named: key, in: result) {
                 result = result.replacingCharacters(in: range, with: replacement)
             } else {
-                guard original[key] == nil else {
-                    throw ProtocolValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
-                }
                 result += (result.hasSuffix("\n") || result.isEmpty ? "" : "\n") + replacement
             }
         }
-        _ = try parseResources(result)
+        _ = try mounts(from: result)
         return result
     }
 
+    /// `apps.yaml`: the rules each app may use, keyed by app TreeID.
+    public static func apps(from source: String) throws -> [String: [ProtocolAppAccessRule]] {
+        try YAMLDecoder().decode([String: [ProtocolAppAccessRule]]?.self, from: source) ?? [:]
+    }
+
+    /// Rewrite `apps.yaml` after `change`, replacing only the apps it touches.
+    public static func replacingApps(in source: String, with change: (inout [String: [ProtocolAppAccessRule]]) throws -> Void) throws -> String {
+        let original = try apps(from: source)
+        var changed = original
+        try change(&changed)
+        changed = changed.filter { !$0.value.isEmpty }
+        let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
+        if keys.isEmpty { return source }
+        if original.isEmpty || changed.isEmpty { return changed.isEmpty ? "{}\n" : try YAMLEncoder().encode(changed) }
+        var result = source
+        for key in keys.sorted() {
+            let replacement = try changed[key].map { try YAMLEncoder().encode([key: $0]) } ?? ""
+            if let range = topLevelYAMLBlock(named: key, in: result) {
+                result = result.replacingCharacters(in: range, with: replacement)
+            } else {
+                result += (result.hasSuffix("\n") || result.isEmpty ? "" : "\n") + replacement
+            }
+        }
+        _ = try apps(from: result)
+        return result
+    }
+
+    /// The first files of a person's configuration, which a claim submits and
+    /// installs as the account checkout: the person administers it from one
+    /// administrator device, and everyone may read the profile.
+    public static func initialPersonFiles(profileTree: String, deviceID: String, label: String) throws -> [String: String] {
+        let access = try encodeAccess([
+            ProtocolResourceAccessRule(who: .profile(profileTree), allow: [.admin]),
+            ProtocolResourceAccessRule(who: .everyone, allow: [.read]),
+        ])
+        let devices = try YAMLEncoder().encode([deviceID: AccountDeviceDeclaration(label: label, administrator: true)])
+        return ["access.yaml": access, "apps.yaml": "{}\n", "devices.yaml": devices, "mounts.yaml": "{}\n"]
+    }
+}
+
+public enum AccountConfigurationYAML {
     public static func devices(from source: String) throws -> [String: AccountDeviceDeclaration] {
         try YAMLDecoder().decode([String: AccountDeviceDeclaration].self, from: source)
     }
@@ -372,7 +440,7 @@ public enum AccountConfigurationFileError: Error, LocalizedError, Sendable, Equa
 }
 
 public extension AccountConfigurationYAML {
-    /// The on-disk checkout of one account-configuration tree beneath a data
+    /// The on-disk checkout of a person's tree configuration beneath a data
     /// home: `<dataHome>/accounts/<configurationTree>/`.
     static func checkoutURL(dataHome: URL, configurationTree: String) -> URL {
         dataHome
@@ -380,7 +448,7 @@ public extension AccountConfigurationYAML {
             .appending(path: configurationTree, directoryHint: .isDirectory)
     }
 
-    /// Read one file of an account-configuration checkout as strict UTF-8.
+    /// Read one file of an account checkout as strict UTF-8.
     static func readFile(named filename: String, in checkout: URL) throws -> String {
         let url = checkout.appending(path: filename)
         let data = try Data(contentsOf: url)
@@ -390,14 +458,14 @@ public extension AccountConfigurationYAML {
         return source
     }
 
-    /// Edit one file of an account-configuration checkout on disk.
+    /// Edit one file of an account checkout on disk.
     ///
-    /// Swift twin of `editAccountConfigurationFile` in `@arbor/stores`
-    /// (`packages/stores/src/account-config-v2.ts`); the contract is shared:
+    /// Swift twin of `editAccountConfigurationFile` in `@overstory/protocol`
+    /// (`packages/protocol/src/config/account-config.ts`); the contract is shared:
     /// - The file lives at `checkoutURL(dataHome:configurationTree:)/<filename>`
     ///   and is read as strict UTF-8.
-    /// - `change` rewrites only what it touches (`replacingTrees` and
-    ///   `replacingDevices` replace one top-level block and leave comments,
+    /// - `change` rewrites only what it touches (`replacingMounts`, `replacingApps`
+    ///   and `replacingDevices` replace one top-level block and leave comments,
     ///   ordering, and unrelated formatting alone).
     /// - `validate` runs against the new source before anything is written;
     ///   when it throws, the file on disk is untouched.

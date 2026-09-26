@@ -47,6 +47,32 @@ public struct NativeHostAccount: Codable, Equatable, Sendable, Identifiable {
     public var id: String { configurationTree }
 }
 
+/// Rekey accounts saved before canopyd 005 under a random configuration TreeID
+/// to their profile configuration's derived TreeID. The device credential is
+/// unchanged; only the key it is stored under moves. Returns old → new keys.
+@discardableResult
+public func rekeyStoredAccounts(in store: any AccountCredentialStore) async throws -> [String: String] {
+    var moved: [String: String] = [:]
+    for account in try await store.accounts() {
+        guard let profileTree = account.profileTree else { continue }
+        let derived = treeConfigurationID(profileTree)
+        guard account.configurationTree != derived else { continue }
+        guard let credential = try await store.load(configurationTree: account.configurationTree) else { continue }
+        try await store.save(credential, configurationTree: derived)
+        guard try await store.load(configurationTree: derived) == credential else {
+            throw ProtocolValidationError.invalidValue("Account credential could not be verified after rekeying")
+        }
+        var rekeyed = account
+        rekeyed.configurationTree = derived
+        rekeyed.accountID = profileTree
+        try await store.saveAccount(rekeyed)
+        try await store.forgetAccount(configurationTree: account.configurationTree)
+        try await store.forget(configurationTree: account.configurationTree)
+        moved[account.configurationTree] = derived
+    }
+    return moved
+}
+
 public protocol AccountCredentialStore: Sendable {
     func load(configurationTree: String) async throws -> String?
     func save(_ credential: String, configurationTree: String) async throws
@@ -570,7 +596,8 @@ public actor NativeAccountService {
                 try await credentials.savePendingAccount(pending)
             }
         } else {
-            let configurationTree = try generatedID(prefix: "tr")
+            // One host per profile: the account's configuration is the profile's, at its derived TreeID.
+            let configurationTree = treeConfigurationID(identity.profileTree)
             let deviceID = try generatedID(prefix: "dv")
             let credential = try randomSecret()
             let credentialDigest = ProtocolObjectCodec.hash(Data(credential.utf8))
@@ -662,109 +689,19 @@ public actor NativeAccountService {
     public func directory() async throws -> ProtocolSnapshotEnvelope<[ProtocolProfileDirectoryEntry]> { try await client().directory() }
     public func object(tree: String, hash: String) async throws -> Data { try await client().object(tree: tree, hash: hash) }
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
-        let wire = try await client()
-        let account = try await wire.account().account
-        let configuration = try account.configuration.validated()
-        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
-        let treesSource = try utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml")
-        let devicesSource = try utf8(snapshot.rootFile(named: "devices.yaml"), name: "devices.yaml")
-        let trees = try AccountConfigurationYAML.trees(from: treesSource)
-        guard let declaration = trees[tree] else {
-            throw ProtocolValidationError.invalidValue("The current tree is not declared by this account")
-        }
-        let safe = try await wire.access(tree: tree).snapshot
-        let locators = Dictionary(uniqueKeysWithValues: safe.compactMap { entry -> (String, String)? in
-            guard case let .profile(profileTree, locator?) = entry.subject else { return nil }
-            return (profileTree, locator)
-        })
-        var profileLocators = locators
-        if let profileTree = account.profileTree, let profileURL = account.profileURL {
-            profileLocators[profileTree] = profileURL
-        }
-        return NativeTreeAccessPresentation(
-            tree: tree,
-            canonical: declaration.canonical,
-            entries: AccountConfigurationYAML.presentedAccessEntries(
-                rules: declaration.access,
-                profileLocators: profileLocators,
-                currentProfileTree: account.profileTree,
-                currentHandle: account.handle
-            ),
-            canEdit: try AccountConfigurationYAML.isAdministrator(
-                deviceID: account.device?.id,
-                devicesSource: devicesSource
-            ),
-            resourceRules: declaration.resourceAccess.filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
-        )
+        try await TreeConfigurationClient(wire: client()).access(tree: tree)
     }
 
-    public func prepareResourceConsent(tree: String, rule: ProtocolResourceAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
-        let wire = try await client()
-        let account = try await wire.account().account
-        let configuration = try account.configuration.validated()
-        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
-        return try AccountConfigurationYAML.prepareResourceConsent(configurationTree: configuration.id,
-            tree: tree, rule: rule, removing: removing,
-            source: utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml"))
+    public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+        try await TreeConfigurationClient(wire: client()).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
     }
 
-    public func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation {
-        let wire = try await client()
-        let account = try await wire.account().account
-        let configuration = try account.configuration.validated()
-        guard configuration.id == review.configurationTree else { throw ResourcePolicyError.invalid }
-        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
-        let after = try AccountConfigurationYAML.applyingResourceConsent(review,
-            to: utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml"),
-            deviceID: account.device?.id,
-            devicesSource: utf8(snapshot.rootFile(named: "devices.yaml"), name: "devices.yaml"))
-        let candidate = try snapshot.replacingRootFile(named: "trees.yaml", with: Data(after.utf8))
-        let prepared = try await wire.prepareUpdate(tree: configuration.id,
-            base: ProtocolUpdateBase(root: configuration.root, update: configuration.update), snapshot: candidate,
-            ifCurrent: configuration.update)
-        _ = try await wire.submitUpdate(prepared)
-        return try await access(tree: review.tree)
+    public func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation? {
+        try await TreeConfigurationClient(wire: client()).applyResourceConsent(review)
     }
 
-    public func setAccess(
-        tree: String,
-        target: NativeTreeAccessTarget,
-        access: String
-    ) async throws -> NativeTreeAccessPresentation {
-        let wire = try await client()
-        let account = try await wire.account().account
-        let configuration = try account.configuration.validated()
-        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
-        let source = try utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml")
-        let subject: AccountAccessSubject = switch target {
-        case .everyone: .everyone
-        case .profile(let locator): .profile(tree: try await resolveProfile(locator, using: wire))
-        case .existing(let subject): subject
-        }
-        try AccountConfigurationYAML.validateAccessChange(
-            subject: subject,
-            access: access,
-            currentProfileTree: account.profileTree
-        )
-        let nextSource = try AccountConfigurationYAML.replacingTrees(in: source) { trees in
-            guard var declaration = trees[tree] else {
-                throw ProtocolValidationError.invalidValue("The current tree is not declared by this account")
-            }
-            declaration.access.removeAll { $0.subject == subject }
-            if access != "none" {
-                declaration.access.append(AccountAccessRule(subject: subject, access: access))
-            }
-            trees[tree] = declaration
-        }
-        let candidate = try snapshot.replacingRootFile(named: "trees.yaml", with: Data(nextSource.utf8))
-        let prepared = try await wire.prepareUpdate(
-            tree: configuration.id,
-            base: ProtocolUpdateBase(root: configuration.root, update: configuration.update),
-            snapshot: candidate,
-            ifCurrent: configuration.update
-        )
-        _ = try await wire.submitUpdate(prepared)
-        return try await self.access(tree: tree)
+    public func setAccess(tree: String, target: NativeTreeAccessTarget, access: String) async throws -> NativeTreeAccessPresentation {
+        try await TreeConfigurationClient(wire: client()).setAccess(tree: tree, target: target, access: access)
     }
 
     public func configurationID() -> String? { configurationTree }
@@ -837,20 +774,13 @@ public actor NativeAccountService {
         deviceID: String,
         label: String
     ) throws -> ProtocolSnapshot {
-        let quote: (String) throws -> String = { value in
-            String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
-        }
-        let sources = [
-            "account.yaml": "canopy: \(try quote(origin.absoluteString))\nprofile: \(try quote(profileTree))\n",
-            "devices.yaml": "\(try quote(deviceID)):\n  label: \(try quote(label))\n  administrator: true\n",
-            "trees.yaml": "{}\n",
-        ]
+        let sources = try TreeConfigurationYAML.initialPersonFiles(profileTree: profileTree, deviceID: deviceID, label: label)
         let files = try sources.mapValues { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
         let entries = files.keys.sorted().map { ProtocolDirectoryEntry(name: $0, file: files[$0]!.hash) }
         let root = try ProtocolObjectCodec.object(.directory(entries))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: (Array(files.values) + [root]).sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(snapshot)
-        _ = configurationTree // Bound by the challenge and outer tree identity, not repeated in YAML.
+        _ = configurationTree // The profile's derived configuration TreeID; bound by the challenge, not repeated in YAML.
         return snapshot
     }
 
