@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -17,7 +17,9 @@ interface PendingAccountClaimBootstrap {
   profileTree: string;
   configurationTree: string;
   deviceID: string;
-  credentialDigest: `sha256:${string}`;
+  /** The device's key; a claim prepared before keys carries a credential digest instead. */
+  key?: string;
+  credentialDigest?: `sha256:${string}`;
   /** The profile configuration's files, installed as the account checkout, and `placements.yaml`. */
   files: Record<string, string>;
   configuration: TreeSnapshotJSON;
@@ -101,7 +103,8 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "A different invitation code is already pending for this account", 409);
     }
     if (inviteCode && !pending.inviteCode) pending.inviteCode = inviteCode;
-    if (!credential || `sha256:${sha256(credential)}` !== pending.credentialDigest) {
+    const matches = credential && (pending.key ? deviceKeyFromSeed(credential) === pending.key : `sha256:${sha256(credential)}` === pending.credentialDigest);
+    if (!matches) {
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
   } else {
@@ -139,10 +142,12 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "This profile already has an account in this data home; a profile has one home host", 409);
     }
     const deviceID = generateArborID("dv");
-    credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    // The device's key seed waits in the credential slot until the claim lands.
+    credential = generateDeviceKeySeed();
+    const key = deviceKeyFromSeed(credential);
     const label = hostname() || "Initial device";
     // The profile is the person's public card: readable by everyone, administered by the person alone.
-    const initial = initialPersonConfig(profileTree, { id: deviceID, label });
+    const initial = initialPersonConfig(profileTree, { id: deviceID, label, key });
     const configuration = treeConfigSources({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
     const files: Record<string, string> = { ...configuration, placements: "{}\n" };
     const staging = join(arborPrivateRoot(), `bootstrap-account-config-${crypto.randomUUID()}`);
@@ -159,7 +164,7 @@ async function claimAccountProfileBootstrap(
         profileTree,
         configurationTree,
         deviceID,
-        credentialDigest: `sha256:${sha256(credential)}`,
+        key,
         ...(inviteCode ? { inviteCode } : {}),
         files,
         configuration: persistableBootstrapSnapshot(await resolveSnapshot(await snapshotDirectory(staging))),
@@ -207,7 +212,9 @@ async function claimAccountProfileBootstrap(
       challenge: pending.challenge!,
       publicKey: pending.publicKey!,
       signature: pending.signature!,
-      device: { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest },
+      device: pending.key
+        ? { id: pending.deviceID, label: pending.label, key: pending.key }
+        : { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest! },
       configuration: bootstrapSnapshot(pending.configuration),
     });
   };
@@ -253,7 +260,8 @@ async function claimAccountProfileBootstrap(
   }
   await saveCurrentAccountDeviceID(pending.configurationTree, pending.deviceID);
 
-  await new HostAccountStore(pending.configurationTree).set(credential, {
+  const store = new HostAccountStore(pending.configurationTree);
+  const connection = {
     origin,
     account: pending.account,
     accountID: result.account.id,
@@ -262,13 +270,18 @@ async function claimAccountProfileBootstrap(
     deviceID: pending.deviceID,
     configurationRef: result.account.configuration.root,
     configurationUpdate: result.account.configuration.update,
-  });
+  };
+  if (pending.key) {
+    await store.setDeviceKey(credential, connection);
+    await store.clearProvisionalCredential();
+  } else await store.set(credential, connection);
   await rm(pendingPath, { force: true });
   // The claim declared the profile tree; its first snapshot activates it at
   // the community's /~handle. A later retry can do the same.
-  const hosted = new ProtocolClient(origin, credential);
-  await hosted.submitUpdate(pending.profileTree, null, await resolveSnapshot(await snapshotDirectory(path)))
-    .catch((error: unknown) => console.warn(`The profile ${pending.profileTree} was claimed but not yet activated: ${error instanceof Error ? error.message : String(error)}`));
+  await (async () => {
+    const hosted = new ProtocolClient(origin, (await store.get())!.accountToken);
+    await hosted.submitUpdate(pending.profileTree, null, await resolveSnapshot(await snapshotDirectory(path)));
+  })().catch((error: unknown) => console.warn(`The profile ${pending.profileTree} was claimed but not yet activated: ${error instanceof Error ? error.message : String(error)}`));
   await deps.trees.refreshConfiguration();
   return [
     { kind: "created", ref: { tree: result.configuration.id, path: "/access.yaml", stableKey: null } },

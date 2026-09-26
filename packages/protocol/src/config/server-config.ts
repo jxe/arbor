@@ -40,6 +40,7 @@ export interface HostAccountRecord {
 const SESSION_MARGIN_MS = 5 * 60_000;
 /** How often a digest device with a prepared key asks whether the host lists it yet. */
 const ADOPTION_RETRY_MS = 60_000;
+/** Keyed by the account's private directory: one data home, one account. */
 const sessions = new Map<string, { token: string; expiresAt: number }>();
 const adoptionAttempts = new Map<string, number>();
 
@@ -90,6 +91,12 @@ export class HostAccountStore {
     } else {
       await Bun.secrets.set({ ...this.credentialLocation(), value });
     }
+  }
+
+  /** Empty the pre-network slot once a claim has installed the device's key instead. */
+  async clearProvisionalCredential(): Promise<void> {
+    if (this.usesFileCredentials) await rm(this.credentialPath, { force: true });
+    else await Bun.secrets.delete(this.credentialLocation()).catch(() => {});
   }
 
   async provisionalCredential(): Promise<string | null> {
@@ -216,14 +223,14 @@ export class HostAccountStore {
    * once whether the host lists it.
    */
   async forgetSession(): Promise<void> {
-    sessions.delete(this.configurationTree);
-    adoptionAttempts.delete(this.configurationTree);
+    sessions.delete(this.directory);
+    adoptionAttempts.delete(this.directory);
     await rm(this.sessionPath, { force: true });
   }
 
   private async session(record: HostAccountRecord, seed: string): Promise<string> {
     const usable = (value?: { token: string; expiresAt: number }) => value && value.expiresAt - SESSION_MARGIN_MS > Date.now() ? value : undefined;
-    let cached = usable(sessions.get(this.configurationTree));
+    let cached = usable(sessions.get(this.directory));
     if (!cached) {
       try {
         const saved = JSON.parse(await readFile(this.sessionPath, "utf8")) as { device?: string; token?: string; expiresAt?: number };
@@ -231,12 +238,12 @@ export class HostAccountStore {
       } catch {}
     }
     if (cached) {
-      sessions.set(this.configurationTree, cached);
+      sessions.set(this.directory, cached);
       return cached.token;
     }
     const opened = await openDeviceSession(record.origin, record.profileTree, record.deviceID, seed);
     const value = { token: opened.token, expiresAt: opened.expiresAt };
-    sessions.set(this.configurationTree, value);
+    sessions.set(this.directory, value);
     const temporary = `${this.sessionPath}.${crypto.randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify({ device: record.deviceID, ...value }), { mode: 0o600 });
     await rename(temporary, this.sessionPath);
@@ -244,11 +251,11 @@ export class HostAccountStore {
   }
 
   private async adoptIfListed(record: HostAccountRecord): Promise<boolean> {
-    const last = adoptionAttempts.get(this.configurationTree) ?? 0;
+    const last = adoptionAttempts.get(this.directory) ?? 0;
     if (Date.now() - last < ADOPTION_RETRY_MS) return false;
     const seed = await this.readKeySeed();
     if (!seed) return false;
-    adoptionAttempts.set(this.configurationTree, Date.now());
+    adoptionAttempts.set(this.directory, Date.now());
     try {
       await this.session({ ...record, deviceKey: deviceKeyFromSeed(seed) }, seed);
     } catch (error) {

@@ -253,6 +253,7 @@ this device's own `devices.yaml` entry (changing nothing else in the file) and
 from then on opens hour-long sessions with it; the host stops accepting the
 old credential in the same update. The DeviceID stays the same, and a device
 moves once. `--account` is needed only when several accounts are connected.
+A device that claims an account or pairs with this version already has a key.
 
 ### `arbor daemon`
 

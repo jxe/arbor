@@ -308,6 +308,11 @@ describe("client-generated profile and account bootstrap", () => {
         .toBe("{}\n");
       await expect(readFile(join(home, "account.yaml"), "utf8")).rejects.toThrow();
 
+      // The claiming device signs in with a key, which devices.yaml lists.
+      const claimed = (await new HostAccountStore(configurationTree).safe())!;
+      expect(claimed.deviceKey).toMatch(/^ed25519:/);
+      expect(await readFile(join(home, "accounts", configurationTree, "devices.yaml"), "utf8")).toContain(`key: ${claimed.deviceKey}`);
+
       // A recovered profile still needs a new authorized device on a claimed account.
       const originalCredential = await bootstrap.credentialToken(configurationTree);
       const offer = await new ProtocolClient(running.url, originalCredential).createPairing();
@@ -335,6 +340,10 @@ describe("client-generated profile and account bootstrap", () => {
         expect(await paired.accountList()).toMatchObject([{ configurationTree, profileTree: localProfileTree, credentialAvailable: true }]);
         const token = await paired.credentialToken(configurationTree);
         expect(token).not.toBe(originalCredential);
+        // Pairing gives the new device its own key, not a credential.
+        const pairedRecord = (await new HostAccountStore(configurationTree).safe())!;
+        expect(pairedRecord.deviceKey).toMatch(/^ed25519:/);
+        expect(pairedRecord.deviceKey).not.toBe(claimed.deviceKey);
         const pairedAccount = await new ProtocolClient(running.url, token).account();
         expect(pairedAccount.account.configuration.id).toBe(configurationTree);
         expect(pairedAccount.account.profileTree).toBe(localProfileTree);

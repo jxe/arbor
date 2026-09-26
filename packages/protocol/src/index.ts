@@ -47,4 +47,5 @@ export * from "./config/private-state.ts";
 export * from "./config/tree-config.ts";
 export * from "./config/account-config.ts";
 export * from "./config/server-config.ts";
+export * from "./config/device-key.ts";
 export * from "./config/placement.ts";
