@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { accountChallengeBytes, isPersonProfileTreeID, personProfileTreeID } from "@overstory/protocol";
+import { accountChallengeBytes, isPersonProfileTreeID, personProfileTreeID, treeConfigurationID } from "@overstory/protocol";
 
 const ZERO_KEY_PROFILE = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq";
 
@@ -18,7 +18,7 @@ describe("person profile identity", () => {
       origin: "https://arb.example",
       account: "https://arb.example/~joe",
       profileTree: ZERO_KEY_PROFILE,
-      configurationTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      configurationTree: treeConfigurationID(ZERO_KEY_PROFILE),
       nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       issuedAt: 1,
       expiresAt: 2,

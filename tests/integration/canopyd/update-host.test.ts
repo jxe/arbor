@@ -271,7 +271,7 @@ describe("governed tree-configuration Canopy server", () => {
     expect(body.error).toBe("invalid-request");
   });
 
-  test("does not advertise a retained noncanonical ordinary root as a remote tree", async () => {
+  test("advertises a tree mounted nowhere only to its administrators, with no canonical data", async () => {
     const before = await client.account();
     const profileTree = before.account.profileTree!;
     const db = new Database(join(dataRoot, "canopy.sqlite3"));
@@ -285,7 +285,8 @@ describe("governed tree-configuration Canopy server", () => {
       const account = await client.account();
       expect(account.account.profileURL).toBeNull();
       expect(account.account.writableProfiles.some((tree) => tree.id === profileTree)).toBe(false);
-      expect((await client.list()).snapshot.some((tree) => tree.id === profileTree)).toBe(false);
+      expect((await client.list()).snapshot.find((tree) => tree.id === profileTree)?.canonical).toBeNull();
+      expect((await new ProtocolClient(running.url).list()).snapshot.some((tree) => tree.id === profileTree)).toBe(false);
     } finally {
       db.run("INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)", [
         boundary.path,

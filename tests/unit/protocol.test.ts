@@ -194,7 +194,7 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("publishes configuration and wire conformance vectors separately from reference merge cases", async () => {
-    const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("configuration-yaml.json");
+    const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; merges: Array<{ name: string }> }>("tree-configuration.json");
     const endpoints = await conformanceJSON<{
       tree: RemoteTreeDescriptor;
       cases: Array<{
@@ -211,15 +211,15 @@ describe("REST v1 protocol fixtures", () => {
       structuralCases: Array<{ name: string }>;
     };
     const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("protocol-update-intent.json");
-    expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
-      "flat-account-graph",
-      "same-profile-second-canopy",
-      "same-origin-distinct-account",
-      "duplicate-key",
-      "handle-in-portable-account",
-      "invalid-account-retains-last-valid-account",
-      "invalid-placements-retains-last-valid-local-projection",
-      "unplacing-preserves",
+    expect([...registry.valid, ...registry.invalid, ...registry.merges].map((item) => item.name)).toEqual(expect.arrayContaining([
+      "person-profile",
+      "shared-tree",
+      "group-profile",
+      "no-administrator",
+      "person-co-administrator",
+      "trees-yaml",
+      "concurrent-rule-edits-intersect",
+      "removing-both-administrators-concurrently",
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",

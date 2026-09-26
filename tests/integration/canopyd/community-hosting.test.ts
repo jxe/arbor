@@ -242,7 +242,7 @@ describe("client-generated profile and account bootstrap", () => {
     expect(running.canopy.get(configurationTree)).toBeNull();
   });
 
-  test("a fresh opted-in data home writes only the plural v2 layout", async () => {
+  test("a fresh data home installs the profile's configuration as its account checkout", async () => {
     const previous = process.env.ARBOR_DATA_HOME;
     const home = join(sandbox, "v2-bootstrap-home");
     const profilePath = join(sandbox, "charlie-profile");
@@ -295,13 +295,15 @@ describe("client-generated profile and account bootstrap", () => {
       expect(accounts).toHaveLength(1);
       const configurationTree = accounts[0]!.configurationTree;
       configurationTrees.push(configurationTree);
-      expect(accounts[0]).toMatchObject({ handle: "charlie", credentialAvailable: true });
-      expect(await readFile(join(home, "accounts", configurationTree, "account.yaml"), "utf8"))
-        .toContain(`profile: ${JSON.stringify(localProfileTree)}`);
-      expect(await readFile(join(home, "accounts", configurationTree, "account.yaml"), "utf8"))
-        .not.toContain("handle:");
+      expect(accounts[0]).toMatchObject({ handle: "charlie", credentialAvailable: true, profileTree: localProfileTree });
+      expect(configurationTree).toBe(treeConfigurationID(localProfileTree));
+      expect(await readFile(join(home, "accounts", configurationTree, "access.yaml"), "utf8"))
+        .toContain(localProfileTree);
       expect(await readFile(join(home, "accounts", configurationTree, "devices.yaml"), "utf8"))
         .not.toContain("placements");
+      await expect(readFile(join(home, "accounts", configurationTree, "account.yaml"), "utf8")).rejects.toThrow();
+      // The claim activated the profile from the local folder, at the community's /~charlie.
+      expect(running.canopy.boundary("/~charlie")?.id).toBe(localProfileTree);
       expect(await readFile(join(home, "placements.yaml"), "utf8"))
         .toBe("{}\n");
       await expect(readFile(join(home, "account.yaml"), "utf8")).rejects.toThrow();
@@ -342,6 +344,7 @@ describe("client-generated profile and account bootstrap", () => {
         process.env.ARBOR_DATA_HOME = home;
       }
 
+      // One host per profile: a second reservation for the same profile cannot be claimed.
       const communityAfterClaim = await owner.descriptor(running.canopy.community().id);
       const secondSource = await profileFolder("community-with-charlie-twice", "group", [
         { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
@@ -355,39 +358,10 @@ describe("client-generated profile and account bootstrap", () => {
         .map((tree) => [join(secondSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
       await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
       await expect(new ProtocolClient(running.url).createAccountChallenge({
-        profileTree: localProfileTree, configurationTree: generateArborID("tr"),
-      })).rejects.toThrow("Several reservations");
-      const retainedPlacements = `${configurationTree}: {}\n`;
-      await writeFile(join(home, "placements.yaml"), retainedPlacements);
-
-      await new LocalAccountService({ trees: service.trees, events: service.events }).claimHostAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
-      const pluralAccounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
-      expect(pluralAccounts).toHaveLength(2);
-      expect(new Set(pluralAccounts.map((account) => account.profileTree))).toEqual(new Set([localProfileTree]));
-      expect(new Set(pluralAccounts.map((account) => account.handle))).toEqual(new Set(["charlie", "charlie-two"]));
-      configurationTrees.push(pluralAccounts.find((account) => account.configurationTree !== configurationTree)!.configurationTree);
-      expect(await readFile(join(home, "placements.yaml"), "utf8")).toBe(retainedPlacements);
-
-      const code = "ZYXWVUTSRQPONMLKJIHGFE";
-      const invitedCommunity = await owner.descriptor(running.canopy.community().id);
-      const invitedSource = await profileFolder("community-with-code", "group", [
-        { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
-        { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
-        { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
-        { profile: `arbor://${localProfileTree}/`, handle: "charlie" },
-        { profile: `arbor://${localProfileTree}/`, handle: "charlie-two" },
-        { handle: "charlie-invited", inviteDigest: `sha256:${sha256(code)}` },
-      ]);
-      const invitedNested = new Map(running.canopy.list()
-        .filter((tree) => tree.parentTree === invitedCommunity.tree.id && tree.canonicalPath)
-        .map((tree) => [join(invitedSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
-      await owner.submitUpdate(invitedCommunity.tree.id, invitedCommunity.tree.update,
-        await resolveSnapshot(await snapshotDirectory(invitedSource, invitedNested)));
-      await new LocalAccountService({ trees: service.trees, events: service.events })
-        .claimHostAccount(new URL(running.url).origin, profilePath, "Charlie", code);
-      const invitedAccounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
-      expect(invitedAccounts.map((account) => account.handle)).toContain("charlie-invited");
-      configurationTrees.push(invitedAccounts.find((account) => account.handle === "charlie-invited")!.configurationTree);
+        account: `${new URL(running.url).origin}/~charlie-two`, profileTree: localProfileTree, configurationTree,
+      })).rejects.toThrow("already claimed or hosted");
+      await expect(new LocalAccountService({ trees: service.trees, events: service.events })
+        .claimHostAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie")).rejects.toThrow("one home host");
     } finally {
       await service[Symbol.asyncDispose]();
       await Promise.all(configurationTrees.map((configurationTree) => new HostAccountStore(configurationTree).remove()));

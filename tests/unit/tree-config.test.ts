@@ -61,7 +61,7 @@ describe("tree-configuration.json", () => {
   test("merges three configurations as the vectors say", () => {
     for (const vector of vectors.merges) {
       const merged = mergeTreeConfigs(vector.base as TreeConfigValues, vector.candidate as TreeConfigValues, vector.remote as TreeConfigValues);
-      expect(merged.conflicts.map(({ file, policy }) => ({ file, policy })), vector.name).toEqual(vector.conflicts);
+      expect(merged.conflicts.map(({ file, policy }) => ({ file, policy })) as unknown, vector.name).toEqual(vector.conflicts);
       if ("result" in vector) {
         const order = (values: TreeConfigValues) => ({ ...values, access: [...values.access].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1) });
         expect(order(merged.values), vector.name).toEqual(order(vector.result as TreeConfigValues));
