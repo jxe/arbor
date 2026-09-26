@@ -79,7 +79,9 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Security 002 — Decode URL paths once at the external boundary](security/002-path-decoding.md) — **P1 · TODO.**
 - [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
-- [Security 006 — Portable profiles, devices and delegation across hosts](security/006-portable-profiles.md) — **P3 · PROPOSED; after canopyd 005.** One profile configuration usable at every host with an account: signed devices, one device list and revocation, then cross-server delegation and remote groups; to be split once designed.
+- [Security 006 — Place trees on other hosts through home-host vouching](security/006-home-host-vouching.md) — **P3 · PROPOSED; after canopyd 005.** A placement host accepts short-lived vouchers signed by a profile's home host, so one profile holds canonical trees on several hosts with no per-account device list; lending on placement hosts waits for Security 008.
+- [Security 007 — Signed device keys and device-list recovery](security/007-device-keys.md) — **P3 · PROPOSED; after canopyd 005.** Replace bearer device credentials with signing keys, chain the device list to the profile key, and let the profile key reset a lost device list; one host only.
+- [Security 008 — Portable profiles and delegation across hosts](security/008-portable-profiles.md) — **P3 · PROPOSED; after Security 006 and 007.** Accept a profile's configuration beyond its home host, bound freshness and revocation, delegate across servers, and read remote groups; to be split once designed.
 
 ## Verification
 

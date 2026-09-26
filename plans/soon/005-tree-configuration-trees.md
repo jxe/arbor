@@ -14,8 +14,11 @@ earlier Security 005 that became Filesystem 005).
 - **State:** ADOPTED 2026-09-25. The design below is proposed; the remaining
   open questions are listed at the end. Nothing here changes the spec until
   phase 1.
-- **Followed by:** [Security 006](../security/006-portable-profiles.md), which
-  makes a profile's configuration portable across hosts.
+- **Followed by:** [Security 006](../security/006-home-host-vouching.md)
+  (placing trees on other hosts), [Security 007](../security/007-device-keys.md)
+  (signed device keys and recovery) and
+  [Security 008](../security/008-portable-profiles.md) (portable profiles and
+  cross-server delegation).
 - **Builds on:** schema 21. [Migration 019](../../packages/canopyd/migrations/019-one-access-store/README.md)
   (schema 20, one access store) is the ownership model this replaces.
 
@@ -246,9 +249,11 @@ edits the profile configuration's `devices.yaml`.
 
 **One host per profile, until Security 006.** Device credentials stay
 bearer secrets whose digests one host binds, so a profile's configuration
-lives on the one host that binds them. Clients connect a profile to one host; the spec's several accounts per
-profile returns with [Security 006](../security/006-portable-profiles.md). Joe
-has one host and one account, so nothing is lost at cutover.
+lives on the one host that binds them: its **home host**. Clients connect a
+profile to one host. The spec's several accounts per profile returns with
+[Security 006](../security/006-home-host-vouching.md), where other hosts take
+the home host's word for who is calling. Joe has one host and one account, so
+nothing is lost at cutover.
 
 `trees.yaml` goes: its hosting half moves to tree configurations, and its
 `via` rules to the profile's `apps.yaml`. `account.yaml` goes: `canopy` is the
@@ -261,8 +266,8 @@ What a profile lets each app do with access the profile holds, keyed by the
 app's TreeID, which is how a consent sheet reads ("Supplies may read Alice's
 pantry"). It lives in the configuration of the profile tree, so a person's is
 edited by that person's administrator devices, and a group's by its
-administrators. Until Security 006, an entry applies only on the host that
-holds the configuration.
+administrators. Until [Security 008](../security/008-portable-profiles.md), an
+entry applies only on the home host.
 
 ```yaml
 # /~joe;arbor-config  apps.yaml
@@ -531,8 +536,8 @@ granting the club.
   person's devices and app entries, and an account is host state. One kind of
   configuration, one policy and one way to find it, `;arbor-config`, replace
   two. The cost is one host per profile until
-  [Security 006](../security/006-portable-profiles.md) makes the configuration
-  portable. Merging now, rather than with Security 006, avoids a second live
+  [Security 006](../security/006-home-host-vouching.md) lets a profile place
+  trees on other hosts. Merging now, rather than later, avoids a second live
   migration.
 - **Administrators are an operation in `access.yaml`, not a separate list.**
   "Who can do what to this tree" gets one answer, the way a sharing panel shows
@@ -569,7 +574,7 @@ granting the club.
    an empty list and an empty administering group, but not administrators
    whose accounts are disabled or whose devices are all lost. For a person
    profile, the profile key could authorize a reset of `devices.yaml`, which
-   Security 006 may need anyway. A host-operator
+   [Security 007](../security/007-device-keys.md) may settle. A host-operator
    CLI command is the likely answer; it ties to the catalog's
    [recovery and administrator reset](../catalog.md#product-completion).
 2. **Two meanings of "administrator".** A device's `administrator` flag and a
