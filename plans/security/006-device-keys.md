@@ -11,9 +11,9 @@
   [access control §2, §3.2](../../docs/overstory-spec/05-access-control.md#2-authentication-and-secrets)),
   the vectors (`device-keys.json`), the TypeScript protocol, canopyd and
   [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
-  are done and tested; see [status](../../status.md). The Swift `Overstory`
-  models were written without a Swift toolchain and have not been compiled.
-  What remains is below.
+  are done and tested, and the Swift `Overstory` models, signing bytes and
+  client calls are compiled and pass `device-keys.json`; see
+  [status](../../status.md). What remains is below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
   host.
@@ -166,14 +166,6 @@ unencrypted format.
    `admin` on a tree and a device's `administrator` flag.
 
 ## Work
-
-### Phase 2 remainder: compile and test the Swift models (on a Mac)
-
-- `DeviceKeys.swift`, the optional `key` on `ProtocolPairingDevice` and
-  `AccountDeviceDeclaration`, and the `ProtocolClient` session and reset
-  calls; `DeviceKeysTests` runs `device-keys.json`.
-- **Gate:** the `Overstory` and `OverstoryClient` package suites and an
-  Xcode build of the Mac and iPhone apps.
 
 ### Phase 3: clients
 
