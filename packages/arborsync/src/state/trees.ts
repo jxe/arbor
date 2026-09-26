@@ -8,7 +8,6 @@ import {
   type AccountConfigurationSnapshot,
 } from "@overstory/protocol";
 import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "./placements.ts";
-import { loadRehomeTransactions } from "./rehome-state.ts";
 
 export type { SharedTreePlacement, TreePlacement } from "@overstory/protocol";
 
@@ -25,6 +24,8 @@ export interface TreeRegistrySnapshot {
 }
 
 interface PlacementSyncMetadata {
+  /** The canonical path the host last reported, absent for a tree it mounts nowhere. */
+  canonicalPath?: string;
   conflicted?: boolean;
   ref?: string;
   update?: string;
@@ -62,51 +63,27 @@ function canonicalLocator(origin: string, path: string): string {
   return `arbor://${url.host}${path}`;
 }
 
+/**
+ * The placements of every claimed account: each account's own profile
+ * configuration, placed at its checkout, and every folder `placements.yaml`
+ * places for it. A tree's canonical path is not authored locally; it is the
+ * one the host last reported, kept with the placement's sync metadata.
+ */
 export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   const pluralConfigurations = await loadAccountConfigurations();
   const local = await loadLocalPlacements();
-  const rehomes = await loadRehomeTransactions();
   const placements: SharedTreePlacement[] = [];
   const diagnostics = [
     ...local.diagnostics,
-    ...rehomes.diagnostics,
     ...pluralConfigurations.flatMap((configuration) => configuration.diagnostics),
   ];
-  let placementsValid = local.diagnostics.length === 0 && rehomes.diagnostics.length === 0;
+  let placementsValid = local.diagnostics.length === 0;
   const invalidAccounts = new Set(pluralConfigurations
-    .filter((configuration) => configuration.diagnostics.length > 0 || !configuration.account || !configuration.trees || !configuration.devices || !configuration.currentDevice)
+    .filter((configuration) => configuration.diagnostics.length > 0 || !configuration.configuration || !configuration.devices || !configuration.currentDevice)
     .map((configuration) => configuration.configurationTree));
   const accounts = new Map(pluralConfigurations.map((configuration) => [configuration.configurationTree, configuration]));
-  const declarationOwners = new Map<string, string[]>();
   for (const configuration of pluralConfigurations) {
-    for (const tree of Object.keys(configuration.trees ?? {})) {
-      const owners = declarationOwners.get(tree) ?? [];
-      owners.push(configuration.configurationTree);
-      declarationOwners.set(tree, owners);
-    }
-  }
-  for (const [tree, owners] of declarationOwners) {
-    if (owners.length < 2) continue;
-    const transaction = rehomes.transactions.get(tree);
-    const expected = transaction
-      ? new Set([transaction.sourceConfigurationTree, transaction.destinationConfigurationTree])
-      : undefined;
-    const explicitlyRehoming = expected?.size === 2
-      && owners.length === 2
-      && owners.every((owner) => expected.has(owner))
-      && accounts.get(transaction!.sourceConfigurationTree)?.trees?.[tree]?.canonical === transaction!.sourceCanonical
-      && accounts.get(transaction!.destinationConfigurationTree)?.trees?.[tree]?.canonical === transaction!.destinationCanonical;
-    if (explicitlyRehoming) continue;
-    placementsValid = false;
-    diagnostics.push({
-      code: "multiply-declared-tree",
-      message: `Tree ${tree} is declared by several accounts without a matching rehome transaction: ${owners.join(", ")}`,
-      path: placementsFilePath(),
-      severity: "error",
-    });
-  }
-  for (const configuration of pluralConfigurations) {
-    if (!configuration.account || !configuration.trees || !configuration.devices || !configuration.currentDevice) continue;
+    if (!configuration.configuration || !configuration.devices || !configuration.currentDevice) continue;
     const connected = await new HostAccountStore(configuration.configurationTree).safe();
     if (!connected) {
       invalidAccounts.add(configuration.configurationTree);
@@ -118,11 +95,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       });
       continue;
     }
-    if (
-      connected.origin !== configuration.account.canopy
-      || connected.profileTree !== configuration.account.profile
-      || connected.deviceID !== configuration.currentDevice.id
-    ) {
+    if (connected.deviceID !== configuration.currentDevice.id) {
       invalidAccounts.add(configuration.configurationTree);
       diagnostics.push({
         code: "account-identity-mismatch",
@@ -137,9 +110,9 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       configurationTree: configuration.configurationTree,
       path: configuration.path,
       tree: configuration.configurationTree,
-      kind: "account-configuration",
+      kind: "tree-configuration",
       access: "write",
-      endpoint: configuration.account.canopy,
+      endpoint: connected.origin,
       ref: connected.configurationRef,
       update: connected.configurationUpdate,
       ...sync,
@@ -147,26 +120,22 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   }
   for (const placement of local.placements) {
     const configuration = accounts.get(placement.configurationTree);
-    const declaration = configuration?.trees?.[placement.tree];
-    if (!configuration?.account || !declaration) {
+    if (!configuration?.canopy) {
       placementsValid = false;
       diagnostics.push({
-        code: configuration ? "undeclared-tree-placement" : "unknown-placement-account",
-        message: configuration
-          ? `Tree ${placement.tree} is not declared by account ${placement.configurationTree}`
-          : `Placement refers to unknown account ${placement.configurationTree}`,
+        code: "unknown-placement-account",
+        message: `Placement refers to unknown account ${placement.configurationTree}`,
         path: placementsFilePath(),
         severity: "warning",
       });
       continue;
     }
-    const sync = await loadPlacementSyncMetadata(placement.tree, placement.configurationTree);
+    const { canonicalPath, ...sync } = await loadPlacementSyncMetadata(placement.tree, placement.configurationTree);
     placements.push({
       ...placement,
-      canonical: canonicalLocator(configuration.account.canopy, new URL(declaration.canonical).pathname),
-      canonicalPath: new URL(declaration.canonical).pathname,
+      ...(canonicalPath ? { canonical: canonicalLocator(configuration.canopy, canonicalPath), canonicalPath } : {}),
       access: "write",
-      endpoint: configuration.account.canopy,
+      endpoint: configuration.canopy,
       ...sync,
     });
   }

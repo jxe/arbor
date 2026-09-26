@@ -560,7 +560,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
         const placements = this.trees.sharedPlacements()
           .filter((placement) => !configurationTree || placement.configurationTree === configurationTree)
           .sort((left, right) =>
-            Number(right.kind === "account-configuration") - Number(left.kind === "account-configuration")
+            Number(right.kind === "tree-configuration") - Number(left.kind === "tree-configuration")
           );
         for (const placement of placements) {
           try {
@@ -585,18 +585,25 @@ export class ArborSyncDaemon implements AsyncDisposable {
                 async () => resolveSnapshot(await this.scanWorkspace(workspace, remoteTrees, null)),
               );
               const activated = await client.submitUpdate(placement.tree, null, initial);
+              // Activation attaches the tree where its parent mounts it, if anywhere.
+              const described = await client.descriptor(placement.tree).catch(() => null);
               await this.trees.updateSyncMetadata({
                 ...placement,
                 ref: activated.update.root,
                 update: activated.update.id,
                 access: "write",
+                canonicalPath: described?.tree.canonical?.path ?? placement.canonicalPath,
               });
               await folder.placed({ root: activated.update.root, update: activated.update.id });
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
             const access = remote.access === "none" ? "read" : remote.access;
-            if (placement.access !== access) await this.trees.updateSyncMetadata({ ...placement, access });
+            // The host decides a tree's canonical path; a mount or rename moves it.
+            const canonicalPath = remote.canonical?.path;
+            if (placement.access !== access || (placement.kind !== "tree-configuration" && placement.canonicalPath !== canonicalPath)) {
+              await this.trees.updateSyncMetadata({ ...placement, access, canonicalPath });
+            }
             if (!placement.ref || !placement.update) await folder.placeFromHost();
             folder.ensureWatch();
             const presentation = await folder.syncOnce();

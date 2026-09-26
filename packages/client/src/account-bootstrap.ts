@@ -2,13 +2,13 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import type { AccountBootstrapDeps } from "./ports.ts";
 
 interface PendingAccountClaimBootstrap {
-  version: 2;
+  version: 3;
   stage?: "prepared" | "submitting";
   account: string;
   origin: string;
@@ -18,7 +18,8 @@ interface PendingAccountClaimBootstrap {
   configurationTree: string;
   deviceID: string;
   credentialDigest: `sha256:${string}`;
-  files: { account: string; trees: string; devices: string; placements: string };
+  /** The profile configuration's files, installed as the account checkout, and `placements.yaml`. */
+  files: Record<string, string>;
   configuration: TreeSnapshotJSON;
   challenge?: AccountChallenge;
   publicKey?: string;
@@ -92,7 +93,7 @@ async function claimAccountProfileBootstrap(
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   let credential: string | null = null;
   if (pending) {
-    if (pending.version !== 2 || (pending.account !== account && account !== origin) || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
+    if (pending.version !== 3 || (pending.account !== account && account !== origin) || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
       throw new ProtocolError("conflict", "A different account bootstrap is already pending in this data home", 409);
     }
     credential = await new HostAccountStore(pending.configurationTree).provisionalCredential();
@@ -116,10 +117,10 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "Account bootstrap will not mix the plural layout with legacy account files", 409);
     }
     const existingAccounts = await loadAccountConfigurations();
-    if (existingAccounts.some((candidate) => candidate.diagnostics.length || !candidate.account || !candidate.trees || !candidate.devices || !candidate.currentDevice)) {
+    if (existingAccounts.some((candidate) => candidate.diagnostics.length || !candidate.configuration || !candidate.currentDevice)) {
       throw new ProtocolError("conflict", "All existing account checkouts must be valid before another account is added", 409);
     }
-    const otherProfile = existingAccounts.find((candidate) => candidate.account!.profile !== profileTree);
+    const otherProfile = existingAccounts.find((candidate) => candidate.profile !== profileTree);
     if (otherProfile) {
       throw new ProtocolError(
         "conflict",
@@ -132,33 +133,22 @@ async function claimAccountProfileBootstrap(
     if (placements.diagnostics.length) {
       throw new ProtocolError("conflict", "placements.yaml must be valid before another account is added", 409);
     }
-    const configurationTree = generateArborID("tr");
+    // One host per profile: the account's configuration is the profile's, at its derived TreeID.
+    const configurationTree = treeConfigurationID(profileTree);
+    if (existingAccounts.some((candidate) => candidate.configurationTree === configurationTree)) {
+      throw new ProtocolError("conflict", "This profile already has an account in this data home; a profile has one home host", 409);
+    }
     const deviceID = generateArborID("dv");
     credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const label = hostname() || "Initial device";
-    const files = {
-      account: [
-        `canopy: ${JSON.stringify(origin)}`,
-        `profile: ${JSON.stringify(profileTree)}`,
-        "",
-      ].join("\n"),
-      trees: "{}\n",
-      devices: [
-        `${JSON.stringify(deviceID)}:`,
-        `  label: ${JSON.stringify(label)}`,
-        "  administrator: true",
-        "",
-      ].join("\n"),
-      placements: "{}\n",
-    };
+    const configuration = treeConfigSources(initialPersonConfig(profileTree, { id: deviceID, label }));
+    const files: Record<string, string> = { ...configuration, placements: "{}\n" };
     const staging = join(arborPrivateRoot(), `bootstrap-account-config-${crypto.randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
-      await writeFile(join(staging, "account.yaml"), files.account, { mode: 0o600 });
-      await writeFile(join(staging, "trees.yaml"), files.trees, { mode: 0o600 });
-      await writeFile(join(staging, "devices.yaml"), files.devices, { mode: 0o600 });
+      for (const [name, source] of Object.entries(configuration)) await writeFile(join(staging, name), source, { mode: 0o600 });
       pending = {
-        version: 2,
+        version: 3,
         stage: "prepared",
         account,
         origin,
@@ -252,12 +242,12 @@ async function claimAccountProfileBootstrap(
   };
   const accountPath = join(arborDataRoot(), "accounts", pending.configurationTree);
   await mkdir(accountPath, { recursive: true, mode: 0o700 });
-  await install(join(accountPath, "account.yaml"), pending.files.account);
-  await install(join(accountPath, "trees.yaml"), pending.files.trees);
-  await install(join(accountPath, "devices.yaml"), pending.files.devices);
+  for (const [name, source] of Object.entries(pending.files)) {
+    if (name !== "placements") await install(join(accountPath, name), source);
+  }
   const placementsPath = join(arborDataRoot(), "placements.yaml");
   if (!await stat(placementsPath).then(() => true).catch(() => false)) {
-    await install(placementsPath, pending.files.placements);
+    await install(placementsPath, pending.files.placements ?? "{}\n");
   }
   await saveCurrentAccountDeviceID(pending.configurationTree, pending.deviceID);
 
@@ -274,8 +264,8 @@ async function claimAccountProfileBootstrap(
   await rm(pendingPath, { force: true });
   await deps.trees.refreshConfiguration();
   return [
-    { kind: "updated", ref: { tree: result.configuration.id, path: "/account.yaml", stableKey: null } },
-    { kind: "created", ref: { tree: result.configuration.id, path: "/trees.yaml", stableKey: null } },
+    { kind: "created", ref: { tree: result.configuration.id, path: "/access.yaml", stableKey: null } },
+    { kind: "created", ref: { tree: result.configuration.id, path: "/devices.yaml", stableKey: null } },
   ];
 }
 
@@ -301,7 +291,7 @@ export async function cancelPendingAccountClaim(): Promise<void> {
     let pending: PendingAccountClaimBootstrap;
     try { pending = JSON.parse(await readFile(path, "utf8")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
-    if (pending.version !== 2 || pending.stage !== "prepared") {
+    if (pending.version !== 3 || pending.stage !== "prepared") {
       throw new ProtocolError("conflict", "This connection may already have reached the community. Resume it to preserve its device credential.", 409);
     }
     // Prepared claims never install checkouts. Refuse unexpected state rather

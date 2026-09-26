@@ -249,7 +249,7 @@ export async function migrateTreeConfigurations(root: string, log: Log = () => {
             if (!named) refuse(`Account ${account.id} would lend access to ${tree} (${describe(rule, "")}) that no rule names its profile for directly`);
           }
           const list = apps.get(account.profile_tree!) ?? {};
-          (list[rule.via] ??= []).push({ resource: tree, who: rule.who, allow: rule.allow as AppAccessRule["allow"], ...(rule.within && rule.within !== "/" ? { within: rule.within } : {}) });
+          (list[rule.via!] ??= []).push({ resource: tree, who: rule.who, allow: rule.allow as AppAccessRule["allow"], ...(rule.within && rule.within !== "/" ? { within: rule.within } : {}) });
           apps.set(account.profile_tree!, list);
         }
       }

@@ -399,7 +399,10 @@ export async function serveHost(options: {
             return json({ snapshot: canopy.list()
               // Retained/retired ordinary roots have no network identity and
               // therefore cannot be represented by a remote TreeDescriptor.
-              .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.profileTree : tree.canonicalPath !== null))
+              // A tree configuration is listed only for its own profile's account,
+              // and a tree mounted nowhere only for its administrators.
+              .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.profileTree
+                : tree.canonicalPath !== null || (account !== null && canopy.canAdminister(account, tree))))
               .filter((tree) => canopy.canRead(account, tree, link))
               .map((tree) => descriptorWithUpdate(publicOrigin, canopy, tree, canopy.canWrite(account, tree, link) ? "write" : "read")),
               observedThrough: canopy.observedThrough(),

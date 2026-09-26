@@ -77,9 +77,6 @@ export class TreeManager implements AsyncDisposable {
     const issue = diagnostics.find((diagnostic) => [
       "invalid-placements-yaml",
       "unknown-placement-account",
-      "undeclared-tree-placement",
-      "multiply-declared-tree",
-      "invalid-rehome-transaction",
     ].includes(diagnostic.code));
     return new Error(`Tree placement configuration is invalid: ${issue?.message ?? "its placement graph is inconsistent"}`);
   }
@@ -582,7 +579,7 @@ export class TreeManager implements AsyncDisposable {
     const parent = this.known.get(tree);
     if (!parent || parent.missing) return { boundaries, excludedRoots };
     const parentCanonical = this.canonicalPath(parent);
-    if (parent.placement?.kind === "account-configuration") excludedRoots.push(arborPrivateRoot());
+    if (parent.placement?.kind === "tree-configuration") excludedRoots.push(arborPrivateRoot());
 
     for (const [childTree, child] of this.known) {
       if (childTree === tree || child.missing || !child.placement) continue;
@@ -709,14 +706,18 @@ export class TreeManager implements AsyncDisposable {
   async updateSyncMetadata(placement: SharedTreePlacement): Promise<LocalTreeDescriptor> {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
-    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access };
+    const canonicalPath = placement.canonicalPath;
+    root.placement = {
+      ...root.placement, ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access,
+      canonicalPath, canonical: canonicalPath ? `arbor://${new URL(root.placement.endpoint).host}${canonicalPath}` : undefined,
+    };
     this.workspaces.get(placement.tree)?.updateTreeDescriptor({
       access: placement.access,
       ...acceptedBase(placement),
     });
     await savePlacementSyncMetadata(
       placement.tree,
-      { ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access },
+      { ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access, ...(canonicalPath ? { canonicalPath } : {}) },
       placement.configurationTree,
     );
     this.invalidateDescriptors();
