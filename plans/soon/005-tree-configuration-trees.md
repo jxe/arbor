@@ -14,9 +14,9 @@ earlier Security 005 that became Filesystem 005).
 - **State:** ADOPTED 2026-09-25. The design below is proposed; the remaining
   open questions are listed at the end. Nothing here changes the spec until
   phase 1.
-- **Followed by:** [Security 006](../security/006-home-host-vouching.md)
-  (placing trees on other hosts), [Security 007](../security/007-device-keys.md)
-  (signed device keys and recovery) and
+- **Followed by:** [Security 006](../security/006-device-keys.md) (device keys
+  and recovery), [Security 007](../security/007-placement-hosts.md) (placing
+  trees on other hosts) and
   [Security 008](../security/008-portable-profiles.md) (portable profiles and
   cross-server delegation).
 - **Builds on:** schema 21. [Migration 019](../../packages/canopyd/migrations/019-one-access-store/README.md)
@@ -247,12 +247,12 @@ is `awaiting-initialization` until the person activates it. Pairing
 ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing))
 edits the profile configuration's `devices.yaml`.
 
-**One host per profile, until Security 006.** Device credentials stay
+**One host per profile, until Security 007.** Device credentials stay
 bearer secrets whose digests one host binds, so a profile's configuration
 lives on the one host that binds them: its **home host**. Clients connect a
 profile to one host. The spec's several accounts per profile returns with
-[Security 006](../security/006-home-host-vouching.md), where other hosts take
-the home host's word for who is calling. Joe has one host and one account, so
+[Security 007](../security/007-placement-hosts.md), where other hosts check a
+device's signature against the device keys its home host publishes. Joe has one host and one account, so
 nothing is lost at cutover.
 
 `trees.yaml` goes: its hosting half moves to tree configurations, and its
@@ -536,7 +536,7 @@ granting the club.
   person's devices and app entries, and an account is host state. One kind of
   configuration, one policy and one way to find it, `;arbor-config`, replace
   two. The cost is one host per profile until
-  [Security 006](../security/006-home-host-vouching.md) lets a profile place
+  [Security 007](../security/007-placement-hosts.md) lets a profile place
   trees on other hosts. Merging now, rather than later, avoids a second live
   migration.
 - **Administrators are an operation in `access.yaml`, not a separate list.**
@@ -574,7 +574,7 @@ granting the club.
    an empty list and an empty administering group, but not administrators
    whose accounts are disabled or whose devices are all lost. For a person
    profile, the profile key could authorize a reset of `devices.yaml`, which
-   [Security 007](../security/007-device-keys.md) may settle. A host-operator
+   [Security 006](../security/006-device-keys.md) may settle. A host-operator
    CLI command is the likely answer; it ties to the catalog's
    [recovery and administrator reset](../catalog.md#product-completion).
 2. **Two meanings of "administrator".** A device's `administrator` flag and a
@@ -597,7 +597,7 @@ changing the live host.
 - Answer the open questions and record the answers here.
 - [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md): §1 for
   host accounts as host state, identified by host and profile, and one host
-  per profile until Security 006; §1.2 for claiming as declaring the profile
+  per profile until Security 007; §1.2 for claiming as declaring the profile
   tree; §2 and §3 replaced by the tree configuration graph, its files by tree
   kind, invariants and merge; §5 for pairing through the profile's
   `devices.yaml`; §6 rewritten as declare, activate, mount; §7 for
@@ -614,7 +614,7 @@ changing the live host.
 - [Conformance](../../docs/overstory-spec/conformance/README.md): graph,
   validation and merge vectors for both configurations.
 - Remove "no distinguished home host" only as far as one host per profile
-  requires, and link Security 006.
+  requires, and link Security 007.
 - **Gate:** `bun run check:links`, the walk-through below.
 
 ### Phase 2: parsers and merge
