@@ -174,7 +174,9 @@ describe("ignore rules in discovery, listing, and watching", () => {
       await rm(join(root, "build", "more.txt"));
       await until(() => ignored.filter((path) => path === "/build/more.txt").length >= 2);
       await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(events).toEqual(["created /docs/new"]);
+      // FSEvents may also replay the fixture's own writes from just before the watch began.
+      expect(events).toContain("created /docs/new");
+      expect(events.filter((event) => event.includes("/build") || event.includes("/.env"))).toEqual([]);
     } finally {
       await fs[Symbol.asyncDispose]();
     }
