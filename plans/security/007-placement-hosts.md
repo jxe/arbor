@@ -5,9 +5,11 @@
 - **Priority:** P3
 - **Effort:** M
 - **Risk:** HIGH. A host accepts devices from a list another host publishes.
-- **State:** DESIGNED 2026-09-26, together with
-  [Security 006](006-device-keys.md); Phase 1 is shared with 006, and Phases 2
-  to 4 follow 006's. The decisions are recorded below.
+- **State:** PHASE 1 DONE 2026-09-26: the spec is written
+  ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
+  [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
+  Phases 2 to 4 follow Security 006's deployment. The decisions are recorded
+  below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   [Security 006](006-device-keys.md) (key devices, and sessions opened by
@@ -123,21 +125,6 @@ Details for Phase 1, not direction:
    happens to it if the home host changes (Security 008).
 
 ## Work
-
-### Phase 1: spec and vectors (shared with Security 006)
-
-- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md) §1: home
-  and placement hosts; §1.2: claiming a placement account; the published
-  device keys.
-- [Access control](../../docs/overstory-spec/05-access-control.md) §1.1: code
-  on a placement host uses only `everyone` and `app` rules; §2: sessions on a
-  placement host and the freshness rule; §3.2: a watch on B ends when its
-  device leaves the list.
-- **Gate:** `bun run check:links`, `git diff --check`, and a walk-through of
-  the failures: a digest device on B, a session from A presented to B, a device
-  revoked at A with an open watch on B, A unreachable past the limit, a claim
-  naming a home host the profile key did not sign, code on B reaching for the
-  caller's own access.
 
 ### Phase 2: canopyd (after Security 006 Phase 2)
 

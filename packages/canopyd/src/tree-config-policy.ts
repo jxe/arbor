@@ -36,6 +36,7 @@ export function authorizePersonConfigTransition(
   const devices = current.devices ?? {};
   const device = devices[deviceID];
   if (!device) throw new PermissionDeniedError("Submitting device is not active in the accepted configuration");
+  authorizeKeyChanges(current, next, deviceID, changesFrom);
   if (device.administrator) return;
   const accepted = semanticTreeConfig(current);
   const base = semanticTreeConfig(changesFrom);
@@ -49,9 +50,26 @@ export function authorizePersonConfigTransition(
   const after = candidate.devices ?? {};
   for (const id of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (sameTreeConfigValue(after[id], accepted.devices?.[id])) continue;
-    if (id !== deviceID || !before[id] || !after[id] || before[id].administrator !== after[id].administrator || before[id].label === after[id].label) {
-      throw new PermissionDeniedError(`Device ${deviceID} may change only its own label`);
+    if (id !== deviceID || !before[id] || !after[id] || before[id].administrator !== after[id].administrator
+      || (before[id].label === after[id].label && before[id].key === after[id].key)) {
+      throw new PermissionDeniedError(`Device ${deviceID} may change only its own label and key`);
     }
+  }
+}
+
+/**
+ * `key` is the one field only its own device sets (accounts §3.1): a digest
+ * device adds a key to its own entry once, and nothing else adds, changes or
+ * removes a key. Deleting an entry is not a key change. As above, a key the
+ * candidate leaves as its base had it is not the device's change.
+ */
+function authorizeKeyChanges(current: TreeConfigValues, next: TreeConfigValues, deviceID: string, changesFrom: TreeConfigValues): void {
+  const accepted = current.devices ?? {};
+  const before = changesFrom.devices ?? {};
+  for (const [id, after] of Object.entries(next.devices ?? {})) {
+    if (before[id]?.key === after.key) continue;
+    const moving = id === deviceID && accepted[id] && !accepted[id].key && before[id] && !before[id].key && after.key;
+    if (!moving) throw new PermissionDeniedError(id === deviceID ? "A device's key never changes" : "Only a device itself may add its key");
   }
 }
 

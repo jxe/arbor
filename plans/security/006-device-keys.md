@@ -6,9 +6,14 @@
 - **Effort:** L
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
-- **State:** DESIGNED 2026-09-26, together with
-  [Security 007](007-placement-hosts.md); ready for Phase 1. The decisions are
-  recorded below; the questions left open are details Phase 1 settles.
+- **State:** PHASES 1 AND 2 IMPLEMENTED 2026-09-26, not deployed. The spec
+  ([accounts §1.1, §3, §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing),
+  [access control §2, §3.2](../../docs/overstory-spec/05-access-control.md#2-authentication-and-secrets)),
+  the vectors (`device-keys.json`), the TypeScript protocol, canopyd and
+  [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
+  are done and tested; see [status](../../status.md). The Swift `Overstory`
+  models were written without a Swift toolchain and have not been compiled.
+  What remains is below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
   host.
@@ -138,45 +143,37 @@ the profile on its home host, not only claim accounts. Phase 3 therefore makes
 backups passphrase-encrypted, and restore still accepts the existing
 unencrypted format.
 
+## Decided in Phases 1 and 2
+
+- A session challenge lasts two minutes, a reset challenge five, a session at
+  most an hour (`sessionLifetimeMs`), and a session is never renewed without
+  a new signature.
+- A reset waits 72 hours (`resetWaitMs`). Its devices learn of it from
+  `GET /.arbor/profile-resets/{ProfileTreeID}`; Phase 3 decides where each
+  client shows it.
+- A session challenge accepts any person profile TreeID, including one that
+  predates self-certifying IDs; a reset needs a self-certifying one, since it
+  is signed by the profile key.
+- Unauthenticated challenge requests are limited to 30 per caller and
+  profile per ten minutes.
+
 ## Open questions
 
-Details for Phase 1, not direction:
-
-1. **Lifetimes:** the challenge expiry, the session expiry (at most an hour)
-   and whether a client may renew a session before it ends without a new
-   signature (proposed: no).
-2. **Recovery wait:** its length, and how a pending reset reaches devices that
-   are not running (proposed: shown in every client at its next session, and in
-   the person's profile configuration where administrators already look).
-3. **The backup format:** the key-derivation function and its parameters for
-   passphrase-encrypted backups.
-4. **Two meanings of "administrator"** again, since a key device's flag is
+1. **The backup format:** the key-derivation function and its parameters for
+   passphrase-encrypted backups (Phase 3).
+2. **Two meanings of "administrator"** again, since a key device's flag is
    what another host will read. canopyd 005 kept both names: a profile's
    `admin` on a tree and a device's `administrator` flag.
 
 ## Work
 
-### Phase 1: spec and vectors (shared with Security 007)
+### Phase 2 remainder: compile and test the Swift models (on a Mac)
 
-- [Accounts](../../docs/overstory-spec/04-accounts-and-devices.md) §3 and §5:
-  the `key` field, moving to a key, sessions, and the reset with its wait;
-  §1.1: rewrite "defines no ... recovery" and describe encrypted backups.
-- [Access control](../../docs/overstory-spec/05-access-control.md) §2: a
-  session token as a credential; §3.2: a watch ends with its session.
-- Conformance vectors for both key encodings, challenges and their signatures,
-  and the `devices.yaml` shape.
-- **Gate:** `bun run check:links`, `git diff --check`, and a walk-through of
-  the failures: a replayed or expired challenge, a challenge from another
-  host, a session used after its device is deleted, a device moving to a key
-  twice, a reset without the profile key, a reset cancelled by an
-  administrator device, a new device acting during the wait.
-
-### Phase 2: protocol and canopyd
-
-- The protocol models in TypeScript and Swift; parse both entry kinds;
-  challenges, sessions and their revocation; the key update; the pending
-  reset, its cancellation and its completion.
-- **Gate:** protocol and canopyd suites.
+- `DeviceKeys.swift`, the optional `key` on `ProtocolPairingDevice` and
+  `AccountDeviceDeclaration`, and the `ProtocolClient` session and reset
+  calls; `DeviceKeysTests` runs `device-keys.json`.
+- **Gate:** the `Overstory` and `OverstoryClient` package suites and an
+  Xcode build of the Mac and iPhone apps.
 
 ### Phase 3: clients
 
@@ -191,5 +188,7 @@ Details for Phase 1, not direction:
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- Deploy; move Joe's devices to keys as their builds are installed.
+- Run [migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)
+  and deploy the host; it can go before Phase 3, since existing clients keep
+  working. Move Joe's devices to keys as their builds are installed.
 - Record the result in `status.md` and delete this plan.

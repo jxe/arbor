@@ -21,6 +21,11 @@ import {
   type TreeID,
   type AccountChallenge,
   type PairingOffer,
+  type DeviceSession,
+  type DeviceSessionChallenge,
+  type PendingProfileReset,
+  type ProfileResetChallenge,
+  type ProfileResetDevice,
 } from "./index.ts";
 import {
   type ObjectHash,
@@ -88,9 +93,15 @@ export interface ExistingProfileAccountRequest {
   publicKey: string;
   signature: string;
   inviteCode?: string;
-  device: { id: string; label: string; credentialDigest: `sha256:${string}` };
+  device: DeviceEnrollment;
   configuration: TreeSnapshot;
 }
+
+/** A device a claim or pairing adds: a key device sends its public `key`, a
+ * digest device only its credential's digest. */
+export type DeviceEnrollment =
+  | { id: string; label: string; credentialDigest: `sha256:${string}` }
+  | { id: string; label: string; key: string };
 
 export interface PairingClaimResult {
   device: ServerDevice;
@@ -217,7 +228,7 @@ export class ProtocolClient {
   async claimPairing(
     id: string,
     secret: string,
-    device: { id: string; label: string; credentialDigest: `sha256:${string}` },
+    device: DeviceEnrollment,
   ): Promise<PairingClaimResult> {
     const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
       method: "PUT",
@@ -258,6 +269,53 @@ export class ProtocolClient {
       }),
     }));
     return response.json();
+  }
+
+  async createDeviceSessionChallenge(input: { profileTree: TreeID; device: string }): Promise<DeviceSessionChallenge> {
+    const response = await this.checked(await this.request("/.arbor/device-sessions/challenges", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+    return response.json();
+  }
+
+  /** Exchange a signed challenge for a session token at this host. */
+  async openDeviceSession(challenge: DeviceSessionChallenge, signature: string): Promise<DeviceSession> {
+    const response = await this.checked(await this.request("/.arbor/device-sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge, signature }),
+    }));
+    return response.json();
+  }
+
+  async createProfileResetChallenge(input: { profileTree: TreeID; device: ProfileResetDevice }): Promise<ProfileResetChallenge> {
+    const response = await this.checked(await this.request("/.arbor/profile-resets/challenges", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+    return response.json();
+  }
+
+  /** Record a pending reset signed by the profile key. */
+  async requestProfileReset(input: { challenge: ProfileResetChallenge; publicKey: string; signature: string }): Promise<PendingProfileReset> {
+    const response = await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(input.challenge.profileTree)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+    return (await response.json() as { reset: PendingProfileReset }).reset;
+  }
+
+  async pendingProfileReset(profileTree: TreeID): Promise<PendingProfileReset | null> {
+    const response = await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(profileTree)}`, { headers: this.headers() }));
+    return (await response.json() as { reset: PendingProfileReset | null }).reset;
+  }
+
+  async cancelProfileReset(profileTree: TreeID): Promise<void> {
+    await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(profileTree)}`, { method: "DELETE", headers: this.headers() }));
   }
 
   async list(): Promise<SnapshotEnvelope<RemoteTreeDescriptor[]>> {

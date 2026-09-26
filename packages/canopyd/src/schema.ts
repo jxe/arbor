@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "22";
+export const CANOPY_SCHEMA_VERSION = "23";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "governs"],
@@ -18,9 +18,12 @@ export const AUTHORITY_SCHEMA = {
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
   accounts: ["id", "handle", "enabled", "claim_digest"],
-  devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
+  devices: ["id", "account_id", "label", "token_digest", "public_key", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
+  device_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
+  device_sessions: ["token_digest", "device_id", "created_at", "expires_at"],
+  profile_resets: ["profile_tree", "device_id", "label", "public_key", "requested_at", "effective_at", "proof_digest"],
   tree_policy: ["tree_id", "rules_json"],
   tree_admins: ["tree_id", "profile_tree"],
   app_policy: ["profile_tree", "app_tree", "rules_json"],
@@ -54,6 +57,61 @@ export function createTreeConfigIndex(db: Database): void {
   `);
 }
 
+/**
+ * A device's binding: a digest device's credential digest, or a key device's
+ * public key as its `devices.yaml` entry spells it. Exactly one is set.
+ */
+export function createDevicesTable(db: Database): void {
+  db.run(`
+    CREATE TABLE devices (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      label TEXT NOT NULL,
+      token_digest TEXT UNIQUE,
+      public_key TEXT UNIQUE,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER,
+      CHECK ((token_digest IS NULL) <> (public_key IS NULL))
+    )
+  `);
+}
+
+/**
+ * Key devices' single-use challenges (sessions and profile resets alike),
+ * their open sessions by token digest, and each profile's pending reset.
+ */
+export function createDeviceKeyTables(db: Database): void {
+  db.run(`
+    CREATE TABLE device_challenges (
+      id TEXT PRIMARY KEY,
+      challenge_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE device_sessions (
+      token_digest TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL REFERENCES devices(id),
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX device_sessions_device ON device_sessions(device_id)`);
+  db.run(`
+    CREATE TABLE profile_resets (
+      profile_tree TEXT PRIMARY KEY REFERENCES accounts(id),
+      device_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
+      effective_at INTEGER NOT NULL,
+      proof_digest TEXT NOT NULL
+    )
+  `);
+}
+
 export function createHostSchema(db: Database): void {
   db.run(`
     CREATE TABLE trees (
@@ -80,17 +138,7 @@ export function createHostSchema(db: Database): void {
       claim_digest TEXT
     )
   `);
-  db.run(`
-    CREATE TABLE devices (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id),
-      label TEXT NOT NULL,
-      token_digest TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL,
-      last_used_at INTEGER,
-      revoked_at INTEGER
-    )
-  `);
+  createDevicesTable(db);
   db.run(`
     CREATE TABLE pairings (
       id TEXT PRIMARY KEY,
@@ -111,6 +159,7 @@ export function createHostSchema(db: Database): void {
       consumed_at INTEGER
     )
   `);
+  createDeviceKeyTables(db);
   createTreeConfigIndex(db);
   createProfileFactsTable(db);
   db.run(`
@@ -159,7 +208,7 @@ export function assertCurrentHostSchema(db: Database): void {
       issues.push(`${table} columns`);
     }
   }
-  for (const index of ["accepted_updates_request", "accepted_updates_change", "accepted_updates_tree", "accepted_updates_root", "document_versions_key", "tree_admins_profile"]) {
+  for (const index of ["accepted_updates_request", "accepted_updates_change", "accepted_updates_tree", "accepted_updates_root", "document_versions_key", "tree_admins_profile", "device_sessions_device"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }

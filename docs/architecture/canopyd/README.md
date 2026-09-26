@@ -78,8 +78,21 @@ configurations have their shape, and the tests for each refused case, are in
   is refused. A disabled account's device credentials stop working, but the
   rules naming its profile stay as written. The host operator can reset a
   person's devices with `ARBOR_RESET_ACCOUNT` when every administrator device
-  is lost (`resetAccountToken`); recovery through the profile key is
-  [Security 006](../../../plans/security/006-device-keys.md).
+  is lost (`resetAccountToken`), which also cancels a pending profile-key
+  reset.
+- **Device keys and sessions.** A `devices` row holds a digest device's
+  credential digest or a key device's public key, never both; the key is
+  also in `devices.yaml`, which is authoritative, and accepting a device's
+  first `key` replaces its digest in the same transaction. Session and reset
+  challenges share `device_challenges`, consumed exactly as issued; a session
+  is a random `ars_` token whose digest `device_sessions` holds for at most
+  an hour (`sessionLifetimeMs`). Deleting a device or completing a reset
+  deletes its sessions, and a watch rechecks its session's expiry and any
+  reset taking effect outside the cached authorization. A pending profile-key reset is a `profile_resets`
+  row; from its `effective_at` no earlier device authenticates, and the reset
+  is accepted by the next session challenge or reset read for the profile,
+  or by a sweep every minute (`completeDueResets`). Unauthenticated challenge
+  requests are limited to 30 per caller and profile per ten minutes.
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, or a system call is
   a logged 500 (`ServerFaultError`, `isServerFault` in `errors.ts`).

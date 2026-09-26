@@ -2,7 +2,7 @@ import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDe
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
-import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
+import type { AccountChallenge, ProfileResetDevice, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
   AlreadyClaimedError,
@@ -161,6 +161,21 @@ function treeReference(segment: string): { id: string; governs?: string } {
   }
 }
 
+function clientAddress(request: Request): string {
+  return request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+}
+
+/** Exactly one of a credential digest and a device key, as strings. */
+function enrollmentIsWellFormed(device: { credentialDigest?: unknown; key?: unknown }): boolean {
+  return (typeof device.credentialDigest === "string") !== (typeof device.key === "string")
+    && (device.credentialDigest === undefined || typeof device.credentialDigest === "string")
+    && (device.key === undefined || typeof device.key === "string");
+}
+
+function enrollment(device: { credentialDigest?: unknown; key?: unknown }): { credentialDigest: string } | { key: string } {
+  return typeof device.key === "string" ? { key: device.key } : { credentialDigest: device.credentialDigest as string };
+}
+
 function bearer(request: Request): string | undefined {
   const value = request.headers.get("authorization");
   return value?.startsWith("Bearer ") ? value.slice("Bearer ".length) : undefined;
@@ -248,6 +263,17 @@ export async function serveHost(options: {
   }, options.mergeTool);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
   const pairingClaimAttempts = new Map<string, number[]>();
+  const challengeAttempts = new Map<string, number[]>();
+  /** Unauthenticated challenges are cheap to ask for; bound them per caller and profile. */
+  const challengeAllowed = (request: Request, scope: string): boolean => {
+    const key = `${clientAddress(request)}:${scope}`;
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    const recent = (challengeAttempts.get(key) ?? []).filter((attempt) => attempt > cutoff);
+    if (recent.length >= 30) return false;
+    recent.push(Date.now());
+    challengeAttempts.set(key, recent);
+    return true;
+  };
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
@@ -352,6 +378,42 @@ export async function serveHost(options: {
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
           return json(canopy.createPairing(requireAccount(authentication)), 201);
         }
+        if (url.pathname === "/.arbor/device-sessions/challenges" && request.method === "POST") {
+          const body = await request.json() as { profileTree?: unknown; device?: unknown };
+          if (typeof body.profileTree !== "string" || typeof body.device !== "string") throw new Error("A session challenge names a profile TreeID and a DeviceID");
+          if (!challengeAllowed(request, `session:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+          return json(await canopy.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
+        }
+        if (url.pathname === "/.arbor/device-sessions" && request.method === "POST") {
+          const body = await request.json() as { challenge?: unknown; signature?: unknown };
+          if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
+          return json(await canopy.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
+        }
+        if (url.pathname === "/.arbor/profile-resets/challenges" && request.method === "POST") {
+          const body = await request.json() as { profileTree?: unknown; device?: unknown };
+          if (typeof body.profileTree !== "string") throw new Error("A reset challenge names a profile TreeID and the new device");
+          if (!challengeAllowed(request, `reset:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+          return json(canopy.createProfileResetChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device as ProfileResetDevice }), 201);
+        }
+        const profileReset = /^\/\.arbor\/profile-resets\/([^/]+)$/.exec(url.pathname);
+        if (profileReset) {
+          const profileTree = decodeURIComponent(profileReset[1]!);
+          if (request.method === "PUT") {
+            const body = await request.json() as { challenge?: unknown; publicKey?: unknown; signature?: unknown };
+            if (!body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string") {
+              throw new Error("A reset requires the signed challenge, the profile public key and the signature");
+            }
+            const reset = canopy.requestProfileReset({ origin: publicOrigin, profileTree, challenge: body.challenge, publicKey: body.publicKey, signature: body.signature });
+            return json({ reset }, 202);
+          }
+          if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
+          if (request.method === "GET") return json({ reset: await canopy.pendingProfileReset(authentication, profileTree) });
+          if (request.method === "DELETE") {
+            await canopy.cancelProfileReset(authentication, profileTree);
+            return new Response(null, { status: 204 });
+          }
+          return new Response("Method not allowed", { status: 405 });
+        }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
           const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
           if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
@@ -379,17 +441,17 @@ export async function serveHost(options: {
           pairingClaimAttempts.set(rateKey, recent);
           const body = await request.json() as {
             secret?: unknown;
-            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
+            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
           };
           if (
             typeof body.secret !== "string" || typeof body.device?.id !== "string"
-            || typeof body.device.label !== "string" || typeof body.device.credentialDigest !== "string"
-          ) throw new Error("Pairing claim requires secret, generated device identity, credential digest, and label");
+            || typeof body.device.label !== "string" || !enrollmentIsWellFormed(body.device)
+          ) throw new Error("Pairing claim requires secret, generated device identity, a credential digest or key, and label");
           const claimed = await canopy.claimPairing({
             id: pairingID,
             secret: body.secret,
             deviceID: body.device.id,
-            credentialDigest: body.device.credentialDigest,
+            ...enrollment(body.device),
             label: body.device.label,
           });
           return json({ device: claimed.device, confirmationCode: claimed.confirmationCode }, 201);
@@ -427,7 +489,7 @@ export async function serveHost(options: {
             publicKey?: unknown;
             signature?: unknown;
             inviteCode?: unknown;
-            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
+            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
             configuration?: { root?: unknown; objects?: unknown };
           };
           let accountURL: URL | undefined;
@@ -438,8 +500,8 @@ export async function serveHost(options: {
             || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
             || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
-            || typeof body.device.credentialDigest !== "string" || !body.configuration
-          ) throw new Error("Account join requires an exact community reservation, generated identities, credential digest, and initial configuration");
+            || !enrollmentIsWellFormed(body.device) || !body.configuration
+          ) throw new Error("Account join requires an exact community reservation, generated identities, a credential digest or key, and initial configuration");
           if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
             throw new Error("Account reservation names a different profile TreeID");
           }
@@ -455,7 +517,7 @@ export async function serveHost(options: {
             inviteCode: body.inviteCode as string | undefined,
             deviceID: body.device.id,
             deviceLabel: body.device.label,
-            credentialDigest: body.device.credentialDigest,
+            ...enrollment(body.device),
             configurationSnapshot: bodySnapshot(body.configuration),
           });
           return json({
@@ -652,8 +714,10 @@ export async function serveHost(options: {
             // By ID: a recheck reads the tree as it is now.
             return active && canopy.execution.run(execution, () => canopy.canRead(account, tree.id, link));
           });
-          // Execution token validity is not database state, so it is never cached.
-          const authorized = () => (!execution || canopy.execution.valid(execution)) && readable();
+          // Execution token validity, session expiry and a reset taking
+          // effect change with time, not database state, so they are never cached.
+          const authorized = () => (!execution || canopy.execution.valid(execution))
+            && (!authentication || canopy.authenticationIsCurrent(authentication)) && readable();
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               resync = (reason: string) => {

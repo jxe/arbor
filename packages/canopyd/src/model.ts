@@ -34,6 +34,8 @@ export interface HostAuthentication {
   account: HostAccount;
   subject: string;
   device: string | null;
+  /** When a device session authenticated the request, the session's expiry. */
+  expiresAt?: number;
 }
 
 export interface HostAccessEntry {

@@ -21,7 +21,20 @@ import {
   isPersonProfileTreeID,
   sha256,
   validateAccountChallenge,
+  deviceKeySPKI,
+  deviceSessionChallengeBytes,
+  deviceSignatureBytes,
+  parseDeviceKey,
+  profileResetChallengeBytes,
+  validateDeviceSessionChallenge,
+  validateProfileResetChallenge,
+  validateProfileResetDevice,
   type AccountChallenge,
+  type DeviceSession,
+  type DeviceSessionChallenge,
+  type PendingProfileReset,
+  type ProfileResetChallenge,
+  type ProfileResetDevice,
 } from "@overstory/protocol";
 import { CollectionSchemaCache, decodeProtocolCollectionFile } from "@overstory/collection-schema";
 import {
@@ -59,7 +72,7 @@ import { ObservationLog, type ObservationRecord } from "./updates/observations.t
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
-import { AccountDirectory } from "./accounts.ts";
+import { AccountDirectory, type DeviceBinding, type PendingResetRecord } from "./accounts.ts";
 import {
   HANDLE, handleOfPath, legacyMemberHandle, memberReservations, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
@@ -345,6 +358,12 @@ export class HostDaemon implements AsyncDisposable {
     const db = openHostDatabase(databasePath);
     const canopy = new HostDaemon(dataRoot, db, mergeTool);
     await canopy.mergeTool.clearStaleJobs();
+    // A reset takes effect when its wait ends even if no one asks; requests
+    // also complete due resets as they read them.
+    canopy.resetSweep = setInterval(() => {
+      canopy.completeDueResets().catch((error) => console.error("canopyd could not complete a profile reset", error));
+    }, 60_000);
+    canopy.resetSweep.unref?.();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
       // One transaction, so a failure leaves no community and the next start bootstraps again.
@@ -409,7 +428,7 @@ export class HostDaemon implements AsyncDisposable {
         id: profileTree,
         withinTransaction: () => {
           this.db.run("INSERT INTO accounts (id, handle, enabled) VALUES (?, ?, 1)", [profileTree, account.handle]);
-          this.accounts.insertDevice(deviceID, profileTree, label, sha256(account.token), Date.now());
+          this.accounts.insertDevice(deviceID, profileTree, label, { tokenDigest: sha256(account.token) }, Date.now());
           this.insertConfig(profileConfig, Date.now(), null);
         },
       });
@@ -567,8 +586,16 @@ export class HostDaemon implements AsyncDisposable {
     return this.accounts.authenticateToken(token);
   }
 
+  /** The time-dependent half of `authenticationIsActive`: the session has not
+   * expired and no reset of its profile has taken effect. */
+  authenticationIsCurrent(authentication: HostAuthentication): boolean {
+    const now = Date.now();
+    if (authentication.expiresAt !== undefined && authentication.expiresAt <= now) return false;
+    return !this.accounts.resetIsDue(authentication.account.id, now);
+  }
+
   authenticationIsActive(authentication: HostAuthentication): boolean {
-    if (!authentication.device) return false;
+    if (!authentication.device || !this.authenticationIsCurrent(authentication)) return false;
     const device = this.accounts.device(authentication.device);
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
   }
@@ -661,19 +688,20 @@ export class HostDaemon implements AsyncDisposable {
     id: string;
     secret: string;
     deviceID: string;
-    credentialDigest: string;
+    credentialDigest?: string;
+    key?: string;
     label: string;
   }): Promise<{ device: ServerDevice; confirmationCode: string }> {
     const { id, secret, label } = input;
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
-    const tokenDigest = deviceTokenDigest(input.credentialDigest);
+    const binding = deviceBinding(input);
     const pairing = this.accounts.pairing(id);
     const secretMatches = pairing?.secretMatches(secret) ?? false;
     if (pairing?.claimedAt && pairing.claimedDevice === input.deviceID) {
       const replay = this.accounts.deviceBinding(input.deviceID, pairing.accountID);
-      if (replay?.tokenDigest === tokenDigest && replay.label === safeLabel && secretMatches) {
+      if (replay && stableJSONString(replay.binding) === stableJSONString(binding) && replay.label === safeLabel && secretMatches) {
         return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
       }
     }
@@ -687,10 +715,12 @@ export class HostDaemon implements AsyncDisposable {
     const now = Date.now();
     const accepted = await this.advanceConfig(account.profileTree, `pairing:${id}`, (values) => {
       if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");
-      return { ...values, devices: { ...values.devices, [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false } } };
+      return { ...values, devices: { ...values.devices, [input.deviceID]: {
+        id: input.deviceID, label: safeLabel, administrator: false, ...(input.key !== undefined ? { key: input.key } : {}),
+      } } };
     }, () => {
       if (!this.accounts.claimPairing(id, input.deviceID, now)) throw new Error("Pairing is invalid, expired, or already used");
-      this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, tokenDigest, now);
+      this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, binding, now);
     });
     this.notifyAccepted(accepted);
     return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
@@ -715,10 +745,168 @@ export class HostDaemon implements AsyncDisposable {
       devices: { [deviceID]: { id: deviceID, label, administrator: true } },
     }), () => {
       this.accounts.revokeAllDevices(account.id, now);
-      this.accounts.insertDevice(deviceID, account.id, label, sha256(token), now);
+      this.accounts.insertDevice(deviceID, account.id, label, { tokenDigest: sha256(token) }, now);
+      // The operator's reset supersedes a pending profile-key reset.
+      this.accounts.deleteReset(account.id);
     });
     this.notifyAccepted(accepted);
     return this.account(account.id)!;
+  }
+
+  private resetSweep: ReturnType<typeof setInterval> | undefined;
+  /** How long a profile-key reset waits before it takes effect (accounts §5.3). */
+  resetWaitMs = 72 * 60 * 60 * 1000;
+  /** The longest a device session lasts (accounts §5.1). */
+  sessionLifetimeMs = 60 * 60 * 1000;
+
+  /** A listed, active key device of an enabled account, as the accepted
+   * configuration and its binding agree; anything else is not disclosed. */
+  private async keyDevice(profileTree: string, device: string): Promise<{ account: HostAccount; key: string }> {
+    const account = this.accounts.enabledAccount(profileTree);
+    const entry = account ? (await this.treeConfig(profileTree))?.devices?.[device] : undefined;
+    const row = account ? this.accounts.deviceBinding(device, account.id) : null;
+    if (
+      !account || !entry?.key || !row || row.revokedAt !== null || !("publicKey" in row.binding)
+      || row.binding.publicKey !== entry.key || this.accounts.resetIsDue(account.id, Date.now())
+    ) throw new NotFoundError("No such key device");
+    return { account, key: entry.key };
+  }
+
+  async createDeviceSessionChallenge(input: { origin: string; profileTree: string; device: string }): Promise<DeviceSessionChallenge> {
+    await this.completeDueResets();
+    await this.keyDevice(input.profileTree, input.device);
+    const issuedAt = Date.now();
+    const challenge: DeviceSessionChallenge = {
+      version: 1,
+      purpose: "device-session",
+      id: generateArborID("ax"),
+      origin: input.origin,
+      profileTree: input.profileTree,
+      device: input.device,
+      nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+      issuedAt,
+      expiresAt: issuedAt + 2 * 60 * 1000,
+    };
+    this.accounts.insertChallenge(challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
+    return challenge;
+  }
+
+  /** Exchange a signed session challenge for a session token at this host. */
+  async openDeviceSession(input: { origin: string; challenge: unknown; signature: string }): Promise<DeviceSession> {
+    const challenge = validateDeviceSessionChallenge(input.challenge);
+    if (challenge.origin !== input.origin) throw new Error("Device session challenge names another host");
+    const { key } = await this.keyDevice(challenge.profileTree, challenge.device);
+    if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), input.signature)) {
+      throw new PermissionDeniedError("Device session signature is invalid");
+    }
+    const now = Date.now();
+    const token = `ars_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
+    const expiresAt = now + this.sessionLifetimeMs;
+    this.db.transaction(() => {
+      if (!this.accounts.consumeChallenge(challenge.id, stableJSONString(challenge), now)) {
+        throw new Error("Device session challenge is invalid, expired, or already used");
+      }
+      this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
+    })();
+    return { token, device: challenge.device, expiresAt };
+  }
+
+  createProfileResetChallenge(input: { origin: string; profileTree: string; device: ProfileResetDevice }): ProfileResetChallenge {
+    const device = validateProfileResetDevice(input.device);
+    if (!this.accounts.enabledAccount(input.profileTree)) throw new NotFoundError("No such account");
+    if (this.accounts.pendingReset(input.profileTree)) throw new Error("A reset is already pending for this profile");
+    if (this.accounts.deviceExists(device.id)) throw new Error(`DeviceID is already bound: ${device.id}`);
+    const issuedAt = Date.now();
+    const challenge: ProfileResetChallenge = {
+      version: 1,
+      purpose: "profile-reset",
+      id: generateArborID("ax"),
+      origin: input.origin,
+      profileTree: input.profileTree,
+      device: { id: device.id, label: device.label, key: device.key },
+      nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+      issuedAt,
+      expiresAt: issuedAt + 5 * 60 * 1000,
+    };
+    this.accounts.insertChallenge(challenge.id, stableJSONString(validateProfileResetChallenge(challenge)), challenge.expiresAt, issuedAt);
+    return challenge;
+  }
+
+  /** Record a pending reset the profile key signed; an exact retry returns it again. */
+  requestProfileReset(input: { origin: string; profileTree: string; challenge: unknown; publicKey: string; signature: string }): PendingProfileReset {
+    const challenge = validateProfileResetChallenge(input.challenge);
+    if (challenge.origin !== input.origin || challenge.profileTree !== input.profileTree) throw new Error("Reset challenge names another host or profile");
+    const publicKey = Buffer.from(input.publicKey, "base64url");
+    if (publicKey.byteLength !== 32 || publicKey.toString("base64url") !== input.publicKey) throw new Error("Profile public key is invalid");
+    if (personProfileTreeID(publicKey) !== challenge.profileTree) throw new Error("Profile public key derives another Profile TreeID");
+    if (!verifyDeviceSignature(`ed25519:${input.publicKey}`, profileResetChallengeBytes(challenge), input.signature)) {
+      throw new PermissionDeniedError("Reset signature is invalid");
+    }
+    const account = this.accounts.enabledAccount(challenge.profileTree);
+    if (!account) throw new NotFoundError("No such account");
+    const proofDigest = sha256(stableJSONString({ challenge, publicKey: input.publicKey, signature: input.signature }));
+    const prior = this.accounts.pendingReset(account.id);
+    if (prior?.proofDigest === proofDigest) return publicReset(prior);
+    const now = Date.now();
+    const reset: PendingResetRecord = {
+      profileTree: account.id, device: challenge.device, requestedAt: now, effectiveAt: now + this.resetWaitMs, proofDigest,
+    };
+    this.db.transaction(() => {
+      if (!this.accounts.consumeChallenge(challenge.id, stableJSONString(challenge), now)) {
+        throw new Error("Reset challenge is invalid, expired, or already used");
+      }
+      if (this.accounts.pendingReset(account.id)) throw new Error("A reset is already pending for this profile");
+      if (this.accounts.deviceExists(challenge.device.id)) throw new Error(`DeviceID is already bound: ${challenge.device.id}`);
+      this.accounts.insertReset(reset);
+    })();
+    return publicReset(reset);
+  }
+
+  /** A profile's pending reset, for its own devices. */
+  async pendingProfileReset(authentication: HostAuthentication, profileTree: string): Promise<PendingProfileReset | null> {
+    if (authentication.account.profileTree !== profileTree) throw new NotFoundError("No such account");
+    await this.completeDueResets();
+    const pending = this.accounts.pendingReset(profileTree);
+    return pending ? publicReset(pending) : null;
+  }
+
+  /** An administrator device cancels a pending reset before it takes effect. */
+  async cancelProfileReset(authentication: HostAuthentication, profileTree: string): Promise<void> {
+    if (authentication.account.profileTree !== profileTree) throw new NotFoundError("No such account");
+    if (!await this.isAdministratorDevice(authentication.account, authentication.device)) {
+      throw new PermissionDeniedError("Only an administrator device may cancel a reset");
+    }
+    const now = Date.now();
+    const cancelled = this.db.transaction(() => {
+      if (this.accounts.resetIsDue(profileTree, now)) return false;
+      return this.accounts.deleteReset(profileTree);
+    })();
+    if (!cancelled) throw new NotFoundError("No pending reset");
+  }
+
+  /** Accept every reset whose wait has ended; a reset that loses a race to a
+   * concurrent configuration edit is retried on the next call. */
+  async completeDueResets(): Promise<void> {
+    for (const profileTree of this.accounts.dueResets(Date.now())) {
+      const pending = this.accounts.pendingReset(profileTree);
+      const account = this.accounts.account(profileTree);
+      if (!pending || !account) continue;
+      const { id, label, key } = pending.device;
+      const now = Date.now();
+      try {
+        const accepted = await this.advanceConfig(profileTree, `reset:${id}`, (values) => ({
+          ...values,
+          devices: { [id]: { id, label, administrator: true, key } },
+        }), () => {
+          if (!this.accounts.deleteReset(profileTree)) throw new RefConflictError(null);
+          this.accounts.revokeAllDevices(account.id, now);
+          this.accounts.insertDevice(id, account.id, label, { publicKey: key }, now);
+        });
+        this.notifyAccepted(accepted);
+      } catch (error) {
+        if (!(error instanceof RefConflictError)) throw error;
+      }
+    }
   }
 
   accountByHandle(handle: string): HostAccount | null {
@@ -897,12 +1085,23 @@ export class HostDaemon implements AsyncDisposable {
     if (kind === "person") {
       const now = Date.now();
       for (const id of Object.keys(previous?.devices ?? {})) {
-        if (!next.devices?.[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, tree]);
+        if (!next.devices?.[id]) {
+          this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, tree]);
+          this.accounts.endSessions(id);
+        }
       }
-      for (const id of Object.keys(next.devices ?? {})) {
-        const row = this.db.query("SELECT revoked_at FROM devices WHERE id = ? AND account_id = ?").get(id, tree) as { revoked_at: number | null } | null;
+      for (const [id, device] of Object.entries(next.devices ?? {})) {
+        const row = this.accounts.deviceBinding(id, tree);
         if (!row) throw new Error(`Device ${id} has no credential binding`);
-        if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
+        if (row.revokedAt !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
+        if ("publicKey" in row.binding) {
+          if (row.binding.publicKey !== device.key) throw new Error(`A device's key never changes: ${id}`);
+        } else if (device.key) {
+          // A digest device moves to a key: its credential stops working in
+          // the commit that accepts the key (accounts §5.2).
+          if (!previous?.devices?.[id] || previous.devices[id]!.key) throw new Error(`Device ${id} cannot move to a key`);
+          this.accounts.bindDeviceKey(id, device.key);
+        }
       }
     }
     this.recomputeBoundaries();
@@ -1108,7 +1307,8 @@ export class HostDaemon implements AsyncDisposable {
     inviteCode?: string;
     deviceID: string;
     deviceLabel: string;
-    credentialDigest: string;
+    credentialDigest?: string;
+    key?: string;
     configurationSnapshot: TreeSnapshot;
   }): Promise<{ account: HostAccount; configuration: HostTree }> {
     const proof = this.verifyAccountIdentityProof(input);
@@ -1120,7 +1320,7 @@ export class HostDaemon implements AsyncDisposable {
       configurationTree: input.configurationTree,
       deviceID: input.deviceID,
       deviceLabel: input.deviceLabel,
-      credentialDigest: input.credentialDigest,
+      ...(input.key !== undefined ? { key: input.key } : { credentialDigest: input.credentialDigest }),
       configurationRoot: input.configurationSnapshot.root,
     }));
     if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
@@ -1130,7 +1330,7 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account join requires a person Profile TreeID and its configuration TreeID");
     }
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Account join requires a client-generated 128-bit DeviceID");
-    const tokenDigest = deviceTokenDigest(input.credentialDigest);
+    const binding = deviceBinding(input);
     const prior = this.accountByHandle(input.handle);
     if (prior) {
       const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
@@ -1163,8 +1363,9 @@ export class HostDaemon implements AsyncDisposable {
     // administrator. The profile is awaiting initialization until activated.
     const prepared = await this.prepareConfig(input.profileTree, "person", input.configurationSnapshot);
     const devices = prepared.values.devices ?? {};
-    if (Object.keys(devices).length !== 1 || !devices[input.deviceID] || devices[input.deviceID]!.label !== input.deviceLabel) {
-      throw new Error("Initial configuration must contain exactly the joining device and matching label");
+    if (Object.keys(devices).length !== 1 || !devices[input.deviceID] || devices[input.deviceID]!.label !== input.deviceLabel
+      || devices[input.deviceID]!.key !== input.key) {
+      throw new Error("Initial configuration must contain exactly the joining device, with its label and key");
     }
     if (!devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
     if (Object.keys(prepared.values.mounts).length) throw new Error("An initial profile configuration mounts nothing");
@@ -1180,7 +1381,7 @@ export class HostDaemon implements AsyncDisposable {
         "INSERT INTO accounts (id, handle, claim_digest, enabled) VALUES (?, ?, ?, 1)",
         [input.profileTree, input.handle, claimDigest],
       );
-      this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, tokenDigest, now);
+      this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, binding, now);
       this.insertConfig(prepared, now, `device:${input.deviceID}`);
       this.insertMemberMount(community.id, input.handle, input.profileTree);
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
@@ -2432,11 +2633,45 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    clearInterval(this.resetSweep);
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.db.close();
     this.observationListeners.clear();
   }
+}
+
+/** Verify a key device's (or a profile key's, as `ed25519:`) signature. */
+function verifyDeviceSignature(key: string, message: Uint8Array, signature: string): boolean {
+  let bytes: Uint8Array;
+  try { bytes = deviceSignatureBytes(signature); } catch { return false; }
+  const publicKey = createPublicKey({ key: Buffer.from(deviceKeySPKI(key)), format: "der", type: "spki" });
+  return parseDeviceKey(key).algorithm === "ed25519"
+    ? verify(null, message, publicKey, bytes)
+    : verify("sha256", message, { key: publicKey, dsaEncoding: "ieee-p1363" }, bytes);
+}
+
+/** What a pending reset discloses: never its key or proof. */
+function publicReset(reset: PendingResetRecord): PendingProfileReset {
+  return {
+    profileTree: reset.profileTree,
+    device: { id: reset.device.id, label: reset.device.label },
+    requestedAt: reset.requestedAt,
+    effectiveAt: reset.effectiveAt,
+  };
+}
+
+/** A new device's binding from a claim or pairing body: exactly one of a
+ * credential digest and a device key. */
+function deviceBinding(input: { credentialDigest?: string; key?: string }): DeviceBinding {
+  if ((input.credentialDigest === undefined) === (input.key === undefined)) {
+    throw new Error("A device enrolls with exactly one of a credential digest and a key");
+  }
+  if (input.key !== undefined) {
+    parseDeviceKey(input.key);
+    return { publicKey: input.key };
+  }
+  return { tokenDigest: deviceTokenDigest(input.credentialDigest!) };
 }
 
 /** The stored token digest of a `sha256:<hex>` device credential digest. */
