@@ -736,6 +736,16 @@ enum ArborSyncStatus: Equatable {
         }
     }
 
+    /// The short status the iPhone's pull-down shows.
+    var pullTitle: String {
+        switch self {
+        case .synchronized: "Synced"
+        case .syncing: "Syncing"
+        case .offline: "Offline"
+        case .attention: "Sync needs attention"
+        }
+    }
+
     var showsIOSShareAction: Bool {
         self == .synchronized
     }
@@ -2180,7 +2190,8 @@ struct CanopyRootView: View {
                     if topOverscrollProgress > 0.02 {
                         IOSTopOverscrollIndicator(
                             progress: topOverscrollProgress,
-                            isArmed: topOverscrollArmed
+                            isArmed: topOverscrollArmed,
+                            status: toolbarSyncStatus
                         )
                         .offset(y: 4 + elasticOverscrollIndicatorTravel)
                         .opacity(min(1, topOverscrollProgress * 2.6))
@@ -2339,10 +2350,8 @@ struct CanopyRootView: View {
             onRelease: { committed in
                 topOverscrollProgress = 0
                 topOverscrollArmed = false
-                if committed {
-                    sidebarPageOrder = .trees
-                    withAnimation { sidebarRevealProgress = 1 }
-                }
+                // Pulling down shows how sync is doing; releasing opens Sync & Accounts.
+                if committed { showAccountsPanel() }
             }
         )
 #else
@@ -4192,6 +4201,7 @@ struct CanopyIOSLaunchView: View {
 private struct IOSTopOverscrollIndicator: View {
     let progress: CGFloat
     let isArmed: Bool
+    let status: ArborSyncStatus
 
     var body: some View {
         HStack(spacing: 9) {
@@ -4202,13 +4212,18 @@ private struct IOSTopOverscrollIndicator: View {
                     .trim(from: 0, to: min(1, progress))
                     .stroke(isArmed ? Color.accentColor : .secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                Image(systemName: isArmed ? "checkmark" : "arrow.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isArmed ? Color.accentColor : .secondary)
+                if isArmed {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                } else {
+                    ArborSyncToolbarIndicator(status: status)
+                        .frame(width: 12, height: 12)
+                }
             }
             .frame(width: 24, height: 24)
 
-            Text(isArmed ? "Release for Trees" : "Pull for Trees")
+            Text(isArmed ? "Release for Sync & Accounts" : status.pullTitle)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(isArmed ? .primary : .secondary)
         }
