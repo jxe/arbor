@@ -71,6 +71,14 @@ Pairing offers for another device go to the host directly with the account
 credential on both platforms. The Mac cannot forget an account from the app,
 and iOS cannot restore or back up an identity file; the service declares both
 as missing capabilities.
+A device that pairs or claims now signs in with a device key
+([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions)):
+on the Mac Arbor Sync holds it and `GET /v1/credential` returns sessions; on
+iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
+as a tagged value in the Keychain slot a credential used, and
+`AccountStoredCredentialProvider` opens hour-long sessions with it. A device
+with a credential moves to a key from the Devices section, which also shows a
+pending reset of the profile's devices with a Cancel button.
 The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree

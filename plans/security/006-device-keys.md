@@ -6,7 +6,8 @@
 - **Effort:** L
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
-- **State:** PHASES 1 AND 2 IMPLEMENTED AND THE HOST DEPLOYED 2026-09-26 (schema 23). The spec
+- **State:** PHASES 1–3 IMPLEMENTED; THE HOST DEPLOYED 2026-09-26 (schema 23).
+  Phase 3's hands-on end-to-end has not run, and no device of Joe's has a key. The spec
   ([accounts §1.1, §3, §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing),
   [access control §2, §3.2](../../docs/overstory-spec/05-access-control.md#2-authentication-and-secrets)),
   the vectors (`device-keys.json`), the TypeScript protocol, canopyd and
@@ -169,16 +170,17 @@ unencrypted format.
 
 ## Work
 
-### Phase 3: clients
+### Phase 3 remainder: the hands-on end-to-end
 
-- Arbor Sync: generate and store its key, move to it, open sessions and hand
-  them to local clients, encrypted backups, and the reset.
-- iPhone: a Secure Enclave key, move to it, sessions.
-- Mac and CLI: use Arbor Sync's sessions; show and cancel a pending reset;
-  pair new devices with keys.
-- **Gate:** client suites, and a local end-to-end: move the Mac to a key, pair
-  the iPhone with a key, revoke it and see its session end, start a reset from
-  the backup and cancel it from the Mac, then complete one.
+The client code is in (see [status](../../status.md)): Arbor Sync, the CLI,
+the Mac app and the iPhone app hold keys, use sessions, pair and claim with
+keys, move a digest device to a key, encrypt backups, and request, show,
+cancel and finish resets, each covered by package and integration tests.
+
+- **Gate:** a local end-to-end with a debug Canopy and a real iPhone: move the
+  Mac to a key, pair the iPhone with a key (Secure Enclave), revoke it and see
+  its session end, start a reset from the backup and cancel it from the Mac,
+  then complete one. Needs Joe's hands for the iPhone.
 
 ### Phase 4: moving Joe's devices
 
