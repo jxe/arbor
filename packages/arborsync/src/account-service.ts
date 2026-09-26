@@ -4,6 +4,7 @@ import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
+import { moveToDeviceKey } from "@overstory/client";
 import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
@@ -33,6 +34,15 @@ export class LocalAccountService {
     }
     if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
     return token;
+  }
+
+  /** Move this installation's device for an account to a key; returns the key. */
+  async moveToDeviceKey(configurationTree: string): Promise<string> {
+    let store: HostAccountStore;
+    try { store = new HostAccountStore(configurationTree); }
+    catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
+    if (!await store.safe()) throw new ProtocolError("not-found", "No account is connected for that configuration", 404);
+    return (await moveToDeviceKey(configurationTree)).deviceKey!;
   }
 
   async claimHostAccount(account: string, inputPath: string, displayName?: string, inviteCode?: string): Promise<MutationReceipt["effects"]> {

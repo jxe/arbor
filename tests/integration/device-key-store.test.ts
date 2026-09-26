@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { arborPrivateRoot, HostAccountStore, ProtocolClient, treeConfigurationID } from "@overstory/protocol";
+import { moveToDeviceKey } from "@overstory/client";
 import { editTreeConfig, readTreeConfig } from "../helpers/tree-config.ts";
 
 const token = "device-key-store-owner";
+const moverToken = "device-key-store-mover";
 let sandbox: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 let profileTree: string;
@@ -19,7 +21,7 @@ beforeAll(async () => {
   process.env.ARBOR_CREDENTIAL_STORE = "file";
   host = await serveHost({
     dataRoot: join(sandbox, "host"),
-    accounts: [{ handle: "owner", token, communityWriter: true }],
+    accounts: [{ handle: "owner", token, communityWriter: true }, { handle: "mover", token: moverToken }],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
@@ -69,5 +71,23 @@ describe("an installation's device key", () => {
     const renewed = (await store.get())!.accountToken;
     expect(renewed).not.toBe(connected.accountToken);
     expect((await new ProtocolClient(host.url, renewed).account()).account.profileTree).toBe(profileTree);
+  });
+
+  test("moveToDeviceKey adds the key to this device's entry, adopts it, and is idempotent", async () => {
+    const mover = new ProtocolClient(host.url, moverToken);
+    const { account } = await mover.account();
+    const profile = account.profileTree!;
+    const configuration = treeConfigurationID(profile);
+    const before = await readTreeConfig(mover, profile, "person");
+    const device = Object.keys(before.values.devices!)[0]!;
+    await new HostAccountStore(configuration).set(moverToken, { origin: host.url, account: `${host.url}/~mover`, accountID: profile, profileTree: profile, deviceID: device });
+
+    const moved = await moveToDeviceKey(configuration);
+    expect(moved.deviceKey).toMatch(/^ed25519:/);
+    await expect(mover.account()).rejects.toThrow("unauthenticated");
+    const session = (await new HostAccountStore(configuration).get())!.accountToken;
+    const after = await readTreeConfig(new ProtocolClient(host.url, session), profile, "person");
+    expect(after.values.devices).toEqual({ ...before.values.devices, [device]: { ...before.values.devices![device]!, key: moved.deviceKey } });
+    expect((await moveToDeviceKey(configuration)).deviceKey).toBe(moved.deviceKey);
   });
 });

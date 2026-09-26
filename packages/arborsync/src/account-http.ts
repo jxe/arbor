@@ -29,6 +29,11 @@ export function accountHandler(service: LocalAccountService) {
       await service.backupProfileIdentity(body.destination);
       return json({ saved: true });
     }
+    if (request.method === "POST" && url.pathname === "/v1/device-key") {
+      const body = await request.json() as { configurationTree?: unknown };
+      if (typeof body.configurationTree !== "string") throw new ProtocolError("invalid-request", "Moving to a device key requires a configurationTree", 400);
+      return json({ deviceKey: await service.moveToDeviceKey(body.configurationTree) });
+    }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts/cancel") {
       await service.cancelPendingClaim();
       return json({ cancelled: true });

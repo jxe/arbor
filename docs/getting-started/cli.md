@@ -239,6 +239,21 @@ arbor me
 arbor me backup ~/Documents/arbor-me.backup
 ```
 
+### `arbor device`
+
+```text
+arbor device [--account <ConfigurationTreeID>]
+arbor device move-to-key [--account <ConfigurationTreeID>]
+```
+
+`arbor device` prints this installation's device for an account and how it
+signs in: with a bearer credential, or with a device key. `move-to-key`
+generates an Ed25519 key in operating-system credential storage, adds it to
+this device's own `devices.yaml` entry (changing nothing else in the file) and
+from then on opens hour-long sessions with it; the host stops accepting the
+old credential in the same update. The DeviceID stays the same, and a device
+moves once. `--account` is needed only when several accounts are connected.
+
 ### `arbor daemon`
 
 ```text

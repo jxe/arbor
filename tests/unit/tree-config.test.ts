@@ -7,6 +7,7 @@ import {
   snapshotTreeConfig,
   snapshotTreeConfigFiles,
   treeConfigurationID,
+  withDeviceKey,
   type TreeConfigFile,
   type TreeConfigKind,
   type TreeConfigValues,
@@ -67,5 +68,30 @@ describe("tree-configuration.json", () => {
         expect(order(merged.values), vector.name).toEqual(order(vector.result as TreeConfigValues));
       }
     }
+  });
+});
+
+describe("moving a device to a key", () => {
+  const source = [
+    "# Joe's devices",
+    "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:",
+    "  label: Joe's Mac  # the laptop",
+    "  administrator: true",
+    "dv_iiiiiiiiiiiiiiiiiiiiiiiiii:",
+    "  label: Joe's iPhone",
+    "",
+  ].join("\n");
+  const key = "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w";
+
+  test("adds the key to one entry and keeps every other byte", () => {
+    const next = withDeviceKey(source, "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", key);
+    expect(next).toBe(source.replace("  administrator: true\n", `  administrator: true\n  key: ${key}\n`));
+  });
+
+  test("refuses a second key, an unknown device and a malformed key", () => {
+    const moved = withDeviceKey(source, "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", key);
+    expect(() => withDeviceKey(moved, "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", key)).toThrow("already has a key");
+    expect(() => withDeviceKey(source, "dv_zzzzzzzzzzzzzzzzzzzzzzzzzz", key)).toThrow("no entry");
+    expect(() => withDeviceKey(source, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "ed25519:short")).toThrow("Malformed device key");
   });
 });

@@ -292,6 +292,14 @@ local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
+For a key device the token is a session its key opened, not a long-lived
+credential: it is valid for at most an hour, so a client refetches it after a
+401 rather than caching it indefinitely.
+
+`POST /v1/device-key` accepts `{ configurationTree }` and moves this
+installation's device for that account to a key (`arbor device move-to-key`),
+answering `{ deviceKey }`; for a device that already has one it only answers.
+
 ## 4. Identity, account bootstrap, and declined changes
 
 Narrow operations remain for data-home state that cannot yet be represented by

@@ -140,6 +140,13 @@ loopback only and rejects non-loopback `Host` headers; the credential itself
 still lives in the platform credential store (or the file store when
 `ARBOR_CREDENTIAL_STORE=file`) and is never written to the tree.
 
+A key device ([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions))
+keeps its Ed25519 private key in that store instead, and `GET /v1/credential`
+returns a session the key opened, reused until five minutes before it expires
+and cached for other local processes in the account's owner-only
+`session.json`. Local clients therefore never hold the key, and treat the token
+as they always have: on a 401 they fetch it again.
+
 ## Migration
 
 The alpha implementation moved legacy caches, rehearsal state, Finder

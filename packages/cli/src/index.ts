@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
+import { moveToDeviceKey } from "@overstory/client";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { addLocalPlacement, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
@@ -52,6 +53,8 @@ function usage(): never {
   arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
+  arbor device [--account <ConfigurationTreeID>]
+  arbor device move-to-key [--account <ConfigurationTreeID>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor status [<locator>] [--json]
   arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
@@ -1562,6 +1565,29 @@ async function main(): Promise<void> {
       return;
     }
     usage();
+  }
+  if (command === "device") {
+    const [action, ...rest] = args[0]?.startsWith("-") ? [undefined, ...args] : args;
+    if (action !== undefined && action !== "move-to-key") usage();
+    let configurationTree: string | undefined;
+    for (let index = 0; index < rest.length; index += 1) {
+      if (rest[index] === "--account" && rest[index + 1]) configurationTree = rest[++index];
+      else usage();
+    }
+    const accounts = await HostAccountStore.list();
+    const record = configurationTree
+      ? accounts.find((candidate) => candidate.configurationTree === configurationTree)
+      : accounts.length === 1 ? accounts[0] : undefined;
+    if (!record) {
+      throw new Error(accounts.length > 1 && !configurationTree
+        ? `Several accounts are connected; name one with --account: ${accounts.map((candidate) => candidate.configurationTree).join(", ")}`
+        : "No connected account matches");
+    }
+    const moved = action === "move-to-key" ? await moveToDeviceKey(record.configurationTree) : record;
+    console.log(`Account: ${moved.account}`);
+    console.log(`Device: ${moved.deviceID}`);
+    console.log(moved.deviceKey ? `Signs in with key: ${moved.deviceKey}` : "Signs in with a credential; `arbor device move-to-key` moves it to a key");
+    return;
   }
   if (command === "daemon") {
     if (args.length !== 1) usage();

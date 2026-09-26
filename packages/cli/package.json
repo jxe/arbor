@@ -6,8 +6,9 @@
   "dependencies": {
     "@overstory/arborsync": "workspace:*",
     "@overstory/canopyd": "workspace:*",
-    "@overstory/protocol": "workspace:*",
+    "@overstory/client": "workspace:*",
     "@overstory/fs": "workspace:*",
+    "@overstory/protocol": "workspace:*",
     "yaml": "2.8.2"
   },
   "bin": {

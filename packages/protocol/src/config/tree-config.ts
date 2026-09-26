@@ -199,6 +199,55 @@ export function parseDevicesYAML(source: string): Record<string, TreeConfigDevic
   return devices;
 }
 
+/**
+ * `field` as a new last line of a top-level block mapping entry, at the
+ * indentation of its other fields; null when the entry is not in that plain
+ * block form. Every other byte is kept.
+ */
+function insertBlockField(source: string, entry: string, field: string): string | null {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.startsWith(`${entry}:`) && /^\s*(#.*)?$/.test(line.slice(entry.length + 1)));
+  if (start < 0) return null;
+  let end = start + 1;
+  let indent: string | undefined;
+  for (; end < lines.length; end++) {
+    const line = lines[end]!;
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const leading = /^( +)/.exec(line)?.[1];
+    if (!leading) break;
+    indent ??= leading;
+    if (leading !== indent) return null;
+  }
+  if (!indent) return null;
+  // Insert after the entry's last field, before any blank or comment lines that follow it.
+  let last = end - 1;
+  while (last > start && (!lines[last]!.trim() || lines[last]!.trimStart().startsWith("#"))) last--;
+  lines.splice(last + 1, 0, `${indent}${field}`);
+  return lines.join("\n");
+}
+
+/**
+ * `devices.yaml` with `key` added to `device`'s entry and nothing else
+ * changed, comments and formatting included: the update that moves a digest
+ * device to a key (accounts §5.2).
+ */
+export function withDeviceKey(source: string, device: string, key: string): string {
+  const before = parseDevicesYAML(source);
+  if (!before[device]) throw new Error(`devices.yaml has no entry for ${device}`);
+  if (before[device]!.key) throw new Error(`${device} already has a key`);
+  if (!isDeviceKey(key)) throw new Error(`Malformed device key: ${key}`);
+  const next = insertBlockField(source, device, `key: ${key}`) ?? (() => {
+    const document = parseDocument(source, { uniqueKeys: true });
+    document.setIn([device, "key"], key);
+    return document.toString({ lineWidth: 0 });
+  })();
+  const after = parseDevicesYAML(next);
+  if (stableJSONString(after) !== stableJSONString({ ...before, [device]: { ...before[device]!, key } })) {
+    throw new Error("Adding the key would change other entries of devices.yaml");
+  }
+  return next;
+}
+
 /** An `apps.yaml` rule's merge key within its app: canonical `(resource, who, within)`. */
 export function appRuleKey(rule: AppAccessRule): string {
   const who = typeof rule.who === "string" ? rule.who : "profile" in rule.who ? `profile:${rule.who.profile}` : `link:${rule.who.link}`;
