@@ -393,6 +393,35 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    @Test("A rejected session is retried once with a fresh one, and a second rejection stays")
+    func authenticationRetry() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_session"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let expired = ProtocolHTTPError(status: 401, code: "unauthenticated", message: "session expired", retryable: false)
+            let transport = acceptingTransport(tree: tree, initial: initial) { call in if call == 1 || call == 3 { throw expired } }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"))
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            try await admitAppend(session, "Local\n")
+            _ = try await coordinator.syncOnce()
+            for _ in 0..<200 where await transport.requests.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(await transport.requests.count == 2)
+            for _ in 0..<200 where try await workingTree.heads().acceptedUpdate != "up_1" { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(try await workingTree.heads().acceptedUpdate == "up_1")
+
+            // Within the minute, a second rejection is a revocation: no automatic retry.
+            try await admitAppend(session, "More\n")
+            _ = try await coordinator.syncOnce()
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(await transport.requests.count == 3)
+        }
+    }
+
     @Test("An editor patch against a retained accepted file publishes as a delta, and falls back by size")
     func editorPatchDelta() async throws {
         try await withTemporaryRoot { root in

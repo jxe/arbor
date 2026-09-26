@@ -517,11 +517,20 @@ public actor UpdateCoordinator {
         try writeControl()
     }
 
+    private var lastAuthenticationRetry: Date?
+
     /// Classify a failure into the machine's taxonomy.
     private func fail(_ error: any Error, id: String?) {
         failure = String(describing: error)
         if let http = error as? ProtocolHTTPError, http.status == 401 || http.status == 403 {
             dispatch(.authenticationFailed(reason: http.code))
+            // A key device's session expires within the hour. The client has
+            // already dropped the rejected token, so one prompt retry carries a
+            // fresh one; a second 401 soon after is a real revocation and stays.
+            if http.status == 401, lastAuthenticationRetry.map({ Date().timeIntervalSince($0) > 60 }) ?? true {
+                lastAuthenticationRetry = Date()
+                Task { await self.credentialsRefreshed() }
+            }
         } else if let http = error as? ProtocolHTTPError, http.code == "unsupported-operation", let id {
             hold(.unsupported, detail: http.message ?? http.code, id: id)
         } else if error is ProtocolUpdateConflictError, let id {

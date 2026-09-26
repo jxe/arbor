@@ -116,6 +116,19 @@ struct DeviceKeysTests {
         #expect(ec.verifies(ecSignature, over: bytes))
     }
 
+    @Test func deviceKeySecretsRoundTripAndSignWhatTheirKeyVerifies() throws {
+        let challenge = try vectors().sessionChallenges[1].challenge
+        let bytes = try deviceSessionChallengeSigningBytes(challenge)
+        for secret in [try DeviceKeySecret.generate(), .software(P256.Signing.PrivateKey().rawRepresentation)] {
+            #expect(DeviceKeySecret(stored: secret.stored) == secret)
+            let key = try secret.publicKey()
+            #expect(key.algorithm == .p256)
+            #expect(key.verifies(try secret.sign(bytes), over: bytes))
+        }
+        #expect(DeviceKeySecret(stored: "a-bearer-credential") == nil)
+        #expect(DeviceKeySecret(stored: "arbor-device-key:v1:xx:AAAA") == nil)
+    }
+
     @Test func pairingDeviceHoldsExactlyOneBinding() throws {
         let key = ProtocolDeviceKey(p256: P256.Signing.PrivateKey().publicKey)
         #expect(throws: Never.self) { try ProtocolPairingDevice(id: "dv_phone", label: "Phone", key: key).validated() }

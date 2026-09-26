@@ -369,13 +369,19 @@ struct NativeAccountPairingTests {
         #expect(claimRequests.count == 2)
         #expect(claimRequests[0].body == claimRequests[1].body)
         #expect(claimRequests.allSatisfy { $0.authorization == nil })
+        // The new device enrolls with a key, never a credential digest, and signs in with sessions.
+        let claimed = try #require(try JSONSerialization.jsonObject(with: claimRequests[0].body) as? [String: Any])
+        let enrolled = try #require(claimed["device"] as? [String: Any])
+        #expect((enrolled["key"] as? String)?.hasPrefix("p256:") == true)
+        #expect(enrolled["credentialDigest"] == nil)
         let accountRequests = captured.filter { $0.path == "/.arbor/account" }
         #expect(accountRequests.count == 2)
         #expect(accountRequests[0].authorization == accountRequests[1].authorization)
-        #expect(accountRequests[1].authorization?.hasPrefix("Bearer ") == true)
+        #expect(accountRequests[1].authorization == "Bearer ars_exact")
 
         #expect(await store.loadPending(origin: origin, pairingID: "pa_exact") == nil)
         #expect(await store.load(configurationTree: "tr_configexact") == persisted.credential)
+        #expect(persisted.credential.hasPrefix("arbor-device-key:v1:"))
         #expect(await store.accounts().map(\.configurationTree) == ["tr_configexact"])
     }
 
@@ -420,9 +426,23 @@ private actor PairingURLProtocolState {
             }
             device = ["id": .string(id), "label": .string(label)]
             return (200, jsonData([
-                "device": ["id": id, "account": "ac_exact", "label": label, "createdAt": 1_788_000_000_000],
+                // Since canopyd 005 an account's id is its profile TreeID.
+                "device": ["id": id, "account": "tr_profileexact", "label": label, "createdAt": 1_788_000_000_000],
                 "confirmationCode": "123456",
             ]))
+        }
+        // A key device signs in for a session (accounts §5.1).
+        if path == "/.arbor/device-sessions/challenges" {
+            guard case let .string(id) = device["id"] else { return (404, Data(#"{"error":"not-found","message":"no device","retryable":false}"#.utf8)) }
+            return (201, jsonData([
+                "version": 1, "purpose": "device-session", "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://canopy.test",
+                "profileTree": "tr_profileexact", "device": id, "nonce": String(repeating: "A", count: 43),
+                "issuedAt": 1_788_000_000_000, "expiresAt": 1_788_000_120_000,
+            ]))
+        }
+        if path == "/.arbor/device-sessions" {
+            guard case let .string(id) = device["id"] else { return (404, Data(#"{"error":"not-found","message":"no device","retryable":false}"#.utf8)) }
+            return (201, jsonData(["token": "ars_exact", "device": id, "expiresAt": Int(Date().timeIntervalSince1970 * 1000) + 3_600_000]))
         }
         if path == "/.arbor/account" {
             accountReads += 1

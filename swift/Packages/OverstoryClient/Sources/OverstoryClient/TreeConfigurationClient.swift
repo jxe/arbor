@@ -39,6 +39,23 @@ public struct TreeConfigurationClient: Sendable {
         _ = try await wire.submitUpdate(prepared)
     }
 
+    /// Move `device` to `key` (accounts §5.2): add the key to the device's own
+    /// `devices.yaml` entry and change nothing else. The host stops accepting
+    /// the device's credential in the same update.
+    public func addDeviceKey(device: String, key: ProtocolDeviceKey) async throws {
+        let account = try await wire.account().account
+        let profile = try account.configuration.validated()
+        let snapshot = try await wire.snapshot(tree: profile.id, root: profile.root)
+        let source = try utf8(snapshot.rootFile(named: "devices.yaml"), name: "devices.yaml")
+        let next = try AccountConfigurationYAML.replacingDevices(in: source) { devices in
+            guard var entry = devices[device] else { throw ProtocolValidationError.invalidValue("devices.yaml has no entry for \(device)") }
+            guard entry.key == nil else { throw ProtocolValidationError.invalidValue("\(device) already has a key") }
+            entry.key = key.value
+            devices[device] = entry
+        }
+        try await submitConfiguration(profile, snapshot: snapshot, file: "devices.yaml", source: next)
+    }
+
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
         let (account, _, snapshot, devicesSource, appsSource) = try await treeConfiguration(tree)
         let accessSource = try utf8(snapshot.rootFile(named: "access.yaml"), name: "access.yaml")
