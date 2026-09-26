@@ -1042,6 +1042,12 @@ struct ArborSyncStatusView: View {
 #endif
             }
             .padding(.vertical, 4)
+#if os(iOS)
+            // In an iOS Form row every tap goes to one button unless each is borderless;
+            // icons keep the status text from wrapping mid-word.
+            .buttonStyle(.borderless)
+            .labelStyle(.iconOnly)
+#endif
         } footer: {
 #if os(macOS)
             VStack(alignment: .leading, spacing: 4) {

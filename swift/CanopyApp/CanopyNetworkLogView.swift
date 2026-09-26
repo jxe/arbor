@@ -62,21 +62,27 @@ struct CanopyNetworkLogView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
         }
+#if os(macOS)
         .frame(minWidth: 720, minHeight: 480)
+#endif
         .task { reload() }
     }
 
     private var filters: some View {
         HStack(spacing: 12) {
-            ForEach(ProtocolNetworkLogEntry.Kind.allCases, id: \.self) { kind in
-                Toggle(label(kind), isOn: Binding(
-                    get: { kinds.contains(kind) },
-                    set: { on in if on { kinds.insert(kind) } else { kinds.remove(kind) } }
-                ))
-                .toggleStyle(.button)
-                .controlSize(.small)
+            // The kinds scroll on a narrow screen rather than widening the view.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(ProtocolNetworkLogEntry.Kind.allCases, id: \.self) { kind in
+                        Toggle(label(kind), isOn: Binding(
+                            get: { kinds.contains(kind) },
+                            set: { on in if on { kinds.insert(kind) } else { kinds.remove(kind) } }
+                        ))
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+                    }
+                }
             }
-            Spacer()
             TextField("Filter", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 220)
@@ -90,24 +96,21 @@ struct CanopyNetworkLogView: View {
     private func row(_ entry: ProtocolNetworkLogEntry) -> some View {
         let open = expanded.contains(entry.id)
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(Self.time.string(from: entry.at)).font(.caption.monospaced()).foregroundStyle(.secondary)
-                Text(label(entry.kind))
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(tint(entry).opacity(0.18), in: Capsule())
-                    .foregroundStyle(tint(entry))
-                Text(entry.name).font(.body.monospaced())
-                if let tree = entry.tree { Text(shortTree(tree)).font(.caption.monospaced()).foregroundStyle(.secondary) }
-                Spacer()
-                if let status = entry.status { Text("\(status)").font(.caption.monospaced()).foregroundStyle(status >= 400 ? .red : .secondary) }
-                if let ms = entry.roundTripMs {
-                    Text("↺ \(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(.blue)
-                } else if let ms = entry.durationMs {
-                    Text("\(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(ms > 1000 ? .orange : .primary)
+            // One line on the Mac; the phone puts the tree and timings on a second.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    heading(entry)
+                    if let tree = entry.tree { Text(shortTree(tree)).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                    Spacer()
+                    metrics(entry)
                 }
-                if let total = entry.serverTiming?["total"] {
-                    Text("server \(Int(total.rounded()))").font(.caption.monospaced()).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) { heading(entry) }
+                    HStack(spacing: 8) {
+                        if let tree = entry.tree { Text(shortTree(tree)).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                        Spacer()
+                        metrics(entry)
+                    }
                 }
             }
             if let error = entry.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(open ? nil : 1) }
@@ -116,6 +119,32 @@ struct CanopyNetworkLogView: View {
         .contentShape(Rectangle())
         .onTapGesture { if open { expanded.remove(entry.id) } else { expanded.insert(entry.id) } }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func heading(_ entry: ProtocolNetworkLogEntry) -> some View {
+        Text(Self.time.string(from: entry.at)).font(.caption.monospaced()).foregroundStyle(.secondary)
+        Text(label(entry.kind))
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(tint(entry).opacity(0.18), in: Capsule())
+            .foregroundStyle(tint(entry))
+        Text(entry.name).font(.body.monospaced())
+    }
+
+    @ViewBuilder
+    private func metrics(_ entry: ProtocolNetworkLogEntry) -> some View {
+        Group {
+            if let status = entry.status { Text("\(status)").font(.caption.monospaced()).foregroundStyle(status >= 400 ? .red : .secondary) }
+            if let ms = entry.roundTripMs {
+                Text("↺ \(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(.blue)
+            } else if let ms = entry.durationMs {
+                Text("\(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(ms > 1000 ? .orange : .primary)
+            }
+            if let total = entry.serverTiming?["total"] {
+                Text("server \(Int(total.rounded()))").font(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+        }
     }
 
     @ViewBuilder
