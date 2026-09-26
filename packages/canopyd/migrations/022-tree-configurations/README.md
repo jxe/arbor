@@ -137,4 +137,18 @@ the previous image. After step 7 it also means restoring `~/.arbor` from
 ## Rehearsal log
 
 - 2026-09-26: synthetic schema-21 hosts only (`migrate.test.ts`, 5 tests
-  passing). No real backup has been rehearsed yet.
+  passing).
+- 2026-09-26: live backup `.backups/railway/20260926T114101Z/volume.tar`
+  (sha256 `e83da5c5…`; schema 21, 5 trees, 771 updates, 1 account, 4 device
+  rows). The run took 28 ms and wrote three configurations: `/` (a group,
+  administered by itself), `/~joe` (person: 3 devices, `mounts.yaml`
+  `todos`) and `/~joe/todos`. `access` showed no difference for any tree;
+  `lent` was empty before and after; `covered` held Joe's own `write` rules on
+  `/` and `/~joe/todos`. `compare-canopy-roots` found every ordinary root
+  unchanged and only `tr_boseki5agb24ysc6cxakwcq57i` removed. Served
+  with the new build: `/.arbor/integrity` ok (called once), `verify.ts` ok;
+  anonymous reads `/` and `/~joe`, not `/~joe/todos` or the configurations.
+  Mac: `rekey-data-home.ts` on an isolated copy of `~/.arbor` (file credential
+  store, origin pointed at the rehearsal server) moved 2 placements, a rerun
+  was a no-op, a new-build daemon brought every placement back `idle`,
+  `verify.ts --sync` ok, and a round-trip edit was accepted (update 5098).
