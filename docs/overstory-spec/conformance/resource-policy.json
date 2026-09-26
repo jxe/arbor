@@ -1,151 +1,34 @@
 {
   "valid": [
-    {
-      "name": "public read",
-      "rule": {
-        "who": "everyone",
-        "allow": [
-          "read"
-        ]
-      }
-    },
-    {
-      "name": "notebook code",
-      "rule": {
-        "who": "me",
-        "via": "tr_supplies",
-        "allow": [
-          "create-child"
-        ],
-        "within": "/notes"
-      }
-    },
-    {
-      "name": "profile",
-      "rule": {
-        "who": {
-          "profile": "tr_alice"
-        },
-        "allow": [
-          "write"
-        ]
-      }
-    },
-    {
-      "name": "link",
-      "rule": {
-        "who": {
-          "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        },
-        "allow": [
-          "read",
-          "update-content"
-        ]
-      }
-    }
+    { "name": "public read", "rule": { "who": "everyone", "allow": ["read"] } },
+    { "name": "administrator's grant through an app", "rule": { "who": "everyone", "app": "tr_supplies", "allow": ["create-child"], "within": "/notes" } },
+    { "name": "profile", "rule": { "who": { "profile": "tr_alice" }, "allow": ["write"] } },
+    { "name": "administrator", "rule": { "who": { "profile": "tr_alice" }, "allow": ["admin"] } },
+    { "name": "administrator and reader", "rule": { "who": { "profile": "tr_alice" }, "allow": ["read", "admin"] } },
+    { "name": "link", "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["read", "update-content"] } }
   ],
   "invalid": [
-    {
-      "name": "unknown op",
-      "rule": {
-        "who": "me",
-        "allow": [
-          "admin"
-        ]
-      }
-    },
-    {
-      "name": "empty",
-      "rule": {
-        "who": "me",
-        "allow": []
-      }
-    },
-    {
-      "name": "duplicates",
-      "rule": {
-        "who": "me",
-        "allow": [
-          "read",
-          "read"
-        ]
-      }
-    },
-    {
-      "name": "traversal",
-      "rule": {
-        "who": "me",
-        "allow": [
-          "read"
-        ],
-        "within": "/a/../b"
-      }
-    },
-    {
-      "name": "unknown field",
-      "rule": {
-        "who": "me",
-        "allow": [
-          "read"
-        ],
-        "purpose": "consent"
-      }
-    },
-    {
-      "name": "bad via",
-      "rule": {
-        "who": "me",
-        "allow": [
-          "read"
-        ],
-        "via": "https://example.org"
-      }
-    },
-    {
-      "name": "subject union",
-      "rule": {
-        "who": {
-          "profile": "tr_alice",
-          "link": "x"
-        },
-        "allow": [
-          "read"
-        ]
-      }
-    },
-    {
-      "name": "old self",
-      "rule": {
-        "who": "self",
-        "allow": [
-          "read"
-        ]
-      }
-    }
+    { "name": "unknown op", "rule": { "who": "everyone", "allow": ["share"] } },
+    { "name": "empty", "rule": { "who": "everyone", "allow": [] } },
+    { "name": "duplicates", "rule": { "who": "everyone", "allow": ["read", "read"] } },
+    { "name": "traversal", "rule": { "who": "everyone", "allow": ["read"], "within": "/a/../b" } },
+    { "name": "unknown field", "rule": { "who": "everyone", "allow": ["read"], "purpose": "consent" } },
+    { "name": "bad app", "rule": { "who": "everyone", "allow": ["read"], "app": "https://example.org" } },
+    { "name": "old via", "rule": { "who": "everyone", "allow": ["read"], "via": "tr_supplies" } },
+    { "name": "me outside apps.yaml", "rule": { "who": "me", "allow": ["read"] } },
+    { "name": "members outside apps.yaml", "rule": { "who": "members", "allow": ["read"] } },
+    { "name": "admin for everyone", "rule": { "who": "everyone", "allow": ["admin"] } },
+    { "name": "admin for a link", "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["admin"] } },
+    { "name": "admin through an app", "rule": { "who": { "profile": "tr_alice" }, "app": "tr_supplies", "allow": ["admin"] } },
+    { "name": "admin within a subtree", "rule": { "who": { "profile": "tr_alice" }, "allow": ["admin"], "within": "/notes" } },
+    { "name": "subject union", "rule": { "who": { "profile": "tr_alice", "link": "x" }, "allow": ["read"] } },
+    { "name": "old self", "rule": { "who": "self", "allow": ["read"] } }
   ],
   "safe": [
     {
       "name": "link secret redacted",
-      "rule": {
-        "who": {
-          "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        },
-        "via": "tr_supplies",
-        "allow": [
-          "read"
-        ],
-        "within": "/notes"
-      },
-      "redacted": {
-        "who": {
-          "link": true
-        },
-        "via": "tr_supplies",
-        "allow": [
-          "read"
-        ],
-        "within": "/notes"
-      }
+      "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "app": "tr_supplies", "allow": ["read"], "within": "/notes" },
+      "redacted": { "who": { "link": true }, "app": "tr_supplies", "allow": ["read"], "within": "/notes" }
     }
   ]
 }

@@ -1,4 +1,4 @@
-import type { AccessLevel, ReadWriteAccess, TreeKind } from "@overstory/protocol";
+import type { TreeKind } from "@overstory/protocol";
 import type { ObjectHash } from "@overstory/protocol";
 
 export interface HostTree {
@@ -7,23 +7,26 @@ export interface HostTree {
   parentTree: string | null;
   kind: TreeKind;
   ref: ObjectHash;
-  publicAccess: AccessLevel;
-  policy: "ordinary" | "account-config-v2";
+  policy: "ordinary" | "tree-config-v1";
   /** Retired trees retain immutable update history but have no canonical boundary or access. */
   status: "active" | "retired";
-  accountID: string | null;
+  /** For a tree configuration, the TreeID of the tree it configures. */
+  governs: string | null;
 }
 
-/** Whether a tree holds an account's configuration rather than ordinary content. */
-export function isAccountConfigPolicy(policy: HostTree["policy"]): boolean {
-  return policy === "account-config-v2";
+/** Whether a tree holds another tree's configuration rather than ordinary content. */
+export function isTreeConfigPolicy(policy: HostTree["policy"]): boolean {
+  return policy === "tree-config-v1";
 }
 
+/**
+ * A host account: this profile is claimed here, with this handle. Its identity
+ * is the pair of host and profile, so `id` is the profile TreeID.
+ */
 export interface HostAccount {
   id: string;
   handle: string;
-  profileTree: string | null;
-  configTree: string | null;
+  profileTree: string;
   enabled: boolean;
 }
 
@@ -38,5 +41,5 @@ export interface HostAccessEntry {
   tree: string;
   subjectKind: "everyone" | "profile" | "link";
   subject: string;
-  access: ReadWriteAccess;
+  access: "read" | "write";
 }

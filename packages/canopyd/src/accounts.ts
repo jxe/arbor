@@ -24,11 +24,11 @@ export class AccountDirectory {
   constructor(private readonly db: Database) {}
 
   account(id: string): HostAccount | null {
-    const row = this.db.query("SELECT * FROM accounts WHERE id = ?").get(id) as
-      | { id: string; handle: string; profile_tree: string | null; config_tree: string | null; enabled: number }
+    const row = this.db.query("SELECT id, handle, enabled FROM accounts WHERE id = ?").get(id) as
+      | { id: string; handle: string; enabled: number }
       | null;
     return row
-      ? { id: row.id, handle: row.handle, profileTree: row.profile_tree, configTree: row.config_tree, enabled: row.enabled === 1 }
+      ? { id: row.id, handle: row.handle, profileTree: row.id, enabled: row.enabled === 1 }
       : null;
   }
 
@@ -40,7 +40,7 @@ export class AccountDirectory {
 
   /** The handle of the enabled account whose profile this is. */
   handleForProfile(profileTree: string): string | undefined {
-    const row = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profileTree) as { handle: string } | null;
+    const row = this.db.query("SELECT handle FROM accounts WHERE id = ? AND enabled = 1").get(profileTree) as { handle: string } | null;
     return row?.handle;
   }
 
@@ -169,22 +169,9 @@ export class AccountDirectory {
     return claimed.changes === 1;
   }
 
-  resetAccountToken(handle: string, token: string): HostAccount {
-    if (!/^arb_[a-f0-9]{64}$/.test(token)) {
-      throw new Error("A replacement account token must be arb_ followed by 64 lowercase hexadecimal characters");
-    }
-    const account = this.accountByHandle(handle);
-    if (!account) throw new Error(`Unknown account: ~${handle}`);
-    const digest = sha256(token);
-    const now = Date.now();
-    this.db.transaction(() => {
-      this.db.run("UPDATE devices SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL", [now, account.id]);
-      this.db.run(
-        "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Recovered device', ?, ?)",
-        [generateArborID("dv"), account.id, digest, now],
-      );
-    })();
-    return this.account(account.id)!;
+  /** Revoke every device of an account; callers run this inside their transaction. */
+  revokeAllDevices(accountID: string, at: number): void {
+    this.db.run("UPDATE devices SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL", [at, accountID]);
   }
 
   communityHandle(): string {

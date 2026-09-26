@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "derivation": [
+    { "tree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq", "configuration": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca" },
+    { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": "tr_zofcbjdjbdpvqdw2mc4crf4y32lix4cszm2dlxtk6rbllc3d7yvq" }
+  ],
+  "references": [
+    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-config", "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": true },
+    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u", "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": false },
+    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-key=id:x", "invalid": true },
+    { "value": "https://community.example/~joe", "invalid": true }
+  ],
+  "valid": [
+    {
+      "name": "person-profile",
+      "kind": "person",
+      "tree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+      "files": {
+        "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n- who: everyone\n  allow: [read]\n",
+        "mounts.yaml": "todos: tr_owozr6aegt5z7x6qyllvzljl5u\nprojects/garden: tr_gggggggggggggggggggggggggg\n",
+        "apps.yaml": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    allow: [read, create-child]\n    within: /inventory\ntr_hhhhhhhhhhhhhhhhhhhhhhhhhh:\n  - resource: tr_llllllllllllllllllllllllll\n    who: everyone\n    allow: [read]\n    within: /new-books\n",
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n"
+      },
+      "values": {
+        "access": [
+          { "who": { "profile": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq" }, "allow": ["admin"] },
+          { "who": "everyone", "allow": ["read"] }
+        ],
+        "mounts": { "todos": "tr_owozr6aegt5z7x6qyllvzljl5u", "projects/garden": "tr_gggggggggggggggggggggggggg" },
+        "apps": {
+          "tr_ssssssssssssssssssssssssss": [{ "resource": "tr_pppppppppppppppppppppppppp", "who": "me", "allow": ["read", "create-child"], "within": "/inventory" }],
+          "tr_hhhhhhhhhhhhhhhhhhhhhhhhhh": [{ "resource": "tr_llllllllllllllllllllllllll", "who": "everyone", "allow": ["read"], "within": "/new-books" }]
+        },
+        "devices": {
+          "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Joe's Mac", "administrator": true },
+          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false }
+        }
+      }
+    },
+    {
+      "name": "person-without-apps-file",
+      "kind": "person",
+      "tree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+      "files": {
+        "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n",
+        "mounts.yaml": "{}\n",
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n"
+      }
+    },
+    {
+      "name": "shared-tree",
+      "kind": "tree",
+      "tree": "tr_tttttttttttttttttttttttttt",
+      "files": {
+        "access.yaml": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n- who: {profile: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa}\n  allow: [admin]\n- who: {link: sha256:9b2e000000000000000000000000000000000000000000000000000000000000}\n  allow: [read]\n",
+        "mounts.yaml": "{}\n"
+      }
+    },
+    {
+      "name": "administrator-grant-through-app",
+      "kind": "tree",
+      "tree": "tr_dddddddddddddddddddddddddd",
+      "files": {
+        "access.yaml": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n- who: everyone\n  app: tr_ssssssssssssssssssssssssss\n  allow: [read]\n  within: /published\n",
+        "mounts.yaml": "{}\n"
+      }
+    },
+    {
+      "name": "group-profile",
+      "kind": "group",
+      "tree": "tr_cccccccccccccccccccccccccc",
+      "files": {
+        "access.yaml": "- who: {profile: tr_cccccccccccccccccccccccccc}\n  allow: [admin]\n",
+        "mounts.yaml": "plants: tr_pppppppppppppppppppppppppp\n",
+        "apps.yaml": "tr_wwwwwwwwwwwwwwwwwwwwwwwwww:\n  - resource: tr_eeeeeeeeeeeeeeeeeeeeeeeeee\n    who: everyone\n    allow: [read]\n    within: /events\ntr_nnnnnnnnnnnnnnnnnnnnnnnnnn:\n  - resource: tr_eeeeeeeeeeeeeeeeeeeeeeeeee\n    who: members\n    allow: [read]\n"
+      }
+    }
+  ],
+  "invalid": [
+    { "name": "no-administrator", "kind": "tree", "file": "access.yaml", "source": "- who: everyone\n  allow: [read]\n" },
+    { "name": "me-in-access", "kind": "tree", "file": "access.yaml", "source": "- who: me\n  allow: [admin]\n" },
+    { "name": "admin-for-everyone", "kind": "tree", "file": "access.yaml", "source": "- who: everyone\n  allow: [admin]\n" },
+    { "name": "admin-through-app", "kind": "tree", "file": "access.yaml", "source": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  app: tr_ssssssssssssssssssssssssss\n  allow: [admin]\n" },
+    { "name": "admin-within", "kind": "tree", "file": "access.yaml", "source": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n  within: /notes\n" },
+    { "name": "old-via", "kind": "tree", "file": "access.yaml", "source": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n- who: everyone\n  via: tr_ssssssssssssssssssssssssss\n  allow: [read]\n" },
+    { "name": "duplicate-rule-key", "kind": "tree", "file": "access.yaml", "source": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [read]\n  within: /\n" },
+    { "name": "alias", "kind": "tree", "file": "access.yaml", "source": "- &a {who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}, allow: [admin]}\n- *a\n" },
+    { "name": "mount-traversal", "kind": "tree", "file": "mounts.yaml", "source": "../other: tr_owozr6aegt5z7x6qyllvzljl5u\n" },
+    { "name": "mount-absolute", "kind": "tree", "file": "mounts.yaml", "source": "/todos: tr_owozr6aegt5z7x6qyllvzljl5u\n" },
+    { "name": "mount-twice", "kind": "tree", "file": "mounts.yaml", "source": "a: tr_owozr6aegt5z7x6qyllvzljl5u\nb: tr_owozr6aegt5z7x6qyllvzljl5u\n" },
+    { "name": "mount-inside-mount", "kind": "tree", "file": "mounts.yaml", "source": "a: tr_owozr6aegt5z7x6qyllvzljl5u\na/b: tr_gggggggggggggggggggggggggg\n" },
+    { "name": "apps-in-ordinary-tree", "kind": "tree", "file": "apps.yaml", "source": "{}\n" },
+    { "name": "devices-in-group", "kind": "group", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n" },
+    { "name": "members-in-person-apps", "kind": "person", "file": "apps.yaml", "source": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    who: members\n    allow: [read]\n" },
+    { "name": "me-in-group-apps", "kind": "group", "file": "apps.yaml", "source": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    who: me\n    allow: [read]\n" },
+    { "name": "admin-in-apps", "kind": "person", "file": "apps.yaml", "source": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    allow: [admin]\n" },
+    { "name": "app-field-in-apps", "kind": "person", "file": "apps.yaml", "source": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    app: tr_ssssssssssssssssssssssssss\n    allow: [read]\n" },
+    { "name": "person-co-administrator", "kind": "person", "file": "access.yaml", "source": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n- who: {profile: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa}\n  allow: [admin]\n" },
+    { "name": "missing-administrator-device", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n" },
+    { "name": "credential-in-devices", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  credential: secret\n" },
+    { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "canopy: https://community.example\n" },
+    { "name": "trees-yaml", "kind": "person", "file": "trees.yaml", "source": "{}\n" }
+  ],
+  "merges": [
+    {
+      "name": "disjoint-rules-merge",
+      "kind": "tree",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {} },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": "everyone", "allow": ["read"] }], "mounts": {} },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": { "notes": "tr_nnnnnnnnnnnnnnnnnnnnnnnnnn" } },
+      "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": "everyone", "allow": ["read"] }], "mounts": { "notes": "tr_nnnnnnnnnnnnnnnnnnnnnnnnnn" } },
+      "conflicts": []
+    },
+    {
+      "name": "concurrent-rule-edits-intersect",
+      "kind": "tree",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["write"] }], "mounts": {} },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["read", "create-child"] }], "mounts": {} },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["read", "delete"] }], "mounts": {} },
+      "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["read"] }], "mounts": {} },
+      "conflicts": [{ "file": "access.yaml", "policy": true }]
+    },
+    {
+      "name": "removal-beats-rule-edit",
+      "kind": "tree",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": "everyone", "allow": ["read"] }], "mounts": {} },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {} },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": "everyone", "allow": ["write"] }], "mounts": {} },
+      "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {} },
+      "conflicts": [{ "file": "access.yaml", "policy": true }]
+    },
+    {
+      "name": "removing-both-administrators-concurrently",
+      "kind": "tree",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }, { "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["admin"] }], "mounts": {} },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {} },
+      "remote": { "access": [{ "who": { "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["admin"] }], "mounts": {} },
+      "result": { "access": [], "mounts": {} },
+      "conflicts": [{ "file": "access.yaml", "policy": false }]
+    },
+    {
+      "name": "concurrent-mounts-of-one-name",
+      "kind": "tree",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {} },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": { "notes": "tr_nnnnnnnnnnnnnnnnnnnnnnnnnn" } },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": { "notes": "tr_oooooooooooooooooooooooooo" } },
+      "conflicts": [{ "file": "mounts.yaml", "policy": false }]
+    },
+    {
+      "name": "revocation-beats-label-edit",
+      "kind": "person",
+      "base": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Phone", "administrator": false } } },
+      "candidate": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true } } },
+      "remote": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true }, "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Old phone", "administrator": false } } },
+      "result": { "access": [{ "who": { "profile": "tr_jjjjjjjjjjjjjjjjjjjjjjjjjj" }, "allow": ["admin"] }], "mounts": {}, "apps": {}, "devices": { "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Mac", "administrator": true } } },
+      "conflicts": []
+    }
+  ]
+}

@@ -11,9 +11,15 @@
         "parentTree": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     },
-    "accountConfigurationDescriptor": {
+    "treeConfigurationDescriptor": {
       "id": "tr_cccccccccccccccccccccccccc",
-      "kind": "account-configuration",
+      "kind": "tree-configuration",
+      "access": "write",
+      "canonical": null
+    },
+    "unmountedTreeDescriptor": {
+      "id": "tr_dddddddddddddddddddddddddd",
+      "kind": "ordinary",
       "access": "write",
       "canonical": null
     },
@@ -57,14 +63,14 @@
     ],
     "error": {
       "error": "conflict",
-      "message": "The account configuration contains incompatible edits",
+      "message": "The tree configuration contains incompatible edits",
       "retryable": false,
       "tree": "tr_cccccccccccccccccccccccccc",
-      "path": "/trees.yaml",
+      "path": "/mounts.yaml",
       "details": {
-        "kind": "account-configuration",
+        "kind": "tree-configuration",
         "fields": [
-          "/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa/canonicalPath"
+          "mounts.notes"
         ]
       }
     },
@@ -99,12 +105,16 @@
       }
     },
     {
-      "name": "ordinary-tree-without-canonical",
+      "name": "canonical-tree-configuration",
       "value": {
-        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "kind": "ordinary",
-        "access": "read",
-        "canonical": null
+        "id": "tr_cccccccccccccccccccccccccc",
+        "kind": "tree-configuration",
+        "access": "write",
+        "canonical": {
+          "path": "/~joe;arbor-config",
+          "endpoint": "https://community.example/.arbor/trees/tr_cccccccccccccccccccccccccc",
+          "parentTree": null
+        }
       }
     },
     {

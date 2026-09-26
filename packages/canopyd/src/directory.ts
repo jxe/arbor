@@ -49,7 +49,7 @@ export function buildDirectory(canopy: HostDaemon, account: HostAccount, origin:
       if (profile) include(profile, `group:${group.id}`, member.handle);
     }
   }
-  for (const tree of active.filter((tree) => tree.accountID === account.id)) {
+  for (const tree of active.filter((tree) => canopy.canAdminister(account, tree))) {
     for (const rule of canopy.accessEntries(tree.id)) if (rule.subjectKind === "profile") include(rule.subject, "access");
   }
 

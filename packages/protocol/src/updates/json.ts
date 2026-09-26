@@ -322,7 +322,7 @@ export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): Update
   };
 }
 
-const CONFLICT_KINDS = new Set(["server-update", "account-configuration"]);
+const CONFLICT_KINDS = new Set(["server-update", "tree-configuration"]);
 
 export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
   if (!value || typeof value !== "object") throw new Error("Conflict must be an object");

@@ -1,7 +1,7 @@
 import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
-import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
@@ -132,7 +132,7 @@ function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
 
 function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor {
   const profile = account.profileTree ? canopy.get(account.profileTree) : null;
-  const configuration = account.configTree ? canopy.get(account.configTree) : null;
+  const configuration = canopy.get(treeConfigurationID(account.profileTree));
   const community = canopy.community();
   if (!configuration) throw new Error("Account configuration tree is missing");
   return {
@@ -144,6 +144,21 @@ function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAcco
     configuration: descriptorWithUpdate(origin, canopy, configuration, "write"),
     writableProfiles: canopy.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, canopy, tree, "write")),
   };
+}
+
+/**
+ * A tree in a route: `tr_x`, or `tr_x;arbor-config` for its configuration,
+ * which the host answers under the configuration's derived TreeID and only to
+ * the tree's administrators.
+ */
+function treeReference(segment: string): { id: string; governs?: string } {
+  const decoded = decodeURIComponent(segment);
+  try {
+    const reference = parseTreeReference(decoded);
+    return reference.configuration ? { id: treeConfigurationID(reference.tree), governs: reference.tree } : { id: reference.tree };
+  } catch {
+    return { id: decoded };
+  }
 }
 
 function bearer(request: Request): string | undefined {
@@ -278,7 +293,7 @@ export async function serveHost(options: {
         const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
-          const treeID = decodeURIComponent(queryRoute[1]!);
+          const treeID = treeReference(queryRoute[1]!).id;
           const tree = canopy.get(treeID);
           if (!tree || !canopy.canRead(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
           server.timeout(request, 0);
@@ -292,7 +307,7 @@ export async function serveHost(options: {
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
           if (!options.mutationRuntime) return protocolError("unsupported-operation", "No mutation runtime is active", 422);
-          const treeID = decodeURIComponent(mutateRoute[1]!);
+          const treeID = treeReference(mutateRoute[1]!).id;
           const tree = canopy.get(treeID);
           if (!tree || !account || !canopy.canWrite(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
           return treeMutationResponse(
@@ -384,7 +399,7 @@ export async function serveHost(options: {
             return json({ snapshot: canopy.list()
               // Retained/retired ordinary roots have no network identity and
               // therefore cannot be represented by a remote TreeDescriptor.
-              .filter((tree) => tree.status === "active" && (tree.kind === "account-configuration" || tree.canonicalPath !== null))
+              .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.profileTree : tree.canonicalPath !== null))
               .filter((tree) => canopy.canRead(account, tree, link))
               .map((tree) => descriptorWithUpdate(publicOrigin, canopy, tree, canopy.canWrite(account, tree, link) ? "write" : "read")),
               observedThrough: canopy.observedThrough(),
@@ -447,7 +462,7 @@ export async function serveHost(options: {
         }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
         if (access) {
-          const treeID = decodeURIComponent(access[1]!);
+          const treeID = treeReference(access[1]!).id;
           if (request.method === "GET") {
             const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
@@ -494,7 +509,7 @@ export async function serveHost(options: {
         }
         const ref = /^\/\.arbor\/trees\/([^/]+)$/.exec(url.pathname);
         if (ref && request.method === "GET") {
-          const tree = canopy.get(decodeURIComponent(ref[1]!));
+          const tree = canopy.get(treeReference(ref[1]!).id);
           if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
           const current = descriptorWithUpdate(
             publicOrigin,
@@ -506,7 +521,7 @@ export async function serveHost(options: {
         }
         const conflicts = /^\/\.arbor\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
         if (conflicts && request.method === "GET") {
-          const conflicted = canopy.get(decodeURIComponent(conflicts[1]!));
+          const conflicted = canopy.get(treeReference(conflicts[1]!).id);
           if (!conflicted || !canopy.canRead(account, conflicted, link)) return new Response("Not found", { status: 404 });
           const tree = conflicted.id;
           const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
@@ -519,7 +534,7 @@ export async function serveHost(options: {
         }
         const acceptedSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (acceptedSnapshot && request.method === "GET") {
-          const treeID = decodeURIComponent(acceptedSnapshot[1]!);
+          const treeID = treeReference(acceptedSnapshot[1]!).id;
           const root = acceptedSnapshot[2] as ObjectHash;
           const tree = canopy.get(treeID);
           if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
@@ -532,7 +547,7 @@ export async function serveHost(options: {
         }
         const metadata = /^\/\.arbor\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
         if (metadata && request.method === "GET") {
-          const tree = canopy.get(decodeURIComponent(metadata[1]!));
+          const tree = canopy.get(treeReference(metadata[1]!).id);
           if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
           const value = canopy.entryMetadata(tree.id);
           return value ? json(value) : new Response("Not found", { status: 404 });
@@ -540,7 +555,8 @@ export async function serveHost(options: {
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-          const treeID = decodeURIComponent(updates[1]!);
+          const reference = treeReference(updates[1]!);
+          const treeID = reference.id;
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
           return await withPhaseTimer(timer, async () => {
@@ -557,6 +573,11 @@ export async function serveHost(options: {
             timer.count("trace-ops", update.updates.reduce((sum, element) =>
               sum + (element.trace ?? []).reduce((ops, frame) => ops + frame.operations.length, 0), 0));
             const tree = canopy.get(treeID);
+            // Declaring a tree is the null-base first update of its configuration.
+            if (!tree && reference.governs && update.base === null && !execution) {
+              const declared = await canopy.declareTree(reference.governs, update, authentication);
+              return json(updateJSON(declared.result), declared.status);
+            }
             const writable = tree ? canopy.canWrite(account, tree, link) : false;
             // A null base activates a reserved tree, which has no descriptor yet;
             // Canopy checks the reservation and the administrator device.
@@ -603,7 +624,7 @@ export async function serveHost(options: {
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
-          const tree = canopy.get(decodeURIComponent(watch[1]!));
+          const tree = canopy.get(treeReference(watch[1]!).id);
           if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
           // Watch streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
           server.timeout(request, 0);
@@ -712,7 +733,7 @@ export async function serveHost(options: {
 
         const object = /^\/\.arbor\/trees\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (object && request.method === "GET") {
-          const treeID = decodeURIComponent(object[1]!);
+          const treeID = treeReference(object[1]!).id;
           const hash = object[2] as ObjectHash;
           if (!canopy.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.retainedObject(hash);
@@ -895,6 +916,5 @@ export async function serveHost(options: {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }
   if (dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host, true);
-  await canopy.ensureAccountConfigTrees(publicOrigin);
   return { canopy, server, url: publicOrigin };
 }

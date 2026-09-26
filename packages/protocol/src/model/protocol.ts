@@ -76,7 +76,7 @@ export interface MutationCallRuntime {
  */
 export type AccessLevel = "none" | "read" | "write";
 export type ReadWriteAccess = Exclude<AccessLevel, "none">;
-export type TreeKind = "ordinary" | "account-configuration";
+export type TreeKind = "ordinary" | "tree-configuration";
 
 export type AccessSubject =
   | { kind: "everyone" }
