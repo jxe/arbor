@@ -1,5 +1,6 @@
 import { encodeCanonicalCBOR } from "./cbor.ts";
 import { isGeneratedArborID, isPersonProfileTreeID } from "./identity.ts";
+import { treeConfigurationID } from "../config/tree-config.ts";
 
 export interface AccountChallenge {
   version: 1;
@@ -22,7 +23,7 @@ export function validateAccountChallenge(value: unknown): AccountChallenge {
     || typeof challenge.origin !== "string"
     || typeof challenge.account !== "string"
     || typeof challenge.profileTree !== "string" || !isPersonProfileTreeID(challenge.profileTree)
-    || typeof challenge.configurationTree !== "string" || !isGeneratedArborID(challenge.configurationTree, "tr")
+    || typeof challenge.configurationTree !== "string" || challenge.configurationTree !== treeConfigurationID(challenge.profileTree)
     || typeof challenge.nonce !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(challenge.nonce)
     || typeof challenge.issuedAt !== "number" || !Number.isSafeInteger(challenge.issuedAt)
     || typeof challenge.expiresAt !== "number" || !Number.isSafeInteger(challenge.expiresAt)

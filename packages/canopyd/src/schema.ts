@@ -9,50 +9,59 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "21";
+export const CANOPY_SCHEMA_VERSION = "22";
 
 export const AUTHORITY_SCHEMA = {
-  trees: ["id", "ref", "policy", "status", "account_id"],
+  trees: ["id", "ref", "policy", "status", "governs"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
-  accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
+  accounts: ["id", "handle", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
-  resource_policy: ["account_id", "tree_id", "rules_json"],
-  access: ["id", "tree_id", "subject_kind", "subject", "access"],
-  tree_reservations: ["id", "account_id", "canonical_path"],
+  tree_policy: ["tree_id", "rules_json"],
+  tree_admins: ["tree_id", "profile_tree"],
+  app_policy: ["profile_tree", "app_tree", "rules_json"],
+  mounts: ["parent_tree", "path", "tree_id", "member"],
   entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   profile_facts: ["tree_id", "index_hash", "avatar_path", "facts"],
   meta: ["key", "value"],
 } as const;
 
-/** The access table alone, under another name while an offline migration rebuilds it. */
-export function createAccessTable(db: Database, name = "access"): void {
+/**
+ * The derived index of every accepted tree configuration, rewritten in the
+ * transaction that accepts it: `tree_policy` holds a tree's `access.yaml`,
+ * `tree_admins` the profiles its `admin` rules name, `app_policy` a profile's
+ * `apps.yaml` by app, and `mounts` each child tree mounted by name, from
+ * `mounts.yaml` or, for the community root, a member's `/~handle`.
+ */
+export function createTreeConfigIndex(db: Database): void {
+  db.run(`CREATE TABLE tree_policy (tree_id TEXT PRIMARY KEY, rules_json TEXT NOT NULL)`);
+  db.run(`CREATE TABLE tree_admins (tree_id TEXT NOT NULL, profile_tree TEXT NOT NULL, PRIMARY KEY(tree_id, profile_tree))`);
+  db.run(`CREATE INDEX tree_admins_profile ON tree_admins(profile_tree)`);
+  db.run(`CREATE TABLE app_policy (profile_tree TEXT NOT NULL, app_tree TEXT NOT NULL, rules_json TEXT NOT NULL, PRIMARY KEY(profile_tree, app_tree))`);
   db.run(`
-    CREATE TABLE ${name} (
-      id TEXT PRIMARY KEY,
-      tree_id TEXT NOT NULL REFERENCES trees(id),
-      subject_kind TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      access TEXT NOT NULL,
-      UNIQUE(tree_id, subject_kind, subject)
+    CREATE TABLE mounts (
+      parent_tree TEXT NOT NULL,
+      path TEXT NOT NULL,
+      tree_id TEXT NOT NULL UNIQUE,
+      member INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(parent_tree, path)
     )
   `);
 }
 
 export function createHostSchema(db: Database): void {
-  db.run(`CREATE TABLE resource_policy (account_id TEXT NOT NULL, tree_id TEXT NOT NULL, rules_json TEXT NOT NULL, PRIMARY KEY(account_id, tree_id))`);
   db.run(`
     CREATE TABLE trees (
       id TEXT PRIMARY KEY,
       ref TEXT NOT NULL,
       policy TEXT NOT NULL DEFAULT 'ordinary',
       status TEXT NOT NULL DEFAULT 'active',
-      account_id TEXT
+      governs TEXT
     )
   `);
   db.run(`
@@ -67,8 +76,6 @@ export function createHostSchema(db: Database): void {
     CREATE TABLE accounts (
       id TEXT PRIMARY KEY,
       handle TEXT NOT NULL UNIQUE,
-      profile_tree TEXT,
-      config_tree TEXT,
       enabled INTEGER NOT NULL DEFAULT 1,
       claim_digest TEXT
     )
@@ -104,14 +111,7 @@ export function createHostSchema(db: Database): void {
       consumed_at INTEGER
     )
   `);
-  db.run(`
-    CREATE TABLE tree_reservations (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id),
-      canonical_path TEXT NOT NULL UNIQUE
-    )
-  `);
-  createAccessTable(db);
+  createTreeConfigIndex(db);
   createProfileFactsTable(db);
   db.run(`
     CREATE TABLE meta (
@@ -159,7 +159,7 @@ export function assertCurrentHostSchema(db: Database): void {
       issues.push(`${table} columns`);
     }
   }
-  for (const index of ["accepted_updates_request", "accepted_updates_change", "accepted_updates_tree", "accepted_updates_root", "document_versions_key"]) {
+  for (const index of ["accepted_updates_request", "accepted_updates_change", "accepted_updates_tree", "accepted_updates_root", "document_versions_key", "tree_admins_profile"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }
@@ -184,8 +184,20 @@ export function assertHostData(db: Database): void {
     SELECT COUNT(*) AS count FROM accounts a
     WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
   `).get() as { count: number };
+  const missingConfigurations = db.query(`
+    SELECT COUNT(*) AS count FROM trees t
+    WHERE t.policy = 'ordinary' AND t.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM trees c WHERE c.governs = t.id AND c.status = 'active')
+  `).get() as { count: number };
+  const unindexed = db.query(`
+    SELECT COUNT(*) AS count FROM trees c
+    WHERE c.governs IS NOT NULL AND c.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM tree_admins a WHERE a.tree_id = c.governs)
+  `).get() as { count: number };
   if (missingHistory.count) issues.push("trees without accepted history");
   if (missingDevices.count) issues.push("accounts without devices");
+  if (missingConfigurations.count) issues.push("trees without a tree configuration");
+  if (unindexed.count) issues.push("tree configurations without an administrator");
   if (db.query("PRAGMA foreign_key_check").all().length) issues.push("foreign-key violations");
   if (issues.length) throw new Error(`Canopy data integrity check failed: ${issues.join(", ")}`);
 }

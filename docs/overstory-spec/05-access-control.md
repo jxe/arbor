@@ -1,65 +1,73 @@
 # Access control
 *Part of the [Overstory spec](README.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
-*Owns: `who` / `via` / `allow` rules. References: [account configuration](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/apps/005-source-resolution-and-sidecar.md).*
+*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/apps/005-source-resolution-and-sidecar.md).*
 
 ## 1. Subjects and rules
 
-Policy is resource-centric. An account's `trees.yaml` is keyed by the resource
-TreeID; its `access` list contains rules of this shape:
+Policy is resource-centric. Each hosted tree's rules are the `access.yaml` of
+its [tree configuration](04-accounts-and-devices.md#2-tree-configuration-graph),
+a list of rules of this shape:
 
 ```ts
-type AccessWho = "everyone" | "me" | { profile: TreeID } | { link: Hash };
+type AccessWho = "everyone" | { profile: TreeID } | { link: Hash };
 type AccessOperation = "read" | "write" | "create-child" | "update-content"
-  | "update-properties" | "delete";
+  | "update-properties" | "delete" | "admin";
 type AccessRule = {
   who: AccessWho;
-  via?: TreeID;
+  app?: TreeID;
   allow: AccessOperation[];
   within?: LogicalPath;
 };
 ```
 
 ```yaml
-tr_notebook:
-  canonical: https://canopy.example/~joe/notebook
-  access:
-    - who: {profile: tr_alice}
-      allow: [read]
-    - who: me
-      via: tr_supplies
-      allow: [create-child]
-tr_private_data:
-  access:
-    - who: everyone
-      via: tr_supplies
-      allow: [read]
-      within: /published
+# /~joe/notebook;arbor-config  access.yaml
+- who: {profile: tr_joe}
+  allow: [admin]
+- who: {profile: tr_alice}
+  allow: [read]
+- who: everyone
+  app: tr_supplies
+  allow: [read]
+  within: /published
 ```
 
-`me` is the policy account's stable profile identity, not the submitting device
-or an authored user parameter. A profile subject matches that profile, or the
-current membership of a group profile; person-profile fields never create a
-group. A link subject matches a valid presented secret's digest.
+A profile subject matches that profile, or the current membership of a group
+profile; person-profile fields never create a group. A link subject matches a
+valid presented secret's digest. `me` and `members` name the profile whose
+`apps.yaml` holds a rule (§1.1) and are invalid in `access.yaml`.
 
-`via` restricts a rule to a host-attested execution of that source TreeID. It is
-not a module or export name. Omitting it imposes no executable restriction:
-ordinary read access, including public access, works through code too. A
-browser-supplied TreeID or header is never execution attestation. Libraries
-execute within their caller's authority; imports do not acquire the imported
-tree's grants. Calling another tree as a privileged executable requires a new,
-explicitly authorized execution boundary. Nested code trees do not inherit `via`.
+`admin` names the tree's **administrators**. It may be granted only to a
+person or group profile, in a rule with no `app` and no `within`; a group
+administers through its current members, the same one-level membership check
+other rules use. An administrator may read and edit the tree configuration
+and has every other operation on the whole tree, so no other rule needs to
+name them. `admin` is the only operation a rule cannot narrow: there is no
+administering a subtree or administering only through an app. Every tree has
+at least one administrator.
+
+`app` restricts a rule to a host-attested execution of that source TreeID. It
+is not a module or export name. Omitting it imposes no executable
+restriction: ordinary read access, including public access, works through
+code too. A browser-supplied TreeID or header is never execution attestation.
+Libraries execute within their caller's authority; imports do not acquire the
+imported tree's grants. Calling another tree as a privileged executable
+requires a new, explicitly authorized execution boundary. Nested code trees
+do not inherit `app`. An `access.yaml` rule with `app` is the tree's own grant
+through that code: it needs no lender behind it and survives any one
+administrator leaving.
 
 `within` defaults to `/` and selects a logical subtree including its root;
-resolution uses segment boundaries, not string prefix matching. It never crosses
-a nested TreeID boundary. Rules use concrete resource identities, not mutable
-canonical URLs. `allow` is nonempty and duplicate-free; unknown operations fail
-validation. Rules have no authored grant IDs. Their merge key is canonical
-`(who, via-or-absent, within-or-/)`; duplicate keys are invalid.
+resolution uses segment boundaries, not string prefix matching. It never
+crosses a nested TreeID boundary. Rules use concrete resource identities, not
+mutable canonical URLs. `allow` is nonempty and duplicate-free; unknown
+operations fail validation. Rules have no authored grant IDs. Their merge key
+is canonical `(who, app-or-absent, within-or-/)`; duplicate keys are invalid.
 
 `read` permits scoped content, properties, membership, and authorized observation.
 `write` includes read and all ordinary content mutation operations within scope,
-but not account administration, resource delegation, external effects, or raw
+but not administration, resource delegation, external effects, or raw
 backing credentials. `create-child` permits adding a previously absent child
 and its new content beneath an allowed parent, not overwriting an existing child.
 `update-content` and `update-properties` affect only their respective fields;
@@ -70,39 +78,80 @@ promote a narrow operation to whole-store write.
 
 ### 1.1 Execution authority
 
-Queries and mutations declare requirements supplied by author and user. The host
-binds author to an explicitly configured sponsoring account, not the last editor;
-user is the authenticated caller or anonymous. Applicable rules are evaluated
-against that caller and the attested executing TreeID. An author's private read
-access does not automatically become available to anonymous users: a matching
-rule, such as `who: everyone, via: tr_supplies`, must authorize that execution.
+Code always runs as its caller: the authenticated caller's profile, or
+anonymously. Nobody else's identity is ever the actor, and writes are
+attributed to the caller. Queries and mutations declare the capabilities they
+need; each capability the host grants an execution names its **lender**:
 
-Each party's declared requirements must be covered by its applicable policy and
-current underlying authority. Only those requested capabilities enter execution;
-the resulting author and user contributions are combined. Grant provenance is
-retained internally, while user identity remains the caller. No union may invent
-a capability not independently covered by an authorized contribution.
+- **No lender**: the caller's own access, or the tree's own `app` rule for
+  the attested code. An author's private access does not become available to
+  anonymous callers this way.
+- **A lender**: a profile whose `apps.yaml` lends that capability to the
+  code's callers. Each lent capability is one grant naming its lender, and a
+  grant from one lender never widens another's.
 
-Hosted resource owners can grant direct access. Rules in a non-owner account
-configuration can only attenuate access that account currently holds; they cannot
-change the owner's ACL, authorize delegation of account administration, or survive
-loss of underlying access. The authority evaluates underlying access without
-recursively treating the proposed delegation as its own justification. Cross-server
-delegation transport is not defined by this local-host contract.
+A profile's `apps.yaml` is keyed by app TreeID, and each entry is a rule with
+`resource` in place of the key:
 
-Consent edits accepted account configuration. Requirements expanding beyond
-applicable rules need new approval from the affected party; reduced requirements
-need none. Grants follow the code TreeID across module moves and revisions.
-Thus maintainers are trusted to change behavior inside that envelope. Each run
-pins code, requirements, and resolved resources; it never silently upgrades while
-resuming. Runtime tokens are opaque, limited to that execution authority, and
-contain no general user/author credentials. Their encoding is host-private.
+```yaml
+# /~joe;arbor-config  apps.yaml
+tr_planner:
+  - resource: tr_club_calendar   # Joe reads it as a club member
+    allow: [read]
+tr_joe_homepage:
+  - resource: tr_library_catalog
+    who: everyone
+    allow: [read]
+    within: /new-books
+```
 
-Rules are edited through governed configuration acceptance, not a separate grant
-CRUD service. Only administrator devices may edit resource policy. Enforcement
-uses accepted configuration and current identity/group/access facts, never an
-unaccepted local edit. Policy indexes are derived. Revocation does not undo
-committed effects or retract bytes already disclosed.
+`who` defaults to the profile itself: `me` in a person's file, `members` in a
+group's; each is invalid in the other file. Any other `who` lends the access
+to those callers of the app. A lent grant covers a requirement when:
+
+- the lender's `apps.yaml` entry for the executing app covers the resource,
+  path and operation and matches the caller; and
+- **only the named subject lends**: a rule in the resource's `access.yaml`
+  names the lender directly (a `{profile}` rule for that lender, or the
+  lender's administration) and covers the requirement. Access granted to a
+  group is the group's to lend, not any member's; `everyone` grants need no
+  lending, and link grants are not lendable.
+
+The one exception is **approving an app for yourself**: a person's `who: me`
+entry may use any access the person holds, including through a group, when
+the person is the caller. Nobody else gains anything.
+
+When more than one lender covers a requirement, the host picks one by a fixed
+order (the caller's own access first, then lender profile TreeID) and records
+it. Lending can only narrow what the lender currently holds and lapses when
+that access does; a lapsed grant revokes the execution like any other. A
+group's lending is edited by whoever administers the group's profile, and
+members come and go without affecting it. Lending write to callers other than
+the lender is allowed; clients warn before writing it. Lending trusts the
+app's administrators, who may change its code inside the envelope.
+
+Consent edits an accepted tree configuration: the person's or a group's
+`apps.yaml`, or an `app` rule in a tree the approver administers.
+Requirements expanding beyond applicable rules need new approval from the
+affected party; reduced requirements need none. Grants follow the code TreeID
+across module moves and revisions. Each run pins code, requirements, and
+resolved resources; it never silently upgrades while resuming. Runtime tokens
+are opaque, limited to that execution authority, and contain no general
+caller credentials. Their encoding is host-private. The authority evaluates
+underlying access without recursively treating the proposed delegation as its
+own justification. Until
+[Security 008](../../plans/security/008-portable-profiles.md), an `apps.yaml`
+entry applies only on its profile's home host, and cross-server delegation
+transport is not defined.
+
+Rules are edited through governed configuration acceptance, not a separate
+grant CRUD service. Only administrator devices of an administering person may
+edit a tree configuration
+([accounts §3.1](04-accounts-and-devices.md#31-who-may-edit-a-tree-configuration)).
+Enforcement uses accepted configurations and current identity, group and
+access facts, never an unaccepted local edit. Policy indexes are derived.
+Revocation does not undo committed effects or retract bytes already
+disclosed.
 
 ## 2. Authentication and secrets
 
@@ -113,11 +162,11 @@ Authorization: Bearer <device credential>
 Arbor-Access-Link: <access-link secret>
 ```
 
-A device credential identifies one account and contributes its `account.yaml.profile`.
+A device credential identifies one account and contributes its profile TreeID.
 The host establishes executable context separately over an authenticated runtime
 channel. Incoming public requests cannot forge or override it. Across matching
 rules, allowed operations union within their scopes. Caller authentication,
-executable identity, and policy-account provenance remain distinct.
+executable identity, and lender provenance remain distinct.
 
 Raw credentials, private keys, execution tokens, and link secrets never appear
 in authored YAML, URLs, diagnostics, query results, or transcripts. Link-subject
@@ -129,8 +178,8 @@ responses. Account-specific policy is not public executable metadata.
 A host issues an opaque execution token to its trusted runtime through an
 authenticated channel after checking activation and requirement coverage. The
 token binds the actual caller/replay principal, executing source TreeID (matched
-against `via`), sponsoring account, pinned code and requirements, resolved resource
-bindings, and the bounded author/user authority with its provenance. It can refer
+against `app`), pinned code and requirements, resolved resource bindings, and
+each granted capability with its lender. It can refer
 to authenticated claims or host-private records; its encoding and issuance transport
 are implementation details, not authored data or a durable query-session protocol.
 
@@ -143,14 +192,14 @@ Content-Type: application/json
 ```
 
 The body is an ordinary `UpdateRequest`, including its normal exact-state guard
-when required. No author, caller, `via`, or grant field in that body supplies
+when required. No lender, caller, `app`, or grant field in that body supplies
 authority. Ordinary clients continue using device credentials. Execution tokens
 also authenticate authorized resolution, object/read, receipt and watch requests;
 a runtime cannot substitute a source-binding ID for a token.
 
 The host verifies the token's issuer, validity and intended host, then checks current
 policy and underlying authority within its bound requirements. Matching `who` /
-`via` rules authorize effects; a valid state guard checks concurrency independently.
+`app` rules and lent grants authorize effects; a valid state guard checks concurrency independently.
 Recheck at atomic acceptance and stored-receipt disclosure. Token possession does
 not freeze ACLs, device/session validity or grants. Watches and direct-provider
 execution use the revocation rules below; expiration or refresh cannot silently
@@ -220,11 +269,11 @@ GET /.arbor/trees/{TreeID}/access
 ```
 
 Administrators receive a safe projection of resource rules with `who`, optional
-`via`, `allow`, and `within`. Link subjects are redacted, and private policy from
-other accounts is not exposed. Effective permission descriptions are scoped to
+`app`, `allow`, and `within`. Link subjects are redacted, and other profiles'
+`apps.yaml` is not exposed. Effective permission descriptions are scoped to
 current caller/executable context; they are advisory, never authorization proof.
 The legacy `none | read | write` descriptor remains a summary of whole-tree access,
 not a representation of scoped capabilities. Permission changes occur only through
-accepted `trees.yaml` updates. Concurrent narrowing/removal must not resurrect
+accepted tree configuration updates. Concurrent narrowing/removal must not resurrect
 broader permissions through ordinary union merging: ambiguous policy edits retain
 the restrictive effective result pending explicit authorized resolution.

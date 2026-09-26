@@ -1,78 +1,48 @@
-import { parseResourceConfiguration, hostedProjection, type ResourceConfiguration } from "./resource-configuration.ts";
 import { watch, type FSWatcher } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AccessRule, Diagnostic, TreeID } from "../index.ts";
+import type { Diagnostic, TreeID } from "../index.ts";
 import { writeAtomic } from "../model/file-ops.ts";
-import { isAlias, isMap, isSeq, parseDocument, type Document, type Node } from "yaml";
+import { parseDocument, type Document } from "yaml";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
+import { HostAccountStore } from "./server-config.ts";
+import {
+  checkTreeConfig,
+  parseAccessYAML,
+  parseAppsYAML,
+  parseDevicesYAML,
+  parseMountsYAML,
+  treeConfigurationID,
+  type TreeConfigDevice,
+  type TreeConfigValues,
+} from "./tree-config.ts";
 
-export interface AccountConfiguration {
-  canopy: string;
-  profile: TreeID;
-}
-
-export interface HostedTreeDeclaration {
-  canonical: string;
-  access: AccessRule[];
-}
-
-export type HostedTreesConfiguration = Record<TreeID, HostedTreeDeclaration>;
-
-export interface AccountDeviceConfiguration {
-  id: string;
-  label: string;
-  administrator: boolean;
-}
-
+/**
+ * A host account's local checkout: the configuration of the account's
+ * person profile (`access.yaml`, `mounts.yaml`, `apps.yaml`, `devices.yaml`),
+ * placed at `accounts/<configuration TreeID>/`. The profile and the host
+ * origin are the account's connection record, not authored files.
+ */
 export interface AccountConfigurationSnapshot {
   configurationTree: TreeID;
   path: string;
-  account?: AccountConfiguration;
-  trees?: HostedTreesConfiguration;
-  resources?: ResourceConfiguration;
-  devices?: Record<string, AccountDeviceConfiguration>;
-  currentDevice?: AccountDeviceConfiguration;
+  /** The Canopy origin of the account's connection. */
+  canopy?: string;
+  /** The person profile whose configuration this is. */
+  profile?: TreeID;
+  configuration?: TreeConfigValues;
+  devices?: Record<string, TreeConfigDevice>;
+  currentDevice?: TreeConfigDevice;
   sources: Record<string, string>;
   diagnostics: Diagnostic[];
 }
+
+export type AccountDeviceConfiguration = TreeConfigDevice;
 
 const ID = /^(?:tr|dv)_[a-z2-7]+$/;
 
 function issue(code: string, message: string, path: string): Diagnostic {
   return { code, message, path, severity: "warning" };
-}
-
-function containsAlias(node: Node | null | undefined): boolean {
-  if (!node) return false;
-  if (isAlias(node)) return true;
-  if (isMap(node) || isSeq(node)) {
-    return node.items.some((item: unknown) => {
-      if (isMap(node)) {
-        const pair = item as { key?: Node; value?: Node };
-        return containsAlias(pair.key) || containsAlias(pair.value);
-      }
-      return containsAlias(item as Node);
-    });
-  }
-  return false;
-}
-
-function parseStrict(source: string): unknown {
-  const document = parseDocument(source, { uniqueKeys: true });
-  if (document.errors.length) throw new Error(document.errors[0]!.message);
-  if (containsAlias(document.contents as Node | null)) throw new Error("YAML aliases are not allowed");
-  return document.toJS({ maxAliasCount: 0 });
-}
-
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a mapping`);
-  return value as Record<string, unknown>;
-}
-
-function exactFields(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
-  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
-  if (unknown.length) throw new Error(`${label} has unknown fields: ${unknown.join(", ")}`);
 }
 
 export function configurationTreeID(value: unknown, label = "configuration TreeID"): TreeID {
@@ -85,46 +55,9 @@ function deviceID(value: unknown, label: string): string {
   return value;
 }
 
-function hostOrigin(value: unknown, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} must be an HTTPS origin`);
-  const parsed = new URL(value);
-  const loopback = parsed.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
-  if ((parsed.protocol !== "https:" && !loopback) || parsed.origin !== value || parsed.username || parsed.password) {
-    throw new Error(`${label} must be a normalized HTTPS origin`);
-  }
-  return value;
-}
-
-export function parseAccountConfiguration(source: string): AccountConfiguration {
-  const value = record(parseStrict(source), "account.yaml");
-  exactFields(value, ["canopy", "profile"], "account.yaml");
-  return {
-    canopy: hostOrigin(value.canopy, "account.yaml canopy"),
-    profile: configurationTreeID(value.profile, "account.yaml profile"),
-  };
-}
-
-/** The hosted-tree projection of a resource-policy `trees.yaml`. */
-export function parseHostedTreesConfiguration(source: string, account: AccountConfiguration): HostedTreesConfiguration {
-  return hostedProjection(parseResourceConfiguration(source, account));
-}
-
+/** A person's `devices.yaml`. */
 export function parseAccountDevicesConfiguration(source: string): Record<string, AccountDeviceConfiguration> {
-  const value = record(parseStrict(source), "devices.yaml");
-  const devices: Record<string, AccountDeviceConfiguration> = {};
-  for (const [idValue, candidate] of Object.entries(value)) {
-    const id = deviceID(idValue, `devices.yaml key ${idValue}`);
-    const device = record(candidate, `devices.yaml.${id}`);
-    exactFields(device, ["label", "administrator"], `devices.yaml.${id}`);
-    if (typeof device.label !== "string" || !device.label.trim()) throw new Error(`devices.yaml.${id}.label must be nonempty`);
-    if (device.administrator !== undefined && typeof device.administrator !== "boolean") {
-      throw new Error(`devices.yaml.${id}.administrator must be true or false`);
-    }
-    devices[id] = { id, label: device.label, administrator: device.administrator === true };
-  }
-  if (!Object.keys(devices).length) throw new Error("devices.yaml must contain an active device");
-  if (!Object.values(devices).some((device) => device.administrator)) throw new Error("devices.yaml must contain an administrator");
-  return devices;
+  return parseDevicesYAML(source);
 }
 
 export function accountsRoot(): string {
@@ -136,7 +69,7 @@ export function accountCheckoutPath(configurationTree: string): string {
 }
 
 /**
- * Edit one file of an account-configuration checkout on disk.
+ * Edit one file of an account checkout on disk.
  *
  * Contract (shared with the Mac app's Swift twin, `AccountConfigurationYAML`):
  * - The file lives at `accountCheckoutPath(configurationTree)/<filename>` and is
@@ -202,13 +135,15 @@ export async function saveCurrentAccountDeviceID(configurationTree: string, idVa
   }
 }
 
+const ACCOUNT_FILES = ["access.yaml", "mounts.yaml", "apps.yaml", "devices.yaml"] as const;
+
 export async function loadAccountConfiguration(configurationTreeInput: string): Promise<AccountConfigurationSnapshot> {
   await prepareArborDataRoot();
   const configurationTree = configurationTreeID(configurationTreeInput);
   const path = accountCheckoutPath(configurationTree);
   const diagnostics: Diagnostic[] = [];
   const sources: Record<string, string> = {};
-  const expected = new Set(["account.yaml", "trees.yaml", "devices.yaml"]);
+  const expected = new Set<string>(ACCOUNT_FILES);
   try {
     for (const name of await readdir(path)) {
       if (!expected.has(name)) diagnostics.push(issue("invalid-account-path", `Unsupported account configuration path: ${name}`, join(path, name)));
@@ -217,33 +152,49 @@ export async function loadAccountConfiguration(configurationTreeInput: string): 
     diagnostics.push(issue("missing-account-checkout", error instanceof Error ? error.message : String(error), path));
     return { configurationTree, path, sources, diagnostics };
   }
-  for (const name of expected) {
+  for (const name of ACCOUNT_FILES) {
     try { sources[name] = await readFile(join(path, name), "utf8"); }
-    catch (error) { diagnostics.push(issue(`invalid-${name.replace(".yaml", "")}-yaml`, error instanceof Error ? error.message : String(error), join(path, name))); }
+    catch (error) {
+      if (name === "apps.yaml" && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      diagnostics.push(issue(`invalid-${name.replace(".yaml", "")}-yaml`, error instanceof Error ? error.message : String(error), join(path, name)));
+    }
   }
-  let account: AccountConfiguration | undefined;
-  let trees: HostedTreesConfiguration | undefined;
-  let resources: ResourceConfiguration | undefined;
-  let devices: Record<string, AccountDeviceConfiguration> | undefined;
-  try { if (sources["account.yaml"] !== undefined) account = parseAccountConfiguration(sources["account.yaml"]); }
-  catch (error) { diagnostics.push(issue("invalid-account-yaml", error instanceof Error ? error.message : String(error), join(path, "account.yaml"))); }
-  try { if (account && sources["trees.yaml"] !== undefined) {
-    resources = parseResourceConfiguration(sources["trees.yaml"], account);
-    trees = hostedProjection(resources);
-  } }
-  catch (error) { diagnostics.push(issue("invalid-trees-yaml", error instanceof Error ? error.message : String(error), join(path, "trees.yaml"))); }
-  try { if (sources["devices.yaml"] !== undefined) devices = parseAccountDevicesConfiguration(sources["devices.yaml"]); }
-  catch (error) { diagnostics.push(issue("invalid-devices-yaml", error instanceof Error ? error.message : String(error), join(path, "devices.yaml"))); }
-  if (trees?.[configurationTree]) diagnostics.push(issue("self-declared-account", "The account-configuration tree must not declare itself", join(path, "trees.yaml")));
+  const connection = await new HostAccountStore(configurationTree).safe();
+  const profile = connection?.profileTree;
+  if (profile && treeConfigurationID(profile) !== configurationTree) {
+    diagnostics.push(issue("account-identity-mismatch", `Account ${configurationTree} is not the configuration of profile ${profile}`, path));
+  }
+  const parsed: Partial<TreeConfigValues> = {};
+  const parse = <T>(name: string, read: (source: string) => T): T | undefined => {
+    if (sources[name] === undefined) return undefined;
+    try { return read(sources[name]!); }
+    catch (error) {
+      diagnostics.push(issue(`invalid-${name.replace(".yaml", "")}-yaml`, error instanceof Error ? error.message : String(error), join(path, name)));
+      return undefined;
+    }
+  };
+  parsed.access = parse("access.yaml", parseAccessYAML);
+  parsed.mounts = parse("mounts.yaml", parseMountsYAML);
+  parsed.apps = sources["apps.yaml"] === undefined ? {} : parse("apps.yaml", (source) => parseAppsYAML(source, "person"));
+  const devices = parse("devices.yaml", parseDevicesYAML);
+  parsed.devices = devices;
+  let configuration: TreeConfigValues | undefined;
+  if (parsed.access && parsed.mounts && parsed.apps && devices) {
+    try {
+      checkTreeConfig(parsed as TreeConfigValues, "person", profile);
+      configuration = parsed as TreeConfigValues;
+    } catch (error) {
+      diagnostics.push(issue("invalid-access-yaml", error instanceof Error ? error.message : String(error), join(path, "access.yaml")));
+    }
+  }
   const current = await currentAccountDeviceID(configurationTree);
   if (current && devices && !devices[current]) diagnostics.push(issue("inactive-current-device", `Current device ${current} is not active`, join(path, "devices.yaml")));
   return {
     configurationTree,
     path,
-    account,
-    trees,
-    ...(resources ? { resources } : {}),
-    devices,
+    ...(connection ? { canopy: connection.origin, profile: connection.profileTree } : {}),
+    ...(configuration ? { configuration } : {}),
+    ...(devices ? { devices } : {}),
     ...(current && devices?.[current] ? { currentDevice: devices[current] } : {}),
     sources,
     diagnostics,

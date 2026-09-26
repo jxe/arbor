@@ -10,7 +10,7 @@ object store; the [merge sidecar](merge-tool.md) answers one question about
 it when concurrent work must combine, and keeps whatever it caches in its own
 memory ([writing a sidecar](writing-a-sidecar.md)). canopyd accepts plain
 edits on the head itself, checks each answer's shape and objects, merges
-account configuration itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
+tree configurations itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp. Startup reads only the schema: the stamp, then each table's
 columns and the indexes queries rely on. Any difference is a
@@ -24,8 +24,10 @@ checks them instead.
 The spec leaves placement to each host; this is canopyd's policy.
 
 - **Community profile.** The tree canonical at `/` is the community's
-  membership profile and keeps `type: group`. Accounts that can write it are
-  the Canopy's administrators.
+  membership profile and keeps `type: group`. Its tree configuration grants
+  the root itself `admin`, so its members are the Canopy's administrators.
+  A bootstrap that opts its accounts out of membership lists their profiles
+  as the root's administrators instead.
 - **Accounts.** A community `members` entry's `handle` reserves `/~handle`
   for exactly that entry's person Profile TreeID; that person claims the
   account with their profile key ([accounts §1.2](../../overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
@@ -33,18 +35,23 @@ The spec leaves placement to each host; this is canopyd's policy.
   membership. A claimant presents the matching random code and proves their
   newly created Profile TreeID with the same profile-key signature. Claim
   replaces the pending entry with that Profile TreeID in the accepted
-  community root.
-  Removing the entry disables the account. An account's profile tree, once
-  hosted, is the tree at `/~handle`.
-- **Paths an account may declare.** Any path below its own `/~handle`. An
-  administrator may also declare paths below any `/~name` that no person has
-  reserved or claimed, so a top-level name can address a group or any other
-  tree. Other paths are refused.
+  community root, and declares the profile tree with its first tree
+  configuration. Accounts are keyed by profile TreeID (`accounts.id`), and a
+  profile has one account here; a claim for a profile claimed elsewhere on
+  this host is refused. Removing the entry disables the account.
+- **Mounts are the canonical paths.** Canonical boundaries are recomputed
+  from `mounts.yaml`: the root at `/`, each member's profile at `/~handle`
+  (canopyd inserts that mount when the profile is claimed and activates), and
+  every other mount below its parent's boundary. The root's `mounts.yaml`
+  holds its other top-level names and may not name a reserved or claimed
+  `~handle`. Mounting a tree requires administering both parent and child
+  ([accounts §3.1](../../overstory-spec/04-accounts-and-devices.md#31-who-may-edit-a-tree-configuration)),
+  so "below your own `/~handle`" is "administer your profile", and a free
+  top-level name needs a root administrator.
 - **One rule for `/~name`.** A name is either a person's (reserved or
-  claimed) or held by trees (a tree, active or declared, at or below
-  `/~name` that the `~name` account does not administer). Reserving a handle
-  or claiming an account is refused while trees hold the name, and declaring a
-  tree under another person's name is refused.
+  claimed) or held by trees (a root mount at `~name` or below it). Reserving a
+  handle or claiming an account is refused while mounts hold the name, and a
+  root mount under a person's name is refused.
 - **Group membership.** A profile subject that is a `type: group` tree grants
   its access to every member whose Profile TreeID its `members` list names;
   a legacy scalar `/~handle` member still matches by handle.
@@ -59,14 +66,18 @@ The spec leaves placement to each host; this is canopyd's policy.
   when the head no longer declares a type. The community's accounts are
   reconciled only when its `members` change. A tree without a row is not a
   profile (`packages/canopyd/src/profile.ts`).
-- **Tree ownership.** A tree an account activated, or hosts in its
-  `trees.yaml` while no account owns it, is that account's (`trees.account_id`):
-  only the owner administers it, and the owner's resource rules alone decide
-  who else reads or writes it, whether or not the community has since
-  disabled the owner. The community root cannot be retired through a
-  configuration. A tree no account owns (trees created at bootstrap until
-  their account's configuration exists) keeps stored `access` entries; the
-  accounts those entries let write it administer it.
+- **Administration.** Each hosted tree's `access.yaml` names its
+  administrators with `admin`; there is no owner column, adoption or `access`
+  table. canopyd indexes each accepted configuration into `tree_policy`
+  (rules), `tree_admins` (administering profiles), `app_policy` (a profile's
+  `apps.yaml`) and `mounts`, and authorizes from those rows and
+  `profile_facts`. A group administers through its current members, and an
+  update that would remove the last member of a group administering any tree
+  is refused. A disabled account's device credentials stop working, but the
+  rules naming its profile stay as written. The host operator can reset a
+  person's devices with `ARBOR_RESET_ACCOUNT` when every administrator device
+  is lost (`resetAccountToken`); recovery through the profile key is
+  [Security 006](../../../plans/security/006-device-keys.md).
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, or a system call is
   a logged 500 (`ServerFaultError`, `isServerFault` in `errors.ts`).

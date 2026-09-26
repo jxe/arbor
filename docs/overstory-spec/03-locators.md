@@ -181,9 +181,13 @@ The Markdown alias cannot carry a content fragment as well
 An external URL parser separates the final raw segment's parameter block,
 beginning at its first `;arbor-`, before percent-decoding path components. A
 literal suffix-like filename encodes its semicolon as `%3B`; it is data, not
-identity syntax. Within the block, any parameter other than `arbor-key` and
-`arbor-rev`, a repeated parameter, an empty value, or the two in the wrong
-order makes the locator invalid rather than path data. The parser then
+identity syntax. Within the block, any parameter other than `arbor-key`, `arbor-rev` and
+`arbor-config`, a repeated parameter, an empty value, or `arbor-key` and `arbor-rev` in the
+wrong order makes the locator invalid rather than path data. `arbor-config` takes no
+value, appears only on a tree's root (a canonical boundary or
+`arbor://<TreeID>`), stands alone, and addresses that tree's
+[configuration](04-accounts-and-devices.md#21-finding-it) rather than a node;
+the host answers it only to the tree's administrators. The parser then
 percent-decodes each path component exactly once. Every internal logical path is
 already decoded and may contain a literal `%`, including text resembling
 another escape. Resolvers, routers, clients, and stores must not decode it again.
@@ -221,10 +225,16 @@ URL nesting does not imply common storage, history, ownership, or access: if
 one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter
 boundary wins below it.
 
-Host policy assigns each registered canonical boundary to the account allowed
-to declare it ([canopyd's policy](../architecture/canopyd/README.md#accounts-and-canonical-paths)). Longest-boundary lookup
-resolves declared trees below a path whether or not a tree is registered at
-the path itself. No allocation rule is part of the portable locator grammar.
+Registered boundaries come from mounts: each active tree mounted in its
+parent's `mounts.yaml` is registered at the parent's boundary joined with the
+mount path ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml)),
+and a host roots the graph at its community root. The parent's administrators
+choose its names; mounting a tree also requires administering it. How a host
+mounts its members' profiles is host policy
+([canopyd's policy](../architecture/canopyd/README.md#accounts-and-canonical-paths)).
+Longest-boundary lookup resolves mounted trees below a path whether or not a
+tree is registered at the path itself. No allocation rule is part of the
+portable locator grammar.
 
 Canonical placement is mutable naming. Changing the host's DNS name, moving
 a registered boundary, or renaming a node changes canonical URLs without
@@ -255,8 +265,8 @@ implementation happens to encode them identically.
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the
 longest readable registered boundary. Inaccessible nested boundaries cannot be
-read through a parent. The private account-configuration tree is absent from
-public discovery and canonical resolution.
+read through a parent. Tree configurations are absent from public discovery
+and canonical resolution.
 
 ```ts
 type LocatorResolution = {
@@ -272,7 +282,7 @@ type LocatorResolution = {
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
-does not publish or resolve the account-configuration tree.
+does not publish or resolve tree configurations.
 
 Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.

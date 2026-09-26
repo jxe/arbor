@@ -1,4 +1,4 @@
-import { generateArborID, HostAccountStore, loadAccountConfigurations } from "@overstory/protocol";
+import { HostAccountStore, loadAccountConfigurations } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -56,25 +56,11 @@ beforeAll(async () => {
   const daemon = await ArborSyncDaemon.open(profile);
   try {
     await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${running.url}/~joe`, profile, "Joe");
-    const account = (await loadAccountConfigurations())[0]!;
-    tree = generateArborID("tr");
-    await writeFile(join(account.path, "trees.yaml"), [
-      `${tree}:`,
-      `  canonical: ${JSON.stringify(`${running.url}/~joe/todos`)}`,
-      "  access:",
-      `    - who: { profile: ${account.account!.profile} }`,
-      "      allow: [write]",
-      "",
-    ].join("\n"));
-    await writeFile(join(state, "placements.yaml"), [
-      `${account.configurationTree}:`,
-      `  ${JSON.stringify(source)}: ${tree}`,
-      "",
-    ].join("\n"));
-    await daemon.synchronizeNow();
   } finally {
     await daemon[Symbol.asyncDispose]();
   }
+  await arbor(["place", source, `${running.url}/~joe/todos`]);
+  tree = running.canopy.boundary("/~joe/todos")!.id;
 });
 
 afterAll(async () => {
@@ -107,15 +93,18 @@ describe("arbor mv", () => {
     const sourceCanonical = `${running.url}/~joe/todos`;
     const destinationCanonical = `${running.url}/~joe/tasks`;
     const account = (await loadAccountConfigurations())[0]!;
-    const beforeConfiguration = await readFile(join(account.path, "trees.yaml"), "utf8");
+    const beforeConfiguration = await readFile(join(account.path, "mounts.yaml"), "utf8");
     const canonicalDryRun = await arbor(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
     expect(canonicalDryRun).toContain(`Would move ${tree}`);
-    expect(await readFile(join(account.path, "trees.yaml"), "utf8")).toBe(beforeConfiguration);
+    expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toBe(beforeConfiguration);
     expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/todos");
 
     const canonicalMove = await arbor(["mv", sourceCanonical, destinationCanonical]);
     expect(canonicalMove).toContain(`Moved ${tree}`);
     expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/tasks");
+    expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toContain(`tasks: ${tree}`);
+    // Another Canopy is not a destination: a profile has one home host.
+    await expect(arbor(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("one home host");
     expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
     expect((await loadLocalPlacements()).placements).toContainEqual({
       configurationTree: account.configurationTree,

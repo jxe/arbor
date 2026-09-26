@@ -219,15 +219,15 @@ same entry.
 When the tree merge itself fails, ordinary content is kept as one whole-root choice that
 shows the current tree, and the failure goes to stderr.
 
-## Account configuration
+## Tree configurations
 
-The three account-configuration files are canopyd's policy: it parses them, authorizes
-every change before and after merging, and writes them itself. So their three-way merge
-is in canopyd (`packages/canopyd/src/account-policy.ts`), beside that authorization,
-and the sidecar has no account rule. canopyd then asks the sidecar a question authored on
-the head with the merged root as candidate, and adds a restrictive access-policy choice
-to the entry itself. Parsing and the canonical three-file writer are in
-`@overstory/protocol`. `trees.yaml` is read in the resource-rule grammar only.
+Tree configuration files are canopyd's policy: it parses them, authorizes every change
+before and after merging, and writes them itself. So their three-way merge runs in
+canopyd (`packages/canopyd/src/tree-config-policy.ts`, using `mergeTreeConfigs` from
+`@overstory/protocol`), beside that authorization, and the sidecar has no configuration
+rule. canopyd then asks the sidecar a question authored on the head with the merged root
+as candidate, and adds a restrictive access-policy choice to the entry itself. Parsing
+and the canonical writer are in `@overstory/protocol` (`config/tree-config.ts`).
 
 ## Operation evaluation
 
@@ -475,7 +475,7 @@ canopyd uses one sidecar, at most 64 queued questions, a 30-second timeout with 
 termination, and an 8 MiB stdout/stderr buffer limit. A sidecar that cannot start, exits
 or times out accepts nothing: canopyd answers a retryable 503 (`merge-failed`), and the
 client retains its durable request for retry. A fast-forward and an exact accepted retry
-need no sidecar. Governed account configuration retains its authorization and rejection
+need no sidecar. Governed tree configurations retain their authorization and rejection
 policy.
 
 ## Running and configuring

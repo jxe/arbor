@@ -27,6 +27,8 @@
   ],
   "exclude": [
     "packages/canopy-web/**",
-    "packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts"
+    "packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts",
+    "packages/canopyd/migrations/019-one-access-store/**",
+    "packages/canopyd/migrations/020-profile-facts-per-tree/**"
   ]
 }

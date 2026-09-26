@@ -82,7 +82,7 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
  * format or the daemon's rebuildable state changes shape, and is the client
  * half of the schema stamp Canopy asserts at startup.
  */
-export const ARBOR_SYNC_STATE_VERSION = "5";
+export const ARBOR_SYNC_STATE_VERSION = "6";
 
 const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
 

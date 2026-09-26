@@ -782,8 +782,9 @@ struct LiveProtocolTests {
         let client = ProtocolClient(origin: origin, credential: token, retryDelay: { _ in })
         let account = try await client.account()
         let configuration = account.account.configuration
-        #expect(configuration.kind == "account-configuration")
+        #expect(configuration.kind == "tree-configuration")
         #expect(configuration.canonical == nil)
+        #expect(configuration.id == treeConfigurationID(try #require(account.account.profileTree)))
         let ref = try await client.descriptor(tree: configuration.id)
         #expect(ref.tree.root == configuration.root)
         #expect(!ref.observedThrough.isEmpty)
@@ -922,7 +923,7 @@ struct ProtocolValueVectorTests {
         #expect(remote.canonical?.httpURL == "https://community.example/~joe")
         #expect(remote.canonical?.arborURL == "arbor://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
-        // TODO: `treeDescriptor`, `accountConfigurationDescriptor`, and `resolution.enclosingTree`
+        // TODO: `treeDescriptor`, `treeConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. Overstory models only the remote
         // shape (`ProtocolTreeDescriptor` requires both), so they cannot be decoded here yet.
 
@@ -939,13 +940,13 @@ struct ProtocolValueVectorTests {
 
         let invalid = try #require(fixture["invalid"] as? [[String: Any]])
         #expect(invalid.map { $0["name"] as? String } == [
-            "descriptor-for-local", "ordinary-tree-without-canonical", "link-entry-leaks-digest", "resolution-omits-tree",
+            "descriptor-for-local", "canonical-tree-configuration", "link-entry-leaks-digest", "resolution-omits-tree",
         ])
         for vector in invalid {
             let name = vector["name"] as? String ?? ""
             let value = try #require(vector["value"] as? [String: Any])
             switch name {
-            case "descriptor-for-local", "ordinary-tree-without-canonical":
+            case "descriptor-for-local", "canonical-tree-configuration":
                 let bytes = try JSONSerialization.data(withJSONObject: value)
                 #expect(throws: (any Error).self, "\(name)") {
                     _ = try decoder.decode(ProtocolTreeDescriptor.self, from: bytes).validated()

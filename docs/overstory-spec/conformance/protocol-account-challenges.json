@@ -4,7 +4,7 @@
       "name": "community-address",
       "request": {
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca"
       },
       "response": {
         "version": 1,
@@ -12,7 +12,7 @@
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
         "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "issuedAt": 1,
         "expiresAt": 300001
@@ -23,7 +23,7 @@
       "request": {
         "account": "https://community.example/~alice",
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca"
       },
       "response": {
         "version": 1,
@@ -31,7 +31,7 @@
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
         "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "issuedAt": 1,
         "expiresAt": 300001
@@ -41,7 +41,7 @@
       "name": "invitation-code",
       "request": {
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
         "inviteCode": "abcdefghijklmnopqrstuv"
       },
       "response": {
@@ -50,7 +50,7 @@
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
         "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "issuedAt": 1,
         "expiresAt": 300001

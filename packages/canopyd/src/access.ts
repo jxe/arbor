@@ -1,10 +1,21 @@
-import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, sha256, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+import {
+  operationAllowed,
+  parseResourceRules,
+  ruleMatches,
+  rulesAllow,
+  safeResourceRule,
+  scopeContains,
+  sha256,
+  type AccessOperation,
+  type AppAccessRule,
+  type ResourceAccessRule,
+  type TreeOperation,
+} from "@overstory/protocol";
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import { AccountDirectory } from "./accounts.ts";
-import { isAccountConfigPolicy, type HostAccessEntry, type HostAccount, type HostTree } from "./model.ts";
+import { isTreeConfigPolicy, type HostAccessEntry, type HostAccount, type HostTree } from "./model.ts";
 
-type ResourceRules = ReturnType<typeof parseResourceRules>;
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
 
@@ -19,116 +30,49 @@ export interface AccessHost {
   rootProfileType(tree: HostTree): "person" | "group" | null;
 }
 
-/** A stored access entry as the configuration rule that declares it. */
-export function accessRule(entry: HostAccessEntry): AccessRule {
-  return {
-    subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
-      : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
-        : { kind: "link", digest: entry.subject as `sha256:${string}` },
-    access: entry.access,
-  };
-}
-
 /**
- * Tree access rules and the read/write/administer decisions derived from them.
- * A tree an account owns (`trees.account_id`) is governed by that account's
- * resource rules alone (`resource_policy`, from its `trees.yaml`). The
- * `access` table holds the rules of a tree no account owns: trees created at
- * bootstrap, and the community root until an account hosts it.
+ * Who may do what to each tree, from the derived index of its accepted tree
+ * configuration: `tree_policy` holds `access.yaml`, `tree_admins` its
+ * administrators, and `app_policy` each profile's `apps.yaml`.
+ *
+ * A profile administers a tree when an `admin` rule names it, or names a group
+ * whose current members include it. An administrator may read and edit the
+ * tree configuration and has `write` on the whole tree.
  */
 export class AccessControl {
-  private readonly parsedRules = new Map<string, ResourceRules>();
+  private readonly parsed = new Map<string, unknown[]>();
   private readonly accounts: AccountDirectory;
 
   constructor(private readonly db: Database, private readonly host: AccessHost) {
     this.accounts = new AccountDirectory(db);
   }
 
-  /** Rules parsed once per distinct policy text. */
-  private parse(rulesJSON: string): ResourceRules {
-    let rules = this.parsedRules.get(rulesJSON);
+  private parse<T>(json: string, parse: (value: unknown) => T[]): T[] {
+    let rules = this.parsed.get(json) as T[] | undefined;
     if (!rules) {
-      rules = parseResourceRules(JSON.parse(rulesJSON));
-      if (this.parsedRules.size >= PARSED_RULES_LIMIT) this.parsedRules.delete(this.parsedRules.keys().next().value!);
-      this.parsedRules.set(rulesJSON, rules);
+      rules = parse(JSON.parse(json));
+      if (this.parsed.size >= PARSED_RULES_LIMIT) this.parsed.delete(this.parsed.keys().next().value!);
+      this.parsed.set(json, rules);
     }
     return rules;
   }
 
-  /** The account's governed rules for a tree. */
-  private rules(account: string, tree: string): ResourceRules | undefined {
-    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(account, tree) as { rules_json: string } | null;
-    return row ? this.parse(row.rules_json) : undefined;
+  /** A tree's `access.yaml` rules; none for a tree without a configuration. */
+  rules(tree: string): ResourceAccessRule[] {
+    const row = this.db.query("SELECT rules_json FROM tree_policy WHERE tree_id = ?").get(tree) as { rules_json: string } | null;
+    return row ? this.parse(row.rules_json, parseResourceRules) : [];
   }
 
-  /** An account's rules for a tree and the Profile TreeID its `who: me`
-   * rules name, in one read; undefined when either is missing. An owner the
-   * community disabled can no longer sign in, but the rules it accepted keep
-   * governing its trees, as they did before it was disabled. */
-  private policy(account: string, tree: string): { rules: ResourceRules; ownerProfile: string } | undefined {
-    const row = this.db.query(`
-      SELECT p.rules_json, a.profile_tree FROM resource_policy p JOIN accounts a ON a.id = p.account_id
-      WHERE p.account_id = ? AND p.tree_id = ?
-    `).get(account, tree) as { rules_json: string; profile_tree: string | null } | null;
-    return row?.profile_tree ? { rules: this.parse(row.rules_json), ownerProfile: row.profile_tree } : undefined;
+  /** A profile's `apps.yaml` rules for one app. */
+  appRules(profile: string, app: string): AppAccessRule[] {
+    const row = this.db.query("SELECT rules_json FROM app_policy WHERE profile_tree = ? AND app_tree = ?").get(profile, app) as { rules_json: string } | null;
+    return row ? this.parse(row.rules_json, (value) => value as AppAccessRule[]) : [];
   }
 
-  /** A tree's whole-tree rules as access entries: an owned tree's from its
-   * owner's resource rules (rules scoped below the root, through code, or for
-   * the owner alone have no entry), an unowned tree's as stored. */
-  entries(tree: string): HostAccessEntry[] {
-    const owner = this.host.tree(tree)?.accountID;
-    if (owner) return (this.rules(owner, tree) ?? []).flatMap((rule): HostAccessEntry[] => {
-      if (rule.via || (rule.within ?? "/") !== "/" || rule.who === "me") return [];
-      const access = rule.allow.includes("write") ? "write" : rule.allow.includes("read") ? "read" : null;
-      if (!access) return [];
-      const [subjectKind, subject]: [HostAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
-        : "profile" in rule.who ? ["profile", rule.who.profile] : ["link", rule.who.link];
-      // A stable id per tree and subject, as a stored entry's would be.
-      return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
-    });
-    return this.storedEntries(tree);
-  }
-
-  /** The stored `access` rows of a tree no account owns. */
-  private storedEntries(tree: string): HostAccessEntry[] {
-    return this.db.query("SELECT id, tree_id, subject_kind, subject, access FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
-      .all(tree)
-      .map((row) => {
-        const value = row as {
-          id: string;
-          tree_id: string;
-          subject_kind: HostAccessEntry["subjectKind"];
-          subject: string;
-          access: ReadWriteAccess;
-        };
-        return {
-          id: value.id,
-          tree: value.tree_id,
-          subjectKind: value.subject_kind,
-          subject: value.subject,
-          access: value.access,
-        };
-      });
-  }
-
-  /** Insert or update one rule of a tree no account owns; callers run this inside their own transaction. */
-  set(treeID: string, subjectKind: HostAccessEntry["subjectKind"], subject: string, access: ReadWriteAccess): void {
-    const existing = this.db.query(
-      "SELECT id FROM access WHERE tree_id = ? AND subject_kind = ? AND subject = ?",
-    ).get(treeID, subjectKind, subject) as { id: string } | null;
-    if (existing) {
-      this.db.run("UPDATE access SET access = ? WHERE id = ?", [access, existing.id]);
-    } else {
-      this.db.run(
-        "INSERT INTO access (id, tree_id, subject_kind, subject, access) VALUES (?, ?, ?, ?, ?)",
-        [generateArborID("ax"), treeID, subjectKind, subject, access],
-      );
-    }
-  }
-
-  safePolicy(account: string, tree: string) {
-    return this.rules(account, tree)?.map(safeResourceRule);
+  /** The profiles an `admin` rule of the tree names. */
+  administrators(tree: string): string[] {
+    return (this.db.query("SELECT profile_tree FROM tree_admins WHERE tree_id = ? ORDER BY profile_tree").all(tree) as Array<{ profile_tree: string }>)
+      .map((row) => row.profile_tree);
   }
 
   /** The tree `id` names, when its current root declares `type: group`. */
@@ -137,120 +81,116 @@ export class AccessControl {
     return group && this.host.rootProfileType(group) === "group" ? group : null;
   }
 
-  private policyAllows(policyAccount: string, caller: string | null, tree: string, path: string, operation: AccessOperation, via?: string, linkDigest?: string): boolean {
-    if (!policyAccount) return false;
-    const policy = this.policy(policyAccount, tree);
-    if (!policy) return false;
-    return rulesAllow(policy.rules, {
-      ownerProfile: policy.ownerProfile, callerProfile: caller, via, linkDigest,
-      isGroupMember: (groupID, profile) => {
-        const group = this.groupTree(groupID);
-        if (!group) return false;
-        // Only a profile an enabled account holds counts as a member.
-        const handle = this.accounts.handleForProfile(profile);
-        return handle !== undefined && this.host.isProfileMember(group, profile, handle);
-      },
-    }, path, operation);
+  /** One-level group membership: only a profile an enabled account holds counts. */
+  readonly isGroupMember = (groupID: string, profile: string): boolean => {
+    const group = this.groupTree(groupID);
+    if (!group) return false;
+    const handle = this.accounts.handleForProfile(profile);
+    return handle !== undefined && this.host.isProfileMember(group, profile, handle);
+  };
+
+  /** Whether `profile` administers `tree`, directly or through a group it belongs to. */
+  administers(profile: string | null, tree: string): boolean {
+    if (!profile) return false;
+    return this.administrators(tree).some((admin) => admin === profile || this.isGroupMember(admin, profile));
+  }
+
+  /** Whether a profile holds `operation` at `path` of an ordinary tree by its
+   * own access: administration or a rule without `app` that matches it. */
+  private holds(profile: string | null, tree: string, path: string, operation: TreeOperation, linkDigest?: string): boolean {
+    if (this.administers(profile, tree)) return true;
+    return rulesAllow(this.rules(tree), { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember }, path, operation);
+  }
+
+  /** Whether a rule without `app` names `profile` itself (not a group it
+   * belongs to, nor everyone) for `operation` at `path`: access that is the
+   * profile's own to lend. */
+  private namedDirectly(profile: string, tree: string, path: string, operation: AccessOperation): boolean {
+    return this.rules(tree).some((rule) => !rule.app && typeof rule.who === "object" && "profile" in rule.who
+      && rule.who.profile === profile && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation));
+  }
+
+  /** A tree's whole-tree rules as access entries: rules scoped below the root
+   * or through an app have no entry, and administrators have `write`. */
+  entries(tree: string): HostAccessEntry[] {
+    return this.rules(tree).flatMap((rule): HostAccessEntry[] => {
+      if (rule.app || (rule.within ?? "/") !== "/" || typeof rule.who === "string" && rule.who !== "everyone") return [];
+      const access = operationAllowed(rule.allow, "write") ? "write" : rule.allow.includes("read") ? "read" : null;
+      if (!access) return [];
+      const [subjectKind, subject]: [HostAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
+        : typeof rule.who === "object" && "profile" in rule.who ? ["profile", rule.who.profile] : ["link", (rule.who as { link: string }).link];
+      // A stable id per tree and subject.
+      return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
+    });
+  }
+
+  safePolicy(tree: string) {
+    return this.rules(tree).map(safeResourceRule);
   }
 
   directExecution(account: HostAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
     const tree = this.host.tree(treeID);
-    if (!tree?.accountID || tree.policy !== "ordinary") return undefined;
-    const policy = this.policy(tree.accountID, treeID);
-    if (!policy) return undefined;
-    const rules = policy.rules.filter(rule => !rule.via && ruleMatches(rule, {
-      ownerProfile: policy.ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
-      isGroupMember: (groupID, profile) => {
-        if (profile !== account?.profileTree) return false;
-        const group = this.groupTree(groupID);
-        return !!group && this.host.isProfileMember(group, profile, account.handle);
-      },
+    if (!tree || tree.policy !== "ordinary") return undefined;
+    const rules = this.rules(treeID).filter((rule) => !rule.app && !rule.allow.includes("admin") && ruleMatches(rule, {
+      callerProfile: account?.profileTree ?? null, linkDigest, isGroupMember: this.isGroupMember,
     }));
-    return { code: "", version: "direct", caller: account?.id ?? null, sponsor: tree.accountID, subject, linkDigest,
+    return { code: "", version: "direct", caller: account?.id ?? null, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
-      grants: rules.map(rule => ({ account: tree.accountID!, role: "author" as const, tree: treeID, within: rule.within ?? "/", allow: rule.allow })),
+      grants: rules.map((rule) => ({ lender: null, tree: treeID, within: rule.within ?? "/", allow: rule.allow as AccessOperation[] })),
     };
   }
 
-  /** Grant provenance and underlying authority are re-evaluated on every use. */
+  /**
+   * Grant provenance and underlying authority are re-evaluated on every use.
+   * A grant without a lender is the caller's own access, or the tree's own
+   * rule through this app. A lent grant needs its lender's `apps.yaml` entry
+   * for this app and caller, and access a rule names the lender for directly,
+   * except that a person approving an app for themselves (`who: me`) may use
+   * any access they hold.
+   */
   executionAllows(context: ExecutionContext, grant: ExecutionGrant, path: string, operation: AccessOperation): boolean {
     const tree = this.host.tree(grant.tree);
-    if (!tree || tree.policy !== "ordinary") return false;
+    if (!tree || tree.policy !== "ordinary" || tree.status !== "active") return false;
     const caller = context.caller ? this.accounts.enabledAccount(context.caller) : null;
-    if (context.caller && !caller?.profileTree) return false;
+    if (context.caller && !caller) return false;
     const callerProfile = caller?.profileTree ?? null;
-    const grantor = this.accounts.enabledAccount(grant.account);
-    if (!grantor) return false;
-    const owner = tree.accountID;
-    const underlying = grant.account === owner || this.policyAllows(owner ?? "", grantor.profileTree, tree.id, path, operation)
-      || (operation === "read" ? this.canRead(grantor, tree) : this.canWrite(grantor, tree));
-    if (!underlying) return false;
-    // A caller can use ordinary permissions through code without a new grant.
-    if (grant.role === "user" && grant.account === context.caller) return true;
-    const ordinaryCaller = operation === "read" ? this.canRead(caller, tree, context.linkDigest) : this.canWrite(caller, tree, context.linkDigest);
-    return ordinaryCaller || this.policyAllows(owner ?? "", callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest)
-      || this.policyAllows(grant.account, callerProfile, tree.id, path, operation, context.code || undefined, context.linkDigest);
+    if (grant.lender === null) {
+      if (this.holds(callerProfile, tree.id, path, operation, context.linkDigest)) return true;
+      return !!context.code && rulesAllow(this.rules(tree.id).filter((rule) => rule.app === context.code),
+        { callerProfile, app: context.code, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember }, path, operation);
+    }
+    const lender = grant.lender;
+    const person = this.accounts.enabledAccount(lender) !== null;
+    if (!person && !this.groupTree(lender)) return false;
+    if (!context.code) return false;
+    const entries = this.appRules(lender, context.code).filter((rule) => rule.resource === tree.id
+      && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation)
+      && ruleMatches(rule, { ownerProfile: lender, callerProfile, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember }));
+    if (!entries.length) return false;
+    if (person && callerProfile === lender && entries.some((rule) => rule.who === "me") && this.holds(lender, tree.id, path, operation)) return true;
+    return this.namedDirectly(lender, tree.id, path, operation);
   }
 
   /** `treeOrID` is an ID, or a tree the caller already read, which saves reading it again. */
   canRead(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): boolean {
-    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree) return false;
-    const treeID = tree.id;
-    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
-    if (account && tree.accountID === account.id) return true;
-    if (tree.accountID) return this.policyAllows(tree.accountID, account?.profileTree ?? null, treeID, "/", "read", undefined, linkDigest);
-    if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
-    if (linkDigest && this.subjectAccess("link", linkDigest, treeID) !== "none") return true;
-    return account ? this.effectiveAccess(account, treeID) !== "none" : false;
+    return this.allows(account, treeOrID, "read", linkDigest);
   }
 
   canWrite(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): boolean {
+    return this.allows(account, treeOrID, "write", linkDigest);
+  }
+
+  private allows(account: HostAccount | null, treeOrID: string | HostTree, operation: "read" | "write", linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree) return false;
-    const treeID = tree.id;
-    if (isAccountConfigPolicy(tree.policy)) return account?.id === tree.accountID;
-    if (account && tree.accountID === account.id) return true;
-    if (tree.accountID) return this.policyAllows(tree.accountID, account?.profileTree ?? null, treeID, "/", "write", undefined, linkDigest);
-    if (linkDigest && this.subjectAccess("link", linkDigest, treeID) === "write") return true;
-    if (!account) return tree.publicAccess === "write";
-    return this.effectiveAccess(account, treeID) === "write" || tree.publicAccess === "write";
+    if (!tree || tree.status !== "active") return false;
+    // Only a tree's administrators see its configuration.
+    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(account.profileTree, tree.governs);
+    return this.holds(account?.profileTree ?? null, tree.id, "/", operation, linkDigest);
   }
 
   canAdminister(account: HostAccount, treeOrID: string | HostTree): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree || !account.profileTree) return false;
-    if (isAccountConfigPolicy(tree.policy) || tree.accountID) return tree.accountID === account.id;
-    if (tree.id === account.profileTree) return true;
-    return this.subjectAccess("profile", account.profileTree, tree.id) === "write";
-  }
-
-  private subjectAccess(kind: "link" | "profile", subject: string, treeID: string): ReadWriteAccess | "none" {
-    const row = this.db.query(
-      "SELECT access FROM access WHERE tree_id = ? AND subject_kind = ? AND subject = ?",
-    ).get(treeID, kind, subject) as { access: ReadWriteAccess } | null;
-    return row?.access ?? "none";
-  }
-
-  /**
-   * Direct profile access, else the strongest access granted through group
-   * membership. Only a subject whose root declares `type: group` expands: a
-   * person profile that merely lists `members` must not widen access.
-   */
-  private effectiveAccess(account: HostAccount, treeID: string): ReadWriteAccess | "none" {
-    if (!account.profileTree) return "none";
-    const direct = this.subjectAccess("profile", account.profileTree, treeID);
-    if (direct === "write") return direct;
-    let result: ReadWriteAccess | "none" = direct;
-    // Reached only for a tree no account owns, whose rules are its stored entries.
-    for (const entry of this.storedEntries(treeID)) {
-      if (entry.subjectKind !== "profile") continue;
-      const group = this.groupTree(entry.subject);
-      if (group && this.host.isProfileMember(group, account.profileTree, account.handle)) {
-        if (entry.access === "write") return "write";
-        result = "read";
-      }
-    }
-    return result;
+    if (!tree || isTreeConfigPolicy(tree.policy)) return false;
+    return this.administers(account.profileTree, tree.id);
   }
 }

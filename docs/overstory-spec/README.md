@@ -62,7 +62,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [tree operations](01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Overstory types each operation needs |
 | [directory format](02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names |
 | [locators](03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
-| [accounts and devices](04-accounts-and-devices.md) | Local-first profile identity, host accounts and community-defined allocation, governed account configuration, account-local device pairing, local placements, and tree activation |
+| [accounts and devices](04-accounts-and-devices.md) | Local-first profile identity, host accounts and community-defined allocation, governed tree configurations, device pairing, local placements, and tree declaration, activation and mounting |
 | [access control](05-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | [child backings](06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
@@ -78,9 +78,9 @@ implementations.
 
 Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../architecture/README.md), including the local API, CLI, and client design, is informative rather than normative.
 
-The checked-in configuration vectors describe the revised three-file
-`account-config-v2` graph. The former v1 grammar is no longer accepted by the reference runtime;
-old state requires an offline migration before startup.
+The checked-in configuration vectors describe the `tree-config-v1` graph. The
+earlier per-account `account-config-v2` grammar is no longer accepted by the
+reference runtime; old state requires an offline migration before startup.
 
 ## Route index
 
@@ -103,10 +103,11 @@ Authentication headers apply to every route ([access control §2](05-access-cont
 ## Component roles
 
 - A **Overstory host** represents one host and owns its local accounts, allocation policy,
-  governed private account-configuration trees, hosted-tree boundaries,
+  governed private tree configurations, hosted-tree boundaries,
   mutable refs, immutable objects, claims, access enforcement, and watch
-  streams. A profile `TreeID` may be referenced by accounts at other Canopies;
-  no host owns that identity merely because it allocated one of its names. A host
+  streams. A profile `TreeID` has one home host until
+  [Security 007](../../plans/security/007-placement-hosts.md); no host owns
+  that identity merely because it allocated one of its names. A host
   does not need local filesystem materialization.
 - A **Overstory client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **backing adapter** supplies the common node/children primitives from one
@@ -135,7 +136,7 @@ inline mention links here; accepted implementation work is indexed under
 [plans](../../plans/README.md), while unresolved design questions remain in
 [open questions](../../plans/open-questions.md).
 
-1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](04-accounts-and-devices.md#3-configuration-yaml)).
+1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([configuration](04-accounts-and-devices.md#32-invariants)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](07-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](07-executable-documents.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](07-executable-documents.md#5-mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](06-child-backings.md#4-postgres-and-placement-projections)).

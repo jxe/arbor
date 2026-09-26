@@ -16,9 +16,9 @@ export async function listLocalAccounts(): Promise<LocalAccountSummary[]> {
     const stored = await store.safe();
     return {
       configurationTree: configuration.configurationTree,
-      canopy: configuration.account?.canopy ?? stored?.origin ?? null,
+      canopy: configuration.canopy ?? stored?.origin ?? null,
       handle: stored?.handle ?? null,
-      profileTree: configuration.account?.profile ?? stored?.profileTree ?? null,
+      profileTree: configuration.profile ?? stored?.profileTree ?? null,
       deviceID: configuration.currentDevice?.id ?? stored?.deviceID ?? null,
       credentialAvailable: Boolean(await store.get()),
       diagnostics: configuration.diagnostics,

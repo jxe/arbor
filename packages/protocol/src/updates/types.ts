@@ -14,7 +14,8 @@ export interface UpdateConflict {
     | "collection-file-constraint-conflict"
     | "frontmatter-conflict"
     | "invalid-markdown-fence"
-    | "account-configuration";
+    | "tree-configuration"
+    | "tree-configuration-policy";
 }
 
 export interface ServerDevice {
@@ -105,7 +106,7 @@ export interface UpdateConflictResult {
   retryable: false;
   tree?: string;
   details: {
-    kind: "server-update" | "account-configuration";
+    kind: "server-update" | "tree-configuration";
     completed: UpdateResult[];
     failedIndex: number;
     current: AcceptedUpdate;

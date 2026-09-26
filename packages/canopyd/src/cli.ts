@@ -201,7 +201,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
   const resetAccount = process.env.ARBOR_RESET_ACCOUNT?.trim();
   if (resetAccount) {
     if (!accountToken) throw new Error("ARBOR_RESET_ACCOUNT requires ARBOR_ACCOUNT_TOKEN");
-    running.canopy.resetAccountToken(resetAccount, accountToken);
+    await running.canopy.resetAccountToken(resetAccount, accountToken);
     console.log(`Reset the device credential for ~${resetAccount}; remove ARBOR_RESET_ACCOUNT after recovery.`);
   }
   console.log(`${existingHost ? "Serving" : "Created and serving"} ${running.canopy.communityHandle()} at ${running.url}`);

@@ -12,18 +12,18 @@ import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packa
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
 // `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
 // validator, so these only assert that the shared vectors are self-consistent.
-const TREE_KINDS = new Set(["ordinary", "account-configuration"]);
+const TREE_KINDS = new Set(["ordinary", "tree-configuration"]);
 const ACCESS_LEVELS = new Set(["none", "read", "write"]);
 function validateTreeDescriptor(value: unknown): TreeDescriptor {
   const descriptor = value as Partial<TreeDescriptor>;
   if (typeof descriptor.id !== "string" || !descriptor.id.startsWith("tr_")) throw new TypeError("descriptor.id must be a TreeID");
   if (!TREE_KINDS.has(descriptor.kind as string)) throw new TypeError("unknown tree kind");
   if (!ACCESS_LEVELS.has(descriptor.access as string)) throw new TypeError("unknown access level");
-  if (descriptor.kind === "account-configuration") {
-    if (descriptor.canonical !== null) throw new TypeError("account configuration must be noncanonical");
-  } else {
+  if (descriptor.kind === "tree-configuration") {
+    if (descriptor.canonical !== null) throw new TypeError("a tree configuration is noncanonical");
+  } else if (descriptor.canonical !== null) {
     const canonical = descriptor.canonical;
-    if (!canonical || !canonical.path.startsWith("/")) throw new TypeError("ordinary trees need canonical data");
+    if (!canonical || !canonical.path.startsWith("/")) throw new TypeError("canonical data needs a path");
     for (const url of [canonical.endpoint, canonicalHTTPURL(canonical), canonicalArborLocator(canonical)]) new URL(url);
     if (canonical.parentTree !== null && typeof canonical.parentTree !== "string") throw new TypeError("parentTree must be a TreeID or null");
   }
@@ -162,7 +162,8 @@ describe("REST v1 protocol fixtures", () => {
     const values = await conformanceJSON<{
       valid: {
         treeDescriptor: TreeDescriptor;
-        accountConfigurationDescriptor: TreeDescriptor;
+        treeConfigurationDescriptor: TreeDescriptor;
+        unmountedTreeDescriptor: TreeDescriptor;
         remoteTreeDescriptor: RemoteTreeDescriptor;
         accessEntries: AccessEntry[];
         error: OverstoryError;
@@ -175,14 +176,15 @@ describe("REST v1 protocol fixtures", () => {
       validateTreeDescriptor(descriptor);
       expect(descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${descriptor.id}`);
     }
-    expect(validateTreeDescriptor(valid.accountConfigurationDescriptor).canonical).toBeNull();
+    expect(validateTreeDescriptor(valid.treeConfigurationDescriptor).canonical).toBeNull();
+    expect(validateTreeDescriptor(valid.unmountedTreeDescriptor).canonical).toBeNull();
     expect(valid.remoteTreeDescriptor.root).toStartWith("sha256:");
     expect(valid.accessEntries.map((entry) => validateAccessEntry(entry).subject.kind)).toEqual(["everyone", "profile", "link"]);
     expect(decodeNodeRef(valid.resolution.ref)).toEqual({ tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", path: "/notes", stableKey: '[["id","page-1"]]' });
     expect(valid.error.tree).not.toBe("local");
     expect(values.invalid.map((item) => item.name)).toEqual([
       "descriptor-for-local",
-      "ordinary-tree-without-canonical",
+      "canonical-tree-configuration",
       "link-entry-leaks-digest",
       "resolution-omits-tree",
     ]);
@@ -192,7 +194,7 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("publishes configuration and wire conformance vectors separately from reference merge cases", async () => {
-    const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("configuration-yaml.json");
+    const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; merges: Array<{ name: string }> }>("tree-configuration.json");
     const endpoints = await conformanceJSON<{
       tree: RemoteTreeDescriptor;
       cases: Array<{
@@ -209,15 +211,15 @@ describe("REST v1 protocol fixtures", () => {
       structuralCases: Array<{ name: string }>;
     };
     const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("protocol-update-intent.json");
-    expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
-      "flat-account-graph",
-      "same-profile-second-canopy",
-      "same-origin-distinct-account",
-      "duplicate-key",
-      "handle-in-portable-account",
-      "invalid-account-retains-last-valid-account",
-      "invalid-placements-retains-last-valid-local-projection",
-      "unplacing-preserves",
+    expect([...registry.valid, ...registry.invalid, ...registry.merges].map((item) => item.name)).toEqual(expect.arrayContaining([
+      "person-profile",
+      "shared-tree",
+      "group-profile",
+      "no-administrator",
+      "person-co-administrator",
+      "trees-yaml",
+      "concurrent-rule-edits-intersect",
+      "removing-both-administrators-concurrently",
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",

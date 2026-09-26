@@ -15,7 +15,7 @@ context headers. The runtime returns status, safe headers, and a streaming body;
 public credentials and privileged response headers cannot be smuggled across the
 bridge. Cancellation, backpressure, bounded requests, and disconnects propagate.
 Source-only sharing never enables execution; activation explicitly binds reviewed
-code, sponsoring account, providers, and resource limits.
+code, its lenders, providers, and resource limits.
 
 The bridge supports documents, assets, actions, and query streams without exposing
 compiler internals to canopyd. Runtime failures do not disable ordinary tree reads,
@@ -33,14 +33,15 @@ portable semantics and finite execution bounds.
 The trusted host issues execution tokens over its authenticated runtime channel.
 The sidecar uses `Authorization: Bearer <execution-token>` for canopyd current-tree
 reads, object reads, watches and updates. Public headers cannot select the caller,
-sponsor or `via` identity. Token issuance/encoding, local transport, process
+a lender or the `app` identity. Token issuance/encoding, local transport, process
 supervision and health checks are implementation details to settle in Apps 005.
 
 ## Provider enforcement and local reuse
 
-Ordinary reads available to the caller remain usable through code without a `via`
-rule. Author-contributed authority requires matching policy for the actual caller
-and executable. Private SQLite access is mediated by the trusted runtime provider;
+Ordinary reads available to the caller remain usable through code without an `app`
+rule. Code runs as its caller; anything more is a tree's own `app` rule or a grant
+lent by a named profile's `apps.yaml`, each matched against the actual caller and
+executable ([access control §1.1](../../overstory-spec/05-access-control.md#11-execution-authority)). Private SQLite access is mediated by the trusted runtime provider;
 no general raw connection is exposed to authored JavaScript. Cross-tree JavaScript
 isolation may be strengthened later, but the initial host trusts the sidecar and
 must document that process isolation alone is not a hostile-code sandbox.

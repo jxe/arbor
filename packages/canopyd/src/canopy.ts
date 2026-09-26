@@ -22,9 +22,7 @@ import {
   sha256,
   validateAccountChallenge,
   type AccountChallenge,
-  type AccessLevel,
 } from "@overstory/protocol";
-import { resourceRuleFromLegacy } from "@overstory/protocol";
 import { CollectionSchemaCache, decodeProtocolCollectionFile } from "@overstory/collection-schema";
 import {
   validateUpdateRequestIntent,
@@ -45,22 +43,30 @@ import {
   type UpdateResponse,
   type UpdateResult,
 } from "@overstory/protocol";
-import { readAccountConfigGraph, snapshotAccountConfig, type AccountConfigGraph } from "@overstory/protocol";
-import { authorizeAccountConfigTransition, mergeAccountConfigTrees } from "./account-policy.ts";
+import {
+  initialPersonConfig,
+  readTreeConfigGraph,
+  snapshotTreeConfig,
+  treeConfigurationID,
+  type ResourceAccessRule,
+  type TreeConfigKind,
+  type TreeConfigValues,
+} from "@overstory/protocol";
+import { authorizePersonConfigTransition, mergeTreeConfigTrees, TREE_CONFIG_POLICY_CONFLICT } from "./tree-config-policy.ts";
 import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
-import { AccessControl, accessRule } from "./access.ts";
+import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
 import {
-  HANDLE, handleOfPath, leadingHandle, legacyMemberHandle, memberReservations, profileChanged, profileLocatorTree,
+  HANDLE, handleOfPath, legacyMemberHandle, memberReservations, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
 } from "./profile.ts";
-import { isAccountConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
-import { normalizeBoundaryPath, pathSegments, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
+import { isTreeConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
+import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
@@ -124,11 +130,9 @@ function memberProfiles(members: RootProfile["members"]): ReadonlySet<string> {
   }));
 }
 
-/** One tree row with its boundary and public access, as `treeRow` reads it. */
+/** One tree row with its boundary, as `treeRow` reads it. */
 const TREE_SELECT = `
-  SELECT t.*, b.path, b.parent_tree,
-    COALESCE((SELECT access FROM access
-      WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
+  SELECT t.*, b.path, b.parent_tree
   FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id`;
 
 /** One page of an accepted state's decisions: `after` resumes a page, `conflict` selects one decision. */
@@ -155,15 +159,24 @@ function decisionPage<T extends { id: string }>(
   return { selected, next };
 }
 
-/** Each tree a configuration declares, with the canonical path it names. */
-function graphTrees(graph: AccountConfigGraph): Record<string, { canonicalPath: string }> {
-  return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
-    canonicalPath: new URL(declaration.canonical).pathname,
-  }]));
+/** A tree configuration's first update, prepared before its transaction. */
+interface PreparedConfig {
+  tree: string;
+  kind: TreeConfigKind;
+  values: TreeConfigValues;
+  root: ObjectHash;
+  entry: { hash: ObjectHash; conflicted: boolean };
+  entryChanges: EntryChanges;
 }
 
-function graphAdministrators(graph: AccountConfigGraph): string[] {
-  return Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id);
+/** The profiles a configuration's `admin` rules name. */
+function adminProfiles(access: readonly ResourceAccessRule[]): string[] {
+  return [...new Set(access.flatMap((rule) => rule.allow.includes("admin") && typeof rule.who === "object" && "profile" in rule.who ? [rule.who.profile] : []))].sort();
+}
+
+/** Mount paths as canonical paths below a parent's root. */
+function mountBelow(parentPath: string, mount: string): string {
+  return parentPath === "/" ? `/${mount}` : `${parentPath}/${mount}`;
 }
 
 function directSnapshot(source: string): TreeSnapshot {
@@ -241,7 +254,7 @@ interface UpdatePolicy {
   subject: string;
   /** The accept's profile reads, shared by validation and the stored facts. */
   profiles: ProfileReader;
-  rejection?: { kind: "account-configuration"; message: string };
+  rejection?: { kind: "tree-configuration"; message: string };
   merge?: MergeStrategy;
   /** Validate the complete candidate graph once, before reconciliation. */
   validateCandidate(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void>;
@@ -357,7 +370,7 @@ export class HostDaemon implements AsyncDisposable {
     if (config.firstWriter && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
       throw new Error("First-writer profile must be a self-certifying person Profile TreeID");
     }
-    const preparedAccounts = config.accounts.map((account) => ({ account, profileTree: generateArborID("tr") }));
+    const preparedAccounts = config.accounts.map((account) => ({ account, profileTree: generateArborID("tr"), deviceID: generateArborID("dv") }));
     const members: Array<{ profile?: string; handle: string }> = [
       ...preparedAccounts.map(({ account, profileTree }) => ({
         profile: `arbor://${profileTree}/`,
@@ -365,37 +378,41 @@ export class HostDaemon implements AsyncDisposable {
       })),
       ...(config.firstWriter ? [{ profile: `arbor://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
     ];
-    const community = await this.insertTree(
-      "/",
-      directSnapshot(profileSource("group", config.name, members)),
-      "read",
-      null,
-    );
-    this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
-    if (config.firstWriter) {
-      this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
-    }
-    for (const { account, profileTree } of preparedAccounts) {
-      if (!HANDLE.test(account.handle)) throw new Error(`Invalid account handle: ${account.handle}`);
-      const profile = await this.insertTree(
-        `/~${account.handle}`,
-        directSnapshot(profileSource("person", account.name ?? account.handle)),
-        "read",
-        community.id,
-        undefined,
-        undefined,
-        profileTree,
-      );
-      const accountID = generateArborID("ac");
-      this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, enabled) VALUES (?, ?, ?, 1)",
-        [accountID, account.handle, profile.id],
-      );
-      this.accounts.insertDevice(generateArborID("dv"), accountID, "Initial device", sha256(account.token), Date.now());
-      this.access.set(profile.id, "profile", profile.id, "write");
-      if (account.communityWriter !== false) {
-        this.access.set(community.id, "profile", profile.id, "write");
+    const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
+    // The community's members administer it. Bootstrap token accounts that
+    // opted out of writing the community leave it to the others, named one by one.
+    const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
+    const everyMemberWrites = writers.length === preparedAccounts.length;
+    const communityAdmins = everyMemberWrites || !writers.length ? [community.id] : writers;
+    const communityConfig = await this.prepareConfig(community.id, "group", snapshotTreeConfig({
+      access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
+      mounts: {},
+      apps: {},
+    }));
+    const now = Date.now();
+    this.db.transaction(() => {
+      this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
+      if (config.firstWriter) {
+        this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
       }
+      this.insertConfig(communityConfig, now, null);
+    })();
+    for (const { account, profileTree, deviceID } of preparedAccounts) {
+      if (!HANDLE.test(account.handle)) throw new Error(`Invalid account handle: ${account.handle}`);
+      const label = "Initial device";
+      const profileConfig = await this.prepareConfig(profileTree, "person", snapshotTreeConfig({
+        ...initialPersonConfig(profileTree, { id: deviceID, label }),
+        access: [{ who: { profile: profileTree }, allow: ["admin"] }, { who: "everyone", allow: ["read"] }],
+      }));
+      this.insertMemberMount(community.id, account.handle, profileTree);
+      await this.insertTree(directSnapshot(profileSource("person", account.name ?? account.handle)), {
+        id: profileTree,
+        withinTransaction: () => {
+          this.db.run("INSERT INTO accounts (id, handle, enabled) VALUES (?, ?, 1)", [profileTree, account.handle]);
+          this.accounts.insertDevice(deviceID, profileTree, label, sha256(account.token), Date.now());
+          this.insertConfig(profileConfig, Date.now(), null);
+        },
+      });
     }
   }
 
@@ -406,21 +423,19 @@ export class HostDaemon implements AsyncDisposable {
       ref: string;
       path: string | null;
       parent_tree: string | null;
-      public_access: AccessLevel | null;
       policy: HostTree["policy"];
       status: HostTree["status"];
-      account_id: string | null;
+      governs: string | null;
     };
     return {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: isAccountConfigPolicy(row.policy) ? "account-configuration" : "ordinary",
+      kind: isTreeConfigPolicy(row.policy) ? "tree-configuration" : "ordinary",
       ref: row.ref,
-      publicAccess: row.public_access ?? "none",
       policy: row.policy,
       status: row.status,
-      accountID: row.account_id,
+      governs: row.governs,
     };
   }
 
@@ -589,7 +604,8 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account challenge requires an exact profile reservation");
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
-    if (!isGeneratedArborID(input.configurationTree, "tr")) throw new Error("Account challenge requires a generated configuration TreeID");
+    if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
+    if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new Error("This profile is already claimed or hosted on this Canopy");
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical Canopy URLs");
     }
@@ -668,44 +684,45 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Pairing is invalid, expired, or already used");
     }
     const account = this.account(pairing.accountID)!;
-    const expectedUpdate = this.currentUpdate(account.configTree!)!.id;
-    const current = await this.accountConfigGraph(account);
-    if (current.devices[input.deviceID]) throw new Error("DeviceID is already active");
-    const next = { ...current, devices: {
-      ...current.devices,
-      [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false },
-    } };
-    const nextSnapshot = snapshotAccountConfig(next);
-    readAccountConfigGraph(nextSnapshot, account.configTree!);
-    const configTree = this.get(account.configTree!)!;
-    const staged = new Map(nextSnapshot.objects);
-    const entry = await this.internalEntry(configTree.id, this.update(expectedUpdate)!, nextSnapshot.root, `pairing:${id}`, staged);
-    const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
     const now = Date.now();
-    const accepted = this.acceptedStore.commit({
-      entryChanges: changes,
-      tree: configTree.id,
-      root: nextSnapshot.root,
-      previousRoot: configTree.ref,
-      expectedUpdate,
-      acceptedAt: now,
-      subject: `pairing:${id}`,
-      entry,
+    const accepted = await this.advanceConfig(account.profileTree, `pairing:${id}`, (values) => {
+      if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");
+      return { ...values, devices: { ...values.devices, [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false } } };
     }, () => {
       if (!this.accounts.claimPairing(id, input.deviceID, now)) throw new Error("Pairing is invalid, expired, or already used");
       this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, tokenDigest, now);
     });
-    if (!accepted) throw new RefConflictError(this.get(configTree.id)?.ref ?? null);
     this.notifyAccepted(accepted);
     return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
   }
 
-  accountByHandle(handle: string): HostAccount | null {
-    return this.accounts.accountByHandle(handle);
+  /**
+   * The host operator's recovery for a person with no administrator device
+   * left: every device is revoked and the person's `devices.yaml` becomes one
+   * administrator device bound to `token`.
+   */
+  async resetAccountToken(handle: string, token: string): Promise<HostAccount> {
+    if (!/^arb_[a-f0-9]{64}$/.test(token)) {
+      throw new Error("A replacement account token must be arb_ followed by 64 lowercase hexadecimal characters");
+    }
+    const account = this.accountByHandle(handle);
+    if (!account) throw new Error(`Unknown account: ~${handle}`);
+    const deviceID = generateArborID("dv");
+    const label = "Recovered device";
+    const now = Date.now();
+    const accepted = await this.advanceConfig(account.profileTree, `recovery:${deviceID}`, (values) => ({
+      ...values,
+      devices: { [deviceID]: { id: deviceID, label, administrator: true } },
+    }), () => {
+      this.accounts.revokeAllDevices(account.id, now);
+      this.accounts.insertDevice(deviceID, account.id, label, sha256(token), now);
+    });
+    this.notifyAccepted(accepted);
+    return this.account(account.id)!;
   }
 
-  resetAccountToken(handle: string, token: string): HostAccount {
-    return this.accounts.resetAccountToken(handle, token);
+  accountByHandle(handle: string): HostAccount | null {
+    return this.accounts.accountByHandle(handle);
   }
 
   community(): HostTree {
@@ -757,150 +774,247 @@ export class HostDaemon implements AsyncDisposable {
     );
   }
 
-  async ensureAccountConfigTrees(origin: string): Promise<void> {
-    // In creation order: the first account to host a tree no account owns becomes its owner.
-    const accounts = this.db.query("SELECT id FROM accounts WHERE config_tree IS NULL ORDER BY rowid").all() as Array<{ id: string }>;
-    for (const { id } of accounts) {
-      const account = this.account(id)!;
-      if (!account.profileTree) continue;
-      const devices = Object.fromEntries(this.devices(account)
-        .filter((device) => device.revokedAt === null)
-        .map((device) => [device.id, { id: device.id, label: device.label, administrator: true }]));
-      const active = Object.keys(devices);
-      if (!active.length) throw new Error(`Account ${id} has no active device to administer its configuration`);
-      const declarations = Object.fromEntries(this.list()
-        .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree))
-        .map((tree) => [tree.id, {
-          canonical: `${new URL(origin).origin}${tree.canonicalPath!}`,
-          access: this.accessEntries(tree.id).map(accessRule).map(resourceRuleFromLegacy),
-        }]));
-      if (!declarations[account.profileTree]) {
-        const profile = this.get(account.profileTree)!;
-        declarations[profile.id] = {
-          canonical: `${new URL(origin).origin}${profile.canonicalPath!}`,
-          access: this.accessEntries(profile.id).map(accessRule).map(resourceRuleFromLegacy),
-        };
-      }
-      const graph = {
-        account: { canopy: new URL(origin).origin, profile: account.profileTree },
-        resources: declarations,
-        devices,
-      };
-      const snapshot = snapshotAccountConfig(graph);
-      const configID = generateArborID("tr");
-      await this.validateGraph(snapshot.root, snapshot.objects);
-      const staged = new Map(snapshot.objects);
-      const entry = await this.internalEntry(configID, null, snapshot.root, `initial:${configID}`, staged);
-      const changes = await this.entryChanges(null, snapshot.root);
+  /** Which files a tree's configuration holds: a person's if an account
+   * claims the tree as its profile, a group's if its head declares
+   * `type: group`, and otherwise an ordinary tree's. */
+  treeConfigKind(tree: string): TreeConfigKind {
+    if (this.accounts.account(tree)) return "person";
+    return this.rootProfileType(tree) === "group" ? "group" : "tree";
+  }
+
+  /** A configuration graph at a root. An accepted state written while its
+   * tree was a group keeps reading as one, so an edit can remove `apps.yaml`. */
+  private async configGraphAt(root: ObjectHash, kind: TreeConfigKind, tree: string, objects?: ReadonlyMap<ObjectHash, Uint8Array>, accepted = false) {
+    const snapshot = await this.objects.completeSnapshot(root, objects);
+    if (accepted && kind === "tree") {
+      const names = decodeProtocolDirectory(snapshot.objects.get(root)!).entries.map((entry) => entry.name);
+      if (names.includes("apps.yaml")) return readTreeConfigGraph(snapshot, "group", tree);
+    }
+    return readTreeConfigGraph(snapshot, kind, tree);
+  }
+
+  /** The accepted configuration of a tree, or null for a tree without one. */
+  async treeConfig(tree: string): Promise<TreeConfigValues | null> {
+    const configuration = this.get(treeConfigurationID(tree));
+    if (!configuration) return null;
+    return this.configGraphAt(configuration.ref, this.treeConfigKind(tree), tree, undefined, true);
+  }
+
+  /** Whether `device` is an administrator device of the account's person profile. */
+  private async isAdministratorDevice(account: HostAccount, device: string | null): Promise<boolean> {
+    if (!device) return false;
+    return (await this.treeConfig(account.profileTree))?.devices?.[device]?.administrator === true;
+  }
+
+  /** A configuration's first accepted update, validated and stored before its transaction. */
+  private async prepareConfig(tree: string, kind: TreeConfigKind, snapshot: TreeSnapshot): Promise<PreparedConfig> {
+    const values = readTreeConfigGraph(snapshot, kind, tree);
+    const id = treeConfigurationID(tree);
+    await this.validateGraph(snapshot.root, snapshot.objects);
+    const staged = new Map(snapshot.objects);
+    const entry = await this.internalEntry(id, null, snapshot.root, `initial:${id}`, staged);
+    const entryChanges = await this.entryChanges(null, snapshot.root);
+    return { tree, kind, values, root: snapshot.root, entry, entryChanges };
+  }
+
+  /** Insert a prepared configuration and its index; callers run this inside their transaction. */
+  private insertConfig(prepared: PreparedConfig, acceptedAt: number, subject: string | null, requestDigest?: ObjectHash, change?: string): AcceptedUpdate {
+    const id = treeConfigurationID(prepared.tree);
+    this.db.run("INSERT INTO trees (id, ref, policy, status, governs) VALUES (?, ?, 'tree-config-v1', 'active', ?)", [id, prepared.root, prepared.tree]);
+    const accepted = this.acceptedStore.insert({
+      tree: id, root: prepared.root, previousRoot: null, acceptedAt, subject, requestDigest, change,
+      entryChanges: prepared.entryChanges, entry: prepared.entry,
+    });
+    this.indexTreeConfig(prepared.tree, prepared.kind, null, prepared.values);
+    return accepted;
+  }
+
+  /**
+   * canopyd's own edit of a tree's configuration (pairing, recovery): only
+   * the files `change` alters are rewritten, in canonical form, and the rest
+   * keep their authored bytes. `withinTransaction` runs before the index, so
+   * it can bind the credentials the new `devices.yaml` names.
+   */
+  private async advanceConfig(
+    tree: string,
+    subject: string,
+    change: (values: TreeConfigValues) => TreeConfigValues,
+    withinTransaction: () => void,
+  ): Promise<AcceptedUpdate> {
+    const configuration = this.get(treeConfigurationID(tree));
+    const from = configuration ? this.currentUpdate(configuration.id) : null;
+    if (!configuration || !from) throw new Error("Tree configuration is missing");
+    const kind = this.treeConfigKind(tree);
+    const current = await this.configGraphAt(configuration.ref, kind, tree, undefined, true);
+    const next = change(current);
+    const canonical = snapshotTreeConfig(next);
+    const directory = decodeProtocolDirectory(await this.objects.load(configuration.ref));
+    const generated = decodeProtocolDirectory(canonical.objects.get(canonical.root)!);
+    const same = (name: string) => JSON.stringify((current as unknown as Record<string, unknown>)[name.replace(".yaml", "")])
+      === JSON.stringify((next as unknown as Record<string, unknown>)[name.replace(".yaml", "")]);
+    const entries = generated.entries.map((entry) => same(entry.name) ? directory.entries.find((kept) => kept.name === entry.name) ?? entry : entry);
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries });
+    const root = hashObject(rootBytes);
+    const staged = new Map(canonical.objects);
+    staged.set(root, rootBytes);
+    const snapshot = await this.objects.completeSnapshot(root, staged);
+    const values = readTreeConfigGraph(snapshot, kind, tree);
+    const entry = await this.internalEntry(configuration.id, from, root, subject, staged);
+    const entryChanges = await this.entryChanges(configuration.ref, root);
+    const accepted = this.acceptedStore.commit({
+      entryChanges, tree: configuration.id, root, previousRoot: configuration.ref, expectedUpdate: from.id,
+      acceptedAt: Date.now(), subject, entry,
+    }, () => {
+      withinTransaction();
+      this.indexTreeConfig(tree, kind, current, values);
+    });
+    if (!accepted) throw new RefConflictError(this.get(configuration.id)?.ref ?? null);
+    return accepted;
+  }
+
+  /**
+   * Rewrite the derived index of one tree's configuration: its rules and
+   * administrators, a profile's app entries, the tree's mounts, and for a
+   * person the credential bindings `devices.yaml` names. Callers run this
+   * inside the transaction that accepts the configuration.
+   */
+  private indexTreeConfig(tree: string, kind: TreeConfigKind, previous: TreeConfigValues | null, next: TreeConfigValues): void {
+    this.db.run("INSERT INTO tree_policy (tree_id, rules_json) VALUES (?, ?) ON CONFLICT(tree_id) DO UPDATE SET rules_json = excluded.rules_json",
+      [tree, JSON.stringify(next.access)]);
+    this.db.run("DELETE FROM tree_admins WHERE tree_id = ?", [tree]);
+    for (const profile of adminProfiles(next.access)) this.db.run("INSERT INTO tree_admins (tree_id, profile_tree) VALUES (?, ?)", [tree, profile]);
+    this.db.run("DELETE FROM app_policy WHERE profile_tree = ?", [tree]);
+    for (const [app, rules] of Object.entries(next.apps ?? {})) {
+      this.db.run("INSERT INTO app_policy (profile_tree, app_tree, rules_json) VALUES (?, ?, ?)", [tree, app, JSON.stringify(rules)]);
+    }
+    this.db.run("DELETE FROM mounts WHERE parent_tree = ? AND member = 0", [tree]);
+    for (const [path, child] of Object.entries(next.mounts)) {
+      const held = this.db.query("SELECT parent_tree, path FROM mounts WHERE tree_id = ?").get(child) as { parent_tree: string; path: string } | null;
+      if (held) throw new Error(`Tree ${child} is already mounted at another name`);
+      if (this.db.query("SELECT 1 FROM mounts WHERE parent_tree = ? AND path = ?").get(tree, path)) throw new Error(`Mount name is taken: ${path}`);
+      this.db.run("INSERT INTO mounts (parent_tree, path, tree_id, member) VALUES (?, ?, ?, 0)", [tree, path, child]);
+    }
+    if (kind === "person") {
       const now = Date.now();
-      this.db.transaction(() => {
-        this.insertConfigTree({ tree: configID, account: account.id, root: snapshot.root, acceptedAt: now, entryChanges: changes, entry });
-        this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
-        this.writeResourcePolicy(account.id, declarations);
-        for (const id of Object.keys(declarations)) this.adoptTree(id, account.id);
-      })();
+      for (const id of Object.keys(previous?.devices ?? {})) {
+        if (!next.devices?.[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, tree]);
+      }
+      for (const id of Object.keys(next.devices ?? {})) {
+        const row = this.db.query("SELECT revoked_at FROM devices WHERE id = ? AND account_id = ?").get(id, tree) as { revoked_at: number | null } | null;
+        if (!row) throw new Error(`Device ${id} has no credential binding`);
+        if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
+      }
+    }
+    this.recomputeBoundaries();
+  }
+
+  /** The community root mounts a member's profile at `/~handle`; callers run this inside their transaction. */
+  private insertMemberMount(root: string, handle: string, profile: string): void {
+    this.db.run("INSERT INTO mounts (parent_tree, path, tree_id, member) VALUES (?, ?, ?, 1) ON CONFLICT DO NOTHING", [root, `~${handle}`, profile]);
+  }
+
+  /** Where a tree is mounted, if anywhere. */
+  private mountOf(tree: string): { parent: string; path: string } | null {
+    const row = this.db.query("SELECT parent_tree, path FROM mounts WHERE tree_id = ?").get(tree) as { parent_tree: string; path: string } | null;
+    return row ? { parent: row.parent_tree, path: row.path } : null;
+  }
+
+  /**
+   * Canonical boundaries follow from the mounts: each active ordinary tree
+   * mounted in a tree that has a canonical path has one below it. A tree
+   * mounted nowhere, or below one that is not canonical, has none. Callers
+   * run this inside their transaction.
+   */
+  private recomputeBoundaries(): void {
+    const root = this.db.query("SELECT tree_id FROM boundaries WHERE path = '/'").get() as { tree_id: string } | null;
+    if (!root) return;
+    const mounts = this.db.query(`
+      SELECT m.parent_tree, m.path, m.tree_id FROM mounts m JOIN trees t ON t.id = m.tree_id
+      WHERE t.status = 'active' AND t.policy = 'ordinary' ORDER BY m.parent_tree, m.path
+    `).all() as Array<{ parent_tree: string; path: string; tree_id: string }>;
+    const byParent = new Map<string, typeof mounts>();
+    for (const mount of mounts) byParent.set(mount.parent_tree, [...byParent.get(mount.parent_tree) ?? [], mount]);
+    const desired: Array<{ path: string; tree: string; parent: string }> = [];
+    const visited = new Set([root.tree_id]);
+    const queue: Array<{ tree: string; path: string }> = [{ tree: root.tree_id, path: "/" }];
+    while (queue.length) {
+      const { tree, path } = queue.shift()!;
+      for (const mount of byParent.get(tree) ?? []) {
+        if (visited.has(mount.tree_id)) continue;
+        visited.add(mount.tree_id);
+        const childPath = mountBelow(path, mount.path);
+        desired.push({ path: childPath, tree: mount.tree_id, parent: tree });
+        queue.push({ tree: mount.tree_id, path: childPath });
+      }
+    }
+    this.db.run("DELETE FROM boundaries WHERE path <> '/'");
+    for (const boundary of desired) {
+      this.db.run("INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)", [boundary.path, boundary.tree, boundary.parent]);
     }
   }
 
-  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraph, next: AccountConfigGraph): void {
-    const now = Date.now();
-    for (const id of Object.keys(current.devices)) {
-      if (!next.devices[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, accountID]);
+  /**
+   * Declare a tree: accept the first snapshot of its configuration, which
+   * must make the submitter's profile an administrator. The tree is then
+   * `awaiting-initialization` until an administrator activates it.
+   */
+  async declareTree(tree: string, request: UpdateRequest, authentication: HostAuthentication | null): Promise<StoredUpdateResponse> {
+    if (!authentication?.device) throw new AuthenticationRequiredError("A device is required to declare a tree");
+    validateUpdateRequestIntent(request);
+    if (request.base !== null || request.updates.length !== 1 || request.updates[0]!.trace !== null || request.updates[0]!.resolves.length) {
+      throw new Error("Declaring a tree is one snapshot update of its configuration with a null base");
     }
-    for (const id of Object.keys(next.devices)) {
-      const row = this.db.query("SELECT revoked_at FROM devices WHERE id = ? AND account_id = ?").get(id, accountID) as { revoked_at: number | null } | null;
-      if (!row) throw new Error(`Device ${id} has no credential binding`);
-      if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
+    const configurationID = treeConfigurationID(tree);
+    const update = request.updates[0]!;
+    const [requestDigest] = updateRequestDigests(configurationID, request);
+    const replay = this.acceptedStore.acceptedRequest(configurationID, authentication.subject, requestDigest!);
+    if (replay) return { status: replay.status, result: { results: [replay.result], observedThrough: this.observedThrough(configurationID) } };
+    if (!isGeneratedArborID(tree, "tr")) throw new Error("A declared tree requires a generated TreeID");
+    if (this.get(tree) || this.get(configurationID)) throw new UpdateProtocolError("activation-conflict", `TreeID is already declared: ${tree}`);
+    const account = authentication.account;
+    if (!await this.isAdministratorDevice(account, authentication.device)) throw new PermissionDeniedError("Only an administrator device may declare a tree");
+    const snapshot: TreeSnapshot = { root: update.candidate, objects: new Map(update.objects.map(({ hash, bytes }) => [hash, bytes])) };
+    const prepared = await this.prepareConfig(tree, "tree", snapshot);
+    const admins = adminProfiles(prepared.values.access);
+    if (!admins.some((admin) => admin === account.profileTree || this.access.isGroupMember(admin, account.profileTree))) {
+      throw new PermissionDeniedError("A declared tree's configuration must make the submitter an administrator");
     }
-    const resources = next.resources;
-    this.writeResourcePolicy(accountID, resources);
-    const currentTrees = graphTrees(current);
-    const nextTrees = graphTrees(next);
-    for (const tree of Object.keys(currentTrees)) {
-      if (resources[tree] && !resources[tree].canonical) throw new Error("Cannot remove hosting through a policy-only entry");
-    }
-    for (const id of Object.keys(currentTrees)) {
-      if (!nextTrees[id]) {
-        const reserved = this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, accountID]).changes > 0;
-        if (!reserved) {
-          const active = this.get(id);
-          if (!active || active.policy !== "ordinary" || active.accountID !== accountID || active.canonicalPath === "/") {
-            throw new Error(`Account cannot retire tree declaration: ${id}`);
-          }
-          this.db.run("DELETE FROM boundaries WHERE tree_id = ?", [id]);
-          this.db.run("UPDATE trees SET status = 'retired' WHERE id = ?", [id]);
+    this.checkMountAdditions(tree, account, {}, prepared.values.mounts);
+    let accepted!: AcceptedUpdate;
+    this.db.transaction(() => {
+      accepted = this.insertConfig(prepared, Date.now(), authentication.subject, requestDigest, update.change);
+    })();
+    this.notifyAccepted(accepted);
+    return { status: 201, result: { results: [{ outcome: "accepted", update: accepted, requestDigest: requestDigest! }], observedThrough: this.observedThrough(configurationID) } };
+  }
+
+  /**
+   * Mounting a tree needs its submitter to administer both trees; renaming
+   * or removing a mount needs only the parent's administrators. The root may
+   * not mount a name a person holds, and nothing mounts the root or a
+   * configuration.
+   */
+  private checkMountAdditions(parent: string, account: HostAccount, before: Record<string, string>, after: Record<string, string>): void {
+    const held = new Set(Object.values(before));
+    const community = this.boundary("/")?.id;
+    for (const [path, child] of Object.entries(after)) {
+      if (parent === community) {
+        const handle = /^~([^/]+)/.exec(path)?.[1];
+        if (handle && (this.communityReservations().has(handle) || this.accountByHandle(handle))) {
+          throw new Error(`~${handle} is reserved for a person on this Canopy`);
         }
       }
-    }
-    for (const [id, declaration] of Object.entries(nextTrees)) {
-      const active = this.get(id);
-      if (!active) {
-        this.reserveTree(id, accountID, declaration.canonicalPath);
-        continue;
+      if (held.has(child)) continue;
+      if (child === community || child === parent) throw new Error(`Tree ${child} cannot be mounted here`);
+      const existing = this.get(child);
+      if (existing && existing.policy !== "ordinary") throw new Error("A tree configuration cannot be mounted");
+      if (!existing && !this.get(treeConfigurationID(child))) throw new Error(`Unknown tree: ${child}`);
+      if (!this.access.administers(account.profileTree, child)) {
+        throw new PermissionDeniedError(`Mounting ${child} requires administering it`);
       }
-      if (active.status === "retired") throw new Error(`Retired TreeID cannot be reactivated: ${id}`);
-      if (active.policy !== "ordinary") throw new Error(`Configuration may not declare governed tree ${id}`);
-      if (active.accountID === null) this.adoptTree(id, accountID);
-      else if (active.accountID !== accountID) throw new Error(`Configuration may not host another account's tree: ${id}`);
-      const boundary = this.boundary(declaration.canonicalPath);
-      if (boundary && boundary.id !== id) throw new Error(`Canonical boundary is occupied: ${declaration.canonicalPath}`);
-      const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
-      this.db.run("UPDATE boundaries SET path = ?, parent_tree = ? WHERE tree_id = ?", [
-        declaration.canonicalPath, parent?.id ?? null, id,
-      ]);
+      const mounted = this.mountOf(child);
+      if (mounted && mounted.parent !== parent) throw new Error(`Tree ${child} is already mounted elsewhere`);
     }
-  }
-
-  /** An account's configuration tree and its first accepted update; callers run this inside their transaction. */
-  private insertConfigTree(input: {
-    tree: string;
-    account: string;
-    root: ObjectHash;
-    acceptedAt: number;
-    subject?: string;
-    entryChanges: EntryChanges;
-    entry: { hash: ObjectHash; conflicted: boolean };
-  }): void {
-    this.db.run(
-      "INSERT INTO trees (id, ref, policy, status, account_id) VALUES (?, ?, 'account-config-v2', 'active', ?)",
-      [input.tree, input.root, input.account],
-    );
-    const { account: _account, ...update } = input;
-    this.acceptedStore.insert({ ...update, previousRoot: null, subject: input.subject ?? null });
-  }
-
-  /** An account hosting a tree no account owns becomes its owner: from then
-   * on its resource rules alone govern the tree, so the tree's stored access
-   * entries are removed. Callers run this inside their transaction. */
-  private adoptTree(id: string, accountID: string): void {
-    this.db.run("UPDATE trees SET account_id = ? WHERE id = ? AND account_id IS NULL", [accountID, id]);
-    this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
-  }
-
-  /** Replace an account's governed rules with its configuration's; callers run this inside their transaction. */
-  private writeResourcePolicy(accountID: string, resources: AccountConfigGraph["resources"]): void {
-    this.db.run("DELETE FROM resource_policy WHERE account_id = ?", [accountID]);
-    for (const [tree, declaration] of Object.entries(resources)) {
-      this.db.run("INSERT INTO resource_policy (account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
-    }
-  }
-
-  /** Reserve a declared TreeID for its first update, or move this account's
-   * reservation; callers run this inside their transaction. */
-  private reserveTree(id: string, accountID: string, canonicalPath: string): void {
-    const reserved = this.db.run(`INSERT INTO tree_reservations (id, account_id, canonical_path)
-      VALUES (?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET canonical_path = excluded.canonical_path WHERE account_id = excluded.account_id`,
-    [id, accountID, canonicalPath]);
-    if (reserved.changes !== 1) throw new Error(`TreeID is reserved by another account: ${id}`);
-  }
-
-  private async accountConfigGraph(account: HostAccount): Promise<AccountConfigGraph> {
-    if (!account.configTree) throw new Error("Account configuration tree is missing");
-    const tree = this.get(account.configTree);
-    if (!tree) throw new Error("Account configuration tree is missing");
-    const snapshot = await this.objects.completeSnapshot(tree.ref);
-    return readAccountConfigGraph(snapshot, tree.id);
   }
 
   private async activateTree(
@@ -918,44 +1032,22 @@ export class HostDaemon implements AsyncDisposable {
       if (existing.ref === snapshot.root) return existing;
       throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
     }
-    const reservation = this.db.query("SELECT account_id FROM tree_reservations WHERE id = ?").get(treeID) as { account_id: string } | null;
-    if (!reservation || reservation.account_id !== authentication.account.id) {
-      throw new Error(`TreeID is not reserved for activation: ${treeID}`);
-    }
-    if (!authentication.device) throw new Error("An administrator device is required for activation");
-    const config = await this.accountConfigGraph(authentication.account);
-    if (!graphAdministrators(config).includes(authentication.device)) throw new PermissionDeniedError("Only an administrator device may initialize a tree");
-    const declaration = graphTrees(config)[treeID];
-    if (!declaration) throw new Error("Tree declaration disappeared before activation");
-    const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
+    if (!this.get(treeConfigurationID(treeID))) throw new Error(`TreeID is not declared for activation: ${treeID}`);
+    if (!this.access.administers(authentication.account.profileTree, treeID)) throw new PermissionDeniedError("Only an administrator may initialize a tree");
+    if (!await this.isAdministratorDevice(authentication.account, authentication.device)) throw new PermissionDeniedError("Only an administrator device may initialize a tree");
+    const requiredType = this.requiredProfileType(treeID, null);
     const profiles = this.profileReader();
     if (requiredType) checkProfileType((await profiles(snapshot.root, snapshot.objects)).facts, requiredType);
-    const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
-    if (!parent) throw new Error("Canonical parent is unavailable");
-    const activated = await this.insertTree(
-      declaration.canonicalPath,
-      snapshot,
-      "none",
-      parent.id,
-      (id) => {
-        this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, authentication.account.id]);
-      },
-      authentication.subject,
-      treeID,
-      authentication.account.id,
-      requestDigest,
-      change,
-      profiles,
-    );
-    return activated;
+    return this.insertTree(snapshot, { id: treeID, subject: authentication.subject, requestDigest, change, profiles });
   }
 
   scopedCaller(account: HostAccount | null, tree: string, subject: string, active: () => boolean, linkDigest?: string) {
     return this.access.directExecution(account, tree, subject, active, linkDigest);
   }
 
+  /** A tree's rules as its administrators see them; links redacted. */
   resourcePolicy(account: HostAccount, tree: string) {
-    return this.execution.current ? undefined : this.access.safePolicy(account.id, tree);
+    return this.canAdminister(account, tree) ? this.access.safePolicy(tree) : undefined;
   }
 
   accessEntries(tree: string): HostAccessEntry[] {
@@ -1001,8 +1093,8 @@ export class HostDaemon implements AsyncDisposable {
 
   /**
    * Claim a Canopy-allocated account locator for a stable profile TreeID.
-   * Profile content is deliberately absent: hosting it is the ordinary
-   * declaration/activation workflow represented by trees.yaml.
+   * The claim declares the profile tree with its configuration; the profile's
+   * content is activated afterwards by an ordinary null-base update.
    */
   async claimAccountWithConfiguration(input: {
     accountLocator: string;
@@ -1034,8 +1126,8 @@ export class HostDaemon implements AsyncDisposable {
     if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
     const reservation = this.accountReservation(input.accountLocator);
     if (!reservation || reservation.handle !== input.handle) throw new Error("Account locator is not reserved by this community");
-    if (!isPersonProfileTreeID(input.profileTree) || !isGeneratedArborID(input.configurationTree, "tr")) {
-      throw new Error("Account join requires profile and configuration TreeIDs");
+    if (!isPersonProfileTreeID(input.profileTree) || input.configurationTree !== treeConfigurationID(input.profileTree)) {
+      throw new Error("Account join requires a person Profile TreeID and its configuration TreeID");
     }
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Account join requires a client-generated 128-bit DeviceID");
     const tokenDigest = deviceTokenDigest(input.credentialDigest);
@@ -1059,25 +1151,24 @@ export class HostDaemon implements AsyncDisposable {
     if (reservation.profileTree && reservation.profileTree !== input.profileTree) {
       throw new Error("Account reservation names a different profile TreeID");
     }
+    // One host per profile: a profile claimed or hosted here cannot be claimed again.
+    if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
+      throw new Error("This profile is already claimed or hosted on this Canopy");
+    }
     const invitation = reservation.inviteDigest
       ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
       : null;
-    await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
-    const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
-    this.validateCurrentHostAccountPaths(input.handle, config);
-    if (config.account.canopy !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the target server");
-    if (config.account.profile !== input.profileTree) {
-      throw new Error("account.yaml profile does not match the proven account identity");
-    }
-    if (Object.keys(config.devices).length !== 1 || !config.devices[input.deviceID] || config.devices[input.deviceID]!.label !== input.deviceLabel) {
+    // The claim declares the profile tree: its configuration, with the joining
+    // device as the first administrator device and the profile as its only
+    // administrator. The profile is awaiting initialization until activated.
+    const prepared = await this.prepareConfig(input.profileTree, "person", input.configurationSnapshot);
+    const devices = prepared.values.devices ?? {};
+    if (Object.keys(devices).length !== 1 || !devices[input.deviceID] || devices[input.deviceID]!.label !== input.deviceLabel) {
       throw new Error("Initial configuration must contain exactly the joining device and matching label");
     }
-    if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
-    const firstWriter = this.unclaimedFounderHandle() === input.handle;
-    const staged = new Map(input.configurationSnapshot.objects);
-    const entry = await this.internalEntry(input.configurationTree, null, input.configurationSnapshot.root, `initial:${input.configurationTree}`, staged);
-    const configurationChanges = await this.entryChanges(null, input.configurationSnapshot.root);
-    const accountID = generateArborID("ac");
+    if (!devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
+    if (Object.keys(prepared.values.mounts).length) throw new Error("An initial profile configuration mounts nothing");
+    const community = this.community();
     const now = Date.now();
     this.db.transaction(() => {
       const consumed = this.db.run(
@@ -1086,29 +1177,17 @@ export class HostDaemon implements AsyncDisposable {
       );
       if (consumed.changes !== 1) throw new Error("Account challenge was already consumed or expired");
       this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, config_tree, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, 1)",
-        [accountID, input.handle, input.profileTree, input.configurationTree, claimDigest],
+        "INSERT INTO accounts (id, handle, claim_digest, enabled) VALUES (?, ?, ?, 1)",
+        [input.profileTree, input.handle, claimDigest],
       );
-      this.accounts.insertDevice(input.deviceID, accountID, input.deviceLabel, tokenDigest, now);
-      this.insertConfigTree({
-        tree: input.configurationTree,
-        account: accountID,
-        root: input.configurationSnapshot.root,
-        acceptedAt: now,
-        subject: `device:${input.deviceID}`,
-        entryChanges: configurationChanges,
-        entry,
-      });
-      this.writeResourcePolicy(accountID, config.resources);
-      for (const [id, declaration] of Object.entries(graphTrees(config))) this.reserveTree(id, accountID, declaration.canonicalPath);
-      if (firstWriter) {
-        this.access.set(this.community().id, "profile", input.profileTree, "write");
-        this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
-      }
+      this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, tokenDigest, now);
+      this.insertConfig(prepared, now, `device:${input.deviceID}`);
+      this.insertMemberMount(community.id, input.handle, input.profileTree);
+      if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
     })();
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
-    return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
+    return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
 
   /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
@@ -1220,7 +1299,7 @@ export class HostDaemon implements AsyncDisposable {
     for (const [index, update] of request.updates.entries()) {
       if (
         (request.base === null ||
-          isAccountConfigPolicy(retainedTree?.policy ?? "ordinary")) &&
+          isTreeConfigPolicy(retainedTree?.policy ?? "ordinary")) &&
         update.trace !== null
       ) {
         throw new UpdateProtocolError(
@@ -1458,8 +1537,8 @@ export class HostDaemon implements AsyncDisposable {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
     if (!(this.canWrite(account, tree, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
-    const policy = isAccountConfigPolicy(tree.policy)
-      ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
+    const policy = isTreeConfigPolicy(tree.policy)
+      ? this.treeConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
     const execution = this.execution.current;
@@ -1536,7 +1615,7 @@ export class HostDaemon implements AsyncDisposable {
     basis: AuthoredBasis,
     prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
-    const governed = isAccountConfigPolicy(tree.policy);
+    const governed = isTreeConfigPolicy(tree.policy);
     for (let race = 0; race < 3; race++) {
       const current = this.currentUpdate(tree.id)!;
       if (current.root !== this.get(tree.id)!.ref) {
@@ -1598,7 +1677,7 @@ export class HostDaemon implements AsyncDisposable {
             const mergedRoot = merged.outcome === "current" ? current.root : merged.root;
             // Only an access narrowing may stay open as a policy choice; any other
             // governed conflict is refused, not accepted.
-            if (conflicts.some((c) => c.path !== "/trees.yaml/access"))
+            if (conflicts.some((c) => c.reason !== TREE_CONFIG_POLICY_CONFLICT))
               return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, policy.rejection!.message, policy.rejection!.kind, mergedRoot, conflicts);
             // A governed access conflict keeps the merge's restrictive
             // projection, as one whole-configuration choice.
@@ -1730,15 +1809,15 @@ export class HostDaemon implements AsyncDisposable {
 
   /** The subject an update to `tree` is recorded and replayed under. */
   private subjectFor(tree: HostTree, account: HostAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
-    if (isAccountConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
+    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
     const execution = this.execution.current;
     return execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
   }
 
-  /** Only a device of the owning account may update its configuration tree. */
+  /** Only a device of an administering profile may update a tree configuration. */
   private configurationCaller(tree: HostTree, account: HostAccount | null, credentialSubject: string | undefined): { account: HostAccount; subject: string } {
-    if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
-      throw new PermissionDeniedError("An active account device is required for configuration updates");
+    if (!account || !tree.governs || !this.access.administers(account.profileTree, tree.governs) || credentialSubject?.startsWith("device:") !== true) {
+      throw new PermissionDeniedError("An administrator's device is required for configuration updates");
     }
     return { account, subject: credentialSubject };
   }
@@ -1768,10 +1847,12 @@ export class HostDaemon implements AsyncDisposable {
         await checkEffects(tree.ref, root, objects);
         await this.validateReservedBoundaries(tree, root, objects);
         const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
-        if (requiredType || tree.canonicalPath === "/") {
+        const administering = this.administeringGroup(tree.id);
+        if (requiredType || tree.canonicalPath === "/" || administering) {
           const facts = await this.candidateProfile(tree.id, root, objects, profiles);
           if (requiredType) checkProfileType(facts, requiredType);
           if (tree.canonicalPath === "/") this.validateCommunityReservations(facts);
+          if (administering) checkAdministeringGroup(facts);
         }
       },
       validateAccepted: async (remoteTree, root, objects) => {
@@ -1779,7 +1860,11 @@ export class HostDaemon implements AsyncDisposable {
         if (root === request.candidate) return;
         await this.validateGraph(root, objects, remoteTree.ref);
         await this.validateReservedBoundaries(remoteTree, root, objects);
-        if (remoteTree.canonicalPath === "/") this.validateCommunityReservations(await this.candidateProfile(remoteTree.id, root, objects, profiles));
+        if (remoteTree.canonicalPath === "/" || this.administeringGroup(remoteTree.id)) {
+          const facts = await this.candidateProfile(remoteTree.id, root, objects, profiles);
+          if (remoteTree.canonicalPath === "/") this.validateCommunityReservations(facts);
+          if (this.administeringGroup(remoteTree.id)) checkAdministeringGroup(facts);
+        }
       },
       prepareCommit: async () => ({
         withinTransaction: () => {
@@ -1789,12 +1874,18 @@ export class HostDaemon implements AsyncDisposable {
     };
   }
 
+  /** Whether a group profile tree administers any tree, and so must keep a member. */
+  private administeringGroup(tree: string): boolean {
+    return this.rootProfileType(tree) === "group" && this.db.query("SELECT 1 FROM tree_admins WHERE profile_tree = ? LIMIT 1").get(tree) !== null;
+  }
+
   /**
-   * The private account-configuration tree: device authorization on every
-   * transition, the semantic YAML merge, and the derived credential, ACL,
-   * and canonical-boundary state committed with the accepted update.
+   * A tree configuration (`tree-config-v1`): authorization through the
+   * administering profiles and their devices on every transition, the
+   * restrictive YAML merge, and the derived index, credential revocations,
+   * and mount boundaries committed with the accepted update.
    */
-  private accountConfigPolicy(
+  private treeConfigPolicy(
     tree: HostTree,
     request: CandidateUpdate,
     baseRoot: ObjectHash,
@@ -1804,53 +1895,56 @@ export class HostDaemon implements AsyncDisposable {
   ): UpdatePolicy {
     const { account, subject: credentialSubject } = this.configurationCaller(tree, caller, credential);
     const deviceID = credentialSubject.slice("device:".length);
-    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraph> => {
-      const snapshot = await this.objects.completeSnapshot(root, objects);
-      return readAccountConfigGraph(snapshot, tree.id);
-    };
-    let baseGraph: AccountConfigGraph;
-    let candidateGraph: AccountConfigGraph;
-    let currentGraph: AccountConfigGraph;
-    let nextGraph: AccountConfigGraph;
-    const authorize = (current: AccountConfigGraph, next: AccountConfigGraph, changesFrom: AccountConfigGraph) => {
-      authorizeAccountConfigTransition(current, next, deviceID, changesFrom);
+    const governed = tree.governs!;
+    const kind = this.treeConfigKind(governed);
+    // A person's own configuration governs itself: its devices.yaml names the
+    // devices that may edit it. Every other configuration is edited from an
+    // administrator device of an administering person.
+    const own = kind === "person" && governed === account.profileTree;
+    const graphAt = (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>, accepted = false) =>
+      this.configGraphAt(root, kind, governed, objects, accepted);
+    let candidateGraph: TreeConfigValues;
+    let currentGraph: TreeConfigValues;
+    let nextGraph: TreeConfigValues;
+    const authorize = async (current: TreeConfigValues, next: TreeConfigValues, changesFrom: TreeConfigValues) => {
+      if (own) authorizePersonConfigTransition(current, next, deviceID, changesFrom);
+      else if (!await this.isAdministratorDevice(account, deviceID)) throw new PermissionDeniedError("Only an administrator device may edit a tree configuration");
+      this.checkMountAdditions(governed, account, { ...current.mounts, ...changesFrom.mounts }, next.mounts);
     };
     return {
       subject: credentialSubject,
       // A configuration tree holds only its YAML files, never `_index.md`.
       profiles: this.profileReader(),
-      rejection: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
+      rejection: { kind: "tree-configuration", message: "The tree configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
-        this.validateCurrentHostAccountPaths(account.handle, candidateGraph, account);
-        baseGraph = await graphAt(baseRoot);
+        const baseGraph = await graphAt(baseRoot, undefined, true);
         const current = this.currentUpdate(tree.id);
-        if (!current) throw new ServerFaultError("Account configuration has no accepted update");
-        const acceptedGraph = await graphAt(current.root);
-        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
-        authorize(acceptedGraph, candidateGraph, baseGraph);
+        if (!current) throw new ServerFaultError("Tree configuration has no accepted update");
+        const acceptedGraph = await graphAt(current.root, undefined, true);
+        if (request.resolves.length && own && !acceptedGraph.devices?.[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
+        await authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       // Unreadable inputs reject the update as a whole-root policy conflict.
-      merge: (base, candidate, current, load) => mergeAccountConfigTrees(base, candidate, current, load)
-        .catch(() => ({ root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: "account-configuration" }], unresolvedDirectories: ["/"] })),
+      merge: (base, candidate, current, load) => mergeTreeConfigTrees(kind, base, candidate, current, load)
+        .catch(() => ({ root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: "tree-configuration" as const }], unresolvedDirectories: ["/"] })),
       validateAccepted: async (remoteTree, root, objects) => {
-        currentGraph = await graphAt(remoteTree.ref);
+        currentGraph = await graphAt(remoteTree.ref, undefined, true);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);
-        this.validateCurrentHostAccountPaths(account.handle, nextGraph, account);
-        authorize(currentGraph, nextGraph, currentGraph);
+        await authorize(currentGraph, nextGraph, currentGraph);
       },
       prepareCommit: async (_remoteTree, _root, now) => {
-        const rewrites: Array<Awaited<ReturnType<HostDaemon["prepareParentAdvance"]>>> = [];
-        for (const rewrite of await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph))
-          rewrites.push(await this.prepareParentAdvance(rewrite));
-        const boundaryUpdates: AcceptedUpdate[] = [];
+        const content = this.get(governed);
+        const rewrite = content?.status === "active" ? await this.prepareMountRewrite(content, currentGraph.mounts, nextGraph.mounts) : null;
+        const prepared = rewrite ? await this.prepareParentAdvance(rewrite) : null;
+        let boundaryUpdate: AcceptedUpdate | null = null;
         return {
           withinTransaction: () => {
-            this.applyAccountConfigDerived(account.id, currentGraph, nextGraph);
-            for (const rewrite of rewrites) boundaryUpdates.push(this.advanceParent(rewrite, now, credentialSubject));
+            this.indexTreeConfig(governed, kind, currentGraph, nextGraph);
+            if (prepared) boundaryUpdate = this.advanceParent(prepared, now, credentialSubject);
           },
           afterCommit: () => {
-            for (const update of boundaryUpdates) this.notifyAccepted(update);
+            if (boundaryUpdate) this.notifyAccepted(boundaryUpdate);
           },
         };
       },
@@ -1962,55 +2056,57 @@ export class HostDaemon implements AsyncDisposable {
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
   }
 
+  /**
+   * A tree's first accepted update. The community root takes the boundary
+   * `/`; any other tree that is mounted is attached to its parent's content in
+   * the same transaction, and takes its canonical path from the mounts.
+   */
   private async insertTree(
-    canonicalPath: string,
     snapshot: TreeSnapshot,
-    publicAccess: AccessLevel,
-    parentTree: string | null,
-    withinTransaction?: (treeID: string) => void,
-    credentialSubject?: string,
-    requestedTreeID?: string,
-    accountID?: string,
-    requestDigest?: ObjectHash,
-    change?: string,
-    profiles: ProfileReader = this.profileReader(),
+    options: {
+      root?: boolean;
+      id?: string;
+      subject?: string;
+      requestDigest?: ObjectHash;
+      change?: string;
+      profiles?: ProfileReader;
+      withinTransaction?: (treeID: string) => void;
+    },
   ): Promise<HostTree> {
-    const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
     await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
-    const id = requestedTreeID ?? generateArborID("tr");
+    const id = options.id ?? generateArborID("tr");
     if (this.db.query("SELECT 1 FROM trees WHERE id = ?").get(id)) throw new Error(`TreeID already exists: ${id}`);
+    const mount = options.root ? null : this.mountOf(id);
+    const parent = mount ? this.get(mount.parent) : null;
     // Attaching a fresh tree is the single-addition boundary rewrite; a plain
     // entry already at that name is replaced by the nested-tree entry.
-    const attachment = parentTree
-      ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parentTree, [], [{ path, tree: id }], { replaceEntries: true }))
+    const attachment = parent?.status === "active" && parent.policy === "ordinary"
+      ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parent.id, [], [{ path: mountBelow("/", mount!.path), tree: id }], { replaceEntries: true }))
       : null;
     const staged = new Map(snapshot.objects);
-    const entry = await this.internalEntry(id, null, snapshot.root, change ?? `initial:${id}`, staged);
+    const entry = await this.internalEntry(id, null, snapshot.root, options.change ?? `initial:${id}`, staged);
     const initialChanges = await this.entryChanges(null, snapshot.root);
-    const profile = await this.profileUpdate(id, snapshot.root, initialChanges, staged, profiles);
+    const profile = await this.profileUpdate(id, snapshot.root, initialChanges, staged, options.profiles ?? this.profileReader());
     const now = Date.now();
     this.db.transaction(() => {
-      this.db.run("INSERT INTO trees (id, ref, account_id) VALUES (?, ?, ?)", [id, snapshot.root, accountID ?? null]);
-      this.db.run(
-        "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
-        [path, id, parentTree],
-      );
+      this.db.run("INSERT INTO trees (id, ref) VALUES (?, ?)", [id, snapshot.root]);
+      if (options.root) this.db.run("INSERT INTO boundaries (path, tree_id, parent_tree) VALUES ('/', ?, NULL)", [id]);
       this.acceptedStore.insert({
         tree: id,
         root: snapshot.root,
         previousRoot: null,
         acceptedAt: now,
-        subject: credentialSubject ?? null,
-        requestDigest,
-        change,
+        subject: options.subject ?? null,
+        requestDigest: options.requestDigest,
+        change: options.change,
         entryChanges: initialChanges,
         entry,
       });
-      this.applyProfileUpdate(id, path === "/", profile);
-      if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
-      withinTransaction?.(id);
-      if (attachment) this.advanceParent(attachment, now, credentialSubject ?? null);
+      this.applyProfileUpdate(id, options.root === true, profile);
+      options.withinTransaction?.(id);
+      if (attachment) this.advanceParent(attachment, now, options.subject ?? null);
+      this.recomputeBoundaries();
     })();
     if (attachment) this.notifyAccepted(this.currentUpdate(attachment.tree)!);
     return this.get(id)!;
@@ -2077,7 +2173,8 @@ export class HostDaemon implements AsyncDisposable {
     return accepted;
   }
 
-  /** Regenerate a canonical parent's directories for removed and added nested-tree boundaries. */
+  /** Regenerate a parent's directories for removed and added nested-tree
+   * entries, at paths below the parent's own root. */
   private async prepareBoundaryRewrite(
     parentTreeID: string,
     removals: BoundaryEdit[],
@@ -2085,9 +2182,9 @@ export class HostDaemon implements AsyncDisposable {
     options: BoundaryRewriteOptions = {},
   ): Promise<{ parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
     const parent = this.get(parentTreeID);
-    if (!parent?.canonicalPath) throw new Error(`Unknown or noncanonical parent tree: ${parentTreeID}`);
+    if (!parent || parent.policy !== "ordinary") throw new Error(`Unknown parent tree: ${parentTreeID}`);
     const rewrite = await rewriteBoundaries(
-      { ref: parent.ref, canonicalPath: parent.canonicalPath },
+      { ref: parent.ref, canonicalPath: "/" },
       removals,
       additions,
       (hash, generated) => this.objects.load(hash, generated),
@@ -2096,37 +2193,22 @@ export class HostDaemon implements AsyncDisposable {
     return { parent, ...rewrite };
   }
 
-  private async prepareAccountBoundaryRewrites(current: AccountConfigGraph, next: AccountConfigGraph) {
-    const grouped = new Map<string, { removals: Array<{ path: string; tree: string }>; additions: Array<{ path: string; tree: string }> }>();
-    const group = (parent: string) => {
-      const value = grouped.get(parent) ?? { removals: [], additions: [] };
-      grouped.set(parent, value);
-      return value;
-    };
-    const currentTrees = graphTrees(current);
-    const nextTrees = graphTrees(next);
-    for (const [id, declaration] of Object.entries(currentTrees)) {
-      if (nextTrees[id]) continue;
-      const active = this.get(id);
-      if (!active?.parentTree) continue;
-      group(active.parentTree).removals.push({ path: declaration.canonicalPath, tree: id });
+  /** The content rewrite a change of a tree's mounts makes: an active child's
+   * entry leaves its old name and appears at its new one. Null when nothing
+   * changes. */
+  private async prepareMountRewrite(parent: HostTree, before: Record<string, string>, after: Record<string, string>) {
+    const active = (tree: string) => this.get(tree)?.status === "active";
+    const removals: BoundaryEdit[] = [];
+    const additions: BoundaryEdit[] = [];
+    for (const [path, child] of Object.entries(before)) {
+      if (after[path] !== child && active(child)) removals.push({ path: mountBelow("/", path), tree: child });
     }
-    for (const [id, declaration] of Object.entries(nextTrees)) {
-      const before = currentTrees[id];
-      const active = this.get(id);
-      if (!before || !active || before.canonicalPath === declaration.canonicalPath) continue;
-      if (!active.parentTree) throw new Error(`Canonical tree ${id} has no movable parent boundary`);
-      const nextParent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
-      if (!nextParent || nextParent.id === id) throw new Error(`Canonical parent is unavailable for ${declaration.canonicalPath}`);
-      group(active.parentTree).removals.push({ path: before.canonicalPath, tree: id });
-      group(nextParent.id).additions.push({ path: declaration.canonicalPath, tree: id });
+    for (const [path, child] of Object.entries(after)) {
+      if (before[path] !== child && active(child)) additions.push({ path: mountBelow("/", path), tree: child });
     }
-    const rewrites = [];
-    for (const [parent, edits] of grouped) {
-      const rewrite = await this.prepareBoundaryRewrite(parent, edits.removals, edits.additions);
-      if (rewrite.nextRoot !== rewrite.parent.ref) rewrites.push(rewrite);
-    }
-    return rewrites;
+    if (!removals.length && !additions.length) return null;
+    const rewrite = await this.prepareBoundaryRewrite(parent.id, removals, additions);
+    return rewrite.nextRoot === parent.ref ? null : rewrite;
   }
 
   private async validateReservedBoundaries(
@@ -2134,12 +2216,12 @@ export class HostDaemon implements AsyncDisposable {
     root: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
   ): Promise<void> {
-    const children = this.db.query(
-      "SELECT path, tree_id FROM boundaries WHERE parent_tree = ? ORDER BY length(path)",
-    ).all(parent.id) as Array<{ path: string; tree_id: string }>;
+    const children = this.db.query(`
+      SELECT m.path, m.tree_id FROM mounts m JOIN trees t ON t.id = m.tree_id
+      WHERE m.parent_tree = ? AND t.status = 'active' ORDER BY length(m.path)
+    `).all(parent.id) as Array<{ path: string; tree_id: string }>;
     for (const child of children) {
-      if (!parent.canonicalPath) throw new Error("A noncanonical tree cannot own canonical boundaries");
-      const segments = pathSegments(child.path).slice(pathSegments(parent.canonicalPath).length);
+      const segments = child.path.split("/");
       let hash = root;
       let valid = true;
       for (const [index, segment] of segments.entries()) {
@@ -2162,7 +2244,7 @@ export class HostDaemon implements AsyncDisposable {
           break;
         }
       }
-      if (!valid) throw new ReservedBoundaryConflictError(child.path, child.tree_id);
+      if (!valid) throw new ReservedBoundaryConflictError(parent.canonicalPath ? mountBelow(parent.canonicalPath, child.path) : child.path, child.tree_id);
     }
   }
 
@@ -2174,7 +2256,7 @@ export class HostDaemon implements AsyncDisposable {
    */
   private requiredProfileType(treeID: string, canonicalPath: string | null): "person" | "group" | null {
     if (canonicalPath === "/") return "group";
-    if (this.db.query("SELECT 1 FROM accounts WHERE profile_tree = ?").get(treeID)) return "person";
+    if (this.accounts.account(treeID)) return "person";
     return null;
   }
 
@@ -2280,55 +2362,17 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /**
-   * canopyd's path policy. An account declares canonical paths below its own
-   * /~handle. An account that can write the community profile may also
-   * declare paths below any /~name that no person has reserved or claimed,
-   * so top-level names can address groups or any other tree.
-   */
-  private validateCurrentHostAccountPaths(handle: string, graph: AccountConfigGraph, existingAccount?: HostAccount): void {
-    const root = `/~${handle}`;
-    const administersCommunity = !!existingAccount && this.canWrite(existingAccount, this.community().id);
-    for (const [treeID, declaration] of Object.entries(graph.trees)) {
-      const path = new URL(declaration.canonical).pathname;
-      const retainedAdministeredTree = existingAccount
-        && this.get(treeID)?.canonicalPath === path
-        && this.canAdminister(existingAccount, treeID);
-      if (pathWithin(path, root) || retainedAdministeredTree) continue;
-      const name = leadingHandle(path);
-      if (!name || !administersCommunity) {
-        throw new Error(`Canonical path is outside this Canopy account allocation: ${path}`);
-      }
-      if (this.communityReservations().has(name) || this.accountByHandle(name)) {
-        throw new Error(`~${name} is reserved for a person on this Canopy: ${path}`);
-      }
-    }
-    const profile = graph.trees[graph.account.profile];
-    const rootTree = Object.entries(graph.trees).find(([, declaration]) => new URL(declaration.canonical).pathname === root)?.[0];
-    // A newly claimed account may leave its profile unhosted. Once the
-    // canonical handle is declared, however, that boundary is reserved for
-    // the account's self-certifying Profile TreeID.
-    if ((profile && new URL(profile.canonical).pathname !== root) || (rootTree && rootTree !== graph.account.profile)) {
-      throw new Error("account.profile must match a tree declaration at its canonical handle");
-    }
-  }
-
-  /**
-   * Whether a tree not administered by the ~name account holds /~name or a
-   * path below it, active or declared and awaiting its first update. A person
-   * may then neither reserve nor claim that name.
+   * Whether a tree other than the ~name account's own profile holds /~name:
+   * the community root's `mounts.yaml`, or a member mount of another profile.
+   * A person may then neither reserve nor claim that name.
    */
   private nameHeldByTree(name: string): boolean {
-    const root = `/~${name}`;
-    const below = `${root}/`;
+    const root = this.boundary("/")?.id;
+    if (!root) return false;
     const owner = this.accountByHandle(name)?.id ?? null;
     return this.db.query(`
-      SELECT 1 FROM trees t JOIN boundaries b ON b.tree_id = t.id
-      WHERE t.status = 'active' AND (b.path = ? OR substr(b.path, 1, ?) = ?) AND (? IS NULL OR t.account_id IS NOT ?)
-      UNION ALL
-      SELECT 1 FROM tree_reservations
-      WHERE (canonical_path = ? OR substr(canonical_path, 1, ?) = ?) AND (? IS NULL OR account_id IS NOT ?)
-      LIMIT 1
-    `).get(root, below.length, below, owner, owner, root, below.length, below, owner, owner) !== null;
+      SELECT 1 FROM mounts WHERE parent_tree = ? AND (path = ? OR substr(path, 1, ?) = ?) AND (member = 0 OR ? IS NULL OR tree_id IS NOT ?)
+    `).get(root, `~${name}`, name.length + 2, `~${name}/`, owner, owner) !== null;
   }
 
   /** A community update may not reserve a handle whose /~name a tree already holds. */
@@ -2351,7 +2395,7 @@ export class HostDaemon implements AsyncDisposable {
     this.db.run(`UPDATE accounts SET enabled = EXISTS (
       SELECT 1 FROM json_each(?) AS member
       WHERE json_extract(member.value, '$.handle') = accounts.handle
-      AND (json_extract(member.value, '$.profileTree') = accounts.profile_tree
+      AND (json_extract(member.value, '$.profileTree') = accounts.id
         OR json_extract(member.value, '$.legacy') = 1)
     )`, [JSON.stringify(members)]);
   }
@@ -2401,6 +2445,13 @@ function deviceTokenDigest(credentialDigest: string): string {
   return credentialDigest.slice("sha256:".length);
 }
 
+/** A group that administers a tree keeps at least one member. */
+function checkAdministeringGroup(facts: RootProfileFacts): void {
+  if (facts.type === "group" && !memberProfiles(facts.members).size) {
+    throw new Error("A group that administers a tree must keep at least one member");
+  }
+}
+
 /** An account profile keeps `type: person` and the community root `type: group`. */
 function checkProfileType(facts: RootProfileFacts, kind: "person" | "group"): void {
   if (facts.type !== kind) throw new Error(`Profile root must declare type: ${kind} in its _index.md`);
@@ -2408,12 +2459,6 @@ function checkProfileType(facts: RootProfileFacts, kind: "person" | "group"): vo
 
 function idOf(tree: string | HostTree): string {
   return typeof tree === "string" ? tree : tree.id;
-}
-
-function dirnameURL(path: string): string {
-  const segments = pathSegments(path);
-  if (segments.length <= 1) return "/";
-  return `/${segments.slice(0, -1).join("/")}`;
 }
 
 /** Immutable object cache size; `ARBOR_OBJECT_CACHE_MB` overrides the 256 MB default. */

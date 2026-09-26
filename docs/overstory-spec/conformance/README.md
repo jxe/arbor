@@ -96,7 +96,8 @@ authority for the implemented subset; the request grammar itself is in
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `via` / `allow` / `within` grammar, consumed by `@overstory/protocol` and Swift `Overstory`.
+- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, consumed by `@overstory/protocol` and Swift `Overstory`.
+- `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@overstory/protocol` (derivation also by Swift `Overstory`).
 
 ## Index
 
@@ -106,7 +107,6 @@ authority for the implemented subset; the request grammar itself is in
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
 | `collection-schemas.json` | The declarative collection schema profile: syntax, metadata, values, CSV cells, limits |
-| `configuration-yaml.json` | `account.yaml`, `trees.yaml`, `devices.yaml` parsing and validation |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `directory-documents.json` | Directory document projection (spec 02) |
 | `entry-actions.json` | Entry move, copy, remove, and restore semantics |
@@ -115,10 +115,11 @@ authority for the implemented subset; the request grammar itself is in
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
-| `resource-policy.json` | `who` / `via` / `allow` / `within` rule grammar |
+| `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar |
 | `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |
 | `source-copy.json`, `source-preservation.json` | Source transfer and exact-byte preservation |
 | `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |
+| `tree-configuration.json` | Tree configuration derivation, graph, validation, invariants and merge |
 | `url-resolution.json` | Locator resolution (spec 03) |
 | `protocol-accepted-state.json`, `protocol-accepted-transport.json` | Accepted states, receipts, inspection, and catch-up transport |
 | `protocol-authored-updates.json`, `protocol-authored-transport.json` | The authored request grammar, digests, and transport encodings |

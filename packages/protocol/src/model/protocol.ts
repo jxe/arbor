@@ -76,7 +76,7 @@ export interface MutationCallRuntime {
  */
 export type AccessLevel = "none" | "read" | "write";
 export type ReadWriteAccess = Exclude<AccessLevel, "none">;
-export type TreeKind = "ordinary" | "account-configuration";
+export type TreeKind = "ordinary" | "tree-configuration";
 
 export type AccessSubject =
   | { kind: "everyone" }
@@ -178,7 +178,7 @@ export interface PairingOffer {
 /** One claimed Canopy account of a data home, safe to present: no credential material. */
 export interface LocalAccountSummary {
   configurationTree: TreeID;
-  /** The Canopy origin from `account.yaml`; null when the configuration is unreadable. */
+  /** The Canopy origin of the account's connection; null when it is unreadable. */
   canopy: string | null;
   handle: string | null;
   profileTree: TreeID | null;

@@ -117,16 +117,17 @@ public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
     public func validated() throws -> Self {
         guard !id.isEmpty else { throw ProtocolValidationError.invalidValue("Tree ID is empty") }
         try validateObjectHash(root)
-        guard ["ordinary", "account-configuration"].contains(kind) else {
+        guard ["ordinary", "tree-configuration"].contains(kind) else {
             throw ProtocolValidationError.invalidValue("Unknown tree kind")
         }
         guard ["none", "read", "write"].contains(access) else {
             throw ProtocolValidationError.invalidValue("Unknown access level")
         }
-        if kind == "account-configuration" {
-            guard canonical == nil else { throw ProtocolValidationError.invalidValue("Account configuration must be noncanonical") }
-        } else {
-            guard let canonical, canonical.path.hasPrefix("/"), URL(string: canonical.endpoint) != nil else {
+        if kind == "tree-configuration" {
+            guard canonical == nil else { throw ProtocolValidationError.invalidValue("A tree configuration must be noncanonical") }
+        } else if let canonical {
+            // An ordinary tree mounted nowhere has no canonical descriptor.
+            guard canonical.path.hasPrefix("/"), URL(string: canonical.endpoint) != nil else {
                 throw ProtocolValidationError.invalidValue("Malformed canonical descriptor")
             }
         }
@@ -785,7 +786,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
 
     public func validated() throws -> Self {
         guard error == "conflict", !retryable else { throw ProtocolValidationError.invalidValue("Malformed conflict envelope") }
-        guard ["server-update", "account-configuration"].contains(details.kind) else {
+        guard ["server-update", "tree-configuration"].contains(details.kind) else {
             throw ProtocolValidationError.invalidValue("Unknown conflict detail kind")
         }
         _ = try details.current.validated()

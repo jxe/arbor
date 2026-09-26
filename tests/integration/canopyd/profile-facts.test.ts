@@ -3,9 +3,10 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { hostTree } from "../../helpers/tree-config.ts";
 import { serveHost } from "@overstory/canopyd";
 import {
-  ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, readAccountConfigGraph, snapshotAccountConfig,
+  ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, 
   type ObjectHash, type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 import { PhaseTimer } from "../../../packages/canopyd/src/updates/timing.ts";
@@ -73,22 +74,14 @@ beforeAll(async () => {
   });
   owner = new ProtocolClient(running.url, ownerToken);
   const account = (await owner.account()).account;
-  const configuration = await owner.descriptor(account.configuration.id);
-  const graph = readAccountConfigGraph(await owner.snapshot(configuration.tree.id, configuration.tree.root), configuration.tree.id);
-  const club = generateArborID("tr"), notes = generateArborID("tr");
-  await owner.submitUpdate(configuration.tree.id, configuration.tree.update, snapshotAccountConfig({
-    ...graph,
-    resources: {
-      ...graph.resources,
-      [club]: { canonical: `${running.url}/~owner/club`, access: [] },
-      [notes]: { canonical: `${running.url}/~owner/notes`, access: [{ who: { profile: club }, allow: ["read"] }] },
-    },
-  }));
-  for (const [tree, text] of [[club, "# Club\n"], [notes, "# Notes\n"]] as const) {
+  const snapshotOf = (text: string) => {
     const bytes = encoder.encode(text), file = hashObject(bytes);
     const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file }] }), root = hashObject(directory);
-    await owner.submitUpdate(tree, null, { root, objects: new Map([[file, bytes], [root, directory]]) });
-  }
+    return { root, objects: new Map([[file, bytes], [root, directory]]) };
+  };
+  const parent = { tree: account.profileTree!, kind: "person" as const };
+  const club = await hostTree(owner, snapshotOf("# Club\n"), { parent: { ...parent, name: "club" } });
+  const notes = await hostTree(owner, snapshotOf("# Notes\n"), { parent: { ...parent, name: "notes" }, access: [{ who: { profile: club }, allow: ["read"] }] });
   ids = {
     community: running.canopy.community().id,
     ownerProfile: account.profileTree!,

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { generateArborID, ProtocolClient, decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
-import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
+import { ProtocolClient, decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
+import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
@@ -61,30 +61,17 @@ try {
 
     const owner = new ProtocolClient(canopy.url, authorityToken);
     const account = await owner.account();
-    const configurationTree = account.account.configuration.id;
-    const configuration = await owner.descriptor(configurationTree);
-    const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
-    const device = Object.values(graph.devices).find(device => device.administrator)!.id;
-    const tree = generateArborID("tr");
-    const sourceTree = generateArborID("tr");
-    const crossDocumentTree = generateArborID("tr");
-    const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
-      account: graph.account,
-      resources: { ...graph.resources,
-        [tree]: { canonical: `${canopy.url}/~owner/protocol`, access: [] },
-        [sourceTree]: { canonical: `${canopy.url}/~owner/source-admissions`, access: [] },
-        [crossDocumentTree]: { canonical: `${canopy.url}/~owner/cross-document`, access: [] },
-        ...Object.fromEntries(Object.entries(reviewTrees).map(([mode, id]) => [id, { canonical: `${canopy.url}/~owner/review-${mode}`, access: [] }])),
-      },
-      devices: graph.devices,
-    }));
-    await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
-    await owner.submitUpdate(sourceTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
-    await owner.submitUpdate(crossDocumentTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
-    for (const reviewTree of Object.values(reviewTrees)) {
-      await owner.submitUpdate(reviewTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    const profile = account.account.profileTree!;
+    const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
+    const snapshot = await resolveSnapshot(await snapshotDirectory(treeDir));
+    // Each tree is declared, mounted below the owner's profile, and activated.
+    const place = (name: string) => hostTree(owner, snapshot, { parent: { tree: profile, name, kind: "person" } });
+    const tree = await place("protocol");
+    const sourceTree = await place("source-admissions");
+    const crossDocumentTree = await place("cross-document");
+    const reviewTrees: Record<string, string> = {};
+    for (const mode of ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"]) {
+      reviewTrees[mode] = await place(`review-${mode}`);
     }
 
     // Materialize the accepted configuration checkout into the data home and

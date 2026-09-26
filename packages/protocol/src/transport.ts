@@ -34,6 +34,7 @@ import {
   encodeUpdateRequestJSON,
 } from "./updates/json.ts";
 import { updateRequestDigests } from "./updates/intent.ts";
+import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
 import { decodeSnapshotBundle } from "./snapshots.ts";
 
 
@@ -364,9 +365,27 @@ export class ProtocolClient {
     return (await this.submitUpdates(tree, { base, updates: [update] })).results[0]!;
   }
 
+  /**
+   * Declare a tree: the first snapshot of its configuration, addressed as
+   * `tr_x;arbor-config`. The tree stays awaiting initialization until an
+   * administrator submits its own first snapshot with a null base.
+   */
+  async declareTree(tree: string, configuration: TreeSnapshot, options: { change?: string } = {}): Promise<UpdateResult> {
+    return this.submitUpdate(`${tree};${CONFIGURATION_PARAMETER}`, null, configuration, options);
+  }
+
+  /** A tree's accepted configuration, which only its administrators may read. */
+  async treeConfiguration(tree: string): Promise<{ tree: CurrentTree["tree"]; snapshot: TreeSnapshot }> {
+    const id = treeConfigurationID(tree);
+    const current = await this.descriptor(id);
+    return { tree: current.tree, snapshot: await this.snapshot(id, current.tree.root) };
+  }
+
   /** Submit one append-only string of candidate generations against a confirmed watchpoint. */
   async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
-    const expected = updateRequestDigests(tree, request);
+    // A `tr_x;arbor-config` reference is answered under the configuration's TreeID.
+    const reference = /^tr_[a-z2-7]+;arbor-config$/.test(tree) ? parseTreeReference(tree) : null;
+    const expected = updateRequestDigests(reference ? treeConfigurationID(reference.tree) : tree, request);
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
       headers: this.headers(true),

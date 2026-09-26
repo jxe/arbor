@@ -95,14 +95,14 @@ or unavailable. Bound body/header sizes, concurrent executions, queue size, dead
 and stream buffers; document explicit initial limits in configuration and tests.
 
 Specify host-issued context with actual caller, source TreeID/logical path, pinned
-code root/version, sponsoring account, activation identity and allowed execution
+code root/version, lent grants with their lenders, activation identity and allowed execution
 scope. Bind imported code to the correct executable identity without escalation.
 Strip all client-supplied context headers; never forward browser credentials as
 sidecar service credentials. Sidecar canopyd calls use the host-private execution
 token through ordinary current-tree/object/watch/update APIs; no public mint or
 special resolution route. Requests contain enough information for restart/reconnect
 without an app ID or subscription registry in canopyd. Activation remains private
-host configuration binding reviewed code, sponsor, providers and resource limits.
+host configuration binding reviewed code, lenders, providers and resource limits.
 
 Specify initial HTTP status/error mapping and post-header stream errors separately.
 Allowlist response headers; test cookies, redirects and credentials cannot be smuggled
@@ -141,7 +141,7 @@ from a last-minute asynchronous permission lookup. If the current authority APIs
 cannot support the promised revocation semantics, stop for a contract decision rather
 than temporarily granting broader access.
 
-**Verify:** extend `tests/integration/execution-sidecar.test.ts` with anonymous via
+**Verify:** extend `tests/integration/execution-sidecar.test.ts` with anonymous `app`
 reads, caller-only ordinary reads, forged context, nested-tree escape, helper context,
 stale bindings, provider changes and revocation while results are queued → all pass.
 Use actual execution tokens and backing providers, not only mocked grants.

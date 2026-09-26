@@ -26,7 +26,7 @@ has no database connection or credentials.
   states: frozen and interned values in persistent maps, identified by content.
 - `cli.ts`: the JSON-lines `serve` process.
 
-It has no account-configuration rule: canopyd merges its own policy files.
+It has no tree-configuration rule: canopyd merges its own policy files.
 
 The API is [writing a sidecar](../../docs/architecture/canopyd/writing-a-sidecar.md);
 the process, cache, limits and failure behavior are in

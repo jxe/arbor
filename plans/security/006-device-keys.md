@@ -20,8 +20,9 @@ A device credential is a bearer secret whose digest one host binds
 ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing)).
 Only that host can check it, anyone holding it can use it, and it is sent with
 every request. A placement host could never check it without holding a secret
-per device. And a person who loses every administrator device has no way back
-([canopyd 005](../soon/005-tree-configuration-trees.md) open question 1).
+per device. And a person who loses every administrator device has no way back but the
+host operator's reset (`ARBOR_RESET_ACCOUNT`), which canopyd 005 kept as its
+answer to that plan's open question 1 and left profile-key recovery here.
 
 These are the parts of portable profiles that need only one host.
 
@@ -77,8 +78,9 @@ does.
 3. **Recovery limits:** whether a profile-key reset waits or notifies existing
    devices, since the profile key is one permanent key and its backup is the
    thing most likely to be stolen.
-4. **Two meanings of "administrator"** (canopyd 005 open question 2) again,
-   since a key device's flag is what another host will read.
+4. **Two meanings of "administrator"** again, since a key device's flag is
+   what another host will read. canopyd 005 kept both names: a profile's
+   `admin` on a tree and a device's `administrator` flag.
 
 ## Work
 

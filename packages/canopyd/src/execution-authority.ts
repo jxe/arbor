@@ -2,22 +2,28 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { PermissionDeniedError } from "./errors.ts";
 import { randomBytes } from "node:crypto";
 import {
+  ACCESS_OPERATIONS,
+  isTreeID,
   operationAllowed,
+  resourcePath,
   scopeContains,
-  parseResourceRule,
   type AccessOperation,
   type ResourceCapability,
 } from "@overstory/protocol";
+/**
+ * One capability an execution uses. `lender` is null for the caller's own
+ * access (or a tree's own `app` rule); otherwise it names the profile whose
+ * `apps.yaml` lends it. A grant from one lender never widens another's.
+ */
 export interface ExecutionGrant extends ResourceCapability {
-  account: string;
-  role: "author" | "user";
+  lender: string | null;
 }
 export interface ExecutionContext {
   code: string;
   version: string;
+  /** The caller's account (its profile TreeID), or null for an anonymous caller. */
   caller: string | null;
   linkDigest?: string;
-  sponsor: string;
   subject: string;
   expiresAt: number;
   grants: readonly ExecutionGrant[];
@@ -83,8 +89,7 @@ export class ExecutionAuthority {
       !this.valid(context) ||
       !context.code ||
       !context.version ||
-      !context.subject ||
-      !context.sponsor
+      !context.subject
     )
       throw new PermissionDeniedError("Execution permission is not allowed");
     const copy = {
@@ -92,18 +97,10 @@ export class ExecutionAuthority {
       grants: context.grants.map((g) => ({ ...g, allow: [...g.allow] })),
     };
     for (const grant of copy.grants) {
-      parseResourceRule({
-        who: "me",
-        via: copy.code,
-        within: grant.within,
-        allow: grant.allow,
-      });
-      parseResourceRule({ who: { profile: grant.tree }, allow: ["read"] });
-      if (
-        grant.role === "author"
-          ? grant.account !== copy.sponsor
-          : grant.account !== copy.caller
-      )
+      resourcePath(grant.within);
+      if (!isTreeID(copy.code) || !isTreeID(grant.tree) || grant.allow.some((op) => !ACCESS_OPERATIONS.includes(op)))
+        throw new Error("Invalid execution grant");
+      if (grant.lender !== null && !isTreeID(grant.lender))
         throw new Error("Invalid execution grant provenance");
       if (
         !grant.allow.length ||
