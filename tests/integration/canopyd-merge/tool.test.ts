@@ -9,7 +9,7 @@ import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { mergeProtocolTrees } from "@overstory/tree-merge";
-import { snapshotAccountConfig } from "@overstory/protocol";
+import { initialPersonConfig, snapshotTreeConfig } from "@overstory/protocol";
 import fixtures from "../../fixtures/canopy/merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
@@ -70,10 +70,8 @@ test.each(fixtures.markdownCases)("a snapshot question keeps the tree merge's ou
 
 test("unknown rules are a typed refusal", async () => {
   const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  const config = snapshotAccountConfig({ account: { canopy: "https://canopy.example", profile }, resources: {}, devices: {
-    [admin]: { id: admin, label: "Mac", administrator: true },
-  } });
-  const { question, inputs } = await prepare(config, config, config, "account-config-v2");
+  const config = snapshotTreeConfig(initialPersonConfig(profile, { id: admin, label: "Mac" }));
+  const { question, inputs } = await prepare(config, config, config, "tree-config-v1");
   const refusal = await tool.ask(question, inputs).then(() => null, (error: unknown) => error);
   expect(refusal).toBeInstanceOf(MergeRefusal);
   expect((refusal as MergeRefusal).code).toBe("unsupported");

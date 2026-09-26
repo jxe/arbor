@@ -13,9 +13,13 @@ import { MergeWorkerError } from "../../../packages/canopyd/src/merge-tool.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
-  readAccountConfigGraph,
-  snapshotAccountConfig,
+  readTreeConfigGraph,
+  snapshotTreeConfig,
+  treeConfigurationID,
+  type TreeConfigDevice,
+  type TreeConfigValues,
 } from "@overstory/protocol";
+import { editTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
@@ -46,18 +50,16 @@ async function currentConfig() {
   const account = await client.account();
   const current = await client.descriptor(account.account.configuration.id);
   const snapshot = await client.snapshot(current.tree.id, current.tree.root);
-  const graph = readAccountConfigGraph({
-    root: snapshot.root,
-    objects: snapshot.objects,
-  }, account.account.configuration.id);
+  const { sources: _sources, ...values } = readTreeConfigGraph(snapshot, "person", account.account.profileTree!);
+  const graph = values as TreeConfigValues & { devices: Record<string, TreeConfigDevice> };
   return { account, current, snapshot, graph };
 }
 
 async function submitConfiguration(
   current: Awaited<ReturnType<typeof currentConfig>>["current"],
-  graph: Parameters<typeof snapshotAccountConfig>[0],
+  graph: TreeConfigValues,
 ) {
-  const snapshot = snapshotAccountConfig(graph);
+  const snapshot = snapshotTreeConfig(graph);
   return client.submitUpdate(
     current.tree.id,
     current.tree.update,
@@ -98,7 +100,7 @@ async function snapshotWithCollectionFiles(path: string) {
   }
 }
 
-describe("governed account-configuration Canopy server", () => {
+describe("governed tree-configuration Canopy server", () => {
   test("evaluation time exhaustion is retryable, not an invalid request", async () => {
     const baseline = await currentConfig();
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
@@ -117,7 +119,7 @@ describe("governed account-configuration Canopy server", () => {
   test("accepted prefix transport deltas are not reconstructed again", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = (label: string) => snapshotAccountConfig({ ...baseline.graph,
+    const candidate = (label: string) => snapshotTreeConfig({ ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label } },
     });
     const element = (snapshot: ReturnType<typeof candidate>) => ({
@@ -140,8 +142,7 @@ describe("governed account-configuration Canopy server", () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const graphOne = {
-      account: baseline.graph.account,
-      resources: baseline.graph.resources,
+      ...baseline.graph,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: `Cumulative one ${crypto.randomUUID()}` },
@@ -154,7 +155,7 @@ describe("governed account-configuration Canopy server", () => {
         [administrator]: { ...graphOne.devices[administrator]!, label: `Cumulative two ${crypto.randomUUID()}` },
       },
     };
-    const snapshots = [snapshotAccountConfig(graphOne), snapshotAccountConfig(graphTwo)];
+    const snapshots = [snapshotTreeConfig(graphOne), snapshotTreeConfig(graphTwo)];
     const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), trace: null,
       candidate: snapshot.root,
       resolves: [],
@@ -182,7 +183,7 @@ describe("governed account-configuration Canopy server", () => {
   test("exact-state guards reject same-root advancement but historical retries precede guards", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = snapshotAccountConfig({
+    const candidate = snapshotTreeConfig({
       ...baseline.graph,
       devices: {...baseline.graph.devices, [administrator]: {...baseline.graph.devices[administrator]!, label: `Guarded ${crypto.randomUUID()}`}},
     });
@@ -209,7 +210,7 @@ describe("governed account-configuration Canopy server", () => {
   test.each([false, true])("a later accepted digest proves a no-op prefix (activation=%s)", async (activation) => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const candidate = snapshotAccountConfig({...baseline.graph,devices:{...baseline.graph.devices,
+    const candidate = snapshotTreeConfig({...baseline.graph,devices:{...baseline.graph.devices,
       [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}});
     const request = {base:activation ? null : baseline.current.tree.update,updates:[{
       change:crypto.randomUUID(),candidate:baseline.snapshot.root,trace:null,resolves:[],
@@ -230,7 +231,7 @@ describe("governed account-configuration Canopy server", () => {
   test("unsupported operations reject a complete batch before its valid prefix changes authority", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
-    const snapshot = snapshotAccountConfig({
+    const snapshot = snapshotTreeConfig({
       ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: "Must not be accepted" } },
     });
@@ -299,7 +300,7 @@ describe("governed account-configuration Canopy server", () => {
     const account = await client.account();
     expect(account.observedThrough).toBeTruthy();
     expect(account.account.configuration).toMatchObject({
-      kind: "account-configuration",
+      kind: "tree-configuration",
       access: "write",
       canonical: null,
     });
@@ -337,8 +338,7 @@ describe("governed account-configuration Canopy server", () => {
 
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const changed = {
-      account: baseline.graph.account,
-      resources: baseline.graph.resources,
+      ...baseline.graph,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: "Historical snapshot test" },
@@ -419,8 +419,7 @@ describe("governed account-configuration Canopy server", () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const firstGraph = {
-      account: baseline.graph.account,
-      resources: baseline.graph.resources,
+      ...baseline.graph,
       devices: {
         ...baseline.graph.devices,
         [administrator]: { ...baseline.graph.devices[administrator]!, label: "Watch replay one" },
@@ -431,8 +430,7 @@ describe("governed account-configuration Canopy server", () => {
 
     const afterFirst = await currentConfig();
     const secondGraph = {
-      account: afterFirst.graph.account,
-      resources: afterFirst.graph.resources,
+      ...afterFirst.graph,
       devices: { ...afterFirst.graph.devices, [administrator]: { ...afterFirst.graph.devices[administrator]!, label: "Watch replay two" } },
     };
     const second = await submitConfiguration(afterFirst.current, secondGraph);
@@ -481,25 +479,24 @@ describe("governed account-configuration Canopy server", () => {
     expect(event.change.descriptor).toMatchObject({ update: second.update.id, root: second.update.root });
   });
 
-  test("reserves a client-generated tree through YAML, then activates it idempotently", async () => {
-    const { current, graph } = await currentConfig();
+  test("declares a client-generated tree by its configuration, mounts it, then activates it idempotently", async () => {
+    const { account } = await currentConfig();
+    const profile = account.account.profileTree!;
     const treeID = generateArborID("tr");
     const linkSecret = "shared-tree-link-secret";
     const treePath = join(dataRoot, "new-shared-tree");
-    const next = {
-      account: graph.account,
-      resources: {
-          ...graph.resources,
-          [treeID]: {
-            canonical: `${running.url}/~owner/new-shared-tree`,
-            access: [{ who: { link: `sha256:${sha256(linkSecret)}` }, allow: ["read" as const] }],
-          },
-      },
-      devices: graph.devices,
-    };
-    const accepted = await submitConfiguration(current, next);
+    const accepted = await client.declareTree(treeID, snapshotTreeConfig({
+      access: [{ who: { profile }, allow: ["admin"] }, { who: { link: `sha256:${sha256(linkSecret)}` }, allow: ["read"] }],
+      mounts: {},
+    }));
     expect(accepted.outcome).toBe("accepted");
+    expect(accepted.update.tree).toBe(treeConfigurationID(treeID));
     expect(running.canopy.get(treeID)).toBeNull();
+    // A second, different declaration of the same tree conflicts.
+    await expect(client.declareTree(treeID, snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: {} }))).rejects.toThrow();
+    // The parent mounts the pending tree; its boundary appears when it activates.
+    await editTreeConfig(client, profile, "person", (values) => ({ ...values, mounts: { ...values.mounts, "new-shared-tree": treeID } }));
+    expect(running.canopy.boundary("/~owner/new-shared-tree")).toBeNull();
 
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "---\nid: x7f3q2\n---\n\n# Activated\n");
@@ -668,16 +665,15 @@ describe("governed account-configuration Canopy server", () => {
     await writeFile(join(changedPath, "note.md"), "Different\n");
     await expect(client.submitUpdate(treeID, null, await resolveSnapshot(await snapshotDirectory(changedPath)))).rejects.toThrow("conflict");
 
-    const account = await client.account();
-    expect(account.observedThrough).not.toBe(accepted.update.id);
+    const later = await client.account();
+    expect(later.observedThrough).not.toBe(accepted.update.id);
   });
 
   test("coalesces accepted updates across another tree activation", async () => {
     const baseline = await currentConfig();
     const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
     const relabel = (graph: typeof baseline.graph, label: string) => ({
-      account: graph.account,
-      resources: graph.resources,
+      ...graph,
       devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator]!, label } },
     });
     const first = await submitConfiguration(baseline.current, relabel(baseline.graph, "Log order one"));
@@ -685,15 +681,9 @@ describe("governed account-configuration Canopy server", () => {
 
     const treeID = generateArborID("tr");
     const treePath = join(dataRoot, "log-order-tree");
-    const afterFirst = await currentConfig();
-    const declared = await submitConfiguration(afterFirst.current, {
-      account: afterFirst.graph.account,
-      resources: {
-          ...afterFirst.graph.resources,
-          [treeID]: { canonical: `${running.url}/~owner/log-order-tree`, access: [] },
-      },
-      devices: afterFirst.graph.devices,
-    });
+    const declared = await client.declareTree(treeID, snapshotTreeConfig({
+      access: [{ who: { profile: baseline.account.account.profileTree! }, allow: ["admin"] }], mounts: {},
+    }));
     if (declared.outcome !== "accepted") throw new Error("Expected an accepted update");
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "# Log order\n");
@@ -741,8 +731,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(graph.devices[peerID]?.administrator).toBe(false);
     const { [peerID]: _removed, ...remainingDevices } = graph.devices;
     await submitConfiguration(current, {
-      account: graph.account,
-      resources: graph.resources,
+      ...graph,
       devices: remainingDevices,
     });
     const peerWatch = await peerWatchPromise;

@@ -39,14 +39,18 @@ describe("Canopy schema version stamp", () => {
     expect(db.query("SELECT value FROM meta WHERE key = 'schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION });
     db.close();
     expect(columns(database, "boundaries")).toEqual(["path", "tree_id", "parent_tree"]);
-    expect(columns(database, "tree_reservations")).toEqual(["id", "account_id", "canonical_path"]);
-    expect(columns(database, "trees")).toEqual(["id", "ref", "policy", "status", "account_id"]);
+    expect(columns(database, "trees")).toEqual(["id", "ref", "policy", "status", "governs"]);
+    expect(columns(database, "accounts")).toEqual(["id", "handle", "enabled", "claim_digest"]);
+    expect(columns(database, "tree_policy")).toEqual(["tree_id", "rules_json"]);
+    expect(columns(database, "tree_admins")).toEqual(["tree_id", "profile_tree"]);
+    expect(columns(database, "app_policy")).toEqual(["profile_tree", "app_tree", "rules_json"]);
+    expect(columns(database, "mounts")).toEqual(["parent_tree", "path", "tree_id", "member"]);
     expect(columns(database, "account_challenges")).toEqual(["id", "challenge_json", "expires_at", "consumed_at"]);
     expect(columns(database, "accepted_updates")).toEqual([
       "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
     ]);
     expect(columns(database, "entry_metadata")).toEqual(["tree_id", "path", "modified_at"]);
-    for (const table of ["reflog", "observations", "authored_changes", "accepted_conflicts", "accepted_merge_states"]) expect(columns(database, table)).toEqual([]);
+    for (const table of ["reflog", "observations", "authored_changes", "accepted_conflicts", "accepted_merge_states", "access", "resource_policy", "tree_reservations"]) expect(columns(database, table)).toEqual([]);
 
     const reopened = await HostDaemon.open(root);
     expect(reopened.community().kind).toBe("ordinary");
@@ -66,15 +70,15 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 21 is current: a schema-20 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("21");
+  test("schema 22 is current: a schema-21 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("22");
     const root = await dataRoot();
     const first = await HostDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
-    db.run("UPDATE meta SET value = '20' WHERE key = 'schema_version'");
+    db.run("UPDATE meta SET value = '21' WHERE key = 'schema_version'");
     db.close();
-    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 20 but this build requires 21.*run the offline migration/);
+    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 21 but this build requires 22.*run the offline migration/);
   });
 
   test("a root without the profile_facts table is a schema mismatch", async () => {

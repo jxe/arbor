@@ -49,14 +49,12 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
       code: "tr_supplies",
       version: "v1",
       caller: account.id,
-      sponsor: account.id,
       subject: account.profileTree!,
       expiresAt: Date.now() + 60000,
       active: () => sessionActive,
       grants: [
         {
-          account: account.id,
-          role: "user",
+          lender: null,
           tree,
           within: "/",
           allow: ["create-child"],
@@ -145,14 +143,12 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       code: "tr_supplies",
       version: "v1",
       caller: account.id,
-      sponsor: account.id,
       subject: account.profileTree!,
       expiresAt: Date.now() + 60000,
       active: () => true,
       grants: [
         {
-          account: account.id,
-          role: "user",
+          lender: null,
           tree: account.profileTree!,
           within: "/",
           allow: ["read"],

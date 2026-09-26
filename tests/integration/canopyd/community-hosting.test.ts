@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@overstory/protocol";
-import { stringify } from "yaml";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -9,7 +8,8 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { ProfileIdentityStore } from "@overstory/arborsync/state";
-import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
+import { initialPersonConfig, readTreeConfigGraph, snapshotTreeConfig, snapshotTreeConfigFiles, treeConfigurationID, type TreeConfigValues } from "@overstory/protocol";
+import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -74,7 +74,7 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-describe("client-generated profile and account-configuration bootstrap", () => {
+describe("client-generated profile and account bootstrap", () => {
   test("an invitation code claims a community slot and replaces it with the proven Profile TreeID", async () => {
     const origin = new URL(running.url).origin;
     const handle = "invited-person";
@@ -98,7 +98,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     expect(running.canopy.accountReservation(`${origin}/~${handle}`)?.inviteDigest).toBe(digest);
 
     const identity = testProfileIdentity();
-    const configurationTree = generateArborID("tr");
+    const configurationTree = treeConfigurationID(identity.profileTree);
     const deviceID = generateArborID("dv");
     const credential = "invited-person-device-credential";
     const client = new ProtocolClient(running.url);
@@ -112,11 +112,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: deviceID, label: "Invited Mac", credentialDigest: `sha256:${sha256(credential)}` as const },
-      configuration: snapshotAccountConfig({
-        account: { canopy: origin, profile: identity.profileTree },
-        resources: { [identity.profileTree]: { canonical: `${origin}/~${handle}`, access: [] } },
-        devices: { [deviceID]: { id: deviceID, label: "Invited Mac", administrator: true } },
-      }),
+      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac" })),
     };
     await expect(client.joinAccount({ ...request, inviteCode: "wrong-code" })).rejects.toThrow("Invitation code is invalid");
     expect(running.canopy.accountByHandle(handle)).toBeNull();
@@ -137,35 +133,29 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     expect(response.status).toBe(404);
   });
 
-  test("community-only challenges resolve the reservation without reading a profile", async () => {
+  test("community-only challenges resolve the reservation and bind the profile's configuration", async () => {
     const client = new ProtocolClient(running.url);
-    const configurationTree = generateArborID("tr");
+    const configurationTree = treeConfigurationID(bobProfileTree);
     const challenge = await client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree });
     expect(challenge.account).toBe(`${new URL(running.url).origin}/~bob`);
     expect(challenge.profileTree).toBe(bobProfileTree);
     expect(challenge.configurationTree).toBe(configurationTree);
-    await expect(client.createAccountChallenge({ profileTree: testProfileIdentity().profileTree, configurationTree }))
+    await expect(client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree: generateArborID("tr") }))
+      .rejects.toThrow("configuration TreeID");
+    const stranger = testProfileIdentity().profileTree;
+    await expect(client.createAccountChallenge({ profileTree: stranger, configurationTree: treeConfigurationID(stranger) }))
       .rejects.toThrow("has not reserved");
   });
 
-  test("v2 account claim does not host the local profile; ordinary activation does", async () => {
+  test("a claim declares the profile tree; activation mounts it at /~handle; its devices pair and declare trees", async () => {
     const origin = new URL(running.url).origin;
     const profileTree = bobProfileTree;
-    const configurationTree = generateArborID("tr");
-    const declaredTree = generateArborID("tr");
+    const configurationTree = treeConfigurationID(profileTree);
     const administratorID = generateArborID("dv");
     const administratorCredential = "locally-generated-bob-credential";
     const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
-    const configuration = snapshotAccountConfig({
-      account: { canopy: origin, profile: profileTree },
-      resources: {
-        [profileTree]: { canonical: `${origin}/~bob`, access: [{ who: "everyone", allow: ["read"] }] },
-        [declaredTree]: { canonical: `${origin}/~bob/notes`, access: [] },
-      },
-      devices: {
-        [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true },
-      },
-    });
+    const initial = initialPersonConfig(profileTree, { id: administratorID, label: "Bob's Mac" });
+    const configuration = snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
     const request = {
       profileTree,
       configurationTree,
@@ -179,30 +169,16 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const client = new ProtocolClient(running.url);
     const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
-    const wrongProfileAllocation = snapshotAccountConfig({
-      account: { canopy: origin, profile: profileTree },
-      resources: { [generateArborID("tr")]: { canonical: `${origin}/~bob`, access: [] } },
-      devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
-    });
-    await expect(new ProtocolClient(running.url).joinAccount({
-      account: `${origin}/~bob`,
-      ...request,
-      ...identityProof,
-      configuration: wrongProfileAllocation,
-    })).rejects.toThrow("account.profile must match a tree declaration at its canonical handle");
-    const outsideAllocation = snapshotAccountConfig({
-      account: { canopy: origin, profile: profileTree },
-      resources: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },
-      devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
-    });
-    await expect(new ProtocolClient(running.url).joinAccount({
-      account: `${origin}/~bob`,
-      ...request,
-      ...identityProof,
-      configuration: outsideAllocation,
-    })).rejects.toThrow("outside this Canopy account allocation");
+    // A person's configuration names that person as its only administrator.
+    const coAdministered = snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] });
+    await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: coAdministered }))
+      .rejects.toThrow("no one else");
+    const mounting = snapshotTreeConfig({ ...initial, mounts: { notes: generateArborID("tr") } });
+    await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: mounting }))
+      .rejects.toThrow("mounts nothing");
     const claimed = await client.joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof });
-    expect(claimed.account).toMatchObject({ handle: "bob", profileTree });
+    expect(claimed.account).toMatchObject({ handle: "bob", profileTree, id: profileTree });
+    expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration", canonical: null });
     expect(running.canopy.get(profileTree)).toBeNull();
     expect(running.canopy.boundary("/~bob")).toBeNull();
     const administrator = new ProtocolClient(running.url, administratorCredential);
@@ -222,25 +198,44 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const firstClaim = await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone);
     expect(firstClaim.device.id).toBe(phoneID);
     expect(await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
+    const { values } = await readTreeConfig(administrator, profileTree, "person");
+    expect(values.devices![phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false });
 
-    const acceptedConfiguration = await administrator.descriptor(configurationTree);
-    const acceptedSnapshot = await administrator.snapshot(configurationTree, acceptedConfiguration.tree.root);
-    const graph = readAccountConfigGraph(acceptedSnapshot, configurationTree);
-    expect(graph.devices[phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false });
-    expect(JSON.stringify(graph)).not.toContain("placements");
+    // An ordinary device may not declare or activate trees.
+    const phoneClient = new ProtocolClient(running.url, phoneCredential);
+    await expect(phoneClient.declareTree(generateArborID("tr"), snapshotTreeConfig({ access: [{ who: { profile: profileTree }, allow: ["admin"] }], mounts: {} })))
+      .rejects.toThrow("administrator device");
 
     const treeSource = join(sandbox, "bob-notes");
     await mkdir(treeSource, { recursive: true });
     await writeFile(join(treeSource, "_index.md"), "# Bob's notes\n");
-    const activated = await administrator.submitUpdate(declaredTree, null, await resolveSnapshot(await snapshotDirectory(treeSource)));
-    expect(activated.outcome).toBe("accepted");
-    expect((await administrator.descriptor(declaredTree)).tree.canonical?.path).toBe("/~bob/notes");
+    const notes = await hostTree(administrator, await resolveSnapshot(await snapshotDirectory(treeSource)), { parent: { tree: profileTree, name: "notes", kind: "person" } });
+    expect((await administrator.descriptor(notes)).tree.canonical?.path).toBe("/~bob/notes");
+    // The parent's content holds the mount's boundary entry.
+    const bobRoot = await administrator.snapshot(profileTree, (await administrator.descriptor(profileTree)).tree.root);
+    expect(decodeProtocolDirectory(bobRoot.objects.get(bobRoot.root)!).entries.find((entry) => entry.name === "notes")?.tree).toBe(notes);
+
+    // Renaming the mount moves the boundary, and removing it leaves the tree without a canonical path.
+    await editTreeConfig(administrator, profileTree, "person", (current) => ({ ...current, mounts: { journal: notes } }));
+    expect((await administrator.descriptor(notes)).tree.canonical?.path).toBe("/~bob/journal");
+    await editTreeConfig(administrator, profileTree, "person", (current) => ({ ...current, mounts: {} }));
+    expect((await administrator.descriptor(notes)).tree.canonical).toBeNull();
+    expect(running.canopy.boundary("/~bob/journal")).toBeNull();
+    await editTreeConfig(administrator, profileTree, "person", (current) => ({ ...current, mounts: { notes } }));
+    expect((await administrator.descriptor(notes)).tree.canonical?.path).toBe("/~bob/notes");
+
+    // Nobody mounts a tree they do not administer: the owner cannot give Bob's notes an address.
+    const ownerProfile = running.canopy.accountByHandle("owner")!.profileTree;
+    await expect(editTreeConfig(owner, ownerProfile, "person", (current) => ({ ...current, mounts: { ...current.mounts, "bobs-notes": notes } })))
+      .rejects.toThrow();
+    // Nor edits a configuration of a tree they do not administer.
+    await expect(owner.treeConfiguration(notes)).rejects.toThrow();
   });
 
   test("rejects unreserved identities without creating the configuration tree", async () => {
     const identity = testProfileIdentity();
     const profileTree = identity.profileTree;
-    const configurationTree = generateArborID("tr");
+    const configurationTree = treeConfigurationID(profileTree);
     const origin = new URL(running.url).origin;
     const client = new ProtocolClient(running.url);
     await expect(client.createAccountChallenge({ account: `${origin}/~mallory`, profileTree, configurationTree }))
@@ -403,6 +398,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
   });
 });
 
+
 describe("profile invariants derived from root frontmatter", () => {
   async function submitRoot(tree: string, source: string) {
     const current = await owner.descriptor(tree);
@@ -464,14 +460,10 @@ describe("self-certifying profile account proof", () => {
       await targetAdmin.submitUpdate(targetCommunity.tree.id, targetCommunity.tree.update, targetCommunitySnapshot);
 
       const profileTree = identity.profileTree;
-      const configurationTree = generateArborID("tr");
+      const configurationTree = treeConfigurationID(profileTree);
       const deviceID = generateArborID("dv");
       const credential = "guest-target-credential";
-      const configuration = snapshotAccountConfig({
-        account: { canopy: new URL(target.url).origin, profile: profileTree },
-        resources: {},
-        devices: { [deviceID]: { id: deviceID, label: "Guest's Mac", administrator: true } },
-      });
+      const configuration = snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac" }));
       const anonymous = new ProtocolClient(target.url);
       const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 
@@ -491,11 +483,13 @@ describe("self-certifying profile account proof", () => {
       };
       const joined = await new ProtocolClient(target.url).joinAccount(request);
       expect(joined.account).toMatchObject({ handle: "guest", profileTree, profileURL: null });
-      expect(joined.configuration).toMatchObject({ id: configurationTree, kind: "account-configuration" });
+      expect(joined.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration" });
       expect(target.canopy.get(profileTree)).toBeNull();
       expect(target.canopy.boundary("/~guest")).toBeNull();
       expect(await new ProtocolClient(target.url).joinAccount(request)).toEqual(joined);
       expect((await new ProtocolClient(target.url, credential).account()).account.configuration.id).toBe(configurationTree);
+      // The founder is a member, so administers the community.
+      expect(target.canopy.canAdminister(target.canopy.account(profileTree)!, target.canopy.community())).toBe(true);
 
       await expect(new ProtocolClient(target.url).joinAccount({
         ...request,
@@ -508,40 +502,27 @@ describe("self-certifying profile account proof", () => {
   });
 });
 
-test("accepted resource policy enables and revokes anonymous executable authority", async () => {
-  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const accountResponse = await client.account();
-  const configID = accountResponse.account.configuration.id;
-  const current = await client.descriptor(configID);
-  const snapshot = await client.snapshot(configID, current.tree.root);
-  const graph = readAccountConfigGraph(snapshot, configID);
-  const { resourceRuleFromLegacy } = await import("../../../packages/protocol/src/config/resource-configuration.ts");
-  const resources = graph.resources ?? Object.fromEntries(Object.entries(graph.trees).map(([id, d]) => [id, { canonical: d.canonical, access: d.access.map(resourceRuleFromLegacy) }]));
-  resources[bobProfileTree]!.access.push({ who: "everyone", via: "tr_supplies", allow: ["create-child"] });
-  const updated = await client.submitUpdate(configID, current.tree.update, snapshotAccountConfig({ ...graph, resources }), { ifCurrent: current.tree.update });
-  const bob = running.canopy.accountByHandle("bob")!;
-  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, sponsor: bob.id, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
-    grants: [{ account: bob.id, role: "author", tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
+const bobCredential = "locally-generated-bob-credential";
+const bobPerson = (client: ProtocolClient) => readTreeConfig(client, bobProfileTree, "person");
+const editBob = (client: ProtocolClient, change: (values: TreeConfigValues) => TreeConfigValues) => editTreeConfig(client, bobProfileTree, "person", change);
+
+test("an administrator's rule through an app enables and revokes anonymous executable authority", async () => {
+  const client = new ProtocolClient(running.url, bobCredential);
+  await editBob(client, (values) => ({ ...values, access: [...values.access, { who: "everyone", app: "tr_supplies", allow: ["create-child"] }] }));
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ lender: null, tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
   const context = running.canopy.execution.resolve(token)!;
   expect(running.canopy.execution.run(context, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(true);
-  resources[bobProfileTree]!.access = resources[bobProfileTree]!.access.filter(r => !r.via);
-  await client.submitUpdate(configID, updated.update.id, snapshotAccountConfig({ ...graph, resources }), { ifCurrent: updated.update.id });
+  await editBob(client, (values) => ({ ...values, access: values.access.filter((rule) => !rule.app) }));
   expect(running.canopy.execution.run(context, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(false);
 });
 
-test("ordinary anonymous create permission works without via and does not grant overwrite", async () => {
-  const owner = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const configID = (await owner.account()).account.configuration.id;
-  const configCurrent = await owner.descriptor(configID);
-  const graph = readAccountConfigGraph(await owner.snapshot(configID, configCurrent.tree.root), configID);
-  const resources = graph.resources!;
-  resources[bobProfileTree]!.access.push({ who: "everyone", allow: ["create-child"], within: "/" });
+test("ordinary anonymous create permission works without app and does not grant overwrite", async () => {
+  const bob = new ProtocolClient(running.url, bobCredential);
   // Replace the existing unrestricted public rule rather than creating a duplicate key.
-  resources[bobProfileTree]!.access = resources[bobProfileTree]!.access.filter(r => r.who !== "everyone" || r.allow.includes("create-child"));
-  await owner.submitUpdate(configID, configCurrent.tree.update, snapshotAccountConfig({ ...graph, resources }), { ifCurrent: configCurrent.tree.update });
-  const current = await owner.descriptor(bobProfileTree);
-  const snapshot = await owner.snapshot(bobProfileTree, current.tree.root);
-  const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
+  await editBob(bob, (values) => ({ ...values, access: [...values.access.filter((rule) => rule.who !== "everyone"), { who: "everyone", allow: ["create-child"] }] }));
+  const current = await bob.descriptor(bobProfileTree);
+  const snapshot = await bob.snapshot(bobProfileTree, current.tree.root);
   const bytes = new TextEncoder().encode("created"), hash = hashObject(bytes);
   const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
   const rootBytes = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash }] });
@@ -553,29 +534,25 @@ test("ordinary anonymous create permission works without via and does not grant 
   const changed = new TextEncoder().encode("overwritten"), changedHash = hashObject(changed);
   const changedRoot = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash }] });
   await expect(anonymous.submitUpdate(bobProfileTree, accepted.update.id, { root: hashObject(changedRoot), objects: new Map([...candidate.objects, [changedHash, changed], [hashObject(changedRoot), changedRoot]]) }, { ifCurrent: accepted.update.id })).rejects.toThrow();
+  await editBob(bob, (values) => ({ ...values, access: [...values.access.filter((rule) => rule.who !== "everyone"), { who: "everyone", allow: ["read"] }] }));
 });
 
 test("concurrent policy narrowing is accepted restrictively until exact administrator resolution", async () => {
-  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const config = (await client.account()).account.configuration.id;
+  const client = new ProtocolClient(running.url, bobCredential);
+  const config = treeConfigurationID(bobProfileTree);
+  const { values } = await bobPerson(client);
+  const policy = (allow: any[]) => snapshotTreeConfig({ ...values, access: [...values.access.filter((rule) => !rule.app), { who: "everyone", app: "tr_supplies", allow }] });
   const head = await client.descriptor(config);
-  const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
-  const policy = (allow: any[]) => {
-    const next = structuredClone(graph);
-    next.resources![bobProfileTree]!.access = [{ who: "everyone", via: "tr_supplies", allow }];
-    return snapshotAccountConfig(next);
-  };
   const initial = await client.submitUpdate(config, head.tree.update, policy(["read", "create-child", "delete"]));
-  const bob = running.canopy.accountByHandle("bob")!;
-  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, sponsor: bob.id, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
-    grants: [{ account: bob.id, role: "author", tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ lender: null, tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
   await client.submitUpdate(config, initial.update.id, policy(["read", "create-child"]));
   const merged = await client.submitUpdate(config, initial.update.id, policy(["read", "delete"]));
   expect(merged.update.conflicted).toBe(true);
   // The policy choice is a decision of the update's log entry.
   expect(acceptedEntries(join(sandbox, "canopy"), config).find((e) => e.id === merged.update.id)!.entry.decisions).toHaveLength(1);
-  const accepted = readAccountConfigGraph(await client.snapshot(config, merged.update.root), config);
-  expect(accepted.resources![bobProfileTree]!.access).toEqual([{ who: "everyone", via: "tr_supplies", allow: ["read"] }]);
+  const accepted = readTreeConfigGraph(await client.snapshot(config, merged.update.root), "person", bobProfileTree);
+  expect(accepted.access.filter((rule) => rule.app)).toEqual([{ who: "everyone", app: "tr_supplies", allow: ["read"] }]);
   expect(running.canopy.execution.run(running.canopy.execution.resolve(token)!, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(false);
   await expect(client.submitUpdate(config, merged.update.id, policy(["write"]))).rejects.toThrow(/guarded resolution/);
   const origin = running.url;
@@ -585,7 +562,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
     hostname: "127.0.0.1", port: Number(new URL(origin).port) });
   expect((await client.descriptor(config)).tree).toMatchObject({ update: merged.update.id, root: merged.update.root, conflicted: true });
   expect(running.canopy.execution.resolve(token)).toBeUndefined();
-  expect((await client.access(bobProfileTree)).policy).toEqual(accepted.resources![bobProfileTree]!.access.map(safeResourceRule));
+  expect((await client.access(bobProfileTree)).policy).toEqual(accepted.access.map(safeResourceRule));
   const page = await client.conflicts(config, merged.update.id, merged.update.root);
   expect(page.decisions).toHaveLength(1);
   const resolves = page.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
@@ -595,109 +572,98 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
   await expect(client.submitUpdate(config, merged.update.id, policy(["write"]), { ifCurrent: merged.update.id, resolves })).rejects.toThrow();
 });
 
-test("access metadata exposes only the caller account's redacted resource rules", async () => {
-  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const config = (await client.account()).account.configuration.id;
-  const head = await client.descriptor(config);
-  const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
+test("access metadata exposes a tree's redacted rules to its administrators only", async () => {
+  const client = new ProtocolClient(running.url, bobCredential);
   const digest = `sha256:${"a".repeat(64)}`;
-  graph.resources![bobProfileTree]!.access.push({ who: { link: digest }, via: "tr_supplies", allow: ["read"] });
-  await client.submitUpdate(config, head.tree.update, snapshotAccountConfig(graph));
+  await editBob(client, (values) => ({ ...values, access: [...values.access, { who: { link: digest }, app: "tr_supplies", allow: ["read"] }] }));
   const visible = await client.access(bobProfileTree);
-  expect(visible.policy).toContainEqual({ who: { link: true }, via: "tr_supplies", allow: ["read"] });
+  expect(visible.policy).toContainEqual({ who: { link: true }, app: "tr_supplies", allow: ["read"] });
   expect(JSON.stringify(visible)).not.toContain(digest);
   await expect(owner.access(bobProfileTree)).rejects.toThrow();
-  const bob = running.canopy.accountByHandle("bob")!;
-  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: bob.id, sponsor: bob.id, subject: "bob", expiresAt: Date.now() + 60000, active: () => true,
-    grants: [{ account: bob.id, role: "user", tree: bobProfileTree, within: "/", allow: ["read"] }] });
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: bobProfileTree, subject: "bob", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ lender: null, tree: bobProfileTree, within: "/", allow: ["read"] }] });
   await expect(new ProtocolClient(running.url, token).access(bobProfileTree)).rejects.toThrow();
   await expect(new ProtocolClient(running.url, token).account()).rejects.toThrow();
 });
 
-test("deleting non-hosting policy wins a concurrent expansion and re-add needs resolution", async () => {
-  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const config = (await client.account()).account.configuration.id;
-  const head = await client.descriptor(config);
-  const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
+test("removing an app approval wins a concurrent expansion and re-adding needs resolution", async () => {
+  const client = new ProtocolClient(running.url, bobCredential);
+  const config = treeConfigurationID(bobProfileTree);
+  const { values } = await bobPerson(client);
   const foreign = generateArborID("tr");
-  graph.resources![foreign] = { access: [{ who: "me", via: "tr_supplies", allow: ["read"] }] };
-  const base = await client.submitUpdate(config, head.tree.update, snapshotAccountConfig(graph));
-  const expanded = structuredClone(graph);
-  expanded.resources![foreign]!.access[0]!.allow = ["write"];
-  await client.submitUpdate(config, base.update.id, snapshotAccountConfig(expanded));
-  const deleted = structuredClone(graph);
-  delete deleted.resources![foreign];
-  const merged = await client.submitUpdate(config, base.update.id, snapshotAccountConfig(deleted));
+  const approved = { ...values, apps: { ...values.apps, tr_supplies: [{ resource: foreign, who: "me" as const, allow: ["read" as const] }] } };
+  const head = await client.descriptor(config);
+  const base = await client.submitUpdate(config, head.tree.update, snapshotTreeConfig(approved));
+  const expanded = { ...approved, apps: { ...approved.apps, tr_supplies: [{ resource: foreign, who: "me" as const, allow: ["write" as const] }] } };
+  await client.submitUpdate(config, base.update.id, snapshotTreeConfig(expanded));
+  const { tr_supplies: _removed, ...remaining } = approved.apps;
+  const deleted = { ...approved, apps: remaining };
+  const merged = await client.submitUpdate(config, base.update.id, snapshotTreeConfig(deleted));
   expect(merged.update.conflicted).toBe(true);
-  const effective = readAccountConfigGraph(await client.snapshot(config, merged.update.root), config);
-  expect(effective.resources![foreign]).toBeUndefined();
-  await expect(client.submitUpdate(config, merged.update.id, snapshotAccountConfig(expanded))).rejects.toThrow(/guarded resolution/);
+  const effective = readTreeConfigGraph(await client.snapshot(config, merged.update.root), "person", bobProfileTree);
+  expect(effective.apps!.tr_supplies ?? []).toEqual([]);
+  await expect(client.submitUpdate(config, merged.update.id, snapshotTreeConfig(expanded))).rejects.toThrow(/guarded resolution/);
   const conflicts = await client.conflicts(config, merged.update.id, merged.update.root);
   const resolves = conflicts.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
-  const confirmed = await client.submitUpdate(config, merged.update.id, snapshotAccountConfig(effective), { ifCurrent: merged.update.id, resolves });
+  const { sources: _sources, ...effectiveValues } = effective;
+  const confirmed = await client.submitUpdate(config, merged.update.id, snapshotTreeConfig(effectiveValues), { ifCurrent: merged.update.id, resolves });
   expect(confirmed.update.conflicted).toBe(false);
-  const readded = await client.submitUpdate(config, confirmed.update.id, snapshotAccountConfig(graph), { ifCurrent: confirmed.update.id });
+  const readded = await client.submitUpdate(config, confirmed.update.id, snapshotTreeConfig(approved), { ifCurrent: confirmed.update.id });
   expect(readded.update.conflicted).toBe(false);
 });
 
-test("a legacy-grammar trees.yaml is not a valid account configuration", async () => {
-  const client = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const config = (await client.account()).account.configuration.id;
+test("the old account files are not a valid tree configuration, and an edit cannot remove the last administrator", async () => {
+  const client = new ProtocolClient(running.url, bobCredential);
+  const config = treeConfigurationID(bobProfileTree);
   const head = await client.descriptor(config);
-  const graph = readAccountConfigGraph(await client.snapshot(config, head.tree.root), config);
-  const valid = snapshotAccountConfig(graph);
-  const legacyTrees = new TextEncoder().encode(stringify(Object.fromEntries(Object.entries(graph.trees).map(([id, entry]) => [id, {
-    canonical: entry.canonical, access: [{ subject: { kind: "everyone" }, access: "write" }],
-  }]))));
-  const root = decodeProtocolDirectory(valid.objects.get(valid.root)!);
-  const entries = root.entries.map(entry => entry.name === "trees.yaml" ? { name: entry.name, file: hashObject(legacyTrees) } : entry);
-  const rootBytes = encodeProtocolDirectory({ type: "directory", entries });
-  const legacy = { root: hashObject(rootBytes), objects: new Map([...valid.objects, [hashObject(legacyTrees), legacyTrees], [hashObject(rootBytes), rootBytes]]) };
+  const { values } = await bobPerson(client);
+  const valid = snapshotTreeConfig(values);
+  const legacy = snapshotTreeConfigFiles({
+    ...Object.fromEntries(decodeProtocolDirectory(valid.objects.get(valid.root)!).entries.map((entry) => [entry.name, new TextDecoder().decode(valid.objects.get(entry.file!)!)])),
+    ["trees.yaml" as "access.yaml"]: "{}\n",
+  });
   await expect(client.submitUpdate(config, head.tree.update, legacy)).rejects.toThrow();
+  const noAdministrator = snapshotTreeConfigFiles({
+    "access.yaml": "- who: everyone\n  allow: [read]\n",
+    "mounts.yaml": "{}\n",
+    "devices.yaml": new TextDecoder().decode(valid.objects.get(decodeProtocolDirectory(valid.objects.get(valid.root)!).entries.find((entry) => entry.name === "devices.yaml")!.file!)!),
+  });
+  await expect(client.submitUpdate(config, head.tree.update, noAdministrator)).rejects.toThrow();
   expect((await client.descriptor(config)).tree.update).toBe(head.tree.update);
 });
 
-test("community writers may address a tree at an unclaimed /~name, which then cannot be reserved", async () => {
-  const origin = new URL(running.url).origin;
-  const bob = new ProtocolClient(running.url, "locally-generated-bob-credential");
-  const configID = (await bob.account()).account.configuration.id;
-  const declare = async (canonical: string) => {
-    const current = await bob.descriptor(configID);
-    const graph = readAccountConfigGraph(await bob.snapshot(configID, current.tree.root), configID);
-    const tree = generateArborID("tr");
-    return bob.submitUpdate(configID, current.tree.update, snapshotAccountConfig({
-      ...graph,
-      resources: { ...graph.resources, [tree]: { canonical, access: [] } },
-    }), { ifCurrent: current.tree.update });
-  };
-  await expect(declare(`${origin}/~garden-club`)).rejects.toThrow("outside this Canopy account allocation");
-
+test("community administrators may mount a tree at an unclaimed /~name, which then cannot be reserved", async () => {
   const community = running.canopy.community();
-  const bobAccount = running.canopy.accountByHandle("bob")!;
-  // The owner's trees.yaml hosts the community root; its rules make bob a community writer.
-  const db = (running.canopy as unknown as { db: Database }).db;
-  const policy = db.query("SELECT account_id, rules_json FROM resource_policy WHERE tree_id = ? AND account_id = ?")
-    .get(community.id, community.accountID) as { account_id: string; rules_json: string };
-  const rules = JSON.stringify([...JSON.parse(policy.rules_json), { who: { profile: bobAccount.profileTree! }, allow: ["read", "write"] }]);
-  db.run("UPDATE resource_policy SET rules_json = ? WHERE tree_id = ? AND account_id = ?", [rules, community.id, policy.account_id]);
-  try {
-    expect((await declare(`${origin}/~garden-club`)).outcome).toBe("accepted");
-    await expect(declare(`${origin}/~alice/garden`)).rejects.toThrow("reserved for a person");
+  const ownerAccount = running.canopy.accountByHandle("owner")!;
+  expect(running.canopy.canAdminister(ownerAccount, community)).toBe(true);
+  const snapshot = await resolveSnapshot(await snapshotDirectory(await profileFolder("garden-club", "group", [
+    { profile: `arbor://${ownerAccount.profileTree}/` },
+  ])));
+  const club = await hostTree(owner, snapshot);
+  // A name a person holds cannot be mounted.
+  await expect(editTreeConfig(owner, community.id, "group", (values) => ({ ...values, mounts: { ...values.mounts, "~alice": club } })))
+    .rejects.toThrow("reserved for a person");
+  await editTreeConfig(owner, community.id, "group", (values) => ({ ...values, mounts: { ...values.mounts, "~garden-club": club } }));
+  expect(running.canopy.boundary("/~garden-club")?.id).toBe(club);
 
-    const ownerAccount = running.canopy.accountByHandle("owner")!;
-    const source = await profileFolder("community-reserving-a-tree-name", "group", [
-      { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
-      { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
-      { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
-      { profile: `arbor://${testProfileIdentity().profileTree}/`, handle: "garden-club" },
-    ]);
-    const nested = new Map(running.canopy.list()
-      .filter((candidate) => candidate.parentTree === community.id && candidate.canonicalPath)
-      .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
-    const current = await owner.descriptor(community.id);
-    await expect(owner.submitUpdate(community.id, current.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested))))
-      .rejects.toThrow("~garden-club is already the address of a tree");
-  } finally {
-    db.run("UPDATE resource_policy SET rules_json = ? WHERE tree_id = ? AND account_id = ?", [policy.rules_json, community.id, policy.account_id]);
-  }
+  const source = await profileFolder("community-reserving-a-tree-name", "group", [
+    { profile: `arbor://${ownerAccount.profileTree}/`, handle: "owner" },
+    { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
+    { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
+    { profile: `arbor://${testProfileIdentity().profileTree}/`, handle: "garden-club" },
+  ]);
+  const nested = new Map(running.canopy.list()
+    .filter((candidate) => candidate.parentTree === community.id && candidate.canonicalPath)
+    .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
+  const current = await owner.descriptor(community.id);
+  await expect(owner.submitUpdate(community.id, current.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested))))
+    .rejects.toThrow("~garden-club is already the address of a tree");
+
+  // A group that administers a tree keeps a member: its plants tree is the club's.
+  const plants = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(await profileFolder("plants", "person"))), { administrators: [club] });
+  expect(running.canopy.canAdminister(ownerAccount, plants)).toBe(true);
+  const emptied = await profileFolder("garden-club-empty", "group", []);
+  const clubHead = await owner.descriptor(club);
+  await expect(owner.submitUpdate(club, clubHead.tree.update, await resolveSnapshot(await snapshotDirectory(emptied))))
+    .rejects.toThrow("keep at least one member");
 });
