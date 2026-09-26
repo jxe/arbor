@@ -6,11 +6,12 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 
 ## Soon
 
-Plans chosen for near-term work are in `soon/` (empty at the moment). Each keeps its owner's identifier
+Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's identifier
 (canopyd 005 is still canopyd 005) and its entry in the [catalog](catalog.md), marked **SOON**.
 
 | Plan | What it does |
 |---|---|
+| Cleanup [007](soon/007-remove-legacy-compatibility.md) | Remove compatibility code for state the one install no longer has, and name the data home's configuration checkouts |
 
 ## Remaining outcomes
 
