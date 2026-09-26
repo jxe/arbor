@@ -95,6 +95,18 @@ public actor ProtocolClient {
         return page
     }
 
+    /// The configuration of the tree whose canonical root is `path`
+    /// (`/~joe/todos;arbor-config`), answered only to the tree's administrators.
+    public func resolveConfiguration(path: String) async throws -> ProtocolLocatorResolution {
+        let encoded = "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
+        let value: ProtocolLocatorResolution = try await get(path: "/.well-known/arbor\(encoded);arbor-config")
+        _ = try value.enclosingTree.validated()
+        guard value.ref.tree == value.enclosingTree.id, value.enclosingTree.kind == "tree-configuration", !value.observedThrough.isEmpty else {
+            throw ProtocolValidationError.invalidValue("Malformed configuration resolution")
+        }
+        return value
+    }
+
     public func resolve(path: String) async throws -> ProtocolLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: ProtocolLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")

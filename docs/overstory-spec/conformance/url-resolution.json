@@ -248,5 +248,50 @@
     "sourceDirectory": "/projects/atlas",
     "href": "page%20one.md",
     "expected": {"kind": "local", "path": "/projects/atlas/page one", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m;arbor-config",
+    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://canopy.example/~joe/todos;arbor-config",
+    "expected": {"kind": "arbor", "authority": {"dns": "canopy.example"}, "path": "/~joe/todos", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/",
+    "href": "/~joe/todos;arbor-config",
+    "expected": {"kind": "local", "path": "/~joe/todos", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m/essays;arbor-config",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m;arbor-config=yes",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m;arbor-config;arbor-config",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m/essays;arbor-key=id:x7f3q2;arbor-config",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m;arbor-config#section",
+    "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "arbor://tr_7k3m;arbor-config?id=p_123",
+    "expected": null
   }
 ]

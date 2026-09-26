@@ -155,28 +155,48 @@ public struct NativeTreeAccessPresentation: Hashable, Sendable {
     public var entries: [NativeTreeAccessEntry]
     public var canEdit: Bool
     public var resourceRules: [ProtocolResourceAccessRule]
-    /// This person's `apps.yaml` approvals whose resource is this tree.
+    /// `apps.yaml` approvals whose resource is this tree: this person's, and
+    /// those of the groups in `approvalGroups`.
     public var appApprovals: [NativeAppApproval]
+    /// Groups this person administers, whose `apps.yaml` they may edit.
+    public var approvalGroups: [NativeApprovalGroup]
 
     public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool,
-                resourceRules: [ProtocolResourceAccessRule] = [], appApprovals: [NativeAppApproval] = []) {
+                resourceRules: [ProtocolResourceAccessRule] = [], appApprovals: [NativeAppApproval] = [],
+                approvalGroups: [NativeApprovalGroup] = []) {
         self.tree = tree
         self.canonical = canonical
         self.entries = entries
         self.canEdit = canEdit
         self.resourceRules = resourceRules
         self.appApprovals = appApprovals
+        self.approvalGroups = approvalGroups
     }
 }
 
-/// One rule of a profile's `apps.yaml`, under the app it approves.
+/// One rule of a profile's `apps.yaml`, under the app it approves. `group` is
+/// the group profile whose file holds it, or nil for the person's own.
 public struct NativeAppApproval: Hashable, Sendable {
     public var app: String
     public var rule: ProtocolAppAccessRule
+    public var group: String?
 
-    public init(app: String, rule: ProtocolAppAccessRule) {
+    public init(app: String, rule: ProtocolAppAccessRule, group: String? = nil) {
         self.app = app
         self.rule = rule
+        self.group = group
+    }
+}
+
+/// A group profile this person administers, as the permissions panel names it.
+public struct NativeApprovalGroup: Hashable, Sendable, Identifiable {
+    public var tree: String
+    public var label: String
+    public var id: String { tree }
+
+    public init(tree: String, label: String) {
+        self.tree = tree
+        self.label = label
     }
 }
 
@@ -266,20 +286,29 @@ public enum TreeConfigurationYAML {
     }
 
     /// `apps.yaml`: the rules each app may use, keyed by app TreeID.
-    public static func apps(from source: String) throws -> [String: [ProtocolAppAccessRule]] {
-        try YAMLDecoder().decode([String: [ProtocolAppAccessRule]]?.self, from: source) ?? [:]
-    }
-
-    /// Rewrite `apps.yaml` after `change`, replacing only the apps it touches.
-    /// The approvals in `apps.yaml` whose resource is `tree`, by app.
-    public static func appApprovals(for tree: String, source: String) throws -> [NativeAppApproval] {
-        try apps(from: source).sorted { $0.key < $1.key }.flatMap { app, rules in
-            rules.filter { $0.resource == tree }.map { NativeAppApproval(app: app, rule: $0) }
+    /// `apps.yaml` by app. A rule without `who` is the profile's own use,
+    /// `members` in a group's file (`group`) and `me` in a person's.
+    public static func apps(from source: String, group: Bool = false) throws -> [String: [ProtocolAppAccessRule]] {
+        let decoded = try YAMLDecoder().decode([String: [ProtocolAppAccessRule]]?.self, from: source) ?? [:]
+        guard group else { return decoded }
+        return try decoded.mapValues { rules in
+            try rules.map { rule in
+                rule.who == .me ? try ProtocolAppAccessRule(resource: rule.resource, who: .members, allow: rule.allow, within: rule.within) : rule
+            }
         }
     }
 
-    public static func replacingApps(in source: String, with change: (inout [String: [ProtocolAppAccessRule]]) throws -> Void) throws -> String {
-        let original = try apps(from: source)
+    /// The approvals in `apps.yaml` whose resource is `tree`, by app; `group`
+    /// names the group profile whose file it is.
+    public static func appApprovals(for tree: String, source: String, group: String? = nil) throws -> [NativeAppApproval] {
+        try apps(from: source, group: group != nil).sorted { $0.key < $1.key }.flatMap { app, rules in
+            rules.filter { $0.resource == tree }.map { NativeAppApproval(app: app, rule: $0, group: group) }
+        }
+    }
+
+    /// Rewrite `apps.yaml` after `change`, replacing only the apps it touches.
+    public static func replacingApps(in source: String, group: Bool = false, with change: (inout [String: [ProtocolAppAccessRule]]) throws -> Void) throws -> String {
+        let original = try apps(from: source, group: group)
         var changed = original
         try change(&changed)
         changed = changed.filter { !$0.value.isEmpty }

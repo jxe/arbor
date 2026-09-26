@@ -161,6 +161,15 @@ function treeReference(segment: string): { id: string; governs?: string } {
   }
 }
 
+const CONFIGURATION_SUFFIX = ";arbor-config";
+
+/** The configuration of the tree whose canonical root is `path`, or null when no tree's root is there. */
+function configurationAt(canopy: HostDaemon, path: string) {
+  const resolved = canopy.resolve(path);
+  if (!resolved || resolved.path !== "/") return null;
+  return canopy.get(treeConfigurationID(resolved.tree.id));
+}
+
 function bearer(request: Request): string | undefined {
   const value = request.headers.get("authorization");
   return value?.startsWith("Bearer ") ? value.slice("Bearer ".length) : undefined;
@@ -494,6 +503,18 @@ export async function serveHost(options: {
           : url.pathname.startsWith("/.well-known/arbor/")
             ? decodeURIComponent(url.pathname.slice("/.well-known/arbor".length))
             : null;
+        // The raw path: a literal `%3Barbor-config` filename is data, not the parameter.
+        if (wellKnown !== null && request.method === "GET" && url.pathname.endsWith(CONFIGURATION_SUFFIX)) {
+          // `/~joe/todos;arbor-config`: the configuration of the tree whose root the path names.
+          const configuration = configurationAt(canopy, wellKnown.slice(0, -CONFIGURATION_SUFFIX.length) || "/");
+          if (!configuration || !canopy.canRead(account, configuration, link)) return new Response("Not found", { status: 404 });
+          return json({
+            ref: { tree: configuration.id, path: "/", stableKey: null },
+            enclosingTree: descriptorWithUpdate(publicOrigin, canopy, configuration, canopy.canWrite(account, configuration, link) ? "write" : "read"),
+            historical: false,
+            observedThrough: canopy.observedThrough(configuration.id),
+          } satisfies LocatorResolution);
+        }
         if (wellKnown !== null && request.method === "GET") {
           const resolved = canopy.resolve(wellKnown);
           if (!resolved || !canopy.canRead(account, resolved.tree, link)) return new Response("Not found", { status: 404 });
@@ -748,6 +769,15 @@ export async function serveHost(options: {
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
           const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
           if (!requestLocator || requestLocator.kind !== "local") return new Response("Not found", { status: 404 });
+          if (requestLocator.configuration) {
+            // A canonical URL with `;arbor-config`: administrators are sent to the
+            // configuration's descriptor; anyone else sees an unreadable tree.
+            const configuration = configurationAt(canopy, requestLocator.path);
+            if (!configuration || !canopy.canRead(account, configuration, link)) {
+              return request.headers.get("accept")?.includes("text/html") ? linkBootstrap() : new Response("Not found", { status: 404 });
+            }
+            return new Response(null, { status: 303, headers: { location: `/.arbor/trees/${configuration.governs};arbor-config` } });
+          }
           const pendingHandle = handleOfPath(requestLocator.path);
           if (pendingHandle && canopy.isReservedHandle(pendingHandle)) {
             const profileURL = `${publicOrigin}/~${pendingHandle}`;

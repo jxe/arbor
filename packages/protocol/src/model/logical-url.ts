@@ -3,6 +3,8 @@ import { canonicalNodePath } from "./logical-path.ts";
 import { decodeStableKey, encodeStableKey } from "./node-key.ts";
 
 export interface ResolvedLocatorState {
+  /** `;arbor-config`: the locator names the configuration of the tree whose root it names. */
+  configuration?: true;
   stableKey: string | null;
   revision: string | null;
   applicationQuery: string | null;
@@ -27,6 +29,7 @@ const PARAMETER_MARKER = ";arbor-";
 const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const TREE_ID_AUTHORITY = /^tr_[a-z2-7]+$/;
 const MARKDOWN_KEY_PREFIX = "arbor-key=";
+const CONFIGURATION_PARAMETER = "arbor-config";
 
 function splitOnce(value: string, separator: string): [string, string | null] {
   const index = value.indexOf(separator);
@@ -38,16 +41,21 @@ function splitOnce(value: string, separator: string): [string, string | null] {
 /**
  * Split the final raw segment's `;arbor-key=…;arbor-rev=…` parameter block from the path.
  * Parameters appear in that order at most once each; anything else after the first
- * `;arbor-` marker is invalid rather than path data.
+ * `;arbor-` marker is invalid rather than path data. `;arbor-config` takes no value
+ * and stands alone.
  */
 function segmentParameters(rawPathWithParameters: string): {
   rawPath: string;
+  configuration?: true;
   stableKey: string | null;
   revision: string | null;
 } | null {
   const segmentStart = rawPathWithParameters.lastIndexOf("/") + 1;
   const marker = rawPathWithParameters.indexOf(PARAMETER_MARKER, segmentStart);
   if (marker === -1) return { rawPath: rawPathWithParameters, stableKey: null, revision: null };
+  if (rawPathWithParameters.slice(marker + 1) === CONFIGURATION_PARAMETER) {
+    return { rawPath: rawPathWithParameters.slice(0, marker), configuration: true, stableKey: null, revision: null };
+  }
   let stableKey: string | null = null;
   let revision: string | null = null;
   let stage = 0;
@@ -75,7 +83,9 @@ function locatorState(destination: string, fragment: string | null): {
   const [rawPathWithParameters, applicationQuery] = splitOnce(destination, "?");
   const parameters = segmentParameters(rawPathWithParameters);
   if (!parameters) return null;
-  const { rawPath, stableKey: pathStableKey, revision } = parameters;
+  const { rawPath, stableKey: pathStableKey, revision, configuration } = parameters;
+  // A configuration is addressed as a whole: no key, fragment or query goes with it.
+  if (configuration && (fragment !== null || applicationQuery !== null)) return null;
 
   const markdownKeyToken = fragment?.startsWith(MARKDOWN_KEY_PREFIX)
     ? fragment.slice(MARKDOWN_KEY_PREFIX.length)
@@ -87,6 +97,7 @@ function locatorState(destination: string, fragment: string | null): {
   return {
     rawPath,
     state: {
+      ...(configuration ? { configuration } : {}),
       stableKey: pathStableKey ?? markdownStableKey,
       revision,
       applicationQuery,
@@ -158,6 +169,8 @@ function parseArborURL(href: string): ResolvedLink {
     : { dns: authorityPart };
   const path = resolveTreePath("/", pathParts.join("/"));
   if (path === null) return null;
+  // `arbor://<TreeID>;arbor-config` names the tree's root; any other path is invalid.
+  if (parsed.state.configuration && "treeID" in authority && path !== "/") return null;
   return { kind: "arbor", authority, path, ...parsed.state };
 }
 

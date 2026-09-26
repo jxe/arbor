@@ -190,8 +190,12 @@ Resolution returns `LocatorResolution`. A local path resolves only when it
 lies inside a placed or session root (else `404 not-found`); an `arbor://tree/`
 locator names a known tree directly; an `http(s)` or community `arbor://`
 locator is resolved by that canopyd through the matching account client, and
-`enclosingTree` is the local descriptor when the tree is placed here. Nothing
-is placed, visited, or cached by resolution.
+`enclosingTree` is the local descriptor when the tree is placed here. A
+locator ending in `;arbor-config` names the configuration of the tree whose
+root it names: `arbor://<TreeID>;arbor-config` resolves only to a configuration
+checked out on this device, and a canonical `http(s)` or `arbor://` locator
+through the host, which answers only the tree's administrators. Nothing is
+placed, visited, or cached by resolution.
 
 ### 3a. Objects
 

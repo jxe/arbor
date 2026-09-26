@@ -525,13 +525,13 @@ final class CanopyWorkspaceState {
 
     /// Review an app's access to `tree`: the tree's own rule through the app
     /// where this person administers the tree, otherwise their `apps.yaml`.
-    func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+    func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false, group: String? = nil) async throws -> NativeResourceConsent {
 #if os(iOS)
         guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else { throw ResourcePolicyError.invalid }
         return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree)
-            .prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
+            .prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing, group: group)
 #else
-        return try await treeConfigurationClient(for: tree).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing)
+        return try await treeConfigurationClient(for: tree).prepareResourceConsent(tree: tree, app: app, rule: rule, removing: removing, group: group)
 #endif
     }
 
@@ -1134,7 +1134,7 @@ final class CanopyWorkspaceState {
         try await closeOpenTree()
         if arborsyncClient == nil { _ = try? await ensureArborSync() }
         if localArborSyncOverview == nil, arborsyncClient != nil { await refreshLocalArborSyncOverview() }
-        if let placed = localArborSyncOverview?.trees.first(where: { candidate in
+        if !remote.configuration, let placed = localArborSyncOverview?.trees.first(where: { candidate in
             candidate.path != nil && candidate.missing != true
                 && candidate.canonicalPath.map { path in
                     remote.path == path || remote.path.hasPrefix(path == "/" ? "/" : path + "/")
@@ -1147,7 +1147,16 @@ final class CanopyWorkspaceState {
             return
         }
         let client = try await accountClient(origin: remote.origin)
-        let resolution = try await client.resolve(path: remote.path)
+        let resolution = remote.configuration
+            ? try await client.resolveConfiguration(path: remote.path)
+            : try await client.resolve(path: remote.path)
+        // A configuration checked out on this Mac (a profile's) opens as that placed tree.
+        if remote.configuration, localArborSyncOverview?.trees.contains(where: {
+            $0.id == resolution.ref.tree && $0.path != nil && $0.missing != true
+        }) == true {
+            try await openPlacedTree(resolution.ref.tree)
+            return
+        }
         let tree = resolution.enclosingTree
         let treeID = TreeID(rawValue: tree.id)
         let platform: any ObjectStore = if let daemon = arborsyncClient {
@@ -1155,7 +1164,9 @@ final class CanopyWorkspaceState {
         } else {
             HostObjectStore(client: client, tree: tree.id)
         }
-        let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
+        let rootLocator = remote.configuration
+            ? remote.locator(path: remote.path) + ";arbor-config"
+            : tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
         do {
             try await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
         } catch {

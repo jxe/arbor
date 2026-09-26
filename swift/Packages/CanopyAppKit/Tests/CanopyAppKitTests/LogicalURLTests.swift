@@ -27,6 +27,7 @@ final class LogicalURLTests: XCTestCase {
             var path: String?
             var stableKey: String?
             var revision: String?
+            var configuration: Bool?
             var applicationQuery: String?
             var contentFragment: String?
             var authority: Authority?
@@ -299,6 +300,7 @@ final class LogicalURLTests: XCTestCase {
         XCTAssertEqual(locator.revision, expected.revision, label)
         XCTAssertEqual(locator.applicationQuery, expected.applicationQuery, label)
         XCTAssertEqual(locator.contentFragment, expected.contentFragment, label)
+        XCTAssertEqual(locator.configuration, expected.configuration ?? false, label)
     }
 
     func testKeySpellingsCarryTheSameToken() throws {

@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@overstory/protocol";
-import { canonicalNodePath, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
@@ -266,6 +266,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
       return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
     }
+    if (/;arbor-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
     const parsed = new URL(locator);
     if (parsed.protocol === "arbor:" && parsed.hostname === "tree") {
       const [tree, ...segments] = parsed.pathname.split("/").filter(Boolean);
@@ -279,6 +280,36 @@ export class ArborSyncDaemon implements AsyncDisposable {
       : parsed.origin;
     const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
     const resolution = await (await this.connections.accountClientFor({ origin })).client.resolve(path || "/");
+    const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
+    return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
+  }
+
+  /**
+   * `…;arbor-config` names the configuration of the tree whose root the rest
+   * names: `arbor://<TreeID>;arbor-config` (or `arbor://tree/<TreeID>;arbor-config`)
+   * is answered from this device's checkouts, a canonical URL by its host.
+   */
+  private async resolveConfigurationLocator(locator: string): Promise<LocatorResolution> {
+    const web = /^https?:\/\//.exec(locator);
+    const resolved = resolveLogicalURL("/", web ? `arbor://${locator.slice(web[0].length)}` : locator);
+    if (!resolved || resolved.kind !== "arbor" || !resolved.configuration) {
+      throw new ProtocolError("invalid-request", `Invalid configuration locator: ${locator}`, 400);
+    }
+    const governed = "treeID" in resolved.authority
+      ? resolved.authority.treeID
+      : resolved.authority.dns === "tree" && /^\/tr_[a-z2-7]+$/.test(resolved.path) ? resolved.path.slice(1) : null;
+    if (governed) {
+      const configuration = treeConfigurationID(governed);
+      const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === configuration);
+      if (!enclosingTree) throw new ProtocolError("not-found", `This device holds no configuration for ${governed}`, 404);
+      return { ref: { tree: configuration, path: "/", stableKey: null }, enclosingTree, historical: false, observedThrough: this.events.currentCursor() };
+    }
+    if (!("dns" in resolved.authority)) throw new ProtocolError("invalid-request", `Invalid configuration locator: ${locator}`, 400);
+    const host = resolved.authority.dns;
+    const origin = web
+      ? `${web[0]}${host}`
+      : `${/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https"}://${host}`;
+    const resolution = await (await this.connections.accountClientFor({ origin })).client.resolveConfiguration(resolved.path);
     const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
   }

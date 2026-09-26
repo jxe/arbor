@@ -603,6 +603,12 @@ struct CanopyAppTests {
         #expect(http.path == "/~joe/a b")
         #expect(http.locator(path: "/~joe/a b") == "http://127.0.0.1:4400/~joe/a%20b")
         #expect(ArborRemoteLocator("https://arbor.example")?.path == "/")
+        let configuration = try #require(ArborRemoteLocator("https://arbor.example/~joe/todos;arbor-config"))
+        #expect(configuration.configuration && configuration.path == "/~joe/todos")
+        #expect(ArborRemoteLocator("arbor://arbor.example/;arbor-config").map { $0.configuration && $0.path == "/" } == true)
+        // A percent-encoded `;` is a filename, not the parameter.
+        let literal = try #require(ArborRemoteLocator("https://arbor.example/~joe/todos%3Barbor-config"))
+        #expect(!literal.configuration && literal.path == "/~joe/todos;arbor-config")
         #expect(ArborRemoteLocator("file:///Users/joe") == nil)
         #expect(ArborRemoteLocator("~joe") == nil)
     }
