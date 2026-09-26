@@ -28,6 +28,7 @@ import {
   materializeTree,
   membershipSkip,
   trackedEntries,
+  withoutPlatformMetadata,
   type SkipPath,
 } from "@overstory/fs";
 import {
@@ -415,7 +416,9 @@ export class FolderSync implements AcceptedTree {
           const lazy = await this.scanKnown(known);
           const installed = (await this.accepted())?.root ?? known.root;
           if ((await this.publishable(lazy, installed, true)).root === known.root) {
-            uncovered = await this.write(base.root, (hash) => source.object(hash), this.tracking(known.root));
+            const written = await this.write(base.root, (hash) => source.object(hash), this.tracking(known.root));
+            if (written === "changed") rescan = true;
+            else uncovered = written;
           } else rescan = true;
         }
         if (!rescan) await this.saveKnown({ root: base.root, basis: { kind: "accepted", root: base.root, update: base.update } });
@@ -433,9 +436,12 @@ export class FolderSync implements AcceptedTree {
    * deleted: a path that `root` lacks stays when the rules the folder held
    * (`held`, the root it last held) or the rules `root` brings ignore it. True
    * when content only the earlier rules ignored remains, which the folder
-   * must now publish.
+   * must now publish, as when `root` holds platform metadata the folder
+   * leaves out. `"changed"` when something else changed the folder while it
+   * was written: it then holds local changes on the root it last held, and
+   * publishes them rather than stopping.
    */
-  private async write(root: string, load: (hash: string) => Promise<Uint8Array>, held: TrackedRoot | null): Promise<boolean> {
+  private async write(root: string, load: (hash: string) => Promise<Uint8Array>, held: TrackedRoot | null): Promise<boolean | "changed"> {
     const tracked: TrackedRoot = { root: root as ObjectHash, load };
     const declined = await this.loadDeclined();
     let points: string[] = [];
@@ -463,10 +469,20 @@ export class FolderSync implements AcceptedTree {
     const shown = points.length
       ? (await maskDeclined(written.root, root as ObjectHash, points, this.loader(written, fromLazyThen(written, load)))).root
       : written.root;
-    if (shown !== root) throw new UpdateValidationError("The folder does not hold the accepted root it was given");
+    const loadHash = (hash: ObjectHash) => load(hash);
+    const holdable = await withoutPlatformMetadata(root as ObjectHash, loadHash);
+    if (shown !== holdable) {
+      // A folder that still holds what it held was not written at all: stop.
+      if (!held || shown === await withoutPlatformMetadata(held.root, (hash) => held.load(hash))) {
+        throw new UpdateValidationError("The folder does not hold the accepted root it was given");
+      }
+      console.error(`[arborsync:folder] ${this.tree} changed while it was written; publishing what it holds`);
+      this.host.materialized();
+      return "changed";
+    }
     this.recentObjects = written.objects;
     this.host.materialized();
-    return uncovered;
+    return uncovered || holdable !== root;
   }
 
   // MARK: The folder as a source
@@ -604,14 +620,15 @@ export class FolderSync implements AcceptedTree {
     await this.host.withWorkspaceIO(async () => {
       // Nothing is tracked before a first placement: ignore rules apply to the first snapshot.
       const lazy = await this.host.scan(null);
-      if (lazy.root !== current.tree.root) {
+      const load = async (hash: ObjectHash) => await this.host.objectBytes(hash) ?? client.object(this.tree, hash);
+      if (lazy.root !== await withoutPlatformMetadata(current.tree.root as ObjectHash, load)) {
         const root = decodeProtocolDirectory(await lazy.objects.get(lazy.root)!.bytes());
         if (root.entries.length) {
           throw new ProtocolError("conflict", "A new placement contains local content but has no accepted-update base", 409, {
             tree: this.tree, path: "/", details: { kind: "workspace-revision" },
           });
         }
-        await this.write(current.tree.root, async (hash) => await this.host.objectBytes(hash as ObjectHash) ?? client.object(this.tree, hash), null);
+        await this.write(current.tree.root, (hash) => load(hash as ObjectHash), null);
       }
       await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.observedThrough,
         conflicted: current.tree.conflicted, access: current.tree.access === "none" ? "read" : current.tree.access });
