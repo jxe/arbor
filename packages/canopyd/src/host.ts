@@ -387,6 +387,11 @@ export async function serveHost(options: {
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
           return json(canopy.createPairing(requireAccount(authentication)), 201);
         }
+        const publishedKeys = /^\/\.arbor\/profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
+        if (publishedKeys && request.method === "GET") {
+          // Public: a placement host reads it without authenticating (accounts §5.4).
+          return json(await canopy.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
+        }
         if (url.pathname === "/.arbor/device-sessions/challenges" && request.method === "POST") {
           const body = await request.json() as { profileTree?: unknown; device?: unknown };
           if (typeof body.profileTree !== "string" || typeof body.device !== "string") throw new Error("A session challenge names a profile TreeID and a DeviceID");

@@ -98,7 +98,12 @@ configurations have their shape, and the tests for each refused case, are in
   row; from its `effective_at` no earlier device authenticates, and the reset
   is accepted by the next session challenge or reset read for the profile,
   or by a sweep every minute (`completeDueResets`). Unauthenticated challenge
-  requests are limited to 30 per caller and profile per ten minutes.
+  requests are limited to 30 per caller and profile per ten minutes. As a
+  home host canopyd publishes each profile's key devices at
+  `GET /.arbor/profiles/{ProfileTreeID}/device-keys` without authentication
+  (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked key devices'
+  DeviceIDs, keys and administrator flags, never labels or digest devices.
+  The placement role that reads it is [Security 007](../../../plans/security/007-placement-hosts.md).
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, or a system call is
   a logged 500 (`ServerFaultError`, `isServerFault` in `errors.ts`).

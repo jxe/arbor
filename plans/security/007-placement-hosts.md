@@ -9,7 +9,8 @@
   ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
   Phases 2 to 4 follow Security 006's deployment. The decisions are recorded
-  below.
+  below. Phase 2's home role, the published device-keys route, is
+  implemented and tested (not deployed); the placement role is not started.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   [Security 006](006-device-keys.md) (key devices, and sessions opened by
@@ -128,7 +129,9 @@ Details for Phase 1, not direction:
 
 ### Phase 2: canopyd (after Security 006 Phase 2)
 
-- Home role: the device-keys route.
+- Home role: the device-keys route. Done: `publishedDeviceKeys` and the
+  protocol client's `publishedDeviceKeys`, tested in
+  `tests/integration/canopyd/device-keys.test.ts`.
 - Placement role: placement-account claims, fetching, caching and refreshing
   device keys, sessions from them, the ordinary tree at `/~handle`.
 - **Gate:** canopyd suite and a two-host test with two local canopyd

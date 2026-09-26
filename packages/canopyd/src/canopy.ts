@@ -32,6 +32,7 @@ import {
   type AccountChallenge,
   type DeviceSession,
   type DeviceSessionChallenge,
+  type PublishedDeviceKeys,
   type PendingProfileReset,
   type ProfileResetChallenge,
   type ProfileResetDevice,
@@ -770,6 +771,25 @@ export class HostDaemon implements AsyncDisposable {
       || row.binding.publicKey !== entry.key || this.accounts.resetIsDue(account.id, Date.now())
     ) throw new NotFoundError("No such key device");
     return { account, key: entry.key };
+  }
+
+  /**
+   * A profile's key devices as a placement host needs them (accounts §5.4):
+   * each listed, unrevoked key device's DeviceID, key and administrator
+   * flag, as of the accepted configuration. Never labels or digest devices.
+   */
+  async publishedDeviceKeys(profileTree: string): Promise<PublishedDeviceKeys> {
+    await this.completeDueResets();
+    const account = this.accounts.enabledAccount(profileTree);
+    if (!account) throw new NotFoundError("This host is not that profile's home");
+    const listed = (await this.treeConfig(profileTree))?.devices ?? {};
+    const devices = Object.values(listed).filter((entry) => {
+      if (!entry.key) return false;
+      const row = this.accounts.deviceBinding(entry.id, account.id);
+      return !!row && row.revokedAt === null && "publicKey" in row.binding && row.binding.publicKey === entry.key;
+    }).map((entry) => ({ id: entry.id, key: entry.key!, administrator: entry.administrator }))
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return { profileTree, devices };
   }
 
   async createDeviceSessionChallenge(input: { origin: string; profileTree: string; device: string }): Promise<DeviceSessionChallenge> {

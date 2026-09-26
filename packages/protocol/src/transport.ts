@@ -22,6 +22,7 @@ import {
   type AccountChallenge,
   type PairingOffer,
   type DeviceSession,
+  type PublishedDeviceKeys,
   type DeviceSessionChallenge,
   type PendingProfileReset,
   type ProfileResetChallenge,
@@ -268,6 +269,12 @@ export class ProtocolClient {
         configuration: encodeTreeSnapshotJSON(input.configuration),
       }),
     }));
+    return response.json();
+  }
+
+  /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
+  async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
+    const response = await this.checked(await this.request(`/.arbor/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
     return response.json();
   }
 

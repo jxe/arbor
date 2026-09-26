@@ -94,6 +94,11 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
+let ownerState: { profileTree: string; macID: string; mac: TestDeviceKey } | undefined;
+const ownerProfile = () => ownerState!.profileTree;
+const ownerMac = () => ownerState!.macID;
+const ownerKey = () => ownerState!.mac;
+
 describe("key devices (accounts §5.1, §5.2)", () => {
   let profileTree: string;
   let macID: string;
@@ -115,6 +120,7 @@ describe("key devices (accounts §5.1, §5.2)", () => {
 
     macClient = await openSession(profileTree, macID, mac);
     expect((await macClient.account()).account.profileTree).toBe(profileTree);
+    ownerState = { profileTree, macID, mac };
     expect((await readTreeConfig(macClient, profileTree, "person")).values.devices![macID]!.key).toBe(mac.key);
 
     // A key never changes, and nothing removes it.
@@ -181,6 +187,27 @@ describe("key devices (accounts §5.1, §5.2)", () => {
     } finally {
       running.canopy.sessionLifetimeMs = lifetime;
     }
+  });
+});
+
+describe("published device keys (accounts §5.4)", () => {
+  test("the home host publishes each listed key device, without labels, digest or deleted devices", async () => {
+    const owner = new ProtocolClient(running.url, (await (async () => {
+      // The owner profile's Mac moved to a key above; its phone was paired and deleted.
+      const challenge = await new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: ownerProfile(), device: ownerMac() });
+      return (await new ProtocolClient(running.url).openDeviceSession(challenge, ownerKey().sign(deviceSessionChallengeBytes(challenge)))).token;
+    })()));
+    const listed = (await readTreeConfig(owner, ownerProfile(), "person")).values.devices!;
+    const published = await new ProtocolClient(running.url).publishedDeviceKeys(ownerProfile());
+    expect(published).toEqual({
+      profileTree: ownerProfile(),
+      devices: Object.values(listed).flatMap((device) => device.key ? [{ id: device.id, key: device.key, administrator: device.administrator }] : []),
+    });
+    expect(published.devices.map((device) => device.id)).toEqual([ownerMac()]);
+    const response = await fetch(`${running.url}/.arbor/profiles/${ownerProfile()}/device-keys`);
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(JSON.stringify(await response.json())).not.toContain("label");
+    await expect(new ProtocolClient(running.url).publishedDeviceKeys("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")).rejects.toThrow("not-found");
   });
 });
 
