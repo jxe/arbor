@@ -44,8 +44,9 @@ public struct HostWatchRunner: Sendable {
                     lastEventID = try await coordinator.watchCursor()
                 }
                 let events = try await client.watch(tree: tree, lastEventID: lastEventID)
-                reconnectAttempt = 0
                 for try await event in events {
+                    // The stream exists before the host answers; only an event proves the connection.
+                    reconnectAttempt = 0
                     try Task.checkCancellation()
                     guard event.tree.id == tree else { continue }
                     _ = try await coordinator.observe(event)

@@ -121,6 +121,21 @@ actor NativePlacementStore {
         try encoder.encode(collection).write(to: url, options: .atomic)
     }
 
+    /// Point placements saved under `old` at `new`, keeping the selection.
+    /// Accounts saved before canopyd 005 were rekeyed to their derived
+    /// configuration TreeID; their placements must follow, or they open with
+    /// no credential.
+    func rekey(configurationTree old: String, to new: String) throws {
+        guard var collection = try loadCollectionIfPresent(),
+              collection.placements.contains(where: { $0.configurationTree == old }) else { return }
+        for index in collection.placements.indices where collection.placements[index].configurationTree == old {
+            collection.placements[index].configurationTree = new
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(collection).write(to: url, options: .atomic)
+    }
+
     func clear(configurationTree: String?) throws {
         guard var collection = try loadCollectionIfPresent() else { return }
         collection.placements.removeAll { $0.configurationTree == configurationTree }

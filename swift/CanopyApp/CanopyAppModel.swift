@@ -411,6 +411,7 @@ final class CanopyWorkspaceState {
 #if os(iOS)
     func restoreNativePlacementIfAvailable() async -> Bool {
         do {
+            try await repairPlacementAccounts()
             nativePlacements = try await nativePlacementStore.loadAll()
             guard let record = try await nativePlacementStore.load() else { return false }
             try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
@@ -418,6 +419,21 @@ final class CanopyWorkspaceState {
         } catch {
             errorMessage = "The saved iPhone tree could not be reopened: \(error.localizedDescription)"
             return false
+        }
+    }
+
+    /// A placement saved before its account was rekeyed names a configuration
+    /// TreeID no account has, so its tree would open with no credential and
+    /// every request would be anonymous. Point it at the one account on the
+    /// same Canopy.
+    private func repairPlacementAccounts() async throws {
+        let accounts = try await accountService.accounts()   // rekeys stored accounts first
+        let known = Set(accounts.map(\.configurationTree))
+        for record in try await nativePlacementStore.loadAll() {
+            guard let stale = record.configurationTree, !known.contains(stale) else { continue }
+            let candidates = accounts.filter { $0.origin.map { Self.sameOrigin($0, record.origin) } == true }
+            guard candidates.count == 1 else { continue }
+            try await nativePlacementStore.rekey(configurationTree: stale, to: candidates[0].configurationTree)
         }
     }
 
