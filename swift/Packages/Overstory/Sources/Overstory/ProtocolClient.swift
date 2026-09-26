@@ -247,7 +247,7 @@ public actor ProtocolClient {
         secret: String,
         device: ProtocolPairingDevice
     ) async throws -> ProtocolPairingClaim {
-        try validateObjectHash(device.credentialDigest)
+        _ = try device.validated()
         let value: ProtocolPairingClaim = try await put(
             path: "/.arbor/pairings/\(component(id))/claim",
             body: PairingClaimBody(secret: secret, device: device),
@@ -266,11 +266,71 @@ public actor ProtocolClient {
     }
 
     public func joinAccount(_ value: ProtocolExistingProfileClaimRequest) async throws -> ProtocolAccountClaimResult {
-        try validateObjectHash(value.device.credentialDigest)
+        _ = try value.device.validated()
         _ = try ProtocolObjectGraph.validate(value.configuration)
         let result: ProtocolAccountClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false)
         _ = try result.configuration.validated()
         return result
+    }
+
+    /// A single-use challenge for one of this profile's key devices (accounts §5.1).
+    public func createDeviceSessionChallenge(profileTree: String, device: String) async throws -> ProtocolDeviceSessionChallenge {
+        let value: ProtocolDeviceSessionChallenge = try await post(
+            path: "/.arbor/device-sessions/challenges",
+            body: DeviceSessionChallengeRequest(profileTree: profileTree, device: device),
+            authorized: false
+        )
+        let challenge = try value.validated()
+        guard challenge.origin == canonicalOrigin else {
+            throw ProtocolValidationError.invalidValue("Device session challenge names another host")
+        }
+        return challenge
+    }
+
+    /// Exchange a signed challenge for a session token at this host.
+    public func openDeviceSession(challenge: ProtocolDeviceSessionChallenge, signature: String) async throws -> ProtocolDeviceSession {
+        try await post(
+            path: "/.arbor/device-sessions",
+            body: DeviceSessionRequest(challenge: challenge.validated(), signature: signature),
+            authorized: false
+        )
+    }
+
+    public func createProfileResetChallenge(profileTree: String, device: ProtocolProfileResetDevice) async throws -> ProtocolProfileResetChallenge {
+        let value: ProtocolProfileResetChallenge = try await post(
+            path: "/.arbor/profile-resets/challenges",
+            body: ProfileResetChallengeRequest(profileTree: profileTree, device: device.validated()),
+            authorized: false
+        )
+        let challenge = try value.validated()
+        guard challenge.device == device, challenge.profileTree == profileTree,
+              challenge.origin == canonicalOrigin else {
+            throw ProtocolValidationError.invalidValue("Reset challenge does not match the request")
+        }
+        return challenge
+    }
+
+    /// Record a pending reset signed by the profile key.
+    public func requestProfileReset(challenge: ProtocolProfileResetChallenge, publicKey: String, signature: String) async throws -> ProtocolPendingProfileReset {
+        let value: ProfileResetEnvelope = try await put(
+            path: "/.arbor/profile-resets/\(component(challenge.profileTree))",
+            body: ProfileResetRequest(challenge: challenge.validated(), publicKey: publicKey, signature: signature),
+            authorized: false
+        )
+        guard let reset = value.reset else { throw ProtocolValidationError.invalidValue("Reset response has no reset") }
+        return reset
+    }
+
+    public func pendingProfileReset(profileTree: String) async throws -> ProtocolPendingProfileReset? {
+        let value: ProfileResetEnvelope = try await get(path: "/.arbor/profile-resets/\(component(profileTree))")
+        return value.reset
+    }
+
+    public func cancelProfileReset(profileTree: String) async throws {
+        var request = try await authorizedRequest(path: "/.arbor/profile-resets/\(component(profileTree))")
+        request.httpMethod = "DELETE"
+        let (data, response) = try await logged(request, kind: .read, name: Self.logName(request), tree: Self.logTree(request))
+        try validate(data: data, status: statusCode(response))
     }
 
     public func access(tree: String) async throws -> ProtocolTreeAccessSnapshot {
@@ -526,6 +586,12 @@ public actor ProtocolClient {
         return path.dropFirst("/.arbor/trees/".count).split(separator: "/", maxSplits: 1).first.map(String.init)?.removingPercentEncoding
     }
 
+    /// This client's origin as a challenge spells it: `scheme://host[:port]`.
+    private var canonicalOrigin: String {
+        let port = origin.port.map { ":\($0)" } ?? ""
+        return "\(origin.scheme?.lowercased() ?? "")://\(origin.host()?.lowercased() ?? "")\(port)"
+    }
+
     private func component(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/")))!
     }
@@ -618,6 +684,26 @@ private struct AccountChallengeRequest: Encodable {
     var profileTree: String
     var configurationTree: String
     var inviteCode: String?
+}
+private struct DeviceSessionChallengeRequest: Encodable {
+    var profileTree: String
+    var device: String
+}
+private struct DeviceSessionRequest: Encodable {
+    var challenge: ProtocolDeviceSessionChallenge
+    var signature: String
+}
+private struct ProfileResetChallengeRequest: Encodable {
+    var profileTree: String
+    var device: ProtocolProfileResetDevice
+}
+private struct ProfileResetRequest: Encodable {
+    var challenge: ProtocolProfileResetChallenge
+    var publicKey: String
+    var signature: String
+}
+private struct ProfileResetEnvelope: Decodable {
+    var reset: ProtocolPendingProfileReset?
 }
 private struct PairingClaimBody: Encodable {
     var secret: String

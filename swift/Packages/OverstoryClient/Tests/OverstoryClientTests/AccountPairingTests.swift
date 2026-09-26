@@ -143,6 +143,31 @@ struct NativeAccountPairingTests {
         }
     }
 
+    @Test("A key device's key survives an edit of its entry")
+    func deviceKeyPreserved() throws {
+        let source = """
+        dv_mac:
+          label: Joe's Mac
+          administrator: true
+          key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w
+        dv_phone:
+          label: Joe's iPhone
+          key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k
+        """
+        let changed = try AccountConfigurationYAML.replacingDevices(in: source) { devices in
+            devices["dv_phone"]?.label = "Phone"
+            devices["dv_phone"]?.administrator = true
+        }
+        let decoded = try AccountConfigurationYAML.devices(from: changed)
+        #expect(decoded["dv_phone"] == AccountDeviceDeclaration(label: "Phone", administrator: true, key: "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k"))
+        #expect(decoded["dv_mac"]?.key == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
+        let files = try TreeConfigurationYAML.initialPersonFiles(
+            profileTree: "tr_joe", deviceID: "dv_mac", label: "Mac",
+            key: ProtocolDeviceKey("ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
+        )
+        #expect(try AccountConfigurationYAML.devices(from: files["devices.yaml"]!)["dv_mac"]?.key == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
+    }
+
     @Test("Device removal requires an administrator and preserves another administrator")
     func deviceRemovalValidation() throws {
         let devices = [

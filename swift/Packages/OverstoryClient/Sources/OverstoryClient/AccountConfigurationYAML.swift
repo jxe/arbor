@@ -117,6 +117,16 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
 public struct AccountDeviceDeclaration: Codable, Hashable, Sendable {
     public var label: String
     public var administrator: Bool?
+    /// A key device's public key (`ed25519:…` or `p256:…`); nil for a digest
+    /// device. Only the device itself sets it, once, and nothing changes or
+    /// removes it (accounts §3.1), so every rewrite must carry it through.
+    public var key: String?
+
+    public init(label: String, administrator: Bool?, key: String? = nil) {
+        self.label = label
+        self.administrator = administrator
+        self.key = key
+    }
 }
 
 public struct NativeTreeAccessEntry: Identifiable, Hashable, Sendable {
@@ -302,12 +312,12 @@ public enum TreeConfigurationYAML {
     /// The first files of a person's configuration, which a claim submits and
     /// installs as the account checkout: the person administers it from one
     /// administrator device, and everyone may read the profile.
-    public static func initialPersonFiles(profileTree: String, deviceID: String, label: String) throws -> [String: String] {
+    public static func initialPersonFiles(profileTree: String, deviceID: String, label: String, key: ProtocolDeviceKey? = nil) throws -> [String: String] {
         let access = try encodeAccess([
             ProtocolResourceAccessRule(who: .profile(profileTree), allow: [.admin]),
             ProtocolResourceAccessRule(who: .everyone, allow: [.read]),
         ])
-        let devices = try YAMLEncoder().encode([deviceID: AccountDeviceDeclaration(label: label, administrator: true)])
+        let devices = try YAMLEncoder().encode([deviceID: AccountDeviceDeclaration(label: label, administrator: true, key: key?.value)])
         return ["access.yaml": access, "apps.yaml": "{}\n", "devices.yaml": devices, "mounts.yaml": "{}\n"]
     }
 }
