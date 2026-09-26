@@ -607,6 +607,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
             if (!placement.ref || !placement.update) await folder.placeFromHost();
             folder.ensureWatch();
             const presentation = await folder.syncOnce();
+            // A configuration edit can mount, rename or unmount trees: list again after it.
+            if (placement.kind === "tree-configuration") remoteTreesByAccount.delete(accountKey);
             if (throwErrors && (presentation.state === "offline" || presentation.state === "stopped"
                 || presentation.state === "authentication-failure" || presentation.state === "revoked")) {
               // The machine already reports this state; only the caller needs the error.

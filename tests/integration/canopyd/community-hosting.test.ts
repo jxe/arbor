@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@overstory/protocol";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";

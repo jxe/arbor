@@ -2371,8 +2371,8 @@ export class HostDaemon implements AsyncDisposable {
     if (!root) return false;
     const owner = this.accountByHandle(name)?.id ?? null;
     return this.db.query(`
-      SELECT 1 FROM mounts WHERE parent_tree = ? AND path = ? AND (member = 0 OR ? IS NULL OR tree_id IS NOT ?)
-    `).get(root, `~${name}`, owner, owner) !== null;
+      SELECT 1 FROM mounts WHERE parent_tree = ? AND (path = ? OR substr(path, 1, ?) = ?) AND (member = 0 OR ? IS NULL OR tree_id IS NOT ?)
+    `).get(root, `~${name}`, name.length + 2, `~${name}/`, owner, owner) !== null;
   }
 
   /** A community update may not reserve a handle whose /~name a tree already holds. */

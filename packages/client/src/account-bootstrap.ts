@@ -141,7 +141,9 @@ async function claimAccountProfileBootstrap(
     const deviceID = generateArborID("dv");
     credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const label = hostname() || "Initial device";
-    const configuration = treeConfigSources(initialPersonConfig(profileTree, { id: deviceID, label }));
+    // The profile is the person's public card: readable by everyone, administered by the person alone.
+    const initial = initialPersonConfig(profileTree, { id: deviceID, label });
+    const configuration = treeConfigSources({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
     const files: Record<string, string> = { ...configuration, placements: "{}\n" };
     const staging = join(arborPrivateRoot(), `bootstrap-account-config-${crypto.randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
@@ -262,6 +264,11 @@ async function claimAccountProfileBootstrap(
     configurationUpdate: result.account.configuration.update,
   });
   await rm(pendingPath, { force: true });
+  // The claim declared the profile tree; its first snapshot activates it at
+  // the community's /~handle. A later retry can do the same.
+  const hosted = new ProtocolClient(origin, credential);
+  await hosted.submitUpdate(pending.profileTree, null, await resolveSnapshot(await snapshotDirectory(path)))
+    .catch((error: unknown) => console.warn(`The profile ${pending.profileTree} was claimed but not yet activated: ${error instanceof Error ? error.message : String(error)}`));
   await deps.trees.refreshConfiguration();
   return [
     { kind: "created", ref: { tree: result.configuration.id, path: "/access.yaml", stableKey: null } },

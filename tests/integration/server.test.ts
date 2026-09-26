@@ -244,7 +244,8 @@ describe("arborsync object route", () => {
       const community = await owner.descriptor(communityTree);
       const source = join(hostRoot, "community");
       await mkdir(source, { recursive: true });
-      await writeFile(join(source, "_index.md"), "---\ntype: group\n---\n# Community\n");
+      // The community keeps its member: a group that administers a tree keeps one.
+      await writeFile(join(source, "_index.md"), `---\ntype: group\nmembers:\n  - profile: "arbor://${account.account.profileTree!}/"\n    handle: owner\n---\n# Community\n`);
       const remoteOnly = new TextEncoder().encode("only-on-canopy");
       await writeFile(join(source, "remote-only.bin"), remoteOnly);
       const boundaries = new Map([[join(source, "~owner"), account.account.profileTree!]]);
@@ -299,8 +300,7 @@ describe("arborsync bootstrap and credential routes", () => {
     const { serveHost } = await import("@overstory/canopyd");
     const { ProtocolClient } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const { generateArborID } = await import("@overstory/protocol");
-    const { readAccountConfigGraph, snapshotAccountConfig } = await import("@overstory/protocol");
+    const { hostTree, readTreeConfig } = await import("../helpers/tree-config.ts");
 
     sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
     home = join(sandbox, "home");
@@ -322,18 +322,9 @@ describe("arborsync bootstrap and credential routes", () => {
     });
     const owner = new ProtocolClient(canopy.url, token);
     const account = await owner.account();
-    const configurationTree = account.account.configuration.id;
-    const configuration = await owner.descriptor(configurationTree);
-    const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
-    const device = Object.values(graph.devices).find(device => device.administrator)!.id;
-    tree = generateArborID("tr");
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
-      account: graph.account,
-      resources: { ...graph.resources, [tree]: { canonical: `${canopy.url}/~owner/bootstrap`, access: [] } },
-      devices: graph.devices,
-    }));
-    await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    const profile = account.account.profileTree!;
+    const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
+    tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(treeDir)), { parent: { tree: profile, name: "bootstrap", kind: "person" } });
 
     previousHome = process.env.ARBOR_DATA_HOME;
     await installAccountHome(home, owner, device, token, { [treeDir]: tree });

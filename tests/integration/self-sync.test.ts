@@ -9,7 +9,7 @@ import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveHost } from "@overstory/canopyd";
 import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
-import { readAccountConfigGraph, snapshotAccountConfig } from "@overstory/protocol";
+import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { retireEarlierSyncState } from "@overstory/client";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
@@ -81,23 +81,9 @@ beforeAll(async () => {
 
   const owner = new ProtocolClient(host.url, token);
   const initialAccount = await owner.account();
-  let configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  let graph = readAccountConfigGraph({
-    root: configuration.snapshot.root,
-    objects: configuration.snapshot.objects,
-  }, initialAccount.account.configuration.id);
-  deviceA = Object.values(graph.devices).find(device => device.administrator)!.id;
-  tree = generateArborID("tr");
-  const reserved = snapshotAccountConfig({
-    account: graph.account,
-    resources: {
-      ...graph.resources,
-      [tree]: { canonical: `${host.url}/~owner/self-sync`, access: [] },
-    },
-    devices: graph.devices,
-  });
-  await owner.submitUpdate(configuration.descriptor.tree.id, configuration.descriptor.tree.update, reserved);
-  await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeA)));
+  const profile = initialAccount.account.profileTree!;
+  deviceA = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
+  tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(treeA)), { parent: { tree: profile, name: "self-sync", kind: "person" } });
 
   deviceB = generateArborID("dv");
   const pairing = await owner.createPairing();
@@ -106,11 +92,6 @@ beforeAll(async () => {
     label: "Self-sync peer",
     credentialDigest: `sha256:${sha256(tokenB)}`,
   });
-  configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  graph = readAccountConfigGraph({
-    root: configuration.snapshot.root,
-    objects: configuration.snapshot.objects,
-  }, initialAccount.account.configuration.id);
   await installAccountHome(stateA, owner, deviceA, token, { [treeA]: tree });
   await installAccountHome(stateB, new ProtocolClient(host.url, tokenB), deviceB, tokenB, { [treeB]: tree });
 });

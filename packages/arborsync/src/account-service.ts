@@ -72,7 +72,7 @@ export class LocalAccountService {
   async pendingClaim(): Promise<{ account: string; path: string; canCancel: boolean } | null> {
     try {
       const value = JSON.parse(await readFile(join(arborPrivateRoot(), "bootstrap-account-claim.json"), "utf8"));
-      if (value.version !== 2 || typeof value.account !== "string" || typeof value.path !== "string") throw new Error("Malformed pending account claim");
+      if (value.version !== 3 || typeof value.account !== "string" || typeof value.path !== "string") throw new Error("Malformed pending account claim");
       return { account: value.account, path: value.path, canCancel: value.stage === "prepared" };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

@@ -1,4 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
+import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,8 +8,8 @@ import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
-  HostAccountStore, ProtocolClient, decodeProtocolDirectory, decodeUpdateRequestJSON, generateArborID, hashObject,
-  readAccountConfigGraph, snapshotAccountConfig, type UpdateRequest,
+  HostAccountStore, ProtocolClient, decodeProtocolDirectory, decodeUpdateRequestJSON, hashObject,
+  type UpdateRequest,
 } from "@overstory/protocol";
 
 const token = "folder-deltas-owner";
@@ -34,17 +35,10 @@ beforeAll(async () => {
   });
   const owner = new ProtocolClient(host.url, token);
   const account = await owner.account();
-  const configuration = await owner.descriptor(account.account.configuration.id);
-  const snapshot = await owner.snapshot(configuration.tree.id, configuration.tree.root);
-  const graph = readAccountConfigGraph(snapshot, configuration.tree.id);
-  tree = generateArborID("tr");
-  await owner.submitUpdate(configuration.tree.id, configuration.tree.update, snapshotAccountConfig({
-    account: graph.account,
-    resources: { ...graph.resources, [tree]: { canonical: `${host.url}/~owner/deltas`, access: [] } },
-    devices: graph.devices,
-  }));
-  await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(folder)));
-  const device = Object.values(graph.devices).find((candidate) => candidate.administrator)!.id;
+  const profile = account.account.profileTree!;
+  tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder)), { parent: { tree: profile, name: "deltas", kind: "person" } });
+  const { values } = await readTreeConfig(owner, profile, "person");
+  const device = Object.values(values.devices!).find((candidate) => candidate.administrator)!.id;
   await installAccountHome(state, owner, device, token, { [folder]: tree });
 });
 
