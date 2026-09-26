@@ -74,3 +74,10 @@ device's key binding, so it must pair again.
 
 - 2026-09-26: synthetic schema-22 host only (`migrate.test.ts`, 2 tests
   passing).
+- 2026-09-26: live backup (`/data/backups/023-device-keys/volume.tar`,
+  sha256 `914ee40a…`, schema 22, row counts equal to live). `run.ts`
+  reported `migrated: true, devices: 4`, and a rerun `migrated: false`;
+  every device row is unchanged apart from a null `public_key`, the three
+  new tables are present, and `compare-canopy-roots` found all seven roots
+  unchanged. Served with the new build, `/.arbor/integrity` was ok once and
+  the Mac's existing credential read `/~joe` and its private Console tree.
