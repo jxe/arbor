@@ -27,8 +27,9 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Update timing: Native and Arbor Sync (the TypeScript runner, fixed 2026-09-25; its folders sent every request twice) defer watch-triggered receipt retrieval while the same POST is in flight, reusing its validated response or retrieving receipts after transport failure; canopyd rechecks accepted-prefix traces so a plain prefix keeps its new tail on the fast path, while causal prefixes still use the sidecar. Regressions cover watch-before-response success and loss, and plain versus reordered-lineage prefixes across restart | implemented, not installed or deployed | `UpdateCoordinatorTests.swift`, `tests/unit/update-runner.test.ts`, `tests/integration/folder-deltas.test.ts`, `tests/integration/canopyd/source-acceptance.test.ts`, [fast-forward](docs/architecture/canopyd/merge-tool.md#fast-forward) |
 | Merge boundary: canopyd shares only the object store and `@overstory/merge-protocol` with the sidecar and keeps none of its state; canopyd merges account configuration itself; `trees.yaml` is resource-rule grammar only | deployed 2026-09-24 (build `dd5313c8`) | [merge sidecar](docs/architecture/canopyd/merge-tool.md#answer-checks) |
 | Accepted history as log entries and one merge question (canopyd 016): each accepted update is an immutable log entry in the object store naming its predecessor's; rows keep the entry hash and `conflicted` (schema 19); canopyd asks the sidecar one question, accepts plain `editSource`/`addEntry` edits on the head without it, and the sidecar keeps an in-memory cache it rebuilds by replaying entries | deployed 2026-09-24 at schema 19 by migration 018 (build `dd5313c8`) | [writing a sidecar](docs/architecture/canopyd/writing-a-sidecar.md), [merge sidecar](docs/architecture/canopyd/merge-tool.md), [migration 018](packages/canopyd/migrations/018-log-entries/README.md) |
-| One access store (schema 20): a tree an account activated or hosts is that account's, and its owner's resource rules alone govern it; `access` keeps only unowned trees' entries; `trees.updated_at`, the reservation status, `account_challenges.claim_digest` and `meta.community_name` are gone | deployed 2026-09-24 at schema 20 by [migration 019](packages/canopyd/migrations/019-one-access-store/README.md) (build `016f878a`) | [host](docs/architecture/canopyd/README.md#accounts-and-canonical-paths) |
+| One access store (schema 20): a tree an account activated or hosts is that account's, and its owner's resource rules alone govern it; `access` keeps only unowned trees' entries; `trees.updated_at`, the reservation status, `account_challenges.claim_digest` and `meta.community_name` are gone | deployed 2026-09-24 at schema 20 by [migration 019](packages/canopyd/migrations/019-one-access-store/README.md) (build `016f878a`); superseded at schema 22 by tree configurations | [host](docs/architecture/canopyd/README.md#accounts-and-canonical-paths) |
 | Profile facts per tree (canopyd 018, schema 21): one `profile_facts` row per tree whose head declares `type: person` or `type: group`, keyed by TreeID with the head's `_index.md` object and declared avatar path; an accepted update recomputes it only when its entry changes touch `_index.md` or that avatar, parsing `_index.md` once per accept, and reconciles community accounts only when the members change; readers and the directory's group scan key by tree; the `meta` `profile:<root>` rows are gone. Tested by `tests/integration/canopyd/profile-facts.test.ts` and the migration suite | deployed and verified 2026-09-25 at schema 21 by [migration 020](packages/canopyd/migrations/020-profile-facts-per-tree/README.md) (build `fe0fccdb`) | [host](docs/architecture/canopyd/README.md#accounts-and-canonical-paths), [schema history](packages/canopyd/migrations/README.md#schema-history) |
+| Tree configurations (canopyd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Arbor Sync speak it | deployed and verified 2026-09-26 at schema 22 by [migration 022](packages/canopyd/migrations/022-tree-configurations/README.md) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/canopyd/tree-configurations.md) |
 | Saved sidecar states: with `--cache` (canopyd passes `/data/merge-cache`) the sidecar saves a tree's head state every 32 replayed entries, keeps two per tree, and after a restart loads the nearest save instead of replaying from the chain's start; a save holds the exact replayed state (key order and bucket shape kept), checked by state identity and object hash on load. On the production copy a restarted sidecar answered in 37 ms instead of replaying 282 entries in 1 s | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#cache-and-replay) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@overstory/tree-merge`, which Arbor Sync tree recovery now declares. Log entries and the question and answer are unchanged | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Transfer merge extensions (canopyd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/canopyd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | implemented, not deployed; gate in [release and soak](plans/release-and-soak.md#server-refinements) | [transfers](docs/architecture/canopyd/merge-tool.md#transfers) |
@@ -68,7 +69,6 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Working-tree client transition | installed | The explicit soak closeout | [release and soak](plans/release-and-soak.md#observation-and-soak-closeout) |
 | Canopy for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/canopy-web/025-arbor-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Canopy presentation, canopyd hosting | [Apps 001, 003, 005 and 006](plans/catalog.md#product-completion) |
-| Tree configurations (canopyd 005) | implemented on `claude/laughing-faraday-b3cpc9`, not deployed or installed; Swift unverified | Migration 022 and the client installs, run together with Joe; the Swift suites and a local end-to-end first | [canopyd 005](plans/soon/005-tree-configuration-trees.md), [migration 022](packages/canopyd/migrations/022-tree-configurations/README.md) |
 | Group management | implemented, not deployed or installed | Deploy canopyd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing) and top-level `/~name` trees for administrators; install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
 
 ## Specified but not implemented
@@ -84,11 +84,13 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/canopyd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/canopyd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving canopyd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.arbor/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.arbor/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [canopyd 017](plans/canopyd/017-collect-objects-live.md); packing is [canopyd 001](plans/canopyd/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
+- **`;arbor-config` spellings.** canopyd answers only the route form (`/.arbor/trees/{TreeID};arbor-config`), which is all clients use; the spec's canonical-URL and `arbor://` spellings are not resolved by canopyd or the locator parser.
+- **Approving an app for a group** you administer is not offered by Canopy's App permissions panel; `prepareAppConsent(group: true)` supports it.
 - **Cross-account rehome** (`arbor mv` between Canopy accounts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone. After canopyd 005 a profile has one home host, so `arbor mv` refuses any move to another host; placing trees on other hosts is [Security 007](plans/security/007-placement-hosts.md).
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward. Live on 2026-09-24 (255 update requests after the canopyd 016 deploy, all accepted, no 503s): median 48 ms, p90 302 ms, max 1.4 s; single fast-forwards 39 ms median; requests that asked the sidecar 201 ms median, the slowest being batched catch-up uploads of 5–12 updates (0.4–0.9 s in the sidecar) and slow client uploads. Locally, from the client, a plain traced edit on the head takes 2 ms with 1 file, 8 ms with 110 and 41 ms with 1,000 files in one directory, so the 20 ms target at 1,000 files is not met; no live directory exceeds 63 entries. The first merge after a restart replays history (the production main tree's 282 entries in about 1.2 s locally, an estimated 3.5–4.5 s live) and answers retryably past 10 s; saved sidecar states (below, not deployed) make it replay only from the nearest save.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of canopyd 016 hold that history as a hash chain, which a listing can walk. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
-- **Compatibility cutoff.** Account configuration is v2-only and `trees.yaml` is resource-rule grammar only: the legacy `subject` / `access` rules are rejected by the TypeScript and Swift readers, canopyd and the CLI (check 017 found none before the 2026-09-24 deploy). Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
+- **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`. Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Moves made outside Canopy are not link-healed.** A Rename or Move in the Canopy app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Arbor Sync heal those; Joe dropped it on 2026-09-25 as not needed.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
@@ -99,13 +101,24 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
-## Tree configurations (canopyd 005 phases 1–4) — 2026-09-26
+## Tree configurations (canopyd 005) — 2026-09-26
 
-Implemented on `claude/laughing-faraday-b3cpc9`, not merged, deployed or
-installed. The live host and Joe's devices are unchanged; the cutover is
-[migration 022](packages/canopyd/migrations/022-tree-configurations/README.md),
-to be run together, and what remains is in the
-[plan](plans/soon/005-tree-configuration-trees.md).
+Deployed and verified live 2026-09-26 at schema 22 by
+[migration 022](packages/canopyd/migrations/022-tree-configurations/README.md):
+the live report matched the rehearsal on the 11:41 UTC backup in every
+section (no access change, nothing lent before or after), `verify.ts --sync`
+and `/.arbor/integrity` ok, Joe's authored files unchanged, a round-trip edit
+accepted (updates 5098/5099), and Joe confirmed the Mac and iPhone apps. The
+reasoning and the failure walk-through are in
+[tree configurations](docs/architecture/canopyd/tree-configurations.md); the
+plan is deleted. Fixed during testing and the cutover: `apps.yaml` block edits
+(Swift), Arbor Sync starting placements a claim or pairing adds, app approvals
+listed in the permissions panel, hosted test helpers stopping with their app,
+`yaml` declared for canopyd's production image, and the Mac app dropping
+unreadable saved placements (which had made every tree fail to open, silently)
+and keeping its empty view on screen.
+
+What landed, as recorded before the cutover:
 
 - **Spec** (phase 1): [accounts](docs/overstory-spec/04-accounts-and-devices.md)
   §1–§3 and §5–§7 describe host accounts as host state keyed by profile, one
@@ -136,13 +149,18 @@ to be run together, and what remains is in the
   trees, edit other trees' configurations through the host, and rename by
   renaming mounts; Arbor Sync's private-state stamp is 6. The Swift packages
   and apps (resource rules with `app`/`admin`, consent writing `apps.yaml` or
-  a tree's `access.yaml`, `TreeConfigurationClient`, Keychain rekeying) were
-  changed without a Swift toolchain and have not been compiled.
+  a tree's `access.yaml`, `TreeConfigurationClient`, Keychain rekeying).
+  Written without a Swift toolchain, then compiled and tested on the Mac.
 - **Migration 022**: `run.ts` (with its refusals and report),
-  `rekey-data-home.ts` for the Mac, and `migrate.test.ts`; not yet rehearsed
-  on a real backup.
+  `rekey-data-home.ts` for the Mac, and `migrate.test.ts`; rehearsed on the
+  live backup, then run live.
 
-Verification in the session: `bun run typecheck`, `bun run build`,
+Verification before the cutover, on the Mac: `bun run typecheck`, `bun run
+test` (1500 pass, parallel-only flakes pass alone), the migration suite (5),
+`bun run test:protocol`, the hosted smoke test, the full `CanopyAppTests`
+bundle (71), the Swift package suites, and an end-to-end run in a debug build
+against a disposable canopyd (claim, pair, revoke, share, approve and remove
+an app). Earlier, in the cloud session: `bun run typecheck`, `bun run build`,
 `bun run check:links`, `git diff --check`; `bun run test` 1497 pass, 1 skip,
 1 fail (`tests/unit/discovery.test.ts` "skips unreadable descendants", which
 fails the same way on `main` when run as root); `bun run test:migration

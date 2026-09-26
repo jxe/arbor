@@ -8,7 +8,7 @@
   accepted, and defines delegation the spec defers.
 - **State:** PROPOSED 2026-09-26. Direction agreed; no design yet. Formerly
   numbered Security 006.
-- **Builds on:** [canopyd 005](../soon/005-tree-configuration-trees.md) (a
+- **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (a
   profile's configuration on its home host),
   [Security 006](006-device-keys.md) (key devices beside credential digests,
   and recovery) and [Security 007](007-placement-hosts.md) (placement hosts

@@ -96,7 +96,8 @@ and stream buffers; document explicit initial limits in configuration and tests.
 
 Specify host-issued context with actual caller, source TreeID/logical path, pinned
 code root/version, lent grants with their lenders, activation identity and allowed execution
-scope. Bind imported code to the correct executable identity without escalation.
+scope. canopyd already checks each grant against its named lender; the issuer
+chooses lenders in a fixed order: the caller's own access first, then lender TreeID. Bind imported code to the correct executable identity without escalation.
 Strip all client-supplied context headers; never forward browser credentials as
 sidecar service credentials. Sidecar canopyd calls use the host-private execution
 token through ordinary current-tree/object/watch/update APIs; no public mint or

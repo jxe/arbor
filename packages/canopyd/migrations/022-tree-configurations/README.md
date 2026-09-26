@@ -2,7 +2,7 @@
 
 Schema 21 → 22, with a wire change: every hosted tree is configured in its
 own private tree configuration, and the per-account configuration goes
-([canopyd 005](../../../../plans/soon/005-tree-configuration-trees.md); the
+([canopyd 005](../../../../docs/architecture/canopyd/tree-configurations.md); the
 contract is [accounts §2–§7](../../../../docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph)
 and [access control §1](../../../../docs/overstory-spec/05-access-control.md#1-subjects-and-rules)).
 Old clients cannot talk to the new server: the Mac app, the CLI and the
@@ -152,3 +152,11 @@ the previous image. After step 7 it also means restoring `~/.arbor` from
   store, origin pointed at the rehearsal server) moved 2 placements, a rerun
   was a no-op, a new-build daemon brought every placement back `idle`,
   `verify.ts --sync` ok, and a round-trip edit was accepted (update 5098).
+- 2026-09-26 live: the first run failed at import (canopyd did not declare
+  `yaml` for the production image) and changed nothing; after `983c59da` it
+  ran in 310 ms and every report section matched the rehearsal. Served:
+  `verify.ts` ok, `/.arbor/integrity` ok (once), anonymous reads unchanged.
+  Mac: rekeyed (2 placements), Arbor Sync back idle, `verify.ts --sync` ok,
+  authored manifest unchanged (108 files), round trip 5098/5099. The Mac app
+  then could not open trees until `35a9b320` dropped the unreadable pre-022
+  record from `Native Placement.json`. Joe confirmed the Mac and iPhone.

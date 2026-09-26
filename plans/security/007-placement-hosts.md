@@ -6,7 +6,7 @@
 - **Effort:** M
 - **Risk:** HIGH. A host accepts devices from a list another host publishes.
 - **State:** PROPOSED 2026-09-26. Direction agreed; open questions below.
-- **Builds on:** [canopyd 005](../soon/005-tree-configuration-trees.md) (each
+- **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   [Security 006](006-device-keys.md) (key devices that sign requests).
 - **Followed by:** [Security 008](008-portable-profiles.md).

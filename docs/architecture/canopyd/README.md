@@ -21,7 +21,9 @@ checks them instead.
 
 ## Accounts and canonical paths
 
-The spec leaves placement to each host; this is canopyd's policy.
+The spec leaves placement to each host; this is canopyd's policy. Why tree
+configurations have their shape, and the tests for each refused case, are in
+[tree configurations](tree-configurations.md).
 
 - **Community profile.** The tree canonical at `/` is the community's
   membership profile and keeps `type: group`. Its tree configuration grants

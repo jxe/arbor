@@ -7,7 +7,7 @@
 - **Risk:** HIGH. It adds a second way for every device to authenticate, and a
   way to reset a person's devices.
 - **State:** PROPOSED 2026-09-26. Direction agreed; open questions below.
-- **Builds on:** [canopyd 005](../soon/005-tree-configuration-trees.md), which
+- **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
   host.
 - **Followed by:** [Security 007](007-placement-hosts.md), which lets other
