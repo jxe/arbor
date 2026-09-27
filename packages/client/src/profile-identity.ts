@@ -283,13 +283,6 @@ export class ProfileIdentityStore {
           throw error;
         });
         if (orphan !== null) throw new Error("An identity key survives without its profile metadata. Recover its backup before creating an identity.");
-      } else if (!this.isolatedHome && process.platform === "darwin") {
-        // Legacy pre-index identities cannot be enumerated through Bun.secrets.
-        // Check for their existence without requesting or logging secret values.
-        const check = Bun.spawn(["/usr/bin/security", "find-generic-password", "-s", SERVICE], { stdout: "ignore", stderr: "ignore" });
-        const code = await check.exited;
-        if (code === 0) throw new Error("Existing Keychain identity records were found without local metadata. Recover your identity backup instead of creating another identity.");
-        if (code !== 44) throw new Error("Keychain identity discovery failed. Unlock Keychain and retry.");
       }
     }
     return { metadata, record, slot };

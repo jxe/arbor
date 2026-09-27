@@ -187,10 +187,8 @@ Overstory clients may render agent files with context/tool summaries, a concrete
 
 On macOS, Canopy starts its bundled ArborSync and inspects the local identity,
 accounts, and pending claim. New users create an identity or recover its backup.
-The app and CLI use ArborSync's same identity store. A sole legacy native identity
-is adopted without deleting its original Keychain record; conflicting identities
-are retained and require explicit selection of the Arbor identity before proceeding.
-Credential errors never cause replacement identity creation. Identity setup uses
+The app and CLI use ArborSync's same identity store; the Mac app reads no
+identity of its own. Credential errors never cause replacement identity creation. Identity setup uses
 an OS-released cross-process lock. The verified credential-store recovery record
 is saved before the profile folder is bound or public metadata is published, so
 interrupted setup resumes with the same key. The default installation has a

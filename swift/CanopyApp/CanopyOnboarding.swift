@@ -44,8 +44,6 @@ struct CanopyMacOnboarding: View {
     let complete: () -> Void
     @State private var state: CanopyAccountState?
     @State private var connected = false
-    @State private var legacy: NativeProfileIdentity?
-    @State private var legacyConflict = false
     @State private var busy = false
     @State private var message: String?
     @State private var community = ""
@@ -66,18 +64,7 @@ struct CanopyMacOnboarding: View {
                     .foregroundStyle(.secondary)
             }
             if let state {
-                if legacyConflict, let identity = state.identity, let legacy {
-                    Section("Two existing identities") {
-                        Text("Arbor uses \(identity.profileTree). This app also retains \(legacy.profileTree). Neither will be replaced.")
-                            .textSelection(.enabled)
-                        Button("Use Arbor’s identity") {
-                            UserDefaults.standard.set(legacy.profileTree, forKey: "onboarding.legacy.\(identity.profileTree)")
-                            legacyConflict = false
-                        }
-                        Text("To use the other identity, first back up and reconcile your existing Arbor accounts. You can close this window and leave both identities intact.")
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let identity = state.identity {
+                if let identity = state.identity {
                     if !addingAccount {
                     Section("Your public identity") {
                         Text(identity.profileTree).font(.caption.monospaced()).textSelection(.enabled)
@@ -225,23 +212,8 @@ struct CanopyMacOnboarding: View {
         do {
             try await workspace.ensureArborSync()
             connected = true
-            legacy = try await KeychainProfileIdentityStore().identity()
             try await reload()
-            let reconciliation = ProfileIdentityReconciliation.decide(
-                arbor: state?.identity?.profileTree,
-                keyAvailable: state?.identity?.keyAvailable == true,
-                native: legacy?.profileTree
-            )
-            if !addingAccount, reconciliation == .adoptNative {
-                // Adopt the identity this app kept in its own keychain before
-                // the data home held one.
-                try await workspace.accountService.restoreIdentity(backup: KeychainProfileIdentityStore().backupData(), passphrase: nil)
-                try await reload()
-            }
-            if reconciliation == .chooseExisting, let identity = state?.identity, let legacy {
-                legacyConflict = UserDefaults.standard.string(forKey: "onboarding.legacy.\(identity.profileTree)") != legacy.profileTree
-            }
-            if resumeExisting, !legacyConflict, state?.pendingClaim == nil, state?.pendingPairingOrigin == nil,
+            if resumeExisting, state?.pendingClaim == nil, state?.pendingPairingOrigin == nil,
                state?.identity != nil,
                (state?.accounts.contains(where: { $0.credentialAvailable }) == true || FileManager.default.fileExists(atPath: CanopySupportDirectories.nativePlacement.path)) {
                 complete()
