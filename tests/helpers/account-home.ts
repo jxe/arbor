@@ -14,6 +14,9 @@ export async function installAccountHome(home: string, client: ProtocolClient, d
   for (const [path, source] of Object.entries(graph.sources)) await writeFile(join(checkout, path), source);
   await writeFile(join(home, "placements.yaml"), JSON.stringify({ [configurationTree]: placements }));
   process.env.ARBOR_DATA_HOME = home;
+  // Also outside the test preload (the protocol conformance run): the
+  // credential stays in the disposable home, never in the OS credential store.
+  process.env.ARBOR_CREDENTIAL_STORE = "file";
   await saveCurrentAccountDeviceID(configurationTree, device);
   const origin = new URL(account.community.canonical!.endpoint).origin;
   await new HostAccountStore(configurationTree).setDeviceKey(seed, {
