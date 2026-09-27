@@ -192,14 +192,10 @@ export class HostAccountStore {
 
   async safe(): Promise<HostAccountRecord | null> {
     try {
-      const decoded = JSON.parse(await readFile(this.path, "utf8")) as HostAccountRecord & { account?: string };
-      // Removable compatibility adapter for early Interface 005 records.
-      if (!decoded.account && !decoded.handle) return null;
-      const record: HostAccountRecord = decoded.account
-        ? decoded
-        : { ...decoded, account: `${decoded.origin}/~${decoded.handle!}` };
+      const record = JSON.parse(await readFile(this.path, "utf8")) as HostAccountRecord;
       if (
-        record.configurationTree !== this.configurationTree
+        typeof record.account !== "string"
+        || record.configurationTree !== this.configurationTree
         || new URL(record.origin).origin !== record.origin
         || new URL(record.account).origin !== record.origin
         || !record.accountID || !record.profileTree || !record.deviceID
