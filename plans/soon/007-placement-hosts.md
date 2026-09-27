@@ -8,14 +8,16 @@
 - **State:** PHASE 1 DONE 2026-09-26: the spec is written
   ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
-  Phases 2 to 4 follow Security 006's deployment. The decisions are recorded
-  below. Phase 2's home role, the published device-keys route, is
+  The decisions are recorded below. Phase 2's home role, the published device-keys route, is
   implemented and deployed 2026-09-26 (`8448a63f`), and lists Joe's Mac and
-  iPhone keys; the placement role is not started.
+  iPhone keys; the placement role is not started. Its host state (placement
+  accounts, cached device keys) joins the next migration batch, begun after
+  the schema-26 cutover ([canopyd 019](019-cutover-026.md)).
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
-  [Security 006](006-device-keys.md) (key devices, and sessions opened by
-  signing a host challenge).
+  key devices and sessions opened by signing a host challenge
+  ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing), Security 006,
+  deployed 2026-09-26); from schema 26 every device is a key device.
 - **Followed by:** [Security 008](008-portable-profiles.md).
 
 ## The problem
@@ -42,9 +44,8 @@ host needs, over plain HTTPS with no authentication:
 GET https://A/.arbor/profiles/{ProfileTreeID}/device-keys
 ```
 
-It lists each key device's DeviceID, `key` (as Security 006 encodes it) and
-administrator flag, as of the accepted configuration. It leaves out labels and
-digest devices, which B cannot use.
+It lists each device's DeviceID, `key` and administrator flag, as of the
+accepted configuration. It leaves out labels.
 
 This is a known cost: anyone can see how many key devices a profile has, which
 are administrators, and when that changes. Limiting it to placement hosts would
@@ -66,7 +67,7 @@ rules that name the profile as on any host.
 
 ### Authenticating on B
 
-1. A key device asks B for a session challenge and signs it, as Security 006
+1. A device asks B for a session challenge and signs it, as accounts §5
    defines; the challenge is bound to B's origin, so a session opened on A
    never works on B.
 2. B finds the placement account's home host and its device keys, from its
@@ -80,8 +81,7 @@ rules that name the profile as on any host.
 B refreshes the list of each profile with open sessions, and ends the sessions
 and watches of any device no longer listed. A revocation at A therefore reaches
 B within the cache lifetime; the session expiry is a backstop if B's refresh
-fails, since B refuses to open new sessions once its copy is stale. Digest
-devices work only at A.
+fails, since B refuses to open new sessions once its copy is stale.
 
 ### What B can do
 
@@ -125,16 +125,21 @@ Details for Phase 1, not direction:
    (proposed: not at all past the cache lifetime).
 2. **The ordinary tree at `/~handle` on B:** its name in the spec, and what
    happens to it if the home host changes (Security 008).
+3. **Two meanings of "administrator"**, moved here from Security 006, since B
+   is the first host to read a device's flag from another host. canopyd 005
+   kept both names: a profile's `admin` on a tree and a device's
+   `administrator` flag. Decide whether B's docs and errors need them apart.
 
 ## Work
 
-### Phase 2: canopyd (after Security 006 Phase 2)
+### Phase 2: canopyd
 
 - Home role: the device-keys route. Done: `publishedDeviceKeys` and the
   protocol client's `publishedDeviceKeys`, tested in
   `tests/integration/canopyd/device-keys.test.ts`.
 - Placement role: placement-account claims, fetching, caching and refreshing
-  device keys, sessions from them, the ordinary tree at `/~handle`.
+  device keys, sessions from them, the ordinary tree at `/~handle`. Its
+  schema is a step in `packages/canopyd/migrations/next/`.
 - **Gate:** canopyd suite and a two-host test with two local canopyd
   instances.
 
@@ -149,6 +154,7 @@ Details for Phase 1, not direction:
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- Deploy the home role to the live host, after Security 006 is live. A live
-  placement host needs a second canopyd, which is its own decision.
+- The home role is live. Cut over the batch holding the placement role's
+  schema; a live placement host needs a second canopyd, which is its own
+  decision.
 - Record the result in `status.md` and delete this plan.

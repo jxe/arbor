@@ -8,15 +8,16 @@
   accepted, and defines delegation the spec defers.
 - **State:** PROPOSED 2026-09-26. Direction agreed; no design yet. Formerly
   numbered Security 006.
-- **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (a
-  profile's configuration on its home host),
-  [Security 006](006-device-keys.md) (key devices beside credential digests,
-  and recovery) and [Security 007](007-placement-hosts.md) (placement hosts
-  that read the home host's published device keys).
+- **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md)
+  (canopyd 005, live 2026-09-26: a profile's configuration on its home
+  host), key devices and the operator's recovery pairing (Security 006,
+  deployed 2026-09-26; credential digests retired at schema 26), and
+  [Security 007](007-placement-hosts.md) (placement hosts that read the home
+  host's published device keys).
 
 ## The problem
 
-After canopyd 005 and Security 006 and 007, a profile's configuration is
+After canopyd 005, Security 006 and Security 007, a profile's configuration is
 accepted only on its home host. Other hosts can place the person's trees, but
 they trust the home host's published device keys and read nothing else of the
 configuration:
@@ -32,8 +33,6 @@ configuration:
 - **The home host is a single point.** When it is unreachable, the person's
   devices cannot act anywhere once placement hosts' cached keys expire, and
   there is no way to move a profile's home.
-- **Two kinds of device credential.** Digest devices still work at the home
-  host.
 - **Groups are subjects everywhere but configured in one place.** A rule on
   one host naming a group profile hosted on another needs that group's current
   `members`, and the group's `apps.yaml` lends only where it lives.
@@ -74,8 +73,7 @@ account, with no host it depends on:
    ([executable documents](../../docs/overstory-spec/07-executable-documents.md)).
 6. **Group membership across hosts.** Reading a remote group's `members` for
    access rules, and the same freshness bound.
-7. **Retiring credential digests**, once every device has a key.
-8. **Moving a home host**, and whether a placement host's ordinary tree at
+7. **Moving a home host**, and whether a placement host's ordinary tree at
    `/~handle` can become the profile tree.
 
 ## Work
