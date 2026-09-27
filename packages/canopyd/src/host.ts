@@ -1,5 +1,6 @@
-import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerBusyError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
+import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, ProfileResetDevice, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
@@ -134,7 +135,7 @@ function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAcco
   const profile = account.profileTree ? canopy.get(account.profileTree) : null;
   const configuration = canopy.get(treeConfigurationID(account.profileTree));
   const community = canopy.community();
-  if (!configuration) throw new Error("Account configuration tree is missing");
+  if (!configuration) throw new ServerFaultError("Account configuration tree is missing");
   return {
     id: account.id,
     handle: account.handle,
@@ -161,6 +162,13 @@ function treeReference(segment: string): { id: string; governs?: string } {
   }
 }
 
+/** The caller's address as the edge proxy reports it. canopyd trusts these
+ * headers without checking who set them. Behind Railway's edge alone (see
+ * deploy/README.md) a client-supplied `cf-connecting-ip` passes through, as
+ * does a forged leading `x-forwarded-for` entry wherever the edge appends
+ * rather than replaces; only a proxy that overwrites them, such as
+ * Cloudflare, makes them trustworthy. The address is a best-effort
+ * rate-limit key, never an identity. */
 function clientAddress(request: Request): string {
   return request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
@@ -271,18 +279,11 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
-  const pairingClaimAttempts = new Map<string, number[]>();
-  const challengeAttempts = new Map<string, number[]>();
+  const pairingClaims = new AttemptLimiter(10, 10 * 60 * 1000);
+  const challenges = new AttemptLimiter(30, 10 * 60 * 1000);
   /** Unauthenticated challenges are cheap to ask for; bound them per caller and profile. */
-  const challengeAllowed = (request: Request, scope: string): boolean => {
-    const key = `${clientAddress(request)}:${scope}`;
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    const recent = (challengeAttempts.get(key) ?? []).filter((attempt) => attempt > cutoff);
-    if (recent.length >= 30) return false;
-    recent.push(Date.now());
-    challengeAttempts.set(key, recent);
-    return true;
-  };
+  const challengeAllowed = (request: Request, scope: string): boolean =>
+    challenges.allow(`${clientAddress(request)}:${scope}`);
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
@@ -444,15 +445,8 @@ export async function serveHost(options: {
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
           const pairingID = decodeURIComponent(pairingClaim[1]!);
-          const address = request.headers.get("cf-connecting-ip")
-            ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-            ?? "unknown";
-          const rateKey = `${address}:${pairingID}`;
-          const cutoff = Date.now() - 10 * 60 * 1000;
-          const recent = (pairingClaimAttempts.get(rateKey) ?? []).filter((attempt) => attempt > cutoff);
-          if (recent.length >= 10) return protocolError("rate-limited", "Too many pairing claims", 429, true);
-          recent.push(Date.now());
-          pairingClaimAttempts.set(rateKey, recent);
+          if (!pairingClaims.allow(`${clientAddress(request)}:${pairingID}`))
+            return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await request.json() as {
             secret?: unknown;
             device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
@@ -999,6 +993,7 @@ export async function serveHost(options: {
         if (error instanceof AuthenticationRequiredError) return protocolError("unauthenticated", message, 401);
         if (error instanceof PermissionDeniedError) return protocolError("permission-denied", message, 403);
         if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
+        if (error instanceof ServerBusyError) return protocolError("internal-error", message, 503, true);
         if (isServerFault(error)) {
           console.error(`canopyd fault on ${request.method} ${url.pathname}`, error);
           return protocolError("internal-error", "The server failed to complete the request", 500);

@@ -1,6 +1,6 @@
 import { ObjectStore } from "@overstory/object-store";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
-import { Database } from "bun:sqlite";
+import { Database, SQLiteError } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { buildNetworkLocator, canonicalStableKey, generateArborID, markdownStabl
 import { serveHost } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
-import { ServerFaultError } from "../../../packages/canopyd/src/errors.ts";
+import { ServerBusyError, ServerFaultError } from "../../../packages/canopyd/src/errors.ts";
 import { MergeWorkerError } from "../../../packages/canopyd/src/merge-tool.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
@@ -901,5 +901,33 @@ describe("canopyd request failure classification", () => {
       submit.mockRejectedValue(failure("ENOENT"));
       expect((await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root)).status).toBe(400);
     } finally { submit.mockRestore(); logged.mockRestore(); }
+  });
+
+  test("a database error is an internal error whose SQL stays in the log", async () => {
+    const baseline = await currentConfig();
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE secret_table (id TEXT PRIMARY KEY)");
+    db.run("INSERT INTO secret_table VALUES ('a')");
+    let failure: unknown;
+    try { db.run("INSERT INTO secret_table VALUES ('a')"); } catch (error) { failure = error; } finally { db.close(); }
+    expect(failure).toBeInstanceOf(SQLiteError);
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(failure);
+    try {
+      const response = await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root);
+      expect(response.status).toBe(500);
+      expect(await response.text()).not.toContain("secret_table");
+      expect(logged).toHaveBeenCalled();
+    } finally { submit.mockRestore(); logged.mockRestore(); }
+  });
+
+  test("a full host resource is a retryable 503", async () => {
+    const baseline = await currentConfig();
+    const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new ServerBusyError("Execution token capacity exceeded"));
+    try {
+      const response = await post(baseline.current.tree.id, baseline.current.tree.update, baseline.current.tree.root);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({error: "internal-error", retryable: true});
+    } finally { submit.mockRestore(); }
   });
 });

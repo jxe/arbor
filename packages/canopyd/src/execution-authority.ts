@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { PermissionDeniedError } from "./errors.ts";
+import { PermissionDeniedError, ServerBusyError } from "./errors.ts";
 import { randomBytes } from "node:crypto";
 import {
   ACCESS_OPERATIONS,
@@ -115,7 +115,7 @@ export class ExecutionAuthority {
     for (const [key, value] of this.tokens)
       if (!this.valid(value)) this.tokens.delete(key);
     if (this.tokens.size >= 4096)
-      throw new Error("Execution token capacity exceeded");
+      throw new ServerBusyError("Execution token capacity exceeded");
     const token = `execution_${randomBytes(32).toString("base64url")}`;
     this.tokens.set(token, copy);
     return token;
