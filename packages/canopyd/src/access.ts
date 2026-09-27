@@ -6,6 +6,7 @@ import {
   safeResourceRule,
   scopeContains,
   sha256,
+  subjectHomeHost,
   type AccessOperation,
   type AppAccessRule,
   type ResourceAccessRule,
@@ -25,6 +26,8 @@ export interface AccessHost {
   isProfileMember(group: HostTree, profileTree: string): boolean;
   /** The tree's current root frontmatter `type`, or null when it declares neither profile kind. */
   rootProfileType(tree: HostTree): "person" | "group" | null;
+  /** Whether this host's copy of a group another host holds lists this person (access control §3.3). */
+  isRemoteGroupMember(group: string, homeHost: string, profileTree: string): boolean;
 }
 
 /**
@@ -33,7 +36,8 @@ export interface AccessHost {
  * administrators, and `app_policy` each profile's `apps.yaml`.
  *
  * A profile administers a tree when an `admin` rule names it, or names a group
- * whose current members include it. An administrator may read and edit the
+ * whose current members include it. A group this host does not hold counts
+ * through its copy of the group's members at the `homeHost` the rule names. An administrator may read and edit the
  * tree configuration and has `write` on the whole tree.
  */
 export class AccessControl {
@@ -78,17 +82,24 @@ export class AccessControl {
     return group && this.host.rootProfileType(group) === "group" ? group : null;
   }
 
-  /** One-level group membership: only a profile an enabled account holds counts. */
-  readonly isGroupMember = (groupID: string, profile: string): boolean => {
-    const group = this.groupTree(groupID);
-    if (!group) return false;
-    return this.accounts.handleForProfile(profile) !== undefined && this.host.isProfileMember(group, profile);
+  /**
+   * One-level group membership: only a profile an enabled account holds
+   * counts. A group tree this host holds decides alone; a subject naming a
+   * `homeHost` for a group this host does not hold is decided by the copy of
+   * it read there, which fails closed.
+   */
+  readonly isGroupMember = (groupID: string, profile: string, homeHost?: string): boolean => {
+    if (this.accounts.handleForProfile(profile) === undefined) return false;
+    const held = this.host.tree(groupID);
+    if (held) return this.host.rootProfileType(held) === "group" && this.host.isProfileMember(held, profile);
+    return !!homeHost && this.host.isRemoteGroupMember(groupID, homeHost, profile);
   };
 
   /** Whether `profile` administers `tree`, directly or through a group it belongs to. */
   administers(profile: string | null, tree: string): boolean {
     if (!profile) return false;
-    return this.administrators(tree).some((admin) => admin === profile || this.isGroupMember(admin, profile));
+    return this.administrators(tree).some((admin) => admin === profile
+      || this.isGroupMember(admin, profile, subjectHomeHost(this.rules(tree), admin)));
   }
 
   /** Whether a profile holds `operation` at `path` of an ordinary tree by its

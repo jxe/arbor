@@ -354,6 +354,7 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool, options.lifetimes);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
+  canopy.servedOverHTTP = new URL(publicOrigin).protocol === "http:";
   const onAuthorizationTick = authorizationTicker(canopy);
   const pairingClaims = new AttemptLimiter(10, 10 * 60 * 1000);
   const challenges = new AttemptLimiter(30, 10 * 60 * 1000);

@@ -61,6 +61,9 @@ describe("a placement host's copy of a home host's device keys (accounts §5.4)"
     expect(loads).toBe(2);
     for (let i = 0; i < 5; i++) await keys.device(PROFILE, HOME, mac);
     expect(loads).toBe(2);
+    // A session opened from the copy ends when its grace does.
+    expect(keys.servesUntil(PROFILE)).toBeLessThanOrEqual(Date.now() + lifetimes.staleMs);
+    expect(keys.servesUntil("tr_other")).toBeNull();
     await Bun.sleep(lifetimes.staleMs);
     await expect(keys.device(PROFILE, HOME, mac)).rejects.toBeInstanceOf(HomeHostUnavailableError);
     await expect(keys.device(PROFILE, HOME, mac)).rejects.toBeInstanceOf(HomeHostUnavailableError);

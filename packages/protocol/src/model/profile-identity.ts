@@ -1,6 +1,7 @@
 import { encodeCanonicalCBOR } from "./cbor.ts";
 import { isGeneratedArborID, isPersonProfileTreeID } from "./identity.ts";
 import { treeConfigurationID } from "../config/tree-config.ts";
+import { isHomeHostOrigin } from "./resource-policy.ts";
 
 export interface AccountChallenge {
   version: 1;
@@ -20,14 +21,7 @@ export interface AccountChallenge {
   homeHost?: string;
 }
 
-/** Whether `value` is an origin a placement host may read device keys from:
- * HTTPS, or plain HTTP on a loopback address for local hosts. */
-export function isHomeHostOrigin(value: string): boolean {
-  let url: URL;
-  try { url = new URL(value); } catch { return false; }
-  if (url.origin !== value) return false;
-  return url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname));
-}
+export { isHomeHostOrigin };
 
 export function validateAccountChallenge(value: unknown): AccountChallenge {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Malformed account challenge");

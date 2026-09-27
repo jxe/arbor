@@ -24,15 +24,20 @@ import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 /**
  * Security 007: a profile whose home is host A claims a placement account on
- * host B, which reads A's published device keys (accounts §1.3, §5.4). Both
- * hosts are local canopyd instances; B reads A through a proxy the test can
- * count and cut, with lifetimes short enough to watch them run out.
+ * host B, which reads A's published device keys (accounts §1.3, §5.4).
+ * Security 009: B keeps serving its copy through a grace while A is down, and
+ * a rule on B naming a group A holds matches that group's members (access
+ * control §3.3). Both hosts are local canopyd instances; B reads A through
+ * proxies the test can count and cut, with lifetimes short enough to watch
+ * them run out.
  */
 
 const LIFETIME_MS = 1_000;
 const REFETCH_MS = 400;
-/** The staleness limit; Security 009 will make it longer than the lifetime. */
-const STALE_MS = 1_000;
+/** The grace, longer than the lifetime as the one hour is than the minute. */
+const STALE_MS = 3_000;
+/** A remote group's copy: the same lifetime and interval, and its own grace. */
+const GROUP_STALE_MS = 3_000;
 
 interface Key { key: string; sign(bytes: Uint8Array): string }
 
@@ -72,6 +77,10 @@ let proxy: ReturnType<typeof Bun.serve>;
 let homeHost: string;
 let homeReachable = true;
 let keyFetches = 0;
+/** B reads the groups A holds through this proxy: the `homeHost` B's rules name for them. */
+let groupProxy: ReturnType<typeof Bun.serve>;
+let groupHost: string;
+let groupHostReachable = true;
 
 /** Reserve handles on a host's community for exact profiles, as its owner. */
 async function reserve(url: string, ownerName: string, members: Record<string, string>): Promise<void> {
@@ -131,7 +140,10 @@ beforeAll(async () => {
     dataRoot: join(sandbox, "b"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
     community: { handle: "orchard", name: "Orchard" },
     accounts: [testAccount("owner", "placement-owner-b", { communityWriter: true })],
-    lifetimes: { deviceKeyLifetimeMs: LIFETIME_MS, deviceKeyRefetchMs: REFETCH_MS, deviceKeyStaleMs: STALE_MS },
+    lifetimes: {
+      deviceKeyLifetimeMs: LIFETIME_MS, deviceKeyRefetchMs: REFETCH_MS, deviceKeyStaleMs: STALE_MS,
+      remoteGroupLifetimeMs: LIFETIME_MS, remoteGroupRefetchMs: REFETCH_MS, remoteGroupStaleMs: GROUP_STALE_MS,
+    },
   });
   proxy = Bun.serve({
     hostname: "127.0.0.1", port: 0,
@@ -143,6 +155,15 @@ beforeAll(async () => {
     },
   });
   homeHost = proxy.url.origin;
+  groupProxy = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    async fetch(request) {
+      const url = new URL(request.url);
+      if (!groupHostReachable) return new Response("unreachable", { status: 502 });
+      return fetch(`${a.url}${url.pathname}${url.search}`, { method: request.method, headers: request.headers });
+    },
+  });
+  groupHost = groupProxy.url.origin;
 
   // Alice's home is A: she claims ~alice there with her Mac, an
   // administrator device, and pairs her phone, an ordinary one.
@@ -167,6 +188,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   proxy?.stop(true);
+  groupProxy?.stop(true);
   for (const host of [b, a]) {
     host?.server.stop(true);
     await host?.canopy[Symbol.asyncDispose]();
@@ -298,6 +320,9 @@ describe("sessions and trees on a placement host", () => {
   });
 
   test("deleting the phone at A ends its session and watch on B within the copy's lifetime", async () => {
+    // A session on B ends when the copy it opened from runs out of grace.
+    macAtB = await openSession(b.url, alice.profileTree, macID, mac);
+    phoneAtB = await openSession(b.url, alice.profileTree, phoneID, phone);
     const watching = (async () => {
       for await (const event of phoneAtB.watch(notes, null)) if (event.kind === "resync-required") return event;
       return null;
@@ -318,21 +343,132 @@ describe("sessions and trees on a placement host", () => {
     expect((await macAtB.descriptor(notes)).tree.id).toBe(notes);
   });
 
-  test("with A unreachable past the staleness limit, B opens no new session; open ones run to their expiry", async () => {
+  test("a session on B ends by the time the copy it opened from runs out of grace", async () => {
+    const challenge = await new ProtocolClient(b.url).createDeviceSessionChallenge({ profileTree: alice.profileTree, device: macID });
+    const opened = Date.now();
+    const session = await new ProtocolClient(b.url).openDeviceSession(challenge, mac.sign(deviceSessionChallengeBytes(challenge)));
+    expect(session.expiresAt).toBeLessThanOrEqual(opened + STALE_MS + 50);
+    expect(session.expiresAt).toBeGreaterThan(opened + STALE_MS - LIFETIME_MS - 100);
+  });
+
+  test("with A unreachable, B opens sessions and takes administrator edits from its copy through the grace, then refuses and its sessions end", async () => {
     homeReachable = false;
+    const cut = Date.now();
     try {
-      await Bun.sleep(Math.max(LIFETIME_MS, STALE_MS) + 200);
+      // Past the copy's lifetime, within the grace.
+      await Bun.sleep(LIFETIME_MS + 200);
+      const during = await openSession(b.url, alice.profileTree, macID, mac);
+      expect((await during.descriptor(notes)).tree.id).toBe(notes);
+      await editTreeConfig(during, notes, "tree", (values) => ({ ...values, access: [...values.access, { who: "everyone", allow: ["read"] }] }));
+      await expect(openSession(b.url, alice.profileTree, generateArborID("dv"), mac)).rejects.toThrow("not-found");
+      // Past the grace: no new session, and the ones open have ended.
+      await Bun.sleep(Math.max(0, cut + STALE_MS + 200 - Date.now()));
       const response = await fetch(`${b.url}/.arbor/device-sessions/challenges`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileTree: alice.profileTree, device: macID }),
       });
       expect(response.status).toBe(503);
       expect(await response.json()).toMatchObject({ retryable: true, details: { homeHost } });
-      // The session opened before is the backstop's to end, at its expiry.
-      expect((await macAtB.descriptor(notes)).tree.id).toBe(notes);
+      await expect(during.descriptor(notes)).rejects.toThrow("unauthenticated");
+      await expect(macAtB.descriptor(notes)).rejects.toThrow("unauthenticated");
     } finally {
       homeReachable = true;
     }
-    await until(async () => (await openSession(b.url, alice.profileTree, macID, mac).catch(() => undefined)) ?? undefined, 2_000);
+    const again = await until(async () => (await openSession(b.url, alice.profileTree, macID, mac).catch(() => undefined)) ?? undefined, 2_000);
+    await editTreeConfig(again, notes, "tree", (values) => ({ ...values, access: values.access.filter((rule) => rule.who !== "everyone") }));
+  });
+});
+
+describe("a rule on B naming a group A holds (access control §3.3)", () => {
+  let ownerA: ProtocolClient;
+  let club: string;
+  let secret: string;
+  let orchard: string;
+
+  let session: ProtocolClient | undefined;
+  /** Alice on B: one session, opened again once it ends (a session on B
+   * lasts no longer than the grace), since challenges are rate-limited. */
+  async function aliceAtB(): Promise<ProtocolClient> {
+    session ??= await openSession(b.url, alice.profileTree, macID, mac);
+    try {
+      await session.placementAccount();
+    } catch (error) {
+      if (!(error instanceof ProtocolHTTPError) || error.status !== 401) throw error;
+      session = await openSession(b.url, alice.profileTree, macID, mac);
+    }
+    return session;
+  }
+  const groupSource = (members: string[]) => snapshotOf({
+    "_index.md": ["---", "type: group", "members:", ...members.flatMap((profile) => ["  -", `    profile: "arbor://${profile}/"`]),
+      // A scalar entry names nobody.
+      `  - "arbor://${bob.profileTree}/"`, "---", "", "# Club", ""].join("\n"),
+  });
+  async function setMembers(tree: string, members: string[]): Promise<void> {
+    const current = await ownerA.descriptor(tree);
+    await ownerA.submitUpdate(tree, current.tree.update, await groupSource(members));
+  }
+  /** Alice's whole-tree access to the orchard on B, from a fresh session. */
+  async function aliceAccess(): Promise<string | null> {
+    const client = await aliceAtB();
+    try {
+      return (await client.descriptor(orchard)).tree.access;
+    } catch (error) {
+      if (error instanceof ProtocolHTTPError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  beforeAll(async () => {
+    // A holds two groups listing alice: the club is public, the secret is not.
+    ownerA = await deviceClient(a.url, "placement-owner-a");
+    club = await hostTree(ownerA, await groupSource([alice.profileTree]), { access: [{ who: "everyone", allow: ["read"] }] });
+    secret = await hostTree(ownerA, await groupSource([alice.profileTree]));
+    // B's owner grants the club read and the secret write on a tree of B's.
+    const ownerB = await deviceClient(b.url, "placement-owner-b");
+    orchard = await hostTree(ownerB, await snapshotOf({ "_index.md": "# Orchard\n" }), {
+      access: [
+        { who: { profile: club, homeHost: groupHost }, allow: ["read"] },
+        { who: { profile: secret, homeHost: groupHost }, allow: ["write"] },
+      ],
+    });
+  });
+
+  test("a public remote group's member gains its access on B; a private one matches nobody", async () => {
+    expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
+    // The club's rule is read; write would have come from the secret.
+    expect(await aliceAccess()).toBe("read");
+    const bobless = await (await deviceClient(b.url, "placement-owner-b")).descriptor(orchard);
+    expect(bobless.tree.access).toBe("write");
+  });
+
+  test("a member removed at A loses the access on B, and its watch ends, within the refresh", async () => {
+    const watcher = await aliceAtB();
+    const watching = (async () => {
+      for await (const event of watcher.watch(orchard, null)) if (event.kind === "resync-required") return event;
+      return null;
+    })();
+    await Bun.sleep(100);
+    await setMembers(club, []);
+    const removed = Date.now();
+    expect(await Promise.race([watching, Bun.sleep(LIFETIME_MS + 1_000).then(() => "still open")]))
+      .toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
+    expect(Date.now() - removed).toBeLessThan(LIFETIME_MS + 500);
+    expect(await aliceAccess()).toBeNull();
+    await setMembers(club, [alice.profileTree]);
+    expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
+  });
+
+  test("with the group's host unreachable, B's copy serves through the grace, then matches nobody", async () => {
+    groupHostReachable = false;
+    const cut = Date.now();
+    try {
+      await Bun.sleep(LIFETIME_MS + 200);
+      expect(await aliceAccess()).toBe("read");
+      await Bun.sleep(Math.max(0, cut + GROUP_STALE_MS + LIFETIME_MS - Date.now()));
+      expect(await aliceAccess()).toBeNull();
+    } finally {
+      groupHostReachable = true;
+    }
+    expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
   });
 });
 

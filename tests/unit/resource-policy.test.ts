@@ -10,6 +10,8 @@ import {
 import { ExecutionAuthority } from "../../packages/canopyd/src/execution-authority.ts";
 import fixtures from "../../docs/overstory-spec/conformance/resource-policy.json";
 
+const LINK_DIGEST = `sha256:${"a".repeat(64)}`;
+
 describe("resource policy contract", () => {
   test("shared positive and negative vectors", () => {
     for (const v of fixtures.valid)
@@ -29,6 +31,25 @@ describe("resource policy contract", () => {
     expect(rulesAllow([{ who: "members", allow: ["read"] }], { ...context, isGroupMember: (group, profile) => group === "tr_alice" && profile === "tr_bob" }, "/", "read")).toBe(true);
     expect(rulesAllow([{ who: "everyone", app: "tr_other", allow: ["read"] }], context, "/", "read")).toBe(false);
     expect(rulesAllow([{ who: "everyone", app: "tr_code", allow: ["read"] }], { ...context, app: undefined }, "/", "read")).toBe(false);
+  });
+  test("a profile subject may name the host holding a group's tree, which is where to look, not who", () => {
+    const remote = { who: { profile: "tr_club", homeHost: "https://club.example" }, allow: ["read"] };
+    expect(parseResourceRule(remote)).toEqual(remote as any);
+    expect(parseResourceRule({ ...remote, who: { profile: "tr_club", homeHost: "http://127.0.0.1:4000" } }).who).toEqual({ profile: "tr_club", homeHost: "http://127.0.0.1:4000" });
+    for (const homeHost of ["http://club.example", "https://club.example/", "https://club.example/~club", "club.example", 3]) {
+      expect(() => parseResourceRule({ ...remote, who: { profile: "tr_club", homeHost } }), String(homeHost)).toThrow("Invalid rule subject");
+    }
+    expect(() => parseResourceRule({ ...remote, who: { link: LINK_DIGEST, homeHost: "https://club.example" } })).toThrow("Invalid rule subject");
+    expect(() => parseResourceRule({ ...remote, who: { homeHost: "https://club.example" } })).toThrow("Invalid rule subject");
+    // The TreeID alone is the merge key, and one file names one host per group.
+    expect(() => parseResourceRules([remote, { who: { profile: "tr_club" }, allow: ["write"] }])).toThrow("Duplicate resource rule");
+    expect(() => parseResourceRules([remote, { who: { profile: "tr_club" }, allow: ["write"], within: "/notes" }])).toThrow("disagree about its home host");
+    expect(() => parseResourceRules([remote, { who: { profile: "tr_club", homeHost: "https://other.example" }, allow: ["write"], within: "/notes" }])).toThrow("disagree");
+    expect(parseResourceRules([remote, { who: { profile: "tr_club", homeHost: "https://club.example" }, allow: ["write"], within: "/notes" }])).toHaveLength(2);
+    // Matching hands the rule's home host to the membership check.
+    const asked: unknown[] = [];
+    expect(rulesAllow([parseResourceRule(remote)], { callerProfile: "tr_bob", isGroupMember: (...args) => { asked.push(args); return true; } }, "/", "read")).toBe(true);
+    expect(asked).toEqual([["tr_club", "tr_bob", "https://club.example"]]);
   });
   test("admin implies every operation and nothing else implies admin", () => {
     const admin = parseResourceRule({ who: { profile: "tr_bob" }, allow: ["admin"] });

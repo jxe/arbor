@@ -86,6 +86,23 @@ export async function rootIndexHash(root: ObjectHash, load: (hash: ObjectHash) =
   return directory.entries.find((entry) => entry.name === "_index.md")?.file ?? null;
 }
 
+/** A root's frontmatter `members`, keeping only well-formed structured
+ * entries: a profile locator (with an optional handle), or a pending
+ * invitation's handle and digest. A scalar entry names no member. */
+export function structuredMembers(declared: unknown): RootProfileFacts["members"] {
+  return (Array.isArray(declared) ? declared : []).flatMap((value): RootProfileFacts["members"] => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const candidate = value as Record<string, unknown>;
+    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile : undefined;
+    const handle = typeof candidate.handle === "string" && HANDLE.test(candidate.handle) ? candidate.handle : undefined;
+    const inviteDigest = typeof candidate.inviteDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(candidate.inviteDigest)
+      ? candidate.inviteDigest : undefined;
+    if (!(profile && !inviteDigest) && !(handle && inviteDigest && !profile)) return [];
+    if (Object.keys(candidate).some((key) => key !== "profile" && key !== "handle" && key !== "inviteDigest")) return [];
+    return [{ ...(profile ? { profile } : {}), ...(handle ? { handle } : {}), ...(inviteDigest ? { inviteDigest } : {}) }];
+  });
+}
+
 /** A root's profile facts with its `_index.md` hash and the declared avatar
  * path. It parses `_index.md` once. */
 export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileRead> {
@@ -98,18 +115,7 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
   const document = parseMarkdown(new TextDecoder().decode(file));
   const { frontmatter } = document;
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
-  const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
-  const members = declared.flatMap((value): RootProfileFacts["members"] => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-    const candidate = value as Record<string, unknown>;
-    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile : undefined;
-    const handle = typeof candidate.handle === "string" && HANDLE.test(candidate.handle) ? candidate.handle : undefined;
-    const inviteDigest = typeof candidate.inviteDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(candidate.inviteDigest)
-      ? candidate.inviteDigest : undefined;
-    if (!(profile && !inviteDigest) && !(handle && inviteDigest && !profile)) return [];
-    if (Object.keys(candidate).some((key) => key !== "profile" && key !== "handle" && key !== "inviteDigest")) return [];
-    return [{ ...(profile ? { profile } : {}), ...(handle ? { handle } : {}), ...(inviteDigest ? { inviteDigest } : {}) }];
-  });
+  const members = structuredMembers(frontmatter.members);
   const displayName = validateProfileDisplayName(frontmatter.displayName);
   const headingTitle = type === "group"
     ? plainMarkdownTitle(document.blocks.find(
