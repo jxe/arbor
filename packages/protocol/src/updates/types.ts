@@ -98,6 +98,15 @@ export interface UpdateResult {
 export interface UpdateResponse {
   results: UpdateResult[];
   observedThrough: string;
+  /** The tree's current accepted state as the response was written; saves a descriptor read. */
+  head?: UpdateHead;
+}
+
+export interface UpdateHead {
+  update: string;
+  root: ObjectHash;
+  conflicted: boolean;
+  observedThrough: string;
 }
 
 export interface UpdateConflictResult {

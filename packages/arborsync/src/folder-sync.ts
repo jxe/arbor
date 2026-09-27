@@ -662,10 +662,14 @@ export class FolderSync implements AcceptedTree {
       const watch = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
         const client = await this.host.client(placement);
         const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
-        for await (const event of client.watch(this.tree, cursor, { signal })) {
-          // Observed inside the attempt, so a failure here reconnects like a lost stream.
-          await this.coordinator.observe(event);
-          yield event;
+        try {
+          for await (const event of client.watch(this.tree, cursor, { signal, onOpen: () => this.coordinator.setWatching(true) })) {
+            // Observed inside the attempt, so a failure here reconnects like a lost stream.
+            await this.coordinator.observe(event);
+            yield event;
+          }
+        } finally {
+          this.coordinator.setWatching(false);
         }
       };
       try {

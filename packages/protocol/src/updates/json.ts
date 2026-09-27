@@ -12,6 +12,7 @@ import type {
   TransitionPayload,
   CandidateUpdate,
   UpdateRequest,
+  UpdateHead,
   UpdateResponse,
   UpdateResult,
 } from "./types.ts";
@@ -386,15 +387,33 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
 
 
 export function encodeUpdateResponseJSON(response: UpdateResponse): UpdateResponseJSON {
-  return { results: response.results.map(encodeUpdateResultJSON), observedThrough: response.observedThrough };
+  return {
+    results: response.results.map(encodeUpdateResultJSON),
+    observedThrough: response.observedThrough,
+    ...(response.head ? { head: response.head } : {}),
+  };
+}
+
+function decodeUpdateHead(value: unknown): UpdateHead {
+  const head = value as Partial<UpdateHead> | null;
+  if (!head || typeof head !== "object" || typeof head.update !== "string" || !head.update
+    || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean"
+    || typeof head.observedThrough !== "string" || !head.observedThrough) {
+    throw new Error("Invalid update head");
+  }
+  return { update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough };
 }
 
 export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
   decodeSubmissionResponse(value);
   if (!value || typeof value !== "object") throw new Error("Update response must be an object");
-  const record = value as { results?: unknown; observedThrough?: unknown };
+  const record = value as { results?: unknown; observedThrough?: unknown; head?: unknown };
   if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough) {
     throw new Error("Invalid update response");
   }
-  return { results: record.results.map(decodeUpdateResultJSON), observedThrough: record.observedThrough };
+  return {
+    results: record.results.map(decodeUpdateResultJSON),
+    observedThrough: record.observedThrough,
+    ...(record.head === undefined ? {} : { head: decodeUpdateHead(record.head) }),
+  };
 }

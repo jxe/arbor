@@ -2,7 +2,7 @@ import { AuthenticationRequiredError, ExpiredChallengeError, isServerFault, NotF
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateHead, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
@@ -687,13 +687,13 @@ export async function serveHost(options: {
               throw error;
             }
             if (direct && !canopy.execution.covered(direct)) return protocolError("permission-denied", "Authorization changed before receipt disclosure", 403);
-            // The server's current head lets the client skip a descriptor read
-            // after acceptance; the watch still delivers anything newer.
+            // The current head lets the client skip a descriptor read after
+            // acceptance; the watch still delivers anything newer.
             const headTree = canopy.get(treeID), headUpdate = headTree ? canopy.currentUpdate(treeID) : null;
-            const payload = updateJSON(result.result) as Record<string, unknown>;
-            if (headTree && headUpdate && !("error" in result.result)) {
-              payload.head = { update: headUpdate.id, root: headTree.ref, conflicted: headUpdate.conflicted, observedThrough: canopy.observedThrough(treeID) };
-            }
+            const head: UpdateHead | undefined = headTree && headUpdate
+              ? { update: headUpdate.id, root: headTree.ref as ObjectHash, conflicted: headUpdate.conflicted, observedThrough: canopy.observedThrough(treeID) }
+              : undefined;
+            const payload = "error" in result.result ? updateJSON(result.result) : updateJSON({ ...result.result, ...(head ? { head } : {}) });
             const response = json(payload, result.status, { "server-timing": timer.serverTiming() });
             timer.mark("respond");
             const counters = canopy.objectCounters();

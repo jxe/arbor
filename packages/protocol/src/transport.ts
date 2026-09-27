@@ -497,10 +497,11 @@ export class ProtocolClient {
 
   /**
    * Follow one tree's accepted transitions strictly after `after`. The stream
-   * ends when the server closes it or sends
-   * `resync-required`; the caller reconnects with a fresh cursor.
+   * ends when the server closes it or sends `resync-required`; the caller
+   * reconnects with a fresh cursor. `onOpen` runs once the host has accepted
+   * the stream.
    */
-  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal } = {}): AsyncGenerator<WatchEvent> {
+  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<WatchEvent> {
     const query = after ? `?after=${encodeURIComponent(after)}` : "";
     // The host comments at least every 20 s; a longer silence is a dead
     // connection (a half-open socket, a proxy that dropped it), not an idle tree.
@@ -518,6 +519,7 @@ export class ProtocolClient {
         signal: options.signal ? AbortSignal.any([options.signal, idle.signal]) : idle.signal,
       }));
       if (!response.body) throw new Error("Watch response has no body");
+      options.onOpen?.();
       const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) { expectBytes(); controller.enqueue(chunk); },
       }));

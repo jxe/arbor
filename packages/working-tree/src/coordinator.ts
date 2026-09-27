@@ -122,6 +122,7 @@ export class UpdateCoordinator {
   private submission?: { digest: string; response: UpdateResponse; current: Current };
   /** The latest watch event, kept for the `catchUp` its cursor names. */
   private watchEvent?: Extract<WatchEvent, { kind: "tree.update" }>;
+  private watching = false;
   private failure?: string;
 
   constructor(
@@ -226,6 +227,9 @@ export class UpdateCoordinator {
     const handle = setTimeout(() => {
       this.timers.delete(timer);
       if (this.closed) return;
+      // A clean tree whose watch is open learns of updates from it; the poll
+      // is only for a watch that is down (a dead one fails its idle timeout).
+      if (timer === "poll" && this.watching && this.machine.kind === "current") return this.schedule("poll", delay);
       this.dispatch({ type: timer === "trailing" ? "publishDelayElapsed" : timer === "max" ? "maxDelayElapsed" : "pollElapsed" });
     }, delay);
     (handle as { unref?: () => void }).unref?.();
@@ -361,13 +365,19 @@ export class UpdateCoordinator {
     }
   }
 
-  /** Check that `response` answers `attempt` exactly and read the host's current head to install. */
+  /**
+   * Check that `response` answers `attempt` exactly and select the host's
+   * current head to install: the head the response reports, or else the
+   * descriptor. Receipts prove acceptance, not the current boundary.
+   */
   private async validate(response: UpdateResponse, attempt: UpdateAttempt): Promise<Current> {
     if (response.results.length !== attempt.requestDigests.length
         || response.results.some((result, index) => result.requestDigest !== attempt.requestDigests[index])) {
       throw new UpdateValidationError("The host answered a different request");
     }
     if (response.results.some(result => result.update.tree !== attempt.tree)) throw new UpdateValidationError("The host answered for another tree");
+    const head = response.head;
+    if (head) return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.observedThrough };
     return this.current(await this.transport.descriptor(this.tree));
   }
 
@@ -591,6 +601,11 @@ export class UpdateCoordinator {
   }
 
   /** Feed one watch event to the machine and wait for what it caused. */
+  /** Whether the tree's watch stream is open; while it is, a clean tree skips its freshness poll. */
+  setWatching(open: boolean): void {
+    this.watching = open;
+  }
+
   async observe(event: WatchEvent): Promise<UpdatePresentation> {
     await this.start();
     if (event.tree !== this.tree) return this.presentation();

@@ -899,6 +899,14 @@ element, including any element trimmed as an exact replay:
 type UpdateResponse = {
   results: UpdateResult[];
   observedThrough: EventCursor;
+  head?: UpdateHead;
+};
+
+type UpdateHead = {
+  update: AcceptedUpdateID;
+  root: Hash;
+  conflicted: boolean;
+  observedThrough: EventCursor;
 };
 
 type UpdateResult = {
@@ -922,7 +930,10 @@ observation boundary after the whole string was processed; it is not each result
 update ID and must not be used as a per-element accepted-state guard. Exact replay
 returns the original per-element receipt even if current has since advanced; the
 response observation boundary must not be taken as proof that its last historical
-receipt is the current head. Observe subsequent updates or refresh the descriptor.
+receipt is the current head. A host should report `head`, the tree's current
+accepted state and observation boundary as the response was written, so a
+client installs it without reading the descriptor; without `head`, observe
+subsequent updates or refresh the descriptor. A rejected string carries none.
 
 `reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
