@@ -12,7 +12,7 @@
   implemented and deployed 2026-09-26 (`8448a63f`), and lists Joe's Mac and
   iPhone keys; the placement role is not started. Its host state (placement
   accounts, cached device keys) joins the next migration batch, begun after
-  the schema-26 cutover ([canopyd 019](019-cutover-026.md)).
+  the schema-26 cutover (live 2026-09-27).
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   key devices and sessions opened by signing a host challenge

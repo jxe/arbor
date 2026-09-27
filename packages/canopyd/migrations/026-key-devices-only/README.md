@@ -5,7 +5,8 @@ with the key-only device model, the CBOR object transport and the removal of
 legacy readers. The live run in place is `bun run
 packages/canopyd/migrations/026-key-devices-only/run.ts /data`.
 
-The batch cut over by [canopyd 019](../../../../plans/soon/019-cutover-026.md).
+The batch cut over live on 2026-09-27 (canopyd 019, closed; see the
+[status](../../../../status.md#schema-26-cutover--2026-09-27)).
 
 ## Steps
 
@@ -103,3 +104,16 @@ The cutover commit renamed `next/` to this directory and started a fresh
   unchanged. Served with this build: `verify.ts` ok (7 trees, `--sync`),
   `/.arbor/integrity` ok (called once). Migrated `devices`: 2 key devices,
   2 revoked without a key (`dv_ry4d…`, `dv_7y6b…`).
+
+## Cutover log
+
+- 2026-09-27, `377e87ac`: Canopy quit on the Mac and iPhone; authored
+  manifest (112 files) and `cp -a ~/.arbor` taken; Arbor Sync stopped;
+  `mv ~/.arbor/accounts ~/.arbor/configurations`; pushed `main`, which
+  deployed into maintenance mode; `railway ssh -- bun run
+  packages/canopyd/migrations/026-key-devices-only/run.ts /data` reported
+  `migrated: true`, 23 → 26 through 024–026, as rehearsed; `railway redeploy
+  --from-source -y`. Then `verify.ts --sync` ok on all 7 roots,
+  `/.arbor/integrity` ok (once), every placement idle at its old update, the
+  authored manifest unchanged apart from the renamed directory, and round
+  trips from the file system (5187/5188), the rebuilt Mac app and the iPhone.

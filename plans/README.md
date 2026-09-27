@@ -11,7 +11,6 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 
 | Plan | What it does |
 |---|---|
-| canopyd [019](soon/019-cutover-026.md) | Cut the one install over to schema 26: key devices only, CBOR object transport, legacy readers gone, `~/.arbor/configurations/`; written, awaiting Joe's Mac |
 | Security [007](soon/007-placement-hosts.md) | Place trees on other hosts using the home host's published device keys |
 | Security [008](soon/008-portable-profiles.md) | Design portable profiles and delegation across hosts |
 

@@ -102,10 +102,11 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Schema-26 cutover — 2026-09-27
 
-Implemented on branch `claude/happy-davinci-pftumh`, not installed or
-deployed; the live host is at schema 23. [canopyd 019](plans/soon/019-cutover-026.md)
-is the runbook. The branch is one cutover: its host serves only schema 26, and
-the Mac app, Arbor Sync and the iPhone follow in the same sitting.
+Deployed and cut over live 2026-09-27 at `377e87ac` (canopyd 019, closed):
+the host serves only schema 26, and the Mac app, Arbor Sync and the iPhone
+were rebuilt from it in the same sitting. The runbook and its rehearsal and
+live logs are in the
+[026-key-devices-only README](packages/canopyd/migrations/026-key-devices-only/README.md).
 
 - **Batch 024–026.** `migrations/026-key-devices-only/` (batch 024–026) carries schema 23 to 26 in one
   transaction: 024 drops `profile_resets` (refusing a pending row), 025 makes
@@ -169,8 +170,35 @@ Overstory, OverstoryObjectStore, CanopyWorkingTree, OverstoryClient) were
 built and tested on Linux with Swift 6.2 against stand-ins for CryptoKit,
 Security, OSLog and UniformTypeIdentifiers: all pass except
 `profileConfigurationFileEdit`, which fails on Linux Foundation's
-`replaceItemAt` at the base commit too. The app target, `CanopyAppTests` and
-the Swift half of `test:protocol` still need the Mac.
+`replaceItemAt` at the base commit too.
+
+On the Mac before cutover: all six Swift package suites, `CanopyAppTests`
+(77 passed, 1 live-server skip), `bun run test:protocol` and the full gate
+pass. The Mac fixes: the app did not compile (`a4dd2684`'s
+`ArborSyncCredentialProvider.shared` took a required configuration tree the
+bootstrap descriptor leaves optional), the pairing test expected
+`accounts/`, the cloud-bundle fixture is now Apple's own DEFLATE output, and
+the survey read at most 1 MB of `security dump-keychain` (Joe's is 2 MB) and
+checked the real Keychain for another `--home`. The survey found schema-2
+and -3 update-control records under placed Mac and iPhone trees, so
+"Remove update control before schema 4" was reverted.
+
+Live, 2026-09-27: `dv_ry4dqmh32o5ovzccizd2xfhhje` removed from
+`devices.yaml` (update 5183) before the backup
+`.backups/railway/20260927T175419Z/` (volume.tar sha256 `8008cdba…`, with
+the rehearsal copies, `dot-arbor.before` and the authored manifests; keep
+until 2026-10-11; the volume's `/data/backups/026-key-devices-only` is for
+Joe to delete). The live run matched the rehearsal (23 → 26 through
+024–026); after the redeploy all 7 roots were unchanged, `verify.ts --sync`
+ok, `/.arbor/integrity` ok (called once). `~/.arbor/accounts` became
+`~/.arbor/configurations` with Arbor Sync stopped; on restart every
+placement was idle at its old update, the configuration checkout included,
+and the 112 authored files were unchanged. Round trips: a file created and
+deleted in `/~joe/todos` (5186 → 5187 → 5188, page 200 then 404), then an
+edit from the rebuilt Mac app and one from the iPhone (Joe; 5200). The Mac
+app's Devices section shows the Mac (administrator) and the key iPhone.
+Migration directories go when their backups age out: 018–021 after
+2026-10-09, 022 after 2026-10-10, 026 after 2026-10-11.
 
 ## Host–client communication review — 2026-09-27
 
