@@ -193,3 +193,30 @@ and ends by checking the result with both `assertCurrentHostSchema` and
 `run.ts` predates the latter); a `migrate.test.ts` runnable with
 `bun run test:migration packages/canopyd/migrations/NNN-<name>`. Batch wire changes into one
 migration whenever they are ready together.
+
+## Queued for the next migration
+
+Schema-only changes that are not worth a cutover on their own. Fold them into
+the next migration that changes the schema, then delete the entry here.
+
+- **One challenge table.** `account_challenges` (claims) and
+  `device_challenges` (sessions and profile-key resets) have identical columns
+  and share `AccountDirectory.insertChallenge`, `challenge` and
+  `consumeChallenge`, which take the table name. Merge them into one
+  `challenges` table:
+  1. Add `purpose TEXT NOT NULL` with a CHECK for `account-claim`,
+     `device-session` and `profile-reset`. The table is what keeps a claim
+     proof from redeeming a profile-reset challenge today, since both are
+     signed by the profile key and an account challenge carries no
+     `purpose` field; the column keeps that separation without a wire
+     change.
+  2. Copy unexpired, unconsumed rows: `account_challenges` as
+     `account-claim`, and `device_challenges` by their JSON `purpose`. Expired
+     and consumed rows can be dropped, since neither can be redeemed.
+  3. Drop both old tables. Replace the helpers' `table` parameter with
+     `purpose`, and filter every read and consume on it.
+  4. Update `schema.ts` (`AUTHORITY_SCHEMA`, the `CREATE TABLE`), the
+     [schema history](#schema-history) row, and the device-keys paragraph in
+     [the host reference](../../../docs/architecture/canopyd/README.md).
+  5. Test that a challenge issued for one purpose is refused by the other two
+     routes, before and after the migration.
