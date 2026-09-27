@@ -180,6 +180,22 @@ export class AccessControl {
     return this.allows(account, treeOrID, "write", linkDigest);
   }
 
+  /**
+   * The caller's whole-tree access in one pass: `write` (which includes
+   * read), `read`, or none. Administration and the tree's rules are read once,
+   * where `canRead` then `canWrite` would read them twice.
+   */
+  level(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): "write" | "read" | null {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
+    if (!tree || tree.status !== "active") return null;
+    const profile = account?.id ?? null;
+    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(profile, tree.governs) ? "write" : null;
+    if (this.administers(profile, tree.id)) return "write";
+    const rules = this.rules(tree.id);
+    const context = { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember };
+    return rulesAllow(rules, context, "/", "write") ? "write" : rulesAllow(rules, context, "/", "read") ? "read" : null;
+  }
+
   private allows(account: HostAccount | null, treeOrID: string | HostTree, operation: "read" | "write", linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree || tree.status !== "active") return false;

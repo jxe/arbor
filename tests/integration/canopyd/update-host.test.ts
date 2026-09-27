@@ -338,7 +338,7 @@ describe("governed tree-configuration Canopy server", () => {
     expect(first.headers.get("content-type")).toBe("application/cbor");
     expect(first.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     expect(first.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
-    expect(first.headers.get("etag")).toBe(`"sha256:${sha256(firstBody)}"`);
+    expect(first.headers.get("etag")).toBe(`"${baseline.snapshot.root}"`);
     expect((await client.snapshot(treeID, baseline.snapshot.root)).objects).toEqual(baseline.snapshot.objects);
     expect((await fetch(`${running.url}/.arbor/trees/${treeID}/snapshot`, { headers: authenticated })).status).toBe(404);
 
@@ -371,7 +371,7 @@ describe("governed tree-configuration Canopy server", () => {
     // Hidden objects are not found; a token that authenticates nothing is refused outright.
     expect(hiddenResponses.map(({ status }) => status)).toEqual([404, 404, 401]);
     const bodies = await Promise.all(hiddenResponses.map((response) => response.text()));
-    expect(bodies.slice(0, 2)).toEqual(["Not found", "Not found"]);
+    expect(bodies.slice(0, 2).map((body) => JSON.parse(body).error)).toEqual(["not-found", "not-found"]);
     expect(JSON.parse(bodies[2]!).error).toBe("unauthenticated");
 
     const restored = await client.submitUpdate(treeID, advanced.update.id, baseline.snapshot);
@@ -418,7 +418,7 @@ describe("governed tree-configuration Canopy server", () => {
     database.close();
     const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
     expect(pruned.status).toBe(404);
-    expect(await pruned.text()).toBe("Not found");
+    expect((await pruned.json()).error).toBe("not-found");
     // The object itself stays readable until the object store compacts it away:
     // the object route is gated on tree read, not on accepted-update retention.
     expect((await fetch(objectURL, { headers: authenticated })).status).toBe(200);

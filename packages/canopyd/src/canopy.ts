@@ -1164,6 +1164,14 @@ export class HostDaemon implements AsyncDisposable {
     return this.execution.current ? this.execution.allows(idOf(tree), "/", "write") : this.access.canWrite(account, tree, linkDigest);
   }
 
+  /** The caller's whole-tree access in one decision: `write`, `read`, or none. */
+  accessLevel(account: HostAccount | null, tree: string | HostTree, linkDigest?: string): "write" | "read" | null {
+    if (this.execution.current) {
+      return this.execution.allows(idOf(tree), "/", "write") ? "write" : this.execution.allows(idOf(tree), "/", "read") ? "read" : null;
+    }
+    return this.access.level(account, tree, linkDigest);
+  }
+
   canAdminister(account: HostAccount, tree: string | HostTree): boolean {
     return !this.execution.current && this.access.canAdminister(account, tree);
   }

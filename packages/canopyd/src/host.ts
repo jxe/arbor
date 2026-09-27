@@ -322,6 +322,15 @@ export async function serveHost(options: {
       if (token && !execution && !authentication) return protocolError("unauthenticated", "The credential or session is not valid", 401);
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       const link = linkDigest(request);
+      /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
+      const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
+        const tree = canopy.get(treeReference(segment).id);
+        const level = tree ? canopy.accessLevel(account, tree, link) : null;
+        if (!tree || !level) throw new NotFoundError("Tree not found");
+        return { tree, level };
+      };
+      const notFound = (message = "Not found") => protocolError("not-found", message, 404);
+      const methodNotAllowed = () => protocolError("invalid-request", "Method not allowed", 405);
       try {
         if (url.pathname === "/.arbor/execution/authority-watch" && request.method === "GET") {
           if (!execution) return protocolError("unauthenticated", "Execution authorization is required", 401);
@@ -352,9 +361,7 @@ export async function serveHost(options: {
         const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
-          const treeID = treeReference(queryRoute[1]!).id;
-          const tree = canopy.get(treeID);
-          if (!tree || !canopy.canRead(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
+          const treeID = readableTree(queryRoute[1]!).tree.id;
           server.timeout(request, 0);
           return treeQueryResponse(
             options.queryRuntime,
@@ -366,9 +373,9 @@ export async function serveHost(options: {
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
           if (!options.mutationRuntime) return protocolError("unsupported-operation", "No mutation runtime is active", 422);
-          const treeID = treeReference(mutateRoute[1]!).id;
-          const tree = canopy.get(treeID);
-          if (!tree || !account || !canopy.canWrite(account, tree, link)) return protocolError("not-found", "Tree not found", 404);
+          const { tree, level } = readableTree(mutateRoute[1]!);
+          if (!account || level !== "write") return notFound("Tree not found");
+          const treeID = tree.id;
           return treeMutationResponse(
             options.mutationRuntime,
             request,
@@ -471,15 +478,17 @@ export async function serveHost(options: {
               // and a tree mounted nowhere only for its administrators.
               .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.id
                 : tree.canonicalPath !== null || (account !== null && canopy.canAdminister(account, tree))))
-              .filter((tree) => canopy.canRead(account, tree, link))
-              .map((tree) => descriptorWithUpdate(publicOrigin, canopy, tree, canopy.canWrite(account, tree, link) ? "write" : "read")),
+              .flatMap((tree) => {
+                const level = canopy.accessLevel(account, tree, link);
+                return level ? [descriptorWithUpdate(publicOrigin, canopy, tree, level)] : [];
+              }),
               observedThrough: canopy.observedThrough(),
             });
           }
-          return new Response("Method not allowed", { status: 405 });
+          return methodNotAllowed();
         }
         if (url.pathname === "/.arbor/directory") {
-          if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+          if (request.method !== "GET") return methodNotAllowed();
           const authenticated = requireAccount(authentication);
           return json({
             snapshot: buildDirectory(canopy, authenticated, publicOrigin),
@@ -555,7 +564,7 @@ export async function serveHost(options: {
               });
             return json({ snapshot, ...(policy ? { policy } : {}), observedThrough: canopy.observedThrough(treeID) });
           }
-          return new Response("Method not allowed", { status: 405 });
+          return methodNotAllowed();
         }
         const wellKnown = url.pathname === "/.well-known/arbor"
           ? "/"
@@ -566,23 +575,20 @@ export async function serveHost(options: {
         if (wellKnown !== null && request.method === "GET" && url.pathname.endsWith(CONFIGURATION_SUFFIX)) {
           // `/~joe/todos;arbor-config`: the configuration of the tree whose root the path names.
           const configuration = configurationAt(canopy, wellKnown.slice(0, -CONFIGURATION_SUFFIX.length) || "/");
-          if (!configuration || !canopy.canRead(account, configuration, link)) return new Response("Not found", { status: 404 });
+          const level = configuration ? canopy.accessLevel(account, configuration, link) : null;
+          if (!configuration || !level) return notFound();
           return json({
             ref: { tree: configuration.id, path: "/", stableKey: null },
-            enclosingTree: descriptorWithUpdate(publicOrigin, canopy, configuration, canopy.canWrite(account, configuration, link) ? "write" : "read"),
+            enclosingTree: descriptorWithUpdate(publicOrigin, canopy, configuration, level),
             historical: false,
             observedThrough: canopy.observedThrough(configuration.id),
           } satisfies LocatorResolution);
         }
         if (wellKnown !== null && request.method === "GET") {
           const resolved = canopy.resolve(wellKnown);
-          if (!resolved || !canopy.canRead(account, resolved.tree, link)) return new Response("Not found", { status: 404 });
-          const enclosingTree = descriptorWithUpdate(
-              publicOrigin,
-              canopy,
-              resolved.tree,
-              canopy.canWrite(account, resolved.tree, link) ? "write" : "read",
-            );
+          const level = resolved ? canopy.accessLevel(account, resolved.tree, link) : null;
+          if (!resolved || !level) return notFound();
+          const enclosingTree = descriptorWithUpdate(publicOrigin, canopy, resolved.tree, level);
           return json({
             ref: { tree: resolved.tree.id, path: resolved.path, stableKey: null },
             enclosingTree,
@@ -592,52 +598,40 @@ export async function serveHost(options: {
         }
         const ref = /^\/\.arbor\/trees\/([^/]+)$/.exec(url.pathname);
         if (ref && request.method === "GET") {
-          const tree = canopy.get(treeReference(ref[1]!).id);
-          if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
-          const current = descriptorWithUpdate(
-            publicOrigin,
-            canopy,
-            tree,
-            canopy.canWrite(account, tree, link) ? "write" : "read",
-          );
+          const { tree, level } = readableTree(ref[1]!);
+          const current = descriptorWithUpdate(publicOrigin, canopy, tree, level);
           return json({ tree: current, observedThrough: canopy.observedThrough(tree.id) });
         }
         const conflicts = /^\/\.arbor\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
         if (conflicts && request.method === "GET") {
-          const conflicted = canopy.get(treeReference(conflicts[1]!).id);
-          if (!conflicted || !canopy.canRead(account, conflicted, link)) return new Response("Not found", { status: 404 });
-          const tree = conflicted.id;
+          const tree = readableTree(conflicts[1]!).tree.id;
           const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
           if (!state || ["state", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
               (after !== null && (!after || selected !== null)) || selected === "") {
             return protocolError("invalid-request", "Invalid conflict inspection query", 400);
           }
           const page = await canopy.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
-          return page ? json(page) : new Response("Not found", { status: 404 });
+          return page ? json(page) : notFound("Accepted state not found");
         }
         const acceptedSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (acceptedSnapshot && request.method === "GET") {
-          const treeID = treeReference(acceptedSnapshot[1]!).id;
           const root = acceptedSnapshot[2] as ObjectHash;
-          const tree = canopy.get(treeID);
-          if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
+          const { tree } = readableTree(acceptedSnapshot[1]!);
           const snapshot = await canopy.snapshotForRoot(tree.id, root);
-          if (!snapshot) return new Response("Not found", { status: 404 });
-          const body = encodeSnapshotBundle(snapshot);
-          return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, {
-            headers: immutableHeaders(request, `sha256:${sha256(body)}`),
-          });
+          if (!snapshot) return notFound("Snapshot not found");
+          // The bundle is a deterministic encoding of the root's graph, so the
+          // root names it; hashing the body again would add nothing.
+          return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, root) });
         }
         const metadata = /^\/\.arbor\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
         if (metadata && request.method === "GET") {
-          const tree = canopy.get(treeReference(metadata[1]!).id);
-          if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
+          const { tree } = readableTree(metadata[1]!);
           const value = canopy.entryMetadata(tree.id);
-          return value ? json(value) : new Response("Not found", { status: 404 });
+          return value ? json(value) : notFound("Entry metadata not found");
         }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
-          if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+          if (request.method !== "POST") return methodNotAllowed();
           const reference = treeReference(updates[1]!);
           const treeID = reference.id;
           const timer = new PhaseTimer();
@@ -669,7 +663,7 @@ export async function serveHost(options: {
             const permitted = tree
               ? writable || canopy.execution.canSubmit(treeID) || (direct && canopy.execution.run(direct, () => canopy.execution.canSubmit(treeID)))
               : update.base === null && authentication !== null;
-            if (!permitted) return new Response("Not found", { status: 404 });
+            if (!permitted) return notFound("Tree not found");
             timer.mark("parse-auth");
             let result: Awaited<ReturnType<typeof canopy.submitUpdate>>;
             try {
@@ -707,13 +701,11 @@ export async function serveHost(options: {
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
-          const tree = canopy.get(treeReference(watch[1]!).id);
-          if (!tree || !canopy.canRead(account, tree, link)) return new Response("Not found", { status: 404 });
+          const { tree, level: access } = readableTree(watch[1]!);
           // Watch streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
           server.timeout(request, 0);
           const encoder = new TextEncoder();
           const credentialSubject = authentication?.subject;
-          const access = canopy.canWrite(account, tree, link) ? "write" : "read";
           const headerCursor = request.headers.get("last-event-id");
           const queryCursor = url.searchParams.get("after");
           if (headerCursor && queryCursor && headerCursor !== queryCursor) {
@@ -824,14 +816,18 @@ export async function serveHost(options: {
           });
         }
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
+          // A browser gets a page; anything else the protocol's error envelope.
+          const pageNotFound = () => request.headers.get("accept")?.includes("text/html")
+            ? html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Not found</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}</style><h1>Not found</h1><p>Nothing is published at this address.</p>`, 404)
+            : notFound();
           const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
-          if (!requestLocator || requestLocator.kind !== "local") return new Response("Not found", { status: 404 });
+          if (!requestLocator || requestLocator.kind !== "local") return pageNotFound();
           if (requestLocator.configuration) {
             // A canonical URL with `;arbor-config`: administrators are sent to the
             // configuration's descriptor; anyone else sees an unreadable tree.
             const configuration = configurationAt(canopy, requestLocator.path);
             if (!configuration || !canopy.canRead(account, configuration, link)) {
-              return request.headers.get("accept")?.includes("text/html") ? linkBootstrap() : new Response("Not found", { status: 404 });
+              return request.headers.get("accept")?.includes("text/html") ? linkBootstrap() : notFound();
             }
             return new Response(null, { status: 303, headers: { location: `/.arbor/trees/${configuration.governs};arbor-config` } });
           }
@@ -845,17 +841,15 @@ export async function serveHost(options: {
             return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.id)}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
           }
           const resolved = canopy.resolve(requestLocator.path);
-          if (!resolved) return new Response("Not found", { status: 404 });
+          if (!resolved) return pageNotFound();
           if (!canopy.canRead(account, resolved.tree, link)) {
-            return request.headers.get("accept")?.includes("text/html")
-              ? linkBootstrap()
-              : new Response("Not found", { status: 404 });
+            return request.headers.get("accept")?.includes("text/html") ? linkBootstrap() : notFound();
           }
           const tree = resolved.tree;
           const load = (hash: ObjectHash) => canopy.object(hash);
           const projection = new ProtocolProjection({ root: tree.ref, load });
           const resolution = await projection.resolve(resolved.path, requestLocator.stableKey);
-          if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
+          if (resolution.kind === "missing") return pageNotFound();
           const logicalPath = resolution.path;
           const canonicalPath = tree.canonicalPath!;
           const publicPath = publicTreePath(canonicalPath, logicalPath);
@@ -865,7 +859,7 @@ export async function serveHost(options: {
               applicationQuery: requestLocator.applicationQuery,
               contentFragment: requestLocator.contentFragment,
             });
-            if (!location) return new Response("Not found", { status: 404 });
+            if (!location) return pageNotFound();
             return new Response(null, { status: 308, headers: { location } });
           }
           const collectionFileRow = resolution.kind === "collection-file-row" ? resolution : null;
@@ -879,7 +873,7 @@ export async function serveHost(options: {
             }
             return html(renderPublicDataPage(title, collectionFileRow.row.properties));
           }
-          if (!logical) return new Response("Not found", { status: 404 });
+          if (!logical) return pageNotFound();
 
           const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Arbor";
           if (logical.kind === "file") {
