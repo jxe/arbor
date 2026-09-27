@@ -296,12 +296,10 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var shadowedSiblingMarkdownSource: String?
     /// Descriptive metadata, deliberately omitted from Overstory object encoding.
     var metadata: EntryMetadata?
-    /// State written before `metadata` stored the date alone under this key.
-    private var legacyModifiedAt: Date?
 
     var modifiedAt: Date? {
-        get { metadata?.modifiedAt ?? legacyModifiedAt }
-        set { var value = metadata ?? EntryMetadata(); value.modifiedAt = newValue; metadata = value; legacyModifiedAt = nil }
+        get { metadata?.modifiedAt }
+        set { var value = metadata ?? EntryMetadata(); value.modifiedAt = newValue; metadata = value }
     }
 
     var bodyEntryPath: String? {
@@ -321,13 +319,12 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
 
     /// The node's content and placement, without its descriptive metadata.
     var withoutMetadata: WorkingTreeNode {
-        var node = self; node.metadata = nil; node.legacyModifiedAt = nil; return node
+        var node = self; node.metadata = nil; return node
     }
 
     private enum CodingKeys: String, CodingKey {
         case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, childrenSource
         case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata
-        case legacyModifiedAt = "modifiedAt"
     }
 
     init(

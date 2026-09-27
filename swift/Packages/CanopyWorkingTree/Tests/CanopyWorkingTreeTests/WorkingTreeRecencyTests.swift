@@ -108,13 +108,14 @@ struct WorkingTreeRecencyTests {
         #expect(try await workingTree.resolve(.init(tree: tree, path: "/b")).modifiedAt == day(2))
     }
 
-    @Test("State written before entry metadata keeps its dates")
-    func legacyDates() throws {
-        let json = #"{"path":"/a","kind":"markdown","source":"A","modifiedAt":1788000000000}"#
-        let node = try WorkingTree.decode(WorkingTreeNode.self, from: Data(json.utf8))
-        #expect(node.modifiedAt == Date(timeIntervalSince1970: 1_788_000_000))
-        var moved = node; moved.modifiedAt = day(1)
-        let encoded = String(decoding: try WorkingTree.encode(moved), as: UTF8.self)
+    @Test("A node's date is read only from its entry metadata")
+    func datesOnlyFromMetadata() throws {
+        let bare = #"{"path":"/a","kind":"markdown","source":"A","modifiedAt":1788000000000}"#
+        var node = try WorkingTree.decode(WorkingTreeNode.self, from: Data(bare.utf8))
+        #expect(node.modifiedAt == nil)
+        node.modifiedAt = day(1)
+        let encoded = String(decoding: try WorkingTree.encode(node), as: UTF8.self)
         #expect(encoded.contains("\"metadata\"") && !encoded.contains("\"modifiedAt\":1788000000000"))
+        #expect(try WorkingTree.decode(WorkingTreeNode.self, from: Data(encoded.utf8)).modifiedAt == day(1))
     }
 }
