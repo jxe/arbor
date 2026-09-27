@@ -68,11 +68,38 @@ public actor ProtocolClient {
         self.wireEncoding = encoding
     }
 
+    /// The account at its home host. A placement host's descriptor is
+    /// refused: read it with `placementAccount()`.
     public func account() async throws -> ProtocolAccountSnapshot {
-        let value: ProtocolAccountSnapshot = try await get(path: "/.arbor/account")
-        _ = try value.account.community.validated()
-        _ = try value.account.configuration.validated()
-        for profile in value.account.writableProfiles { _ = try profile.validated() }
+        let value = try await anyAccount()
+        switch value.account {
+        case let .home(account):
+            return ProtocolAccountSnapshot(account: account, observedThrough: value.observedThrough)
+        case let .placement(account):
+            throw ProtocolValidationError.invalidValue("\(canonicalOrigin) is a placement host for this profile; its home host is \(account.homeHost)")
+        }
+    }
+
+    /// The account at a placement host (accounts §1.3).
+    public func placementAccount() async throws -> ProtocolPlacementAccountSnapshot {
+        let value = try await anyAccount()
+        guard case let .placement(account) = value.account else {
+            throw ProtocolValidationError.invalidValue("\(canonicalOrigin) is this profile's home host, not a placement host")
+        }
+        return ProtocolPlacementAccountSnapshot(account: account, observedThrough: value.observedThrough)
+    }
+
+    /// The account descriptor as the host sent it, home or placement.
+    public func anyAccount() async throws -> ProtocolAnyAccountSnapshot {
+        let value: ProtocolAnyAccountSnapshot = try await get(path: "/.arbor/account")
+        switch value.account {
+        case let .home(account):
+            _ = try account.community.validated()
+            _ = try account.configuration.validated()
+            for profile in account.writableProfiles { _ = try profile.validated() }
+        case let .placement(account):
+            _ = try account.validated()
+        }
         guard !value.account.id.isEmpty, !value.observedThrough.isEmpty else {
             throw ProtocolValidationError.invalidValue("Malformed account snapshot")
         }
@@ -284,13 +311,26 @@ public actor ProtocolClient {
         return try value.validated()
     }
 
-    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil) async throws -> ProtocolAccountChallenge {
+    /// A challenge for claiming an account with the profile key (accounts
+    /// §1.2). `homeHost` asks for a placement claim's challenge (§1.3).
+    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil, homeHost: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
             path: "/.arbor/account-challenges",
-            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode),
+            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode, homeHost: homeHost),
             authorized: false
         )
         return try value.validated()
+    }
+
+    /// Claim a placement account (accounts §1.3): the profile-key proof alone,
+    /// answered with the placement account.
+    public func claimPlacementAccount(_ value: ProtocolPlacementClaimRequest) async throws -> ProtocolPlacementClaimResult {
+        guard try value.challenge.validated().homeHost != nil else {
+            throw ProtocolValidationError.invalidValue("A placement claim's challenge names its home host")
+        }
+        let result: ProtocolPlacementClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false)
+        _ = try result.account.validated()
+        return result
     }
 
     public func joinAccount(_ value: ProtocolExistingProfileClaimRequest) async throws -> ProtocolAccountClaimResult {
@@ -482,7 +522,8 @@ public actor ProtocolClient {
             status: status,
             code: envelope?.error ?? "http-error",
             message: envelope?.message,
-            retryable: envelope?.retryable ?? (status >= 500)
+            retryable: envelope?.retryable ?? (status >= 500),
+            homeHost: envelope?.homeHost
         )
     }
 
@@ -649,6 +690,7 @@ private struct AccountChallengeRequest: Encodable {
     var profileTree: String
     var configurationTree: String
     var inviteCode: String?
+    var homeHost: String?
 }
 private struct DeviceSessionChallengeRequest: Encodable {
     var profileTree: String
@@ -666,4 +708,18 @@ private struct ProtocolErrorEnvelope: Decodable {
     var error: String
     var message: String
     var retryable: Bool
+    /// `details.homeHost`, when the details carry one; details of any other
+    /// shape leave it nil rather than failing the envelope.
+    var homeHost: String?
+
+    private enum CodingKeys: String, CodingKey { case error, message, retryable, details }
+    private struct Details: Decodable { var homeHost: String? }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        error = try values.decode(String.self, forKey: .error)
+        message = try values.decode(String.self, forKey: .message)
+        retryable = try values.decode(Bool.self, forKey: .retryable)
+        homeHost = (try? values.decodeIfPresent(Details.self, forKey: .details))??.homeHost
+    }
 }

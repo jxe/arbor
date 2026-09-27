@@ -204,10 +204,11 @@ enum CanonicalCBOR {
     }
 }
 
-/// Exact canonical bytes signed when a self-certifying profile claims an account.
+/// Exact canonical bytes signed when a self-certifying profile claims an
+/// account: the complete challenge, `homeHost` included when present.
 public func accountChallengeSigningBytes(_ challenge: ProtocolAccountChallenge) throws -> Data {
     let value = try challenge.validated()
-    return CanonicalCBOR.encode(.map([
+    var fields: [(String, CanonicalCBORValue)] = [
         ("version", .unsigned(value.version)),
         ("id", .text(value.id)),
         ("origin", .text(value.origin)),
@@ -217,5 +218,8 @@ public func accountChallengeSigningBytes(_ challenge: ProtocolAccountChallenge) 
         ("nonce", .text(value.nonce)),
         ("issuedAt", .unsigned(value.issuedAt)),
         ("expiresAt", .unsigned(value.expiresAt)),
-    ]))
+    ]
+    // A placement claim's home host is signed with the rest (accounts §1.3).
+    if let homeHost = value.homeHost { fields.append(("homeHost", .text(homeHost))) }
+    return CanonicalCBOR.encode(.map(fields))
 }
