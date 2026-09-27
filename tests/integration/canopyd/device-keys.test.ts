@@ -183,6 +183,8 @@ describe("key devices (accounts §5.1, §5.2)", () => {
       })();
       await Bun.sleep(80);
       await expect(short.account()).rejects.toThrow("unauthenticated");
+      // Every route refuses it, so a client knows to open a new session rather than seeing "not found".
+      await expect(short.descriptor(profileTree)).rejects.toThrow("unauthenticated");
       expect(await ended).toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
     } finally {
       running.canopy.sessionLifetimeMs = lifetime;

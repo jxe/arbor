@@ -295,6 +295,10 @@ export async function serveHost(options: {
       const url = new URL(request.url);
       // The one authentication of this request; routes below reuse it.
       const authentication = canopy.authenticateToken(token);
+      // A presented token that authenticates nothing (an expired session, a
+      // deleted device) is refused, never read as anonymous: a 404 for a
+      // private tree would hide the reason and clients refresh only on 401.
+      if (token && !execution && !authentication) return protocolError("unauthenticated", "The credential or session is not valid", 401);
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       const link = linkDigest(request);
       try {
