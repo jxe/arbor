@@ -1,10 +1,8 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
-import { authoredIntentFromTransport, decodeAuthoredUpdateRequestJSON, decodeAuthoredCandidateJSON, encodeAuthoredUpdateRequestJSON, encodeAuthoredCandidateJSON } from "./authored-transport.ts";
-import { decodeAuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
+import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeProtocolDirectory, hashObject, protocolEntryObject, type ProtocolEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import type {
   AcceptedTransition,
-  AcceptedTransitionPayload,
   AcceptedUpdate,
   ObjectDelta,
   UpdateConflict,
@@ -150,7 +148,7 @@ function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: Obj
   }
 }
 
-export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionPayload {
+export function decodeTransitionPayloadJSON(value: unknown): TransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
   const objects = decodeObjectEnvelopes(record.objects);
@@ -159,7 +157,7 @@ export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionP
   return { objects, deltas };
 }
 
-export function encodeTransitionPayloadJSON(payload: AcceptedTransitionPayload): TransitionPayloadJSON {
+export function encodeTransitionPayloadJSON(payload: TransitionPayload): TransitionPayloadJSON {
   return {
     objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
     deltas: payload.deltas.map(encodeObjectDeltaJSON),
@@ -197,27 +195,72 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
   };
 }
 
+/** A request's semantic intent: the transport fields stripped, unknown semantic fields failing closed. */
+export function authoredIntentFromTransport(raw: unknown): AuthoredRequestIntent {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected update request");
+  const { updates, ...request } = raw as Record<string, unknown>;
+  if (!Array.isArray(updates)) throw new Error("Expected updates array");
+  return decodeAuthoredRequestIntent({ ...request, updates: updates.map(raw => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected candidate");
+    const { objects: _objects, deltas: _deltas, ...intent } = raw as Record<string, unknown>;
+    return intent;
+  }) });
+}
+
 /** Validate semantic claims without re-encoding large transport payloads. */
 export function validateUpdateRequestIntent(request: UpdateRequest): void {
   authoredIntentFromTransport(request);
 }
+
+/** Decode a request and verify its complete object bytes; graph and operation execution are authority checks. */
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
-  return decodeAuthoredUpdateRequestJSON(value);
+  const intent = authoredIntentFromTransport(value);
+  const updates = (value as { updates: Record<string, unknown>[] }).updates.map((raw) => decodeCandidateUpdateJSON(raw));
+  if (intent.base === null && updates[0]!.deltas.length) throw new Error("Activation has no delta basis");
+  return { base: intent.base, updates };
 }
+
 export function decodeCandidateUpdateJSON(value: unknown, activation = false): CandidateUpdate {
-  const candidate = decodeAuthoredCandidateJSON(value);
-  if (activation) {
-    const {objects: _objects,deltas: _deltas,...intent} = candidate;
-    decodeAuthoredRequestIntent({base:null,updates:[intent]});
-    if (candidate.deltas.length) throw new Error("Activation has no delta basis");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected candidate");
+  const { objects, deltas, ...fields } = value as Record<string, unknown>;
+  const intent = decodeAuthoredCandidateIntent(fields);
+  const payload = decodeTransitionPayloadJSON({ objects, deltas });
+  if (payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
+  for (const object of payload.objects) {
+    if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
   }
-  return candidate;
+  if (activation) {
+    decodeAuthoredRequestIntent({ base: null, updates: [intent] });
+    if (payload.deltas.length) throw new Error("Activation has no delta basis");
+  }
+  return { ...intent, ...payload };
 }
+
+/**
+ * In-process builders meet the same contract as received JSON: the intent is
+ * validated and every object's bytes must hash to its name. The bytes are
+ * checked as they are, not encoded and decoded again.
+ */
 export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJSON {
-  return encodeAuthoredUpdateRequestJSON(request);
+  const intent = authoredIntentFromTransport(request);
+  if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
+  request.updates.forEach(verifyCandidateObjects);
+  return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!) })) };
 }
+
 export function encodeCandidateUpdateJSON(update: CandidateUpdate): CandidateUpdateJSON {
-  return encodeAuthoredCandidateJSON(update);
+  const { objects: _objects, deltas: _deltas, ...fields } = update;
+  verifyCandidateObjects(update);
+  return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update) };
+}
+
+function verifyCandidateObjects(candidate: TransitionPayload): void {
+  const seen = new Set<string>();
+  for (const object of candidate.objects) {
+    if (seen.has(object.hash)) throw new Error("Duplicate complete object");
+    seen.add(object.hash);
+    if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
+  }
 }
 
 export interface TreeSnapshotJSON {

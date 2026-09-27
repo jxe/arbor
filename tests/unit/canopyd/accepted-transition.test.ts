@@ -5,7 +5,7 @@ import {
   encodeProtocolDirectory,
   hashObject,
   transitionPayload,
-  type AcceptedTransitionPayload,
+  type TransitionPayload,
   type ObjectHash,
 } from "@overstory/protocol";
 
@@ -17,14 +17,14 @@ function graph(name: string, payload: Uint8Array) {
   return { root: rootHash, file: fileHash, objects: new Map<ObjectHash, Uint8Array>([[fileHash, file], [rootHash, root]]) };
 }
 
-function results(payload: AcceptedTransitionPayload): Set<ObjectHash> {
+function results(payload: TransitionPayload): Set<ObjectHash> {
   return new Set([
     ...payload.objects.map(({ hash }) => hash),
     ...payload.deltas.map(({ result }) => result),
   ]);
 }
 
-function reconstruct(payload: AcceptedTransitionPayload, retained: Map<ObjectHash, Uint8Array>): Map<ObjectHash, Uint8Array> {
+function reconstruct(payload: TransitionPayload, retained: Map<ObjectHash, Uint8Array>): Map<ObjectHash, Uint8Array> {
   const objects = new Map(retained);
   for (const object of payload.objects) objects.set(object.hash, object.bytes);
   for (const delta of payload.deltas) {
@@ -37,7 +37,7 @@ function reconstruct(payload: AcceptedTransitionPayload, retained: Map<ObjectHas
   return objects;
 }
 
-function encodedBytes(payload: AcceptedTransitionPayload): number {
+function encodedBytes(payload: TransitionPayload): number {
   return Buffer.byteLength(JSON.stringify(encodeTransitionPayloadJSON(payload)));
 }
 

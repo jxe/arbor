@@ -7,8 +7,6 @@ export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifCurrent" | "re
 
 function intent(tree: string, request: UpdateIntent) {
   return {
-    // `arbor-update/2` carries the trace. Receipts under the previous domain
-    // hashed a flat operation list and cannot collide with these.
     domain: "arbor-update/2",
     change: request.change,
     trace: request.trace,
@@ -33,14 +31,22 @@ export function updateRequestDigest(tree: string, request: UpdateIntent): string
   return canonicalCBORHash(intent(tree, request));
 }
 
+/**
+ * Each element's canonical intent bytes and digest for one append-only update
+ * string: each later element's base is its predecessor's
+ * `{ requestDigest, candidate }`.
+ */
+export function updateRequestIdentities(tree: string, request: Pick<UpdateRequest, "base"> & { updates: UpdateIntent[] | readonly Omit<UpdateIntent, "base">[] }): Array<{ bytes: Uint8Array; digest: ObjectHash }> {
+  let base: UpdateIntentBase = request.base;
+  return request.updates.map((update) => {
+    const value = intent(tree, { ...update, base });
+    const identity = { bytes: encodeCanonicalCBOR(value), digest: canonicalCBORHash(value) as ObjectHash };
+    base = { requestDigest: identity.digest, candidate: update.candidate };
+    return identity;
+  });
+}
+
 /** Stable per-element identities for one append-only update string. */
 export function updateRequestDigests(tree: string, request: UpdateRequest): ObjectHash[] {
-  const digests: ObjectHash[] = [];
-  let base: UpdateIntentBase = request.base;
-  for (const update of request.updates) {
-    const digest = updateRequestDigest(tree, { base, ...update }) as ObjectHash;
-    digests.push(digest);
-    base = { requestDigest: digest, candidate: update.candidate };
-  }
-  return digests;
+  return updateRequestIdentities(tree, request).map((identity) => identity.digest);
 }

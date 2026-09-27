@@ -40,7 +40,7 @@ import {
   hashObject,
   updateRequestDigests,
   type AcceptedTransition,
-  type AcceptedTransitionPayload,
+  type TransitionPayload,
   type AcceptedUpdate,
   type ServerDevice,
   type ObjectHash,
@@ -321,7 +321,7 @@ export class HostDaemon implements AsyncDisposable {
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
   /** Recently replayed transitions by update id (`acceptedTransition`). */
-  private readonly transitions = new Recent<AcceptedTransitionPayload>(TRANSITION_CACHE_ENTRIES);
+  private readonly transitions = new Recent<TransitionPayload>(TRANSITION_CACHE_ENTRIES);
 
   private constructor(
     readonly dataRoot: string,
@@ -1323,7 +1323,7 @@ export class HostDaemon implements AsyncDisposable {
     return { ...result, reconciliation };
   }
 
-  private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
+  private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<TransitionPayload> {
     return transitionPayload(previousRoot, root, this.storedReader());
   }
 

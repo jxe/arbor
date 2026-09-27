@@ -4,7 +4,7 @@ import {
   encodeTransitionPayloadJSON,
   encodeProtocolDirectory,
   hashObject,
-  type AcceptedTransitionPayload,
+  type TransitionPayload,
 } from "@overstory/protocol";
 
 describe("accepted transition wire encoding", () => {
@@ -12,7 +12,7 @@ describe("accepted transition wire encoding", () => {
     const base = new TextEncoder().encode("base");
     const result = new TextEncoder().encode("best");
     const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result) }] });
-    const payload: AcceptedTransitionPayload = {
+    const payload: TransitionPayload = {
       objects: [{ hash: hashObject(directory), bytes: directory }],
       deltas: [{
         base: hashObject(base),

@@ -1,7 +1,7 @@
 /** Shared semantic contract used by the active request codecs.
  * Transport envelopes remain governed by the existing object/delta codecs.
  */
-import { canonicalCBORHash, encodeCanonicalCBOR } from "../index.ts";
+import { updateRequestIdentities } from "./intent.ts";
 export type Material =
   | { kind: "basis"; path: string; object: string }
   | { kind: "operation"; change: string; operation: string }
@@ -114,16 +114,10 @@ export function decodeAuthoredRequestIntent(raw: unknown): AuthoredRequestIntent
   if (v.base === null) { const first = v.updates[0]; require(!Object.hasOwn(first, "ifCurrent") && first.resolves.length === 0); }
   return v as AuthoredRequestIntent;
 }
+/** A validated request's per-element identities; the chain itself is `updateRequestIdentities`. */
 export function authoredRequestIdentities(tree: string, request: AuthoredRequestIntent) {
   token(tree); decodeAuthoredRequestIntent(request);
-  let base: unknown = request.base;
-  return request.updates.map(u => {
-    const intent = { domain: "arbor-update/2", tree, base, change: u.change, candidate: u.candidate,
-      trace: u.trace, resolves: u.resolves, ifCurrent: u.ifCurrent ?? null };
-    const bytes = encodeCanonicalCBOR(intent), digest = canonicalCBORHash(intent);
-    base = { requestDigest: digest, candidate: u.candidate };
-    return { bytes, digest };
-  });
+  return updateRequestIdentities(tree, request);
 }
 
 export { reference as decodeMaterialRef };

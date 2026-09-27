@@ -67,8 +67,6 @@ export interface TransitionPayload {
   deltas: ObjectDelta[];
 }
 
-export type AcceptedTransitionPayload = TransitionPayload;
-
 export interface AcceptedTransition extends TransitionPayload {
   from?: { id: string; root: ObjectHash };
   update: AcceptedUpdate;
