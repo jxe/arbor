@@ -41,15 +41,16 @@ At cutover the batch's last schema becomes `CANOPY_SCHEMA_VERSION`, and
 Two read-only scripts check that the state each removed legacy reader existed
 for is gone, on the host, the Mac and the iPhone. Neither writes anything.
 
-1. **The host.** [`survey-host.ts`](survey-host.ts) opens the live database
+1. **The host.** [`survey-host.ts`](survey-host.ts) opens a data root
    read-only and prints counts only, never content or digests: unrevoked
    devices with no public key, group members stored as bare strings in
-   `profile_facts`, and `profile_resets` rows. It runs from the deployed
-   image, so the deployed commit must contain it (it is not imported by the
-   product); a restored backup (`tools/restore-canopy.ts`) works too.
+   `profile_facts`, and `profile_resets` rows. The deployed image predates it,
+   so run it on the restored copy of the cutover's backup (step 3 of the
+   procedure), which is taken after the last digest device is deauthorized:
 
    ```sh
-   railway ssh -- bun run packages/canopyd/migrations/next/survey-host.ts /data > survey-host.json
+   bun run packages/canopyd/migrations/tools/restore-canopy.ts volume.tar before
+   bun run packages/canopyd/migrations/next/survey-host.ts before > survey-host.json
    ```
 
 2. **The iPhone.** Copy the app's data container (bundle id `org.nxhx.Arbor`,
@@ -63,7 +64,8 @@ for is gone, on the host, the Mac and the iPhone. Neither writes anything.
 
 3. **The Mac.** [`survey.ts`](survey.ts) reads `~/.arbor`, the Mac app's
    `~/Library/Application Support/Arbor`, the macOS Keychain (attributes only,
-   through `security`), and the two optional inputs:
+   through `security`; this includes no account claim pending in the Mac
+   app), and the two optional inputs:
 
    ```sh
    bun run packages/canopyd/migrations/next/survey.ts \
@@ -73,8 +75,10 @@ for is gone, on the host, the Mac and the iPhone. Neither writes anything.
    `--home <dir>` (or `SURVEY_HOME`) surveys another home directory. Each line
    is `PASS`, `FAIL` or `SKIP`, the check, the commit to `git revert` if it
    fails (or the work it gates), and details; the script exits 1 when any
-   check fails. `SKIP` marks an input not given. The iPhone's Keychain cannot
-   be read from the Mac: check Settings → Accounts on the phone by hand.
+   check fails. `SKIP` marks an input not given. Run it once without `--live`
+   before touching the host, and again with it after the backup. The iPhone's
+   Keychain cannot be read from the Mac: check Settings → Accounts on the
+   phone by hand, and that it is not mid-claim.
 
 ## Cutover
 

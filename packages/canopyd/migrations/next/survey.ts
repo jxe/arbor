@@ -32,11 +32,12 @@ export const REVERT = {
   legacyModifiedAt: "Remove legacyModifiedAt from working-tree node records",
 } as const;
 
-/** Checks that gate work outside this branch name what they gate instead of a commit. */
+/** Checks whose state must be fixed rather than a commit reverted name what they gate. */
 const GATES = {
-  digestRetirement: "gates the digest-credential retirement (not on this branch)",
-  singletonCredential: "gates removing the singleton device credential (not on this branch)",
+  digestRetirement: "gates batch step 026 and key-only devices: deauthorize the device, do not revert",
+  singletonCredential: "gates the removal of the singleton device credential: re-place the tree first",
   batch024: "gates batch step 024 (drop profile_resets), which refuses otherwise",
+  claimShape: "gates the CBOR claim shape: finish or discard the pending claim with the current build first",
 } as const;
 
 export interface CheckResult {
@@ -65,6 +66,8 @@ const TREE_ID = /^tr_[a-z2-7]+$/;
 const IDENTITY_SERVICE = "org.arbor.person-profile";
 /** The Mac app's own identity record, which Canopy for Mac no longer reads. */
 const NATIVE_IDENTITY_SERVICE = "org.nxhx.Arbor.profile";
+/** Where the Mac app keeps a pending account claim (`pending-account:<digest>`). */
+const NATIVE_DEVICE_SERVICE = "org.nxhx.Arbor.device";
 
 // MARK: File helpers (read-only)
 
@@ -258,6 +261,27 @@ async function keychainIdentity(dataHome: string, options: SurveyOptions): Promi
     `other ${IDENTITY_SERVICE} records: ${list(others)}${note}`);
 }
 
+/** No account claim is pending: an old build replaying one after the host
+ * changes would send the `{ root, objects }` configuration the host now refuses. */
+async function noPendingClaims(dataHome: string, options: SurveyOptions): Promise<CheckResult> {
+  const name = "no pending account claim (CLI journal or Mac app keychain)";
+  const attribution = { gate: GATES.claimShape };
+  const found: string[] = [];
+  if (await exists(join(dataHome, ".state", "bootstrap-account-claim.json"))) found.push(".state/bootstrap-account-claim.json");
+  if ((options.platform ?? process.platform) === "darwin") {
+    const security = options.security ?? ((args: string[]) => {
+      const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      return { status: run.status, stdout: run.stdout ?? "" };
+    });
+    const dump = security(["dump-keychain"]);
+    if (dump.status !== 0) return result(false, name, attribution, "", "security dump-keychain failed; unlock the login keychain and rerun");
+    for (const item of keychainItems(dump.stdout)) {
+      if (item.service === NATIVE_DEVICE_SERVICE && item.account.startsWith("pending-account:")) found.push(`Keychain ${item.account}`);
+    }
+  }
+  return result(!found.length, name, attribution, "none pending (the iPhone's Keychain is checked by hand: no account is mid-claim)", list(found));
+}
+
 // MARK: An app container (the Mac's Application Support, or the iPhone's copy)
 
 async function appRoot(container: string): Promise<string | null> {
@@ -377,19 +401,12 @@ export async function survey(options: SurveyOptions): Promise<CheckResult[]> {
       await noEarlierSyncState(dataHome),
       await dataHomeUpdateControl(dataHome),
       await keychainIdentity(dataHome, options),
+      await noPendingClaims(dataHome, options),
     );
   }
   results.push(...await appChecks("Mac app", options.home, "no Mac app state"));
   results.push(...await appChecks("iPhone", options.iphone, "pass --iphone <dir> with a copy of the iPhone app's data container"));
   results.push(...await liveChecks(options.live));
-
-  // ── EXTENSION POINT ─────────────────────────────────────────────────────
-  // Further pre-cutover checks go here, each returning a CheckResult with the
-  // commit subject to revert (or the work it gates). Expected: the CBOR claim
-  // shape change's "no pending claim journal in the old shape", reading
-  // `${dataHome}/.state/bootstrap-account-claim.json` (and the pairing
-  // journal beside it) without writing anything.
-  // ────────────────────────────────────────────────────────────────────────
 
   return results;
 }

@@ -45,10 +45,11 @@ async function cleanHome(): Promise<{ home: string; iphone: string; live: string
   return { home, iphone, live };
 }
 
-const keychain = (accounts: string[]): SurveyOptions["security"] => (args) => {
+const keychain = (accounts: string[], device: string[] = []): SurveyOptions["security"] => (args) => {
   if (args[0] === "find-generic-password") return { status: accounts.includes(args[4]!) ? 0 : 44, stdout: "" };
-  return { status: 0, stdout: accounts.map((account) =>
-    `keychain: "/Users/joe/Library/Keychains/login.keychain-db"\nclass: "genp"\nattributes:\n    "acct"<blob>="${account}"\n    "svce"<blob>="org.arbor.person-profile"\n`).join("") };
+  const item = (service: string) => (account: string) =>
+    `keychain: "/Users/joe/Library/Keychains/login.keychain-db"\nclass: "genp"\nattributes:\n    "acct"<blob>="${account}"\n    "svce"<blob>="${service}"\n`;
+  return { status: 0, stdout: [...accounts.map(item("org.arbor.person-profile")), ...device.map(item("org.nxhx.Arbor.device"))].join("") };
 };
 
 function byName(results: CheckResult[], fragment: string): CheckResult {
@@ -75,7 +76,7 @@ test("a clean home passes every check and nothing is written", async () => {
   const before = await snapshot(dirname(home));
   const results = await survey({ home, iphone, live, platform: "darwin", security: keychain(["primary-v2"]) });
   expect(results.filter((check) => check.status !== "PASS").map((check) => `${check.status} ${check.name}: ${check.details}`)).toEqual([]);
-  expect(results).toHaveLength(17);
+  expect(results).toHaveLength(18);
   expect(await snapshot(dirname(home))).toEqual(before);
 });
 
@@ -104,12 +105,13 @@ test("each legacy state fails its check and names the commit to revert", async (
     { schema: 2, tree: TREE, nodes: [{ path: "/a", kind: "markdown", source: "A", modifiedAt: 1788000000000 }] });
   await put(live, { version: 1, schema: "23", unrevokedDevicesWithoutPublicKey: 1, bareStringGroupMembers: 2, profileResets: 1 });
 
-  const results = await survey({ home, iphone, live, platform: "darwin", security: keychain(["primary-v2", "self-0123456789abcdef01234567"]) });
+  const results = await survey({ home, iphone, live, platform: "darwin", security: keychain(["primary-v2", "self-0123456789abcdef01234567"], ["pending-account:abc123"]) });
   const failed = (fragment: string) => {
     const check = byName(results, fragment);
     expect(check.status, `${check.name}: ${check.details}`).toBe("FAIL");
     return check;
   };
+  expect(failed("pending account claim").details).toContain("pending-account:abc123");
   expect(failed("pre-plural").revert).toBe(REVERT.prePluralFiles);
   expect(failed("placements.yaml").details).toContain("tr_unknown");
   expect(failed("has account").details).toContain("tr_earlyabc");
