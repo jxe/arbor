@@ -1,240 +1,224 @@
 #!/usr/bin/env bun
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+/**
+ * The distinct-user authorization scenario of the hcloud sync lab. Each mode
+ * runs on one lab machine, reads one JSON object from standard input, and
+ * writes one JSON object to standard output.
+ *
+ * Alice hosts a private tree whose tree configuration (`access.yaml`) grants
+ * Bob `read` and Carol `write`. Bob reads it and is refused a write with the
+ * existence-hiding 404; Carol writes; the community owner, who holds no rule
+ * on the tree, and an anonymous reader see nothing.
+ */
+import { generateKeyPairSync, sign } from "node:crypto";
 import {
-  materializeTree,
-  snapshotDirectory,
+  accountChallengeBytes,
+  canonicalHTTPURL,
+  generateArborID,
+  initialPersonConfig,
+  personProfileTreeID,
   ProtocolClient,
-} from "../../../../packages/protocol/src/index.ts";
+  sha256,
+  snapshotTreeConfig,
+  treeConfigurationID,
+  type AccountChallenge,
+} from "@overstory/protocol";
+import {
+  COMMUNITY,
+  expectNotFound,
+  filesSnapshot,
+  hostTree,
+  input,
+  LOCAL_COMMUNITY,
+  output,
+  readAccepted,
+  rootText,
+  withRootFile,
+} from "./lab-node.ts";
 
-type Role = "alice" | "bob" | "carol";
+const ROLES = ["alice", "bob", "carol"] as const;
+type Role = typeof ROLES[number];
 
 interface Identity {
   handle: string;
+  /** The profile's canonical HTTP URL. */
   locator: string;
   profile: string;
   token: string;
 }
 
-async function input<T>(): Promise<T> {
-  return JSON.parse(await Bun.stdin.text()) as T;
+const TIMEOUT = { timeoutMs: 30_000 };
+
+/** A self-certifying person identity whose key exists only in this process. */
+function profileIdentity() {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const der = Buffer.from(publicKey.export({ format: "der", type: "spki" }));
+  const raw = der.subarray(Buffer.from("302a300506032b6570032100", "hex").byteLength);
+  return {
+    profileTree: personProfileTreeID(raw),
+    publicKey: raw.toString("base64url"),
+    sign: (challenge: AccountChallenge) => sign(null, accountChallengeBytes(challenge), privateKey).toString("base64url"),
+  };
 }
 
-function output(value: unknown): void {
-  process.stdout.write(JSON.stringify(value));
-}
-
-async function expectNotFound(read: () => Promise<unknown>, message: string): Promise<void> {
-  try {
-    await read();
-  } catch (error) {
-    if (String(error).includes("Not found")) return;
-    throw error;
-  }
-  throw new Error(message);
-}
-
+/**
+ * On the community: reserve one handle per role for a fresh person identity
+ * in the community's `members`, claim each account with its profile key and a
+ * digest device, and host each profile at `/~handle`.
+ */
 async function setup(): Promise<void> {
-  const value = await input<{
-    ownerToken: string;
-    handles: Record<Role, string>;
-  }>();
-  const endpoint = "http://127.0.0.1:4318";
-  const owner = new ProtocolClient(endpoint, value.ownerToken);
-  const account = await owner.account();
-  if (!account.profileTree) throw new Error("Owner profile is unavailable");
-  const arborOrigin = account.community.arborURL.replace(/\/$/, "");
-  const root = "/tmp/arbor-authorization-community";
-  const members = ["owner", value.handles.alice, value.handles.bob, value.handles.carol];
+  const value = await input<{ ownerToken: string; handles: Record<Role, string> }>();
+  const owner = new ProtocolClient(LOCAL_COMMUNITY, value.ownerToken, TIMEOUT);
+  const identities = Object.fromEntries(ROLES.map((role) => [role, profileIdentity()])) as Record<Role, ReturnType<typeof profileIdentity>>;
 
-  const authorCommunity = async (boundaries: Array<{ handle: string; tree: string }>) => {
-    await rm(root, { recursive: true, force: true });
-    await mkdir(root, { recursive: true });
-    await writeFile(join(root, "_index.md"), [
-      "---",
-      "type: group",
-      "members:",
-      ...members.map((handle) => `  - ${arborOrigin}/~${handle}`),
-      "---",
-      "",
-      "# Authorization community",
-      "",
-    ].join("\n"));
-    const current = await owner.ref(account.community.id);
-    await owner.submitUpdate(
-      account.community.id,
-      { root: current.ref, update: current.update! },
-      await snapshotDirectory(root, new Map(boundaries.map(({ handle, tree }) => [join(root, `~${handle}`), tree]))),
+  const { account } = await owner.account();
+  const community = account.community.id;
+  const { descriptor, snapshot } = await readAccepted(owner, community);
+  const index = rootText(snapshot, "_index.md");
+  if (!index.includes("\nmembers:\n")) throw new Error("The community profile has no members list");
+  const reservations = ROLES.flatMap((role) => [
+    "  -",
+    `    profile: ${JSON.stringify(`arbor://${identities[role].profileTree}/`)}`,
+    `    handle: ${JSON.stringify(value.handles[role])}`,
+  ]).join("\n");
+  await owner.submitUpdate(
+    community,
+    descriptor.update,
+    withRootFile(snapshot, "_index.md", index.replace("\nmembers:\n", `\nmembers:\n${reservations}\n`)),
+    { ifCurrent: descriptor.update },
+  );
+
+  const result = {} as Record<Role, Identity>;
+  for (const role of ROLES) {
+    const identity = identities[role];
+    const configurationTree = treeConfigurationID(identity.profileTree);
+    const device = generateArborID("dv");
+    const label = `${role} authorization device`;
+    const token = `arb_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
+    const anonymous = new ProtocolClient(LOCAL_COMMUNITY, undefined, TIMEOUT);
+    const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree, configurationTree });
+    await anonymous.joinAccount({
+      account: challenge.account,
+      profileTree: identity.profileTree,
+      configurationTree,
+      challenge,
+      publicKey: identity.publicKey,
+      signature: identity.sign(challenge),
+      device: { id: device, label, credentialDigest: `sha256:${sha256(token)}` },
+      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label })),
+    });
+    const client = new ProtocolClient(LOCAL_COMMUNITY, token, TIMEOUT);
+    const profile = await client.submitUpdate(
+      identity.profileTree,
+      null,
+      filesSnapshot({ "_index.md": `---\ntype: person\n---\n\n# ${role}\n` }),
     );
-  };
-
-  const claim = async (role: string, handle: string) => {
-    const path = `/tmp/arbor-authorization-${role.toLowerCase()}`;
-    await rm(path, { recursive: true, force: true });
-    await mkdir(path, { recursive: true });
-    await writeFile(join(path, "_index.md"), `---\ntype: person\n---\n\n# ${role}\n`);
-    return new ProtocolClient(endpoint).claim(handle, await snapshotDirectory(path));
-  };
-
-  await authorCommunity([{ handle: "owner", tree: account.profileTree }]);
-  const alice = await claim("Alice", value.handles.alice);
-  const bob = await claim("Bob", value.handles.bob);
-  const carol = await claim("Carol", value.handles.carol);
-  await authorCommunity([
-    { handle: "owner", tree: account.profileTree },
-    { handle: value.handles.alice, tree: alice.tree.id },
-    { handle: value.handles.bob, tree: bob.tree.id },
-    { handle: value.handles.carol, tree: carol.tree.id },
-  ]);
-  await rm(root, { recursive: true, force: true });
-  output({
-    alice: { handle: value.handles.alice, locator: alice.tree.arborURL, profile: alice.tree.id, token: alice.accountToken },
-    bob: { handle: value.handles.bob, locator: bob.tree.arborURL, profile: bob.tree.id, token: bob.accountToken },
-    carol: { handle: value.handles.carol, locator: carol.tree.arborURL, profile: carol.tree.id, token: carol.accountToken },
-  } satisfies Record<Role, Identity>);
+    if (profile.outcome !== "accepted") throw new Error(`${role}'s profile was not activated`);
+    const hosted = await client.descriptor(identity.profileTree);
+    if (hosted.tree.canonical?.path !== `/~${value.handles[role]}`) throw new Error(`${role}'s profile is not at /~${value.handles[role]}`);
+    result[role] = {
+      handle: value.handles[role],
+      locator: canonicalHTTPURL(hosted.tree.canonical),
+      profile: identity.profileTree,
+      token,
+    };
+  }
+  output(result);
 }
 
+/** Alice hosts the private tree below her profile, granting Bob read and Carol write. */
 async function create(): Promise<void> {
-  const value = await input<{
-    token: string;
-    bob: string;
-    carol: string;
-    scenario: string;
-    canonicalPath: string;
-    endpoint?: string;
-  }>();
-  const path = `/tmp/${value.scenario}-alice`;
-  await rm(path, { recursive: true, force: true });
-  await mkdir(path, { recursive: true });
-  await writeFile(join(path, "note.md"), `# ${value.scenario}\n\nalice initial\n`);
-  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
-  const tree = await client.create(value.canonicalPath, await snapshotDirectory(path), {
-    publicAccess: "none",
-    profileAccess: [
-      { locator: value.bob, access: "read" },
-      { locator: value.carol, access: "write" },
+  const value = await input<{ token: string; bob: string; carol: string; scenario: string; endpoint?: string }>();
+  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const { account } = await client.account();
+  if (!account.profileTree) throw new Error("Alice's account has no profile");
+  const tree = await hostTree(client, filesSnapshot({ "note.md": `# ${value.scenario}\n\nalice initial\n` }), {
+    access: [
+      { who: { profile: value.bob }, allow: ["read"] },
+      { who: { profile: value.carol }, allow: ["write"] },
     ],
+    mount: { parent: account.profileTree, kind: "person", name: value.scenario },
   });
-  if (tree.access !== "write" || !tree.update) throw new Error("Alice did not receive owner write access");
-  const access = await client.access(tree.id);
-  if (access.some((entry) => entry.kind === "everyone")) throw new Error("Private authorization tree became public");
-  if (!access.some((entry) => entry.locator === value.bob && entry.access === "read")) {
-    throw new Error("Bob read access is missing");
-  }
-  if (!access.some((entry) => entry.locator === value.carol && entry.access === "write")) {
-    throw new Error("Carol write access is missing");
-  }
-  output({ tree: tree.id, root: tree.ref, update: tree.update, canonical: tree.httpURL });
+  const current = await client.descriptor(tree);
+  if (current.tree.access !== "write" || !current.tree.canonical) throw new Error("Alice did not receive administrator write access");
+  const access = (await client.access(tree)).snapshot;
+  if (access.some((entry) => entry.subject.kind !== "profile")) throw new Error("Private authorization tree grants a non-profile subject");
+  const granted = (profile: string) => access.find((entry) => entry.subject.kind === "profile" && entry.subject.tree === profile)?.access;
+  if (granted(value.bob) !== "read") throw new Error("Bob read access is missing");
+  if (granted(value.carol) !== "write") throw new Error("Carol write access is missing");
+  output({ tree, root: current.tree.root, update: current.tree.update, canonical: canonicalHTTPURL(current.tree.canonical) });
 }
 
+/** Bob reads the exact current bytes; his write is refused with the existence-hiding 404 and changes nothing. */
 async function denyWrite(): Promise<void> {
   const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
-  const remote = await client.ref(value.tree);
-  if (remote.access !== "read" || !remote.update) throw new Error("Bob did not receive read-only access");
-  const path = `/tmp/${value.scenario}-bob`;
-  await rm(path, { recursive: true, force: true });
-  await mkdir(path, { recursive: true });
-  await materializeTree(path, remote.ref, (hash) => client.object(hash));
-  if (!(await readFile(join(path, "note.md"), "utf8")).includes("alice initial")) {
-    throw new Error("Bob could not read Alice content");
-  }
-  await writeFile(join(path, "note.md"), `# ${value.scenario}\n\nbob denied write\n`);
-  const candidate = await snapshotDirectory(path);
+  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const { descriptor, snapshot } = await readAccepted(client, value.tree);
+  if (descriptor.access !== "read") throw new Error("Bob did not receive read-only access");
+  if (!rootText(snapshot, "note.md").includes("alice initial")) throw new Error("Bob could not read Alice content");
+  const candidate = withRootFile(snapshot, "note.md", `# ${value.scenario}\n\nbob denied write\n`);
   await expectNotFound(
-    () => client.submitUpdate(value.tree, { root: remote.ref, update: remote.update! }, candidate),
+    () => client.submitUpdate(value.tree, descriptor.update, candidate),
     "Bob read-only update was accepted",
   );
-  const unchanged = await client.ref(value.tree);
-  if (unchanged.ref !== remote.ref || unchanged.update !== remote.update) {
-    throw new Error("Bob denial changed the accepted ref");
+  const unchanged = await client.descriptor(value.tree);
+  if (unchanged.tree.root !== descriptor.root || unchanged.tree.update !== descriptor.update) {
+    throw new Error("Bob denial changed the accepted head");
   }
   output({ candidate: candidate.root });
 }
 
+/** Carol's write is accepted as the new head. */
 async function write(): Promise<void> {
   const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
-  const remote = await client.ref(value.tree);
-  if (remote.access !== "write" || !remote.update) throw new Error("Carol did not receive write access");
-  const path = `/tmp/${value.scenario}-carol`;
-  await rm(path, { recursive: true, force: true });
-  await mkdir(path, { recursive: true });
-  await materializeTree(path, remote.ref, (hash) => client.object(hash));
-  const source = await readFile(join(path, "note.md"), "utf8");
+  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const { descriptor, snapshot } = await readAccepted(client, value.tree);
+  if (descriptor.access !== "write") throw new Error("Carol did not receive write access");
+  const source = rootText(snapshot, "note.md");
   if (!source.includes("alice initial")) throw new Error("Carol could not read Alice content");
-  await writeFile(join(path, "note.md"), `${source}\ncarol permitted write\n`);
-  const candidate = await snapshotDirectory(path);
-  const result = await client.submitUpdate(value.tree, { root: remote.ref, update: remote.update }, candidate);
+  const candidate = withRootFile(snapshot, "note.md", `${source}\ncarol permitted write\n`);
+  const result = await client.submitUpdate(value.tree, descriptor.update, candidate);
   if (result.outcome !== "accepted") throw new Error(`Carol update was ${result.outcome}, not accepted`);
-  const current = await client.ref(value.tree);
-  if (current.ref !== candidate.root || !current.update) throw new Error("Carol accepted bytes are not current");
-  output({ root: current.ref, update: current.update });
+  const current = await client.descriptor(value.tree);
+  if (current.tree.root !== candidate.root) throw new Error("Carol accepted bytes are not current");
+  output({ root: current.tree.root, update: current.tree.update });
 }
 
 async function verifyReader(): Promise<void> {
-  const value = await input<{
-    token: string;
-    tree: string;
-    scenario: string;
-    root: string;
-    update: string;
-    endpoint?: string;
-  }>();
-  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
-  const remote = await client.ref(value.tree);
-  if (remote.access !== "read" || remote.ref !== value.root || remote.update !== value.update) {
-    throw new Error("Bob did not observe Carol current ref");
+  const value = await input<{ token: string; tree: string; root: string; update: string; endpoint?: string }>();
+  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const { descriptor, snapshot } = await readAccepted(client, value.tree);
+  if (descriptor.access !== "read" || descriptor.root !== value.root || descriptor.update !== value.update) {
+    throw new Error("Bob did not observe Carol current head");
   }
-  const path = `/tmp/${value.scenario}-bob-current`;
-  await rm(path, { recursive: true, force: true });
-  await mkdir(path, { recursive: true });
-  await materializeTree(path, remote.ref, (hash) => client.object(hash));
-  const source = await readFile(join(path, "note.md"), "utf8");
+  const source = rootText(snapshot, "note.md");
   if (!source.includes("alice initial") || !source.includes("carol permitted write") || source.includes("bob denied write")) {
     throw new Error("Bob observed incorrect accepted bytes");
   }
   output({ ok: true });
 }
 
-async function verifyOwner(): Promise<void> {
-  const value = await input<{
-    token: string;
-    tree: string;
-    root: string;
-    canonical: string;
-  }>();
-  const owner = new ProtocolClient("http://127.0.0.1:4318", value.token);
-  if ((await owner.list()).some((tree) => tree.id === value.tree)) {
-    throw new Error("No-access owner could list Alice private tree");
-  }
-  await expectNotFound(() => owner.ref(value.tree), "No-access owner could read Alice private ref");
-  await expectNotFound(() => owner.object(value.root), "No-access owner could read Alice private object");
-  if ((await fetch(value.canonical)).status !== 404) throw new Error("Anonymous reader could read Alice private tree");
+async function verifyWriter(): Promise<void> {
+  const value = await input<{ token: string; tree: string; root: string; update: string; rejected: string; endpoint?: string }>();
+  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const { descriptor, snapshot } = await readAccepted(client, value.tree);
+  if (descriptor.root !== value.root || descriptor.update !== value.update) throw new Error("Alice did not observe Carol current head");
+  if (!rootText(snapshot, "note.md").includes("carol permitted write")) throw new Error("Alice did not receive Carol bytes");
+  await expectNotFound(() => client.object(value.tree, value.rejected), "Bob rejected candidate object became readable");
   output({ ok: true });
 }
 
-async function verifyWriter(): Promise<void> {
-  const value = await input<{
-    token: string;
-    tree: string;
-    scenario: string;
-    root: string;
-    update: string;
-    rejected: string;
-    endpoint?: string;
-  }>();
-  const client = new ProtocolClient(value.endpoint ?? "http://arbor-community:4318", value.token);
-  const remote = await client.ref(value.tree);
-  if (remote.ref !== value.root || remote.update !== value.update) throw new Error("Alice did not observe Carol current ref");
-  const path = `/tmp/${value.scenario}-alice-current`;
-  await rm(path, { recursive: true, force: true });
-  await mkdir(path, { recursive: true });
-  await materializeTree(path, remote.ref, (hash) => client.object(hash));
-  if (!(await readFile(join(path, "note.md"), "utf8")).includes("carol permitted write")) {
-    throw new Error("Alice did not receive Carol bytes");
+/** The community owner holds no rule on Alice's tree; neither they nor an anonymous reader can see it. */
+async function verifyOwner(): Promise<void> {
+  const value = await input<{ token: string; tree: string; root: string; canonical: string }>();
+  const owner = new ProtocolClient(LOCAL_COMMUNITY, value.token, TIMEOUT);
+  if ((await owner.list()).snapshot.some((tree) => tree.id === value.tree)) {
+    throw new Error("No-access owner could list Alice private tree");
   }
-  await expectNotFound(() => client.object(value.rejected), "Bob rejected candidate object became readable");
+  await expectNotFound(() => owner.descriptor(value.tree), "No-access owner could read Alice private descriptor");
+  await expectNotFound(() => owner.snapshot(value.tree, value.root), "No-access owner could read Alice private snapshot");
+  await expectNotFound(() => owner.object(value.tree, value.root), "No-access owner could read Alice private object");
+  const canonical = new URL(new URL(value.canonical).pathname, LOCAL_COMMUNITY);
+  if ((await fetch(canonical)).status !== 404) throw new Error("Anonymous reader could read Alice private tree");
   output({ ok: true });
 }
 

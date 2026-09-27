@@ -22,7 +22,7 @@ The lab should answer four questions with recorded evidence:
 3. **Convergence:** after connectivity returns and conflicts are explicitly resolved, do all non-pinned placements reach the same tree ref and bytes?
 4. **Identity:** does one `TreeID` remain the same when materialized at different paths and, later, on different filesystems?
 
-The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by canopyd and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating accepted history, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it. Accepted history is inspected only as private host state; the lab also proves that history and non-current objects are absent from the protocol API.
+The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by canopyd and accepted as one new update. Unsafe binary, path-kind, edit/delete, and nested-boundary overlap is accepted as one new update whose state keeps both values as alternatives of an unresolved decision (the descriptor reads `conflicted: true`); nothing is held on the client and no authored bytes are lost. Only an explicit new update that declares the decision resolved clears it. A client's changes are held (`sync: "conflict"`) only when the host refuses them, for example a write without write access. Accepted history is inspected only as private host state; the lab also proves that the protocol has no route listing it, while an earlier accepted root stays readable as an immutable snapshot.
 
 ## Keep the infrastructure simple
 
@@ -83,13 +83,13 @@ bun run lab:hcloud test
 bun run lab:hcloud test:authorization
 ```
 
-`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy canopyd. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a durable binary conflict with no private accepted-history entry, arborsync restart, explicit client resolution, `/push` and public-history absence, current-object-only authorization, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
+`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy canopyd. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a binary overlap accepted as an unresolved alternative that survives an arborsync restart, its explicit resolution through canopyd's conflicts route, `/push` and public-history absence, and device pairing/revocation through `devices.yaml`. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
-`test:authorization` uses distinct claimed accounts on the same four hosts. Alice creates a private tree with Bob as a reader and Carol as a writer. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Short-lived account credentials travel only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
+`test:authorization` uses distinct claimed accounts on the same four hosts: the community owner reserves three handles for fresh self-certifying profiles in the community's `members`, and each account is claimed with its profile key and hosts its profile at `/~handle`. Alice declares a private tree whose tree configuration (`access.yaml`) makes her its administrator, grants Bob `read` and Carol `write`, and mounts it below her profile. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Short-lived account credentials travel only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
 
 The full `test` and `test:authorization` commands are pre-production gates. Run both from the exact committed candidate revision and collect their evidence before requesting approval to update Railway. Do not deploy the Railway canopyd first and use this lab as an after-check.
 
-Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Overstory credentials. The disposable Overstory account token is generated and retained only in the canopyd's root-readable environment file; clients receive it over SSH on standard input while being configured.
+Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Overstory credentials. The disposable Overstory account token is generated and retained only in the canopyd's root-readable environment file; each client receives it over SSH on standard input only to offer its own pairing, and keeps just the credential of the device it paired.
 
 Useful lifecycle commands are:
 
@@ -146,7 +146,7 @@ This intentionally leaves public SSH available while the lab is active. Tighteni
 
 ## Run the community and clients
 
-Use one generated, disposable initial device credential on all three clients for the synchronization matrix. The automated acceptance suite separately creates a short-lived paired device, proves it can read the test tree, revokes it, and proves the same credential is then denied. The runner keeps credentials in the canopyd's root-readable environment or in process memory and does not print them.
+The community starts with one owner account whose generated credential is its first administrator device. Each client pairs its own device into that account, and the owner makes it an administrator in the owner profile's `devices.yaml` so that it may place new trees. The automated acceptance suite separately pairs a short-lived device, proves it can read the test tree, revokes it by deleting its `devices.yaml` entry, and proves the same credential is then refused. The runner keeps credentials in the canopyd's root-readable environment or in process memory and does not print them.
 
 Run the community as one systemd service with the equivalent of:
 
@@ -163,10 +163,10 @@ The service's root-only environment file supplies `ARBOR_COMMUNITY_HANDLE=sync-l
 On each client:
 
 1. Create its content path from the table above.
-2. Provision its disposable account checkout and device credential through the account pairing flow.
-3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless arborsync process using `bun run arborsync <content-path>` under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
+2. Pair its own device into the owner account and install the account checkout, current device, and credential in its data home (`lab-node.ts connect`).
+3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless Arbor Sync control service, `bun run arborsync --control`, under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
 
-Stop the client service before adding a new placement with `arbor place`, then start it again. This avoids two arborsync processes mutating the same private state while the scenario is being prepared.
+Add placements with `arbor place` while the client service runs: the command attaches to that Arbor Sync on `127.0.0.1:4317` and fails when none answers.
 
 ## Test discipline
 
@@ -244,7 +244,7 @@ Verify that all clients become visibly offline while retaining readable local fi
 - no local changes during the outage, followed by `hcloud server poweron arbor-community`;
 - independent local changes on A, B, and C, followed by reconnecting clients one at a time in a recorded order.
 
-The first case must converge without conflict. In the second case, the first accepted update advances canopyd. Later Markdown candidates must preserve all independent additions through the canopyd merge. Unsafe candidates must remain complete on their originating client, receive a complete draft, and leave no canopyd history entry until the client explicitly resolves them with a new update.
+The first case must converge without conflict. In the second case, the first accepted update advances canopyd. Later Markdown candidates must preserve all independent additions through the canopyd merge. Unsafe overlap must be accepted as an unresolved alternative that keeps every client's bytes, and stay unresolved until an explicit new update resolves it.
 
 Repeat the divergent case with reconnect orders `A → B → C`, `C → B → A`, and `B → A → C`. Use fresh trees for each order.
 
@@ -275,11 +275,11 @@ Each row begins from a shared, recorded base ref. Isolate the named clients, mak
 | Different Markdown blocks | Edit the introduction | Edit a later section | Automatic accepted merge contains both edits |
 | Different files | Edit `a.md` | Edit `b.md` | Automatic accepted merge contains both files |
 | Create/create Markdown | Create different `notes.md` content | Create different `notes.md` content | Loss-averse Markdown merge, or a structured conflict if protected structure is incompatible |
-| Frontmatter/frontmatter | Change one protected value | Change it differently | Client-owned `frontmatter-conflict`; complete draft; no canopyd history entry |
-| Edit/delete | Edit `notes.md` | Delete `notes.md` | Edited alternative stays in the complete client draft; explicit resolution required |
-| Rename/edit | Rename `notes.md` | Edit it at the old path | Structured path conflict; neither alternative disappears from client-owned state |
+| Frontmatter/frontmatter | Change one protected value | Change it differently | `frontmatter-conflict`: accepted with both values as alternatives of one unresolved decision |
+| Edit/delete | Edit `notes.md` | Delete `notes.md` | Accepted with the edited file and its deletion as alternatives; explicit resolution required |
+| Rename/edit | Rename `notes.md` | Edit it at the old path | Structured path conflict; neither alternative disappears from the accepted state |
 | Nested boundary | Change a registered boundary | Change content beneath it independently | `nested-boundary-conflict`; parent update never absorbs the child tree |
-| Binary/binary | Replace a binary with A bytes | Replace it with B bytes | `binary-conflict`; local bytes and complete draft survive restart; no server conflict record |
+| Binary/binary | Replace a binary with A bytes | Replace it with B bytes | `binary-conflict`: accepted with both byte strings as alternatives; the unresolved state survives restart until an explicit resolution |
 | Three writers | A, B, and C add unique Markdown lines offline | Reconnect in a chosen order | All markers converge into accepted history regardless of reconnect order |
 
 Also exercise Overstory-specific boundaries:
@@ -292,7 +292,7 @@ Also exercise Overstory-specific boundaries:
 
 Do not reinterpret a conflict as corruption. Record separately:
 
-- **expected conflict:** canopyd retains no conflict record; the submitting client persists its complete local/draft/remote context and attention is visible;
+- **expected conflict:** canopyd accepts the overlap as an unresolved decision whose alternatives hold every client's value, and every client shows the tree as conflicted;
 - **false conflict:** no concurrent remote advance occurred;
 - **data loss:** authored bytes disappear from both canopyd and the originating client;
 - **corruption:** a ref resolves to an incomplete graph or partial file;
@@ -326,8 +326,8 @@ The first lab is complete when:
 - single-client, asymmetric, and complete-community outages show correct offline state and recover;
 - non-divergent offline edits eventually propagate;
 - every automatic Markdown case preserves all authored markers in one accepted root;
-- every unsafe conflict preserves the originating local bytes and complete returned draft across restart, adds no server history entry, and can be resolved only as a new accepted update;
-- successful semantic replay adds exactly one private accepted-history item, while repeating a conflict is recomputed and remains stateless on canopyd;
+- every unsafe overlap is accepted as an unresolved decision that keeps every client's bytes across restart, and is resolved only by a new accepted update that declares it;
+- successful semantic replay adds exactly one private accepted-history item and returns the same receipt;
 - `/push` is absent and pairing, device attribution, and revocation behave correctly;
 - all three reconnect orders produce recorded, explainable results;
 - server process crashes and VM reboots retain canopyd identity and committed refs;

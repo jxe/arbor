@@ -164,7 +164,10 @@ elapsed calendar time alone is insufficient.
   declined paths on its first pass.
 - [ ] **Clients 001 / Hetzner sync lab:** run `packages/canopyd/deploy/hcloud-sync-lab` against
   the update-machine daemon. Its binary scenario now expects Canopy to accept both versions as an
-  unresolved alternative instead of a daemon conflict; it has not run since that rewrite.
+  unresolved alternative instead of a daemon conflict, then resolves it explicitly. The runner
+  and its node scripts were brought up to tree configurations, per-client device pairing,
+  `devices.yaml` revocation, profile-key account claims and `arborsync --control` on
+  2026-09-27; they typecheck, but the lab has not run since those rewrites.
 
 Historical plans: Native 022 (completed plan, deleted; see git history),
 Arbor Sync 001 (completed plan, deleted; see git history),

@@ -418,7 +418,6 @@ async function deployRevision(state: LabState, role: Role): Promise<void> {
     `ln -sfn '${release}' /opt/arbor-current`,
     "cd /opt/arbor-current",
     "bun install --frozen-lockfile",
-    "bun run build:web",
   ].join("\n"), { timeoutMs: 600_000 });
 }
 
@@ -539,11 +538,16 @@ async function configure(state: LabState): Promise<void> {
     if (attempt === 29) throw new Error("Canopy health did not become ready");
     await Bun.sleep(1_000);
   }
-  const token = await authorityToken(state);
+  const ownerToken = await authorityToken(state);
   for (const role of ["alice", "bob", "carol"] as const) {
+    // Each client pairs as its own administrator device of the owner account;
+    // the owner credential only offers the pairing and is not kept there.
     await ssh(state, role, [
       "bash", "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/configure-node.sh", role, CLIENT_PATHS[role],
-    ], { stdin: `${token}\n`, timeoutMs: 120_000 });
+    ], {
+      stdin: `${JSON.stringify({ ownerToken, label: `Hetzner lab ${role}`, administrator: true })}\n`,
+      timeoutMs: 120_000,
+    });
   }
   state.steps.configured = new Date().toISOString();
   await saveState(state);
@@ -562,10 +566,17 @@ async function authorityToken(state: LabState): Promise<string> {
   return token;
 }
 
-async function authorizationNode<T>(state: LabState, role: Role, mode: string, input: unknown): Promise<T> {
+/** Run one mode of a checked-in lab script on a node, passing its input on standard input. */
+async function nodeScript<T>(
+  state: LabState,
+  role: Role,
+  script: "authorization-node.ts" | "lab-node.ts",
+  mode: string,
+  input: unknown,
+): Promise<T> {
   const result = await ssh(state, role, [
     "/usr/local/bin/bun",
-    "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts",
+    `/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/${script}`,
     mode,
   ], {
     stdin: `${JSON.stringify(input)}\n`,
@@ -575,7 +586,34 @@ async function authorizationNode<T>(state: LabState, role: Role, mode: string, i
   try {
     return JSON.parse(result.stdout.trim()) as T;
   } catch {
-    throw new Error(`arbor-${role} returned invalid authorization-test output`);
+    throw new Error(`arbor-${role} returned invalid ${script} ${mode} output`);
+  }
+}
+
+function authorizationNode<T>(state: LabState, role: Role, mode: string, input: unknown): Promise<T> {
+  return nodeScript<T>(state, role, "authorization-node.ts", mode, input);
+}
+
+const PLACE = "/usr/local/libexec/arbor-headless-session /usr/local/bin/bun /opt/arbor-current/packages/cli/src/index.ts place";
+
+/**
+ * Create a tree from Alice's folder at `/~owner/<scenario>` and place it on Bob
+ * and Carol. `arbor place` edits the account through the running Arbor Sync,
+ * so every client service stays up. `files` are shell lines that write into
+ * `$folder`.
+ */
+async function placeScenario(state: LabState, scenario: string, files: string[]): Promise<void> {
+  const alicePath = `${CLIENT_PATHS.alice}/${scenario}`;
+  const canonical = `http://arbor-community:4318/~owner/${scenario}`;
+  await sshBash(state, "alice", [
+    `folder='${alicePath}'`,
+    "install -d -o arbor -g arbor -m 0700 \"$folder\"",
+    ...files,
+    "chown -R arbor:arbor \"$folder\"",
+  ].join("\n"));
+  await sshBash(state, "alice", clientCommand(`${PLACE} '${alicePath}' '${canonical}'`), { timeoutMs: 180_000 });
+  for (const role of ["bob", "carol"] as const) {
+    await sshBash(state, role, clientCommand(`${PLACE} '${canonical}' '${CLIENT_PATHS[role]}/${scenario}'`), { timeoutMs: 180_000 });
   }
 }
 
@@ -618,29 +656,14 @@ async function waitForConvergence(
 }
 
 async function createScenario(state: LabState, scenario: string, binary = "common-binary"): Promise<string> {
-  await setClients(state, "stop");
-  try {
-    const alicePath = `${CLIENT_PATHS.alice}/${scenario}`;
-    await sshBash(state, "alice", [
-      `install -d -o arbor -g arbor -m 0700 '${alicePath}'`,
-      `printf '# ${scenario}\\n\\ncommon\\n' > '${alicePath}/note.md'`,
-      `printf '${binary}' > '${alicePath}/sample.bin'`,
-      `chown -R arbor:arbor '${alicePath}'`,
-    ].join("\n"));
-    const syncPrefix = "/usr/local/libexec/arbor-headless-session /usr/local/bin/bun /opt/arbor-current/packages/cli/src/index.ts sync";
-    await sshBash(state, "alice", clientCommand(`${syncPrefix} '${alicePath}' 'http://arbor-community:4318/~owner/${scenario}'`));
-    for (const role of ["bob", "carol"] as const) {
-      const path = `${CLIENT_PATHS[role]}/${scenario}`;
-      await ssh(state, role, ["install", "-d", "-o", "arbor", "-g", "arbor", "-m", "0700", path]);
-      await sshBash(state, role, clientCommand(`${syncPrefix} 'http://arbor-community:4318/~owner/${scenario}' '${path}'`));
-    }
-  } finally {
-    await setClients(state, "start");
-  }
+  await placeScenario(state, scenario, [
+    `printf '# ${scenario}\\n\\ncommon\\n' > "$folder/note.md"`,
+    `printf '${binary}' > "$folder/sample.bin"`,
+  ]);
   await waitForConvergence(state, scenario);
   const found = await sshBash(state, "alice", [
     "for attempt in $(seq 1 30); do",
-    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/trees' | jq -r --arg name '${scenario}' '.snapshot[] | select(.name == $name) | .id' | head -n1)`,
+    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/trees' | jq -r --arg path '${CLIENT_PATHS.alice}/${scenario}' '.snapshot[] | select(.osPath == $path) | .id' | head -n1)`,
     "  if [[ $tree == tr_* ]]; then printf '%s' \"$tree\"; exit 0; fi",
     "  sleep 1",
     "done",
@@ -687,43 +710,21 @@ async function acceptedConflicted(state: LabState, role: Exclude<Role, "communit
 async function smoke(state: LabState): Promise<void> {
   if (!state.steps.configured) throw new Error("Run or resume the lab before testing");
   const scenario = `smoke-${state.runId.replace(/[^a-z0-9-]/g, "-").slice(-20)}`;
-  for (const role of ["alice", "bob", "carol"] as const) {
-    await ssh(state, role, ["systemctl", "stop", "arbor-client.service"]);
+  await placeScenario(state, scenario, [
+    `printf '# ${scenario}\\n\\nprivate authenticated placement\\n' > "$folder/note.md"`,
+    "head -c 128 /dev/urandom > \"$folder/sample.bin\"",
+  ]);
+  let manifests: string[] = [];
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    manifests = await Promise.all((["alice", "bob", "carol"] as const).map((role) => manifest(state, role, scenario)));
+    if (manifests.every((value) => value === manifests[0])) break;
+    await Bun.sleep(2_000);
   }
-  try {
-    const alicePath = `${CLIENT_PATHS.alice}/${scenario}`;
-    await sshBash(state, "alice", [
-      `install -d -o arbor -g arbor -m 0700 '${alicePath}'`,
-      `printf '# ${scenario}\\n\\nprivate authenticated placement\\n' > '${alicePath}/note.md'`,
-      `head -c 128 /dev/urandom > '${alicePath}/sample.bin'`,
-      `chown -R arbor:arbor '${alicePath}'`,
-    ].join("\n"));
-    const syncPrefix = "/usr/local/libexec/arbor-headless-session /usr/local/bin/bun /opt/arbor-current/packages/cli/src/index.ts sync";
-    await sshBash(state, "alice", clientCommand(`${syncPrefix} '${alicePath}' 'http://arbor-community:4318/~owner/${scenario}'`));
-    for (const role of ["bob", "carol"] as const) {
-      const path = `${CLIENT_PATHS[role]}/${scenario}`;
-      await ssh(state, role, ["install", "-d", "-o", "arbor", "-g", "arbor", "-m", "0700", path]);
-      await sshBash(state, role, clientCommand(`${syncPrefix} 'http://arbor-community:4318/~owner/${scenario}' '${path}'`));
-    }
-    for (const role of ["alice", "bob", "carol"] as const) {
-      await ssh(state, role, ["systemctl", "start", "arbor-client.service"]);
-    }
-    let manifests: string[] = [];
-    for (let attempt = 0; attempt < 45; attempt += 1) {
-      manifests = await Promise.all((["alice", "bob", "carol"] as const).map((role) => manifest(state, role, scenario)));
-      if (manifests.every((value) => value === manifests[0])) break;
-      await Bun.sleep(2_000);
-    }
-    if (!manifests.length || !manifests.every((value) => value === manifests[0])) {
-      throw new Error(`Smoke synchronization did not converge for ${scenario}`);
-    }
-    const health = await ssh(state, "community", ["curl", "-fsS", "http://127.0.0.1:4318/.arbor/health"], { quiet: true });
-    if (!health.stdout.includes('"ok"')) throw new Error(`Canopy health failed: ${health.stdout}`);
-  } finally {
-    for (const role of ["alice", "bob", "carol"] as const) {
-      await ssh(state, role, ["systemctl", "start", "arbor-client.service"], { allowFailure: true, quiet: true });
-    }
+  if (!manifests.length || !manifests.every((value) => value === manifests[0])) {
+    throw new Error(`Smoke synchronization did not converge for ${scenario}`);
   }
+  const health = await ssh(state, "community", ["curl", "-fsS", "http://127.0.0.1:4318/.arbor/health"], { quiet: true });
+  if (!health.stdout.includes('"ok"')) throw new Error(`Canopy health failed: ${health.stdout}`);
   state.steps.smoke = new Date().toISOString();
   await saveState(state);
   console.log(`Smoke synchronization passed: ${scenario}`);
@@ -759,49 +760,16 @@ async function acceptance(state: LabState): Promise<void> {
   await Bun.sleep(4_000);
   await ssh(state, "carol", ["systemctl", "start", "arbor-client.service"]);
   await waitForConvergence(state, additive, [...serialMarkers, ...offlineMarkers]);
-  if (await Promise.all((['alice', 'bob', 'carol'] as const).map((role) => hasConflict(state, role, additiveTree))).then((values) => values.some(Boolean))) {
-    throw new Error("Additive Markdown divergence produced a conflict");
+  const additiveStates = await Promise.all((["alice", "bob", "carol"] as const).map((role) => treeDescriptor(state, role, additiveTree)));
+  if (additiveStates.some((descriptor) => descriptor?.sync === "conflict" || descriptor?.conflicted)) {
+    throw new Error("Additive Markdown divergence produced a held refusal or an unresolved alternative");
   }
 
   const replayScenario = `accepted-replay-${suffix}`;
-  const replay = await sshBash(state, "community", [
-    ". /etc/arbor-canopy.env",
-    "export ARBOR_LAB_TOKEN=$ARBOR_ACCOUNT_TOKEN",
-    `export ARBOR_LAB_REPLAY=${replayScenario}`,
-    "install -d -o arbor -g arbor -m 0700 /tmp/arbor-replay",
-    "printf 'one\\n' > /tmp/arbor-replay/note.md",
-    "chown -R arbor:arbor /tmp/arbor-replay",
-    "cd /tmp/arbor-replay",
-    "sudo -u arbor -H env ARBOR_LAB_TOKEN=\"$ARBOR_LAB_TOKEN\" ARBOR_LAB_REPLAY=\"$ARBOR_LAB_REPLAY\" /usr/local/bin/bun - <<'JAVASCRIPT'",
-    "import { ProtocolClient } from '/opt/arbor-current/packages/protocol/src/index.ts';",
-    "import { resolveSnapshot, snapshotDirectory } from '/opt/arbor-current/packages/fs/src/index.ts';",
-    "import { generateArborID } from '/opt/arbor-current/packages/protocol/src/index.ts';",
-    "import { readAccountConfigGraph, snapshotAccountConfig } from '/opt/arbor-current/packages/protocol/src/index.ts';",
-    "import { writeFile } from 'node:fs/promises';",
-    "const client = new ProtocolClient('http://127.0.0.1:4318', process.env.ARBOR_LAB_TOKEN);",
-    "// Trees are declared through the account configuration and then activated; there is no direct create call.",
-    "const account = await client.account();",
-    "const configuration = await client.descriptor(account.account.configuration.id);",
-    "const configurationSnapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);",
-    "const graph = readAccountConfigGraph(configurationSnapshot, account.account.configuration.id);",
-    "const treeID = generateArborID('tr');",
-    "await client.submitUpdate(configuration.tree.id, configuration.tree.update, snapshotAccountConfig({",
-    "  account: graph.account,",
-    "  resources: { ...graph.resources, [treeID]: { canonical: `${graph.account.canopy}/~owner/${process.env.ARBOR_LAB_REPLAY}`, access: [] } },",
-    "  devices: graph.devices,",
-    "}));",
-    "const initial = await resolveSnapshot(await snapshotDirectory('/tmp/arbor-replay'));",
-    "await client.submitUpdate(treeID, null, initial);",
-    "const tree = await client.descriptor(treeID);",
-    "await writeFile('/tmp/arbor-replay/note.md', 'two\\n');",
-    "const next = await resolveSnapshot(await snapshotDirectory('/tmp/arbor-replay'));",
-    "const first = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
-    "const second = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
-    "if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error('Semantic replay changed its accepted result');",
-    "process.stdout.write(JSON.stringify({ tree: tree.tree.id, historical: initial.root }));",
-    "JAVASCRIPT",
-  ].join("\n"), { quiet: true });
-  const replayResult = JSON.parse(replay.stdout.trim()) as { tree: string; historical: string };
+  const ownerToken = await authorityToken(state);
+  const replayResult = await nodeScript<{ tree: string; historical: string; current: string }>(
+    state, "community", "lab-node.ts", "replay", { ownerToken },
+  );
   const replayTree = replayResult.tree;
   if (!/^tr_[a-z2-7]+$/.test(replayTree)) throw new Error("Exact replay scenario did not return a TreeID");
   if (await authorityHistoryCount(state, replayTree) !== 2) {
@@ -814,7 +782,9 @@ async function acceptance(state: LabState): Promise<void> {
     `snapshot_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/snapshots/${replayResult.historical}')`,
     "printf '%s %s %s' \"$history_status\" \"$object_status\" \"$snapshot_status\"",
   ].join("\n"), { quiet: true });
-  if (privateSurface.stdout.trim() !== "405 404 200") {
+  // No route lists accepted history; an earlier accepted root stays readable
+  // as an immutable snapshot, and its objects by hash through the tree.
+  if (privateSurface.stdout.trim() !== "405 200 200") {
     throw new Error(`Accepted-history, object, or immutable snapshot surface disagreed: ${privateSurface.stdout.trim()}`);
   }
 
@@ -833,25 +803,29 @@ async function acceptance(state: LabState): Promise<void> {
   await setClients(state, "restart", ["bob"] as const);
   await waitUntil("Bob accepted alternative after restart", () => acceptedConflicted(state, "bob", conflictTree));
   if (await hasConflict(state, "bob", conflictTree)) throw new Error("An accepted binary alternative was held as a refusal");
+  const selected = await ssh(state, "bob", ["cat", `${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin`], { quiet: true });
+  if (selected.stdout !== "binary-from-alice") throw new Error(`Bob does not hold the accepted selection: ${selected.stdout}`);
+  // Resolve explicitly through Canopy: a new update keeps Bob's alternative.
+  await nodeScript(state, "community", "lab-node.ts", "resolve-binary", {
+    ownerToken, tree: conflictTree, path: "sample.bin", keep: "binary-from-bob",
+  });
+  if (await authorityHistoryCount(state, conflictTree) !== before + 3) {
+    throw new Error("The explicit resolution did not add exactly one accepted update");
+  }
   await setClients(state, "start", ["alice", "carol"] as const);
   await waitForConvergence(state, conflictScenario);
-  const values = await Promise.all((["alice", "bob", "carol"] as const).map(async (role) =>
-    (await ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${conflictScenario}/sample.bin`], { quiet: true })).stdout));
-  if (new Set(values).size !== 1) throw new Error(`Clients disagree on the accepted binary projection: ${values.join(", ")}`);
+  for (const role of ["alice", "bob", "carol"] as const) {
+    const value = await ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${conflictScenario}/sample.bin`], { quiet: true });
+    if (value.stdout !== "binary-from-bob") throw new Error(`${role} did not materialize the explicit resolution`);
+    if ((await treeDescriptor(state, role, conflictTree))?.conflicted) throw new Error(`${role} still shows the resolved alternative`);
+  }
 
   await sshBash(state, "community", [
     ". /etc/arbor-canopy.env",
     "test \"$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" http://127.0.0.1:4318/.arbor/trees/ignored/push)\" = 404",
-    "offer=$(curl -fsS -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" -H 'content-type: application/json' -d '{}' http://127.0.0.1:4318/.arbor/pairings)",
-    "pairing_id=$(jq -r .id <<<\"$offer\")",
-    "pairing_secret=$(jq -r .secret <<<\"$offer\")",
-    "claimed=$(curl -fsS -X POST -H 'content-type: application/json' -d \"$(jq -cn --arg secret \"$pairing_secret\" '{secret:$secret,label:\"Hetzner acceptance device\"}')\" \"http://127.0.0.1:4318/.arbor/pairings/$pairing_id/claim\")",
-    "device_id=$(jq -r .device.id <<<\"$claimed\")",
-    "device_token=$(jq -r .deviceToken <<<\"$claimed\")",
-    `curl -fsS -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/trees/${conflictTree}/ref' >/dev/null`,
-    "curl -fsS -X DELETE -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" \"http://127.0.0.1:4318/.arbor/devices/$device_id\" >/dev/null",
-    `test \"$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/account')\" = 401`,
   ].join("\n"), { quiet: true });
+  // Revocation is an administrator's edit of devices.yaml in the profile's configuration.
+  await nodeScript(state, "community", "lab-node.ts", "device-revocation", { ownerToken, tree: conflictTree });
 
   state.steps.acceptance = new Date().toISOString();
   state.acceptance = {
@@ -898,7 +872,6 @@ async function authorization(state: LabState): Promise<void> {
     }
   }
 
-  const canonicalPath = `${new URL(identities.alice.locator).pathname}/${scenario}`;
   const aliceCreate = await authorizationNode<{
     tree: string;
     root: string;
@@ -906,10 +879,9 @@ async function authorization(state: LabState): Promise<void> {
     canonical: string;
   }>(state, "alice", "create", {
     token: identities.alice.token,
-    bob: identities.bob.locator,
-    carol: identities.carol.locator,
+    bob: identities.bob.profile,
+    carol: identities.carol.profile,
     scenario,
-    canonicalPath,
   });
   if (!/^tr_[a-z2-7]+$/.test(aliceCreate.tree) || !aliceCreate.update) {
     throw new Error("Alice did not create the authorization tree");
