@@ -25,7 +25,7 @@ in the same sitting.
 | Batch step 026 | `devices` loses `token_digest`; a device without a key must be revoked | The last digest device, `dv_ry4dqmh32o5ovzccizd2xfhhje` ("iPhone", unused since 2026-09-05), deauthorized first (the step refuses otherwise) |
 | Key devices only | The spec, host, CLI, Arbor Sync, Mac and iPhone drop credential digests; Arbor Sync hands local clients sessions only | Every device a key device |
 | CBOR transport | Update requests and results, and account claims, travel as canonical CBOR when negotiated; the claim's configuration is an activation element; `/v1/bootstrap` answers CBOR only | Mac app and CLI rebuilt with the daemon |
-| Legacy readers removed | Scalar `/~handle` members, the pre-plural refusal, placements without a configuration tree, Keychain identities without metadata, early connection records, the earlier synchronizer's state, update control before schema 4, bare node dates, the iPhone rekey, the singleton credential | The survey passes |
+| Legacy readers removed | Scalar `/~handle` members, the pre-plural refusal, placements without a configuration tree, Keychain identities without metadata, early connection records, the earlier synchronizer's state, bare node dates, the iPhone rekey, the singleton credential | The survey passes |
 | Data home | `~/.arbor/accounts/` becomes `~/.arbor/configurations/` | A `mv` while Arbor Sync is stopped |
 
 ## The survey

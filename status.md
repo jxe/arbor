@@ -141,9 +141,10 @@ the Mac app, Arbor Sync and the iPhone follow in the same sitting.
   (now ignored, as the spec says), the pre-plural `account.yaml` refusal,
   placements without a configuration tree, Keychain identities without
   metadata and Canopy's second-identity reconciliation, `HostAccountStore`'s
-  early connection records, `retireEarlierSyncState`, update control before
-  schema 4 (both runners refuse any other schema without rewriting it), and
-  bare node `modifiedAt`. Kept: `NativePlacementStore` dropping unreadable
+  early connection records, `retireEarlierSyncState`, and bare node
+  `modifiedAt`. Update control before schema 4 stays read (its removal was
+  reverted): the survey found a schema-2 record under a Mac app placement
+  and a schema-3 one under an iPhone placement. Kept: `NativePlacementStore` dropping unreadable
   records; `FolderSync.loadKnown`'s fallback to the placement's accepted base,
   which a configuration checkout needs before its first write; `rt_`
   workspace root IDs, which are live identities, not legacy.
