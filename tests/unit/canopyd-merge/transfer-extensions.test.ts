@@ -433,6 +433,28 @@ test("a keyed YAML member moves between mappings beside an independent edit", as
     edit(files, "c.yaml", [at(doc, "b:"), at(doc, "b:") + 1], "c"));
 });
 
+test("a single-quoted YAML key's doubled quote is one quote to the edit and transfer rules alike", async () => {
+  // 'it''s' is the key it's; "it''s" is another key, not a duplicate of it.
+  const doc = "'it''s': 1\n\"it''s\": 2\n";
+  const files = { "c.yaml": doc };
+  await merges(
+    files,
+    edit(files, "c.yaml", [at(doc, "1\n"), at(doc, "1\n") + 1], "3", "first"),
+    edit(files, "c.yaml", [at(doc, "2\n"), at(doc, "2\n") + 1], "4", "second"),
+    { "c.yaml": "'it''s': 3\n\"it''s\": 4\n" },
+    "yaml-independent",
+  );
+  // Moving it's beside it''s lands on no existing member.
+  const nested = "a:\n  x: 1\n  'it''s': 2\nb:\n  \"it''s\": 3\n";
+  const moved = { "c.yaml": nested };
+  await merges(
+    moved,
+    transfer(moved, "moveSource", "c.yaml", [at(nested, "  'it"), at(nested, "b:")], "c.yaml", size(nested)),
+    edit(moved, "c.yaml", [at(nested, "3\n"), at(nested, "3\n") + 1], "4"),
+    { "c.yaml": "a:\n  x: 1\nb:\n  \"it''s\": 4\n  'it''s': 2\n" },
+  );
+});
+
 test("a keyed copy adds its member beside an edit to the original", async () => {
   const doc = '{"a": {"x": 1}, "b": {}}\n';
   const files = { "c.json": doc };

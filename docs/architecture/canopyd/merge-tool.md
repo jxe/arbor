@@ -380,7 +380,9 @@ not hold the candidate is reviewed as before; a rule never guesses.
   equals base with both sides' relocations and relocated changes, key for key.
   Moves between files, array elements, key creation or removal outside a
   transfer, duplicate keys and the ordinary YAML exclusions (anchors, aliases,
-  tags, sequences, block scalars) require review.
+  tags, sequences, block scalars) require review. One reading of a document
+  serves this rule and the ordinary edit rule, so both name its keys alike (a
+  single-quoted YAML key's `''` is one quote).
 - **TS/JS declarations** (`typescript-source-transfer`,
   `javascript-source-transfer`). A move of one complete top-level `function`
   (or generator) declaration within one file. Function declarations are

@@ -134,52 +134,122 @@ function independent(units: Unit[], a: PieceEdit[], b: PieceEdit[]): boolean {
     y = touched(units, b);
   return !!x && !!y && ![...x].some((k) => y.has(k));
 }
-function jsonUnits(
-  source: string,
-  root: Parser.SyntaxNode,
-  prefix = "",
-): Unit[] | null {
-  const out: Unit[] = [];
-  function visit(node: Parser.SyntaxNode, path: string): boolean {
-    if (node.type === "object") {
-      const keys = new Set<string>();
-      for (const pair of node.namedChildren) {
-        if (pair.type !== "pair") return false;
-        const key = pair.childForFieldName("key"),
-          value = pair.childForFieldName("value");
-        if (!key || !value) return false;
-        const name = JSON.parse(key.text) as string;
-        if (keys.has(name)) return false;
-        keys.add(name);
-        const id = path + "/" + JSON.stringify(name);
-        if (value.type === "object") {
-          if (!visit(value, id)) return false;
-        } else out.push({ key: id, ...range(source, value) });
-      }
-    } else return false;
-    return true;
-  }
-  return visit(root.namedChildren[0]!, prefix) ? out : null;
+/** A keyed reading of a structured document for transfer proofs: `units` maps
+ * each member's key path (a JSON array) to its exact value source, or `{}` for
+ * a mapping, and `members` gives each member's key path and byte range. */
+interface KeyedModel {
+  units: Map<string, string>;
+  members: Array<{ path: string[]; start: number; end: number }>;
+  /** Source outside the members that every version must keep exactly. */
+  fixed: string;
+  /** Per member, a shape that literal edits keep; compared across versions. */
+  shapes?: Map<string, string>;
 }
-function mappingUnits(
-  source: string,
-  root: Parser.SyntaxNode,
-  format: "yaml" | "toml",
-): Unit[] | null {
-  if (format === "yaml") {
-    const doc = parseDocument(source, { uniqueKeys: true });
-    if (doc.errors.length || doc.warnings.length) return null;
-    if (
-      descendants(root).some((n) =>
-        /anchor|alias|tag|block_scalar|flow_sequence|block_sequence/.test(
-          n.type,
-        ),
-      )
-    )
-      return null;
-  } else if (
-    descendants(root).some((n) => /array|dotted_key|multi_line/.test(n.type))
-  )
+const pathKey = (path: string[]) => JSON.stringify(path);
+/** One reading of a JSON object or a YAML mapping document for both rules:
+ * `leaves` are its non-mapping values in document order, with their key paths
+ * and byte ranges (the edit rule's units), and `model` is the transfer rule's
+ * reading, or null where that rule is stricter. */
+interface Keyed {
+  leaves: Array<{ path: string[]; start: number; end: number }>;
+  model: KeyedModel | null;
+}
+/** The edit rule's units: one per leaf value, keyed by its key path. */
+const leafUnits = (keyed: Keyed, prefix = ""): Unit[] =>
+  keyed.leaves.map(({ path, start, end }) => ({
+    key: prefix + path.map((name) => "/" + JSON.stringify(name)).join(""),
+    start,
+    end,
+  }));
+
+/** A JSON object: string keys, unique within each object. */
+function jsonKeyed(source: string, object: Parser.SyntaxNode): Keyed | null {
+  if (object.type !== "object") return null;
+  const leaves: Keyed["leaves"] = [], units = new Map<string, string>(), members: KeyedModel["members"] = [];
+  const visit = (node: Parser.SyntaxNode, path: string[]): boolean => {
+    if (node.type !== "object") {
+      units.set(pathKey(path), node.text);
+      leaves.push({ path, ...range(source, node) });
+      return true;
+    }
+    units.set(pathKey(path), "{}");
+    const keys = new Set<string>();
+    for (const pair of node.namedChildren) {
+      if (pair.type !== "pair") return false;
+      const key = pair.childForFieldName("key"), value = pair.childForFieldName("value");
+      if (!key || !value || key.type !== "string") return false;
+      const name = JSON.parse(key.text) as string;
+      if (keys.has(name)) return false;
+      keys.add(name);
+      members.push({ path: [...path, name], ...range(source, pair) });
+      if (!visit(value, [...path, name])) return false;
+    }
+    return true;
+  };
+  return visit(object, []) ? { leaves, model: { units, members, fixed: "" } } : null;
+}
+
+/** A YAML document of mappings and scalars: one strict document, without
+ * anchors, aliases, tags, sequences or block scalars. The edit rule reads
+ * any mapping members the document holds (`incomplete` when a member lacks a
+ * key or a value); the transfer rule's `model` requires exactly one document
+ * whose root is a mapping, and every value a mapping or a scalar. */
+function yamlKeyed(source: string, root: Parser.SyntaxNode): (Keyed & { incomplete: boolean }) | null {
+  const doc = parseDocument(source, { uniqueKeys: true });
+  if (doc.errors.length || doc.warnings.length) return null;
+  if (descendants(root).some((n) => /anchor|alias|tag|block_scalar|flow_sequence|block_sequence/.test(n.type)))
+    return null;
+  const leaves: Keyed["leaves"] = [], units = new Map<string, string>(), members: KeyedModel["members"] = [];
+  let strict = true, incomplete = false;
+  // A single-quoted key's `''` is one quote; a double-quoted key's escapes
+  // are read as JSON's.
+  const canonicalKey = (text: string): string =>
+    text.startsWith('"') ? JSON.parse(text) : text.startsWith("'") ? text.slice(1, -1).replaceAll("''", "'") : text;
+  const content = (node: Parser.SyntaxNode) => node.namedChildren.filter((n) => n.type !== "comment");
+  /** Whether `node` holds a mapping member. `keys` are the names of the
+   * mapping `node` is a member of. */
+  const visit = (node: Parser.SyntaxNode, path: string[], keys?: Set<string>): boolean => {
+    if (node.type === "block_mapping_pair" || node.type === "flow_pair") {
+      const field = node.childForFieldName("key"), fieldValue = node.childForFieldName("value");
+      const key = field ?? node.namedChildren[0], value = fieldValue ?? node.namedChildren[1];
+      if (!keys || !field || !fieldValue) strict = false;
+      if (!key || !value) {
+        incomplete = true;
+        return true;
+      }
+      const name = canonicalKey(key.text);
+      if (!keys || keys.has(name)) strict = false;
+      keys?.add(name);
+      members.push({ path: [...path, name], ...range(source, node) });
+      if (!visit(value, [...path, name])) leaves.push({ path: [...path, name], ...range(source, value) });
+      return true;
+    }
+    let mapping: Set<string> | undefined;
+    if (["stream", "document", "block_node", "flow_node"].includes(node.type)) {
+      if (content(node).length !== 1) strict = false;
+    } else if (node.type === "block_mapping" || node.type === "flow_mapping") {
+      units.set(pathKey(path), "{}");
+      mapping = new Set();
+    } else if (/^(plain_scalar|single_quote_scalar|double_quote_scalar)$/.test(node.type)) {
+      units.set(pathKey(path), node.text);
+      return false;
+    } else strict = false;
+    let held = false;
+    for (const child of content(node)) {
+      if (mapping && child.type !== "block_mapping_pair" && child.type !== "flow_pair") strict = false;
+      if (visit(child, path, mapping)) held = true;
+    }
+    return held;
+  };
+  visit(root, []);
+  const model = strict && units.get(pathKey([])) === "{}" ? { units, members, fixed: "" } : null;
+  return { leaves, model, incomplete };
+}
+
+/** A TOML document's pair values, keyed by table and key. Arrays, dotted keys
+ * and multiline strings are not modelled. Literal strings have no escapes. */
+function tomlUnits(source: string, root: Parser.SyntaxNode): Unit[] | null {
+  if (descendants(root).some((n) => /array|dotted_key|multi_line/.test(n.type)))
     return null;
   const canonicalKey = (text: string) =>
     text.startsWith('"')
@@ -189,28 +259,15 @@ function mappingUnits(
         : text;
   const units: Unit[] = [];
   function visit(node: Parser.SyntaxNode, path: string) {
-    if (
-      format === "toml" &&
-      (node.type === "table" || node.type === "table_array_element")
-    )
+    if (node.type === "table" || node.type === "table_array_element")
       path +=
         "/" + JSON.stringify(canonicalKey(node.namedChildren[0]?.text ?? ""));
-    if (
-      node.type === "pair" ||
-      node.type === "block_mapping_pair" ||
-      node.type === "flow_pair"
-    ) {
+    if (node.type === "pair") {
       const key = node.childForFieldName("key") ?? node.namedChildren[0],
         value = node.childForFieldName("value") ?? node.namedChildren[1];
       if (!key || !value) throw new Error("Missing mapping member");
-      const id = path + "/" + JSON.stringify(canonicalKey(key.text));
-      if (
-        descendants(value).some(
-          (n) => n.type === "block_mapping_pair" || n.type === "flow_pair",
-        )
-      )
-        visit(value, id);
-      else units.push({ key: id, ...range(source, value) });
+      // A value, inline tables included, is one unit.
+      units.push({ key: path + "/" + JSON.stringify(canonicalKey(key.text)), ...range(source, value) });
       return;
     }
     node.namedChildren.forEach((child) => visit(child, path));
@@ -624,7 +681,8 @@ export async function evaluateFormat(
           )
             return result(false, "Missing or nonunique JSONL key");
           keys.add(JSON.stringify(key));
-          const fields = jsonUnits(line, tree.rootNode, JSON.stringify(key));
+          const keyed = jsonKeyed(line, tree.rootNode.namedChildren[0]!);
+          const fields = keyed && leafUnits(keyed, JSON.stringify(key));
           if (!fields) return result(false, "Ambiguous JSONL mapping");
           units.push(
             ...fields
@@ -654,11 +712,19 @@ export async function evaluateFormat(
     if (trees.some((t) => t.rootNode.hasError()))
       return result(false, "Malformed or unsupported syntax");
     if (format === "json" || format === "yaml" || format === "toml") {
-      const units = trees.map((t, i) =>
-        format === "json"
-          ? jsonUnits(sources[i]!, t.rootNode)
-          : mappingUnits(sources[i]!, t.rootNode, format),
-      );
+      const units = trees.map((t, i) => {
+        const source = sources[i]!;
+        if (format === "toml") return tomlUnits(source, t.rootNode);
+        if (format === "json") {
+          const keyed = jsonKeyed(source, t.rootNode.namedChildren[0]!);
+          return keyed && leafUnits(keyed);
+        }
+        const keyed = yamlKeyed(source, t.rootNode);
+        if (!keyed) return null;
+        if (keyed.incomplete) throw new Error("Missing mapping member");
+        const units = leafUnits(keyed);
+        return unique(units) ? units : null;
+      });
       const safe =
         units.every(Boolean) &&
         units.every(
@@ -832,88 +898,9 @@ export function evaluateSourceTransfer(
   );
 }
 
-/** A keyed reading of a structured document for transfer proofs: `units` maps
- * each member's key path (a JSON array) to its exact value source, or `{}` for
- * a mapping, and `members` gives each member's key path and byte range. */
-interface KeyedModel {
-  units: Map<string, string>;
-  members: Array<{ path: string[]; start: number; end: number }>;
-  /** Source outside the members that every version must keep exactly. */
-  fixed: string;
-  /** Per member, a shape that literal edits keep; compared across versions. */
-  shapes?: Map<string, string>;
-}
-const pathKey = (path: string[]) => JSON.stringify(path);
 /** Whether `a` is `b` or one of its ancestors. */
 const within = (a: string[], b: string[]) =>
   a.length <= b.length && a.every((key, i) => key === b[i]);
-
-function jsonModel(source: string, root: Parser.SyntaxNode): KeyedModel | null {
-  const units = new Map<string, string>(), members: KeyedModel["members"] = [];
-  const visit = (node: Parser.SyntaxNode, path: string[]): boolean => {
-    if (node.type !== "object") {
-      units.set(pathKey(path), node.text);
-      return true;
-    }
-    units.set(pathKey(path), "{}");
-    const keys = new Set<string>();
-    for (const pair of node.namedChildren) {
-      if (pair.type !== "pair") return false;
-      const key = pair.childForFieldName("key"), value = pair.childForFieldName("value");
-      if (!key || !value || key.type !== "string") return false;
-      const name = JSON.parse(key.text) as string;
-      if (keys.has(name)) return false;
-      keys.add(name);
-      members.push({ path: [...path, name], ...range(source, pair) });
-      if (!visit(value, [...path, name])) return false;
-    }
-    return true;
-  };
-  const top = root.namedChildren;
-  return top.length === 1 && top[0]!.type === "object" && visit(top[0]!, [])
-    ? { units, members, fixed: "" }
-    : null;
-}
-
-function yamlModel(source: string, root: Parser.SyntaxNode): KeyedModel | null {
-  // The same restrictions as ordinary YAML merges: one strict document of
-  // mappings and scalars, without anchors, aliases, tags or block scalars.
-  const doc = parseDocument(source, { uniqueKeys: true });
-  if (doc.errors.length || doc.warnings.length) return null;
-  if (descendants(root).some((n) => /anchor|alias|tag|block_scalar|flow_sequence|block_sequence/.test(n.type)))
-    return null;
-  const units = new Map<string, string>(), members: KeyedModel["members"] = [];
-  const canonicalKey = (text: string): string =>
-    text.startsWith('"') ? JSON.parse(text) : text.startsWith("'") ? text.slice(1, -1).replaceAll("''", "'") : text;
-  const content = (node: Parser.SyntaxNode) => node.namedChildren.filter((n) => n.type !== "comment");
-  const visit = (node: Parser.SyntaxNode, path: string[]): boolean => {
-    if (["stream", "document", "block_node", "flow_node"].includes(node.type)) {
-      const inner = content(node);
-      return inner.length === 1 && visit(inner[0]!, path);
-    }
-    if (node.type === "block_mapping" || node.type === "flow_mapping") {
-      units.set(pathKey(path), "{}");
-      const keys = new Set<string>();
-      for (const pair of content(node)) {
-        if (pair.type !== "block_mapping_pair" && pair.type !== "flow_pair") return false;
-        const key = pair.childForFieldName("key"), value = pair.childForFieldName("value");
-        if (!key || !value) return false;
-        const name = canonicalKey(key.text);
-        if (keys.has(name)) return false;
-        keys.add(name);
-        members.push({ path: [...path, name], ...range(source, pair) });
-        if (!visit(value, [...path, name])) return false;
-      }
-      return true;
-    }
-    if (/^(plain_scalar|single_quote_scalar|double_quote_scalar)$/.test(node.type)) {
-      units.set(pathKey(path), node.text);
-      return true;
-    }
-    return false;
-  };
-  return visit(root, []) && units.get(pathKey([])) === "{}" ? { units, members, fixed: "" } : null;
-}
 
 /** Top-level function declarations of a script or module. They are hoisted
  * whole: each binding holds its function before any statement runs, wherever
@@ -1101,9 +1088,10 @@ export async function evaluateTransfer(
       const tree = parse(parser, source);
       trees.push(tree);
       if (tree.rootNode.hasError()) return result(false, "Malformed or unsupported syntax");
+      const top = tree.rootNode.namedChildren;
       const model =
-        format === "json" ? jsonModel(source, tree.rootNode)
-          : format === "yaml" ? yamlModel(source, tree.rootNode)
+        format === "json" ? (top.length === 1 ? jsonKeyed(source, top[0]!)?.model : null)
+          : format === "yaml" ? yamlKeyed(source, tree.rootNode)?.model
             : declarationModel(source, tree.rootNode);
       if (!model) return result(false, "Ambiguous or unsupported keyed structure");
       models.push(model);
