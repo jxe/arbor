@@ -7,7 +7,7 @@ import {
   watchAccountConfigurations,
   type AccountConfigurationSnapshot,
 } from "@overstory/protocol";
-import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "./placements.ts";
+import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "@overstory/client";
 
 export type { SharedTreePlacement, TreePlacement } from "@overstory/protocol";
 

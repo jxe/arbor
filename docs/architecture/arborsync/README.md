@@ -12,7 +12,7 @@ supplies request protection and error handling and composes the handlers:
 | Browser | `browser-http.ts`, `local-files.ts` | Scoped file, raw, HEAD, range, and ETag handling and the current web placeholder |
 | Filesystem objects | `filesystem-object-source.ts` | SQLite index lifecycle, verified file and directory reads, invalidation and uncached revalidation |
 | Sync connections | `sync-connections.ts` | Explicit account selection and credentials through the injectable `SyncConnections` interface |
-| State | `state/` | The tree registry, placements, connections, local accounts, profile identity, providers, and the object index |
+| State | `state/` | The tree registry, connections, local accounts, providers, and the object index; the profile identity and `placements.yaml` are `@overstory/client`'s, shared with account bootstrap |
 
 `Workspace` owns one placed folder: filesystem and object-source lifecycle,
 descriptor and scope, watcher subscription, and change observations. Its

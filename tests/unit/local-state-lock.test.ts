@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withLocalStateLock } from "../../packages/arborsync/src/state/local-state-lock.ts";
+import { withLocalStateLock } from "../../packages/client/src/local-state-lock.ts";
 
 test("setup locks are released by process death", async () => {
   const root = await mkdtemp(join(tmpdir(), "arbor-setup-lock-"));
   const lock = join(root, "setup.sqlite");
-  const source = new URL("../../packages/arborsync/src/state/local-state-lock.ts", import.meta.url).pathname;
+  const source = new URL("../../packages/client/src/local-state-lock.ts", import.meta.url).pathname;
   const script = `import { withLocalStateLock } from ${JSON.stringify(source)};
     await withLocalStateLock(${JSON.stringify(lock)}, async () => {
       console.log("locked"); await new Promise(() => {});

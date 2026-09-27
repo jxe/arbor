@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
-import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
+import { ProfileIdentityStore } from "@overstory/client";
+import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
 import { moveToDeviceKey } from "@overstory/client";
 import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 

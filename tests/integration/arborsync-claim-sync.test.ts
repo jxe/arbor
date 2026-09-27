@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { ProfileIdentityStore } from "@overstory/arborsync/state";
+import { ProfileIdentityStore } from "@overstory/client";
 import { treeConfigurationID } from "@overstory/protocol";
 
 let sandbox: string;

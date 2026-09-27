@@ -57,7 +57,7 @@ Each is dead for this install only if the check finds nothing.
   `packages/protocol/src/config/private-state.ts`. Check: no `rt_` in
   `~/.arbor/.state` registries.
 - **Keychain identities without metadata.** The `security find-generic-password`
-  probe in `packages/arborsync/src/state/profile-identity.ts`, and Canopy's
+  probe in `packages/client/src/profile-identity.ts`, and Canopy's
   second native identity reconciliation (`legacy`, `legacyConflict` in
   `swift/CanopyApp/CanopyOnboarding.swift`). Check: the Keychain holds only the
   indexed identity for `tr_tkgfsm…`, on the Mac and the iPhone.

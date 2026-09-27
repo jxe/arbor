@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
+import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/client";
 import { parseDocument } from "yaml";
 
 const bunExecutable = process.execPath;

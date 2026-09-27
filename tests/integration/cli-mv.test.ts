@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
+import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/client";
 
 let sandbox: string;
 let state: string;

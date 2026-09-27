@@ -23,3 +23,13 @@ describe("@overstory/protocol package boundary", () => {
     }
   });
 });
+
+describe("client package boundary", () => {
+  test("the client stack never imports Arbor Sync, which imports it", async () => {
+    for (const name of ["client", "working-tree", "fs"]) {
+      for (const path of await sourceFiles(join(import.meta.dir, "../../../packages", name, "src"))) {
+        expect(await readFile(path, "utf8"), path).not.toContain("@overstory/arborsync");
+      }
+    }
+  });
+});

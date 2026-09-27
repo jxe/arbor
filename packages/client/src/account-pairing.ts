@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { accountCheckoutPath, arborPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateArborID,
   openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, sha256, ProtocolClient } from "@overstory/protocol";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
-import { withLocalStateLock, ProfileIdentityStore } from "@overstory/arborsync/state";
+import { withLocalStateLock } from "./local-state-lock.ts";
+import { ProfileIdentityStore } from "./profile-identity.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
 
 export interface LocalPairingPayload {

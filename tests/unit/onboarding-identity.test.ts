@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, rename, mkdir, readdir } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { arborPrivateRoot, loadWorkspaceRegistry, sha256 } from "@overstory/protocol";
-import { ProfileIdentityStore } from "../../packages/arborsync/src/state/profile-identity.ts";
+import { ProfileIdentityStore } from "../../packages/client/src/profile-identity.ts";
 
 let root: string;
 let previousHome: string | undefined;
@@ -189,7 +189,7 @@ describe("onboarding identity preservation", () => {
   });
 
   test("separate processes share one creation lock", async () => {
-    const source = new URL("../../packages/arborsync/src/state/profile-identity.ts", import.meta.url).pathname;
+    const source = new URL("../../packages/client/src/profile-identity.ts", import.meta.url).pathname;
     const profile = join(root, "profile");
     const script = `import { ProfileIdentityStore } from ${JSON.stringify(source)}; console.log((await new ProfileIdentityStore().create(${JSON.stringify(profile)})).profileTree);`;
     const processes = Array.from({ length: 3 }, () => Bun.spawn([process.execPath, "-e", script], { env: process.env, stdout: "pipe", stderr: "pipe" }));

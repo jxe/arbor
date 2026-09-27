@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { ArborSyncDaemon } from "@overstory/arborsync";
-import { ProfileIdentityStore } from "@overstory/arborsync/state";
+import { ProfileIdentityStore } from "@overstory/client";
 import { initialPersonConfig, readTreeConfigGraph, snapshotTreeConfig, snapshotTreeConfigFiles, treeConfigurationID, type TreeConfigValues } from "@overstory/protocol";
 import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";

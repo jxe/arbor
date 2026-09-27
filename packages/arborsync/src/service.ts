@@ -14,7 +14,8 @@ import type {
 } from "@overstory/protocol";
 import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
-import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
+import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@overstory/client";
+import { type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
