@@ -55,7 +55,7 @@ describe("cloud bundle strings", () => {
   test("decodes a bundle Canopy's Share panel encoded", () => {
     // The form `CanopyCloudBundle.encode` (swift/CanopyApp/CanopyAgentBundle.swift)
     // makes: raw DEFLATE of sorted-key JSON, which must stay readable here.
-    const fromCanopy = "arbor-cloud-v2.cb_0123456789abcdefghij.nVHBTsMwDP2VyedszQoMltskLggOCMYFhKY0cbuMLCmuWzam8e2olLELTIBPlv3sZ7-3AW1MrAODgjlzWakkKTRZDANc6WXpMXlbRASxw12cg9rl_SEIyOpgPX6UTTaTw_To-GR0ejbWmbGYF3O3AAEmhtwVNWl2MUwJERQwzfaYJ78MsXymiuvmZbV-7bZ812-3EWpGO2mPTmU66stxX46mw1RJqaQcSCnvQYDFxpnuMtsc4PqCXuL6FtGCgsnvAwR4naFvpwoM3Msj9Uy0rWaRXOHCj9KCgNJrg0sMXIF62IDRIQZntL-7uTrsSPJJQeg1uwavNc9bC7oqE3aPM83-LnHdwPZRQEkxdx73dv3DrRoENEiViwFUun0H";
+    const fromCanopy = "arbor-cloud-v2.cb_0123456789abcdefghij.nZHBT8MgFMb_lYWzXWnV6npb4sXowei8aMxC4bVlUqgUcHOZf7uv63QXXVTCgTx-7_HxfWvCODdeO5KT2rm2y-O4YlaAHsOSNa2C-H1hgBx9cpcXSO7OUYL1wmuhYFvmxZwm6fHJaXZ2PmEFF1BWtVwgxI0uZeUtc9LomQVA2tn5nnlWjTbti-2cD6_L1dsw5bv7fpoF5kBMe9EpTbOITiKazZI0pxT3mFL6gJiAIPmgTIQDb32hV7C6AxDIT3-_sFuxAlTfVYF2o9LYETei98xYWUn9o7VItIpxaLCtI_njmnCmjZacqfvb68OJxLsnLCg0NcANc3UfwVB1aPH242jy3y32gWyeUJs1pVSwj-sfaXkUE8B2GDvJ080H";
     expect(decodeCloudBundle(fromCanopy)).toEqual(payload({
       label: "Agent for code",
       placements: [{ ...payload().placements[0]!, relativePath: "code" }],
