@@ -199,7 +199,7 @@ provenance in the underlying directory data.
 | Sheets and popovers as a concept, the Mac dismiss-handoff dance | `CanopyRootView.swift:1687–1740` | ordinary modal stack |
 | Search in the sidebar's toolbar section, `NSPopUpButton` order picker, hover washes | `CanopyRootView.swift:1545, 404, 279` | a field above the list, a native `<select>`-style menu |
 | iOS edge-drawer gestures, top-overscroll `Pull for Trees` (opens sidebar Trees mode) | `CanopyRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
-| Pinch-to-insert, three-finger cycling, swipe-to-extend selection | Quagmire | keyboard structural editing |
+| Pinch-to-insert and pinch lock, swipe-to-extend selection | Quagmire | keyboard structural editing |
 | Voice recording, transcription, pending-recording recovery, Siri and App Intents | `CanopyRootView.swift:52`, `VoiceRecordingIntents.swift` | none; the `🎙` heading convention still renders |
 | Sounds and haptics | `CanopyStyle.swift`, Quagmire | none |
 | QR camera scanning | `CanopyRootView.swift:3882` | paste the pairing code; QR is still shown for phones |

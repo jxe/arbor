@@ -47,15 +47,18 @@ heading's chevron to unfold all headings. Tapping the chevron still affects only
 that section. An individual heading's block action menu also offers **Fold
 Section** or **Unfold Section**.
 
-On iOS, the smaller pinch-to-insert gesture also starts Overstory's on-device voice
-recorder after crossing the insertion threshold. Hold the gap open while
-speaking: Apple's changing live draft appears in a provisional paragraph or
-list row with the same wrapping and spacing as the eventual block. Release to
-commit only the finalized transcript; the completed row remains selected in
+On iOS, pinch-to-insert also starts Overstory's on-device voice recorder after
+crossing the insertion threshold. Hold the gap open while speaking: Apple's
+changing live draft appears in a provisional paragraph or list row with the
+same wrapping and spacing as the eventual block. Release to commit only the
+finalized transcript; the completed row remains selected in navigation mode.
+For a longer note, slide both fingers into the right quarter of the screen
+until the lock closes, then lift: recording continues until a tap anywhere.
+While locked, a horizontal swipe inserts a divider instead, and **Heading** and
+**Indent** buttons turn the note into an H1 or a nested bullet. If no speech is
+detected, or recording could not start, the row becomes a blank paragraph in
 navigation mode. Pinch audio and partial drafts are ephemeral and never enter
-voice recovery. If no speech is detected—or recording could not start—the empty
-row enters edit mode and opens the keyboard. The larger heading gesture and a
-cancelled pinch discard their temporary audio.
+voice recovery; a divider or a cancelled pinch discards them.
 Toolbar recording prefers the block being edited when recording starts and
 inserts the transcript at its caret. Page-level routing, including a `🎙`
 heading, applies only when recording starts outside edit mode. Toolbar recording
