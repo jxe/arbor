@@ -90,7 +90,12 @@ async function claim(placementHost: string, options: { inviteCode?: string }): P
     const key = (await new HostAccountStore(configurationTree).deviceKeySeed())!;
     let token: string;
     try { token = (await openDeviceSession(target.origin, profileTree, key.deviceID, key.seed)).token; }
-    catch { return null; }
+    catch (error) {
+      // A host that holds the account but cannot check this device now (its
+      // home host is unreachable) says so; claiming again would only hide that.
+      if (error instanceof ProtocolHTTPError && (error.status >= 500 || error.details?.homeHost !== undefined)) throw error;
+      return null;
+    }
     const { account } = await new ProtocolClient(target.origin, token).placementAccount();
     const accountURL = (await store.safe())?.account ?? target.account ?? `${target.origin}${account.placementRoot.path}`;
     await store.forgetSession();

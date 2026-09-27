@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { arborPrivateRoot } from "@overstory/protocol";
-import type { MutationReceipt } from "@overstory/protocol";
+import type { HostPlacementRecord, MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore } from "@overstory/client";
 import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+import { claimLocalPairing, claimPlacementAccount, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -67,6 +67,33 @@ export class LocalAccountService {
     }
   }
 
+  /**
+   * Claim a placement account for the data home's profile at `host`
+   * (accounts §1.3), as `arbor account place <host>` does, or connect to one
+   * already claimed. The data home holds the profile key and the device key,
+   * so a local app claims through here. A host's refusal keeps its error code,
+   * status and details, so a 403 or 503 still names `details.homeHost`.
+   */
+  async claimPlacementAccount(host: string, inviteCode?: string): Promise<{ placement: HostPlacementRecord; claimed: boolean }> {
+    try {
+      const { record, claimed } = await claimPlacementAccount(host, inviteCode ? { inviteCode } : {});
+      // The tree registry checks placements.yaml hosts against these connections.
+      this.deps.trees.invalidateDescriptors();
+      return { placement: record, claimed };
+    } catch (error) {
+      if (error instanceof ProtocolHTTPError) {
+        throw new ProtocolError(error.code ?? codeForStatus(error.status), error.message, error.status, {
+          retryable: error.retryable ?? false,
+          ...(error.details ?? {}),
+        } as ProtocolError["details"]);
+      }
+      if (error instanceof ProtocolTransportError) {
+        throw new ProtocolError("internal-error", `${host} could not be reached; try again when it is online.`, 503, { retryable: true });
+      }
+      throw error;
+    }
+  }
+
   async profileIdentity() {
     try { return await new ProfileIdentityStore().status(); }
     catch { throw new ProtocolError("credential-unavailable", "The existing identity could not be read or verified. Unlock the credential store or inspect the identity backup; no new identity was created.", 409); }
@@ -111,6 +138,19 @@ export class LocalAccountService {
     return listLocalAccounts();
   }
 
+}
+
+/** The error code a host's refusal stands for when its body names none. */
+function codeForStatus(status: number): string {
+  switch (status) {
+    case 400: return "invalid-request";
+    case 401: return "unauthenticated";
+    case 403: return "permission-denied";
+    case 404: return "not-found";
+    case 409: return "conflict";
+    case 429: return "rate-limited";
+    default: return "internal-error";
+  }
 }
 
 async function identityOperation<T>(operation: () => Promise<T>): Promise<T> {
