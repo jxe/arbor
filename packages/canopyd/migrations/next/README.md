@@ -72,7 +72,8 @@ for is gone, on the host, the Mac and the iPhone. Neither writes anything.
      --iphone ~/iphone-arbor --live survey-host.json
    ```
 
-   `--home <dir>` (or `SURVEY_HOME`) surveys another home directory. Each line
+   `--home <dir>` (or `SURVEY_HOME`) surveys another home directory, skipping
+   the Keychain checks, since the login Keychain is the running user's. Each line
    is `PASS`, `FAIL` or `SKIP`, the check, the commit to `git revert` if it
    fails (or the work it gates), and details; the script exits 1 when any
    check fails. `SKIP` marks an input not given. Run it once without `--live`

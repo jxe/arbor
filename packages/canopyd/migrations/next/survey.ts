@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parse as parseYAML } from "yaml";
 import type { HostSurvey } from "./survey-host.ts";
 
@@ -239,10 +239,16 @@ function keychainItems(dump: string): Array<{ service: string; account: string }
   });
 }
 
+/** The login Keychain is the running user's, so it answers only for their own home (or an injected one). */
+function ownKeychain(options: SurveyOptions): boolean {
+  return options.security !== undefined || resolve(options.home) === resolve(homedir());
+}
+
 async function keychainIdentity(dataHome: string, options: SurveyOptions): Promise<CheckResult> {
   const name = "Keychain: only the indexed profile identity";
   const attribution = { revert: REVERT.keychainIdentities };
   if ((options.platform ?? process.platform) !== "darwin") return skip(name, attribution, "not macOS; check the iPhone by hand (Settings → Accounts)");
+  if (!ownKeychain(options)) return skip(name, attribution, "the login Keychain belongs to this user, not to --home");
   const security = options.security ?? ((args: string[]) => {
     const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     return { status: run.status, stdout: run.stdout ?? "" };
@@ -274,7 +280,7 @@ async function noPendingClaims(dataHome: string, options: SurveyOptions): Promis
   const attribution = { gate: GATES.claimShape };
   const found: string[] = [];
   if (await exists(join(dataHome, ".state", "bootstrap-account-claim.json"))) found.push(".state/bootstrap-account-claim.json");
-  if ((options.platform ?? process.platform) === "darwin") {
+  if ((options.platform ?? process.platform) === "darwin" && ownKeychain(options)) {
     const security = options.security ?? ((args: string[]) => {
       const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
       return { status: run.status, stdout: run.stdout ?? "" };
