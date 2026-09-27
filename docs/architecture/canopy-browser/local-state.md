@@ -39,8 +39,13 @@ The Mac keeps no content store. The app opens a tree the daemon has placed as
 an in-memory working tree seeded from `GET /v1/bootstrap` (the folder's
 directories and Markdown, every other file by hash) with an in-memory overlay,
 and its platform object store is the control-mode daemon's `/v1/objects` route
-over the placed folder. Only the coordinator's durable update control is
-written beneath the app's support directory:
+over the placed folder. The working tree is its own replica: it publishes to
+canopyd directly and follows the open tree's watch itself (`HostWatchRunner`,
+one watch for the selected tree), while the daemon keeps its own watch for the
+folder. Two connections to one tree are deliberate: the daemon has no route
+that relays a host watch, and an idle watch costs one keepalive comment every
+20 seconds. Only the coordinator's durable update control is written beneath
+the app's support directory:
 
 ```text
 <Application Support>/Arbor/
