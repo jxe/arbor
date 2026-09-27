@@ -22,5 +22,12 @@ first. The points below are the ones that most often go wrong for an agent.
   `swift/scripts/test-canopy-editor-local.sh`, which preserves the
   tracked lock. Both Quagmire pins must name the same exact release, and a
   local path never lands in a committed manifest.
+- Run git as plain, single commands from your working directory, one per
+  shell call: `git status`, then `git add path`, then `git commit -m ...`.
+  No `cd dir && git`, `git -C`, `--git-dir`/`--work-tree`, pipes, `$(...)`,
+  loops, or `&&`/`;` chains around git; use git's own flags (`-n`,
+  `--format`, `--stat`) in place of `| head` or `| grep`. A
+  worktree-isolated agent's git commands are refused when they are too
+  complex to prove they stay inside the worktree.
 - Live data, installed apps, and the public host are never changed without
   Joe's explicit go-ahead. `/.arbor/integrity` is a full audit, not a probe; call it once, never poll it.
