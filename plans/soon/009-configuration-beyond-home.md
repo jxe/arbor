@@ -7,7 +7,7 @@
 - **Risk:** MEDIUM. A placement host keeps honouring a device list it cannot
   refresh, and matches groups another host holds.
 - **State:** PLANNED 2026-09-27, split from the portable-profiles design
-  (Security 008). One decision is Joe's (marked **Decide**).
+  (Security 008). The grace is decided.
 - **Builds on:** [Security 007](007-placement-hosts.md) (placement hosts that
   read the home host's published device keys).
 - **Trust:** other hosts, over HTTPS, as Security 007 already trusts the home
@@ -35,7 +35,7 @@ A placement host refreshes each profile's device keys every 60 s, so a deleted
 device reaches it within that. When a refresh fails, it keeps opening sessions
 from its last copy for a **grace**, then refuses.
 
-**Decide:** the grace. Recommended: one hour, a session's lifetime. Nobody can
+**Decided (Joe, 2026-09-27):** one hour, a session's lifetime. Nobody can
 revoke a device while its home host is down, since only the home accepts the
 change, so the only exposure is a deletion made in the last 60 s before the
 outage. Past the grace the host fails closed.
