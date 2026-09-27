@@ -280,7 +280,7 @@ final class CanopyWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         let credentialProvider: any ProtocolCredentialProvider = configurationTree.map {
-            AccountStoredCredentialProvider(configurationTree: $0, store: KeychainDeviceCredentialStore())
+            AccountStoredCredentialProvider.shared(configurationTree: $0, store: KeychainDeviceCredentialStore())
         } ?? StoredDeviceCredentialProvider(origin: origin, store: KeychainDeviceCredentialStore())
         let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: client)
@@ -1069,7 +1069,7 @@ final class CanopyWorkspaceState {
             update: bootstrap.accepted.update
         ).validated()
 
-        let credentialProvider = ArborSyncCredentialProvider(client: client, configurationTree: placed.configurationTree)
+        let credentialProvider = ArborSyncCredentialProvider.shared(client: client, configurationTree: placed.configurationTree)
         let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: protocolClient)
         let platform = DaemonObjectStore(client: client, tree: treeID)

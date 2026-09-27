@@ -71,6 +71,11 @@ describe("an installation's device key", () => {
     const renewed = (await store.get())!.accountToken;
     expect(renewed).not.toBe(connected.accountToken);
     expect((await new ProtocolClient(host.url, renewed).account()).account.profileTree).toBe(profileTree);
+
+    // Concurrent callers with no usable session share one open.
+    await store.forgetSession();
+    const concurrent = await Promise.all(Array.from({ length: 5 }, () => new HostAccountStore(treeConfigurationID(profileTree)).get()));
+    expect(new Set(concurrent.map((each) => each!.accountToken)).size).toBe(1);
   });
 
   test("moveToDeviceKey adds the key to this device's entry, adopts it, and is idempotent", async () => {

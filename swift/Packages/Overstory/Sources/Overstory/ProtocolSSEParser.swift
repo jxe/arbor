@@ -26,6 +26,9 @@ public struct ProtocolSSEParser: Sendable {
     public mutating func finish() throws -> [ProtocolSSEFrame] {
         guard !buffer.isEmpty else { return [] }
         defer { buffer.removeAll(); scanned = 0 }
+        // A trailing comment carries no event; an unterminated event is malformed.
+        let lines = String(decoding: buffer, as: UTF8.self).split(whereSeparator: \.isNewline)
+        if lines.allSatisfy({ $0.hasPrefix(":") }) { return [] }
         throw ProtocolValidationError.malformedSSE("Unterminated SSE frame")
     }
 

@@ -34,7 +34,7 @@ struct ArborSyncAccountService: CanopyAccountService {
     }
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {
-        ArborSyncCredentialProvider(client: try await connect(), configurationTree: configurationTree)
+        ArborSyncCredentialProvider.shared(client: try await connect(), configurationTree: configurationTree)
     }
 
     func createIdentity() async throws {

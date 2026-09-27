@@ -2,6 +2,7 @@
 import OverstoryObjectStore
 import Overstory
 import Foundation
+import Synchronization
 
 /// The daemon's stored Canopy credential as a `ProtocolCredentialProvider`.
 ///
@@ -10,6 +11,20 @@ import Foundation
 /// next request re-reads the daemon's (possibly rotated) token instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
 actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
+    /// One provider per account for the connected daemon, so the app's clients
+    /// share one token instead of each asking the daemon for it.
+    private static let providers = Mutex<[String: ArborSyncCredentialProvider]>([:])
+
+    static func shared(client: ArborSyncRESTClient, configurationTree: String) -> ArborSyncCredentialProvider {
+        providers.withLock { providers in
+            // A reconnected daemon is a new client; its providers start fresh.
+            if let provider = providers[configurationTree], provider.client === client { return provider }
+            let provider = ArborSyncCredentialProvider(client: client, configurationTree: configurationTree)
+            providers[configurationTree] = provider
+            return provider
+        }
+    }
+
     private let client: ArborSyncRESTClient
     private let configurationTree: String?
     private var cached: String?

@@ -42,7 +42,16 @@ const SESSION_MARGIN_MS = 5 * 60_000;
 const ADOPTION_RETRY_MS = 60_000;
 /** Keyed by the account's private directory: one data home, one account. */
 const sessions = new Map<string, { token: string; expiresAt: number }>();
+/** Session opens in flight, so concurrent callers share one challenge and one session. */
+const sessionOpens = new Map<string, Promise<{ token: string; expiresAt: number }>>();
 const adoptionAttempts = new Map<string, number>();
+/**
+ * Each account's record and secret as last read, so a request does not reread
+ * the connection file and the keychain. Writes through this store replace it;
+ * another process's edits show within a minute, or at once after a refusal.
+ */
+const CREDENTIAL_READ_TTL_MS = 60_000;
+const credentialReads = new Map<string, { record: HostAccountRecord; secret: string | null; readAt: number }>();
 
 /** Private connection metadata and credential lookup for one configuration TreeID. */
 export class HostAccountStore {
@@ -206,9 +215,14 @@ export class HostAccountStore {
    * digest device with a prepared key adopts it as soon as the host lists it.
    */
   async get(): Promise<{ record: HostAccountRecord; accountToken: string } | null> {
-    const record = await this.safe();
-    if (!record) return null;
-    const secret = await this.readSecret(record.credential);
+    let read = credentialReads.get(this.directory);
+    if (!read || Date.now() - read.readAt > CREDENTIAL_READ_TTL_MS) {
+      const record = await this.safe();
+      if (!record) { credentialReads.delete(this.directory); return null; }
+      read = { record, secret: await this.readSecret(record.credential), readAt: Date.now() };
+      credentialReads.set(this.directory, read);
+    }
+    const { record, secret } = read;
     if (!secret || sha256(secret) !== record.tokenDigest) return null;
     if (!record.deviceKey) {
       const adopted = await this.adoptIfListed(record);
@@ -224,6 +238,7 @@ export class HostAccountStore {
    */
   async forgetSession(): Promise<void> {
     sessions.delete(this.directory);
+    credentialReads.delete(this.directory);
     adoptionAttempts.delete(this.directory);
     await rm(this.sessionPath, { force: true });
   }
@@ -241,13 +256,20 @@ export class HostAccountStore {
       sessions.set(this.directory, cached);
       return cached.token;
     }
-    const opened = await openDeviceSession(record.origin, record.profileTree, record.deviceID, seed);
-    const value = { token: opened.token, expiresAt: opened.expiresAt };
-    sessions.set(this.directory, value);
-    const temporary = `${this.sessionPath}.${crypto.randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ device: record.deviceID, ...value }), { mode: 0o600 });
-    await rename(temporary, this.sessionPath);
-    return value.token;
+    let opening = sessionOpens.get(this.directory);
+    if (!opening) {
+      opening = (async () => {
+        const opened = await openDeviceSession(record.origin, record.profileTree, record.deviceID, seed);
+        const value = { token: opened.token, expiresAt: opened.expiresAt };
+        sessions.set(this.directory, value);
+        const temporary = `${this.sessionPath}.${crypto.randomUUID()}.tmp`;
+        await writeFile(temporary, JSON.stringify({ device: record.deviceID, ...value }), { mode: 0o600 });
+        await rename(temporary, this.sessionPath);
+        return value;
+      })().finally(() => sessionOpens.delete(this.directory));
+      sessionOpens.set(this.directory, opening);
+    }
+    return (await opening).token;
   }
 
   private async adoptIfListed(record: HostAccountRecord): Promise<boolean> {
@@ -286,10 +308,12 @@ export class HostAccountStore {
   }
 
   private async writeRecord(record: HostAccountRecord): Promise<HostAccountRecord> {
+    credentialReads.delete(this.directory);
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, this.path);
+    credentialReads.delete(this.directory);
     return record;
   }
 
@@ -305,6 +329,7 @@ export class HostAccountStore {
     }
     await this.forgetSession();
     await rm(this.path, { force: true });
+    credentialReads.delete(this.directory);
   }
 
   static async list(): Promise<HostAccountRecord[]> {

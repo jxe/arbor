@@ -168,7 +168,7 @@ struct KeychainAccountService: CanopyAccountService {
     }
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {
-        AccountStoredCredentialProvider(configurationTree: configurationTree, store: KeychainDeviceCredentialStore())
+        AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: KeychainDeviceCredentialStore())
     }
 
     func createIdentity() async throws {

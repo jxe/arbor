@@ -2,6 +2,7 @@ import CanopyAppKit
 import Overstory
 import CryptoKit
 import Foundation
+import Synchronization
 import Security
 
 public protocol DeviceCredentialStore: Sendable {
@@ -89,7 +90,7 @@ public protocol AccountCredentialStore: Sendable {
 }
 
 public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCredentialStore {
-    private let service: String
+    nonisolated let service: String
 
     public init(service: String = "org.nxhx.Arbor.device") { self.service = service }
 
@@ -123,10 +124,12 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
     public func save(_ credential: String, configurationTree: String) throws {
         guard !credential.isEmpty else { throw ProtocolValidationError.invalidValue("Credential is empty") }
         try saveValue(credential, account: accountKey(configurationTree))
+        AccountStoredCredentialProvider.discardShared(service: service, configurationTree: configurationTree)
     }
 
     public func forget(configurationTree: String) throws {
         try forgetValue(account: accountKey(configurationTree))
+        AccountStoredCredentialProvider.discardShared(service: service, configurationTree: configurationTree)
     }
 
     public func loadPending(origin: URL, pairingID: String) throws -> PendingPairingClaim? {
@@ -416,6 +419,33 @@ public actor StoredDeviceCredentialProvider: ProtocolCredentialProvider {
 /// device the slot holds its key, and the provider hands out the sessions the
 /// key opens instead.
 public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
+    /// The keychain accounts' providers, one per account for the process, so
+    /// every client of an account shares its device session instead of each
+    /// opening its own (a challenge and a session POST per request).
+    private static let keychainProviders = Mutex<[String: AccountStoredCredentialProvider]>([:])
+
+    /// The provider for an account: shared when the account lives in the
+    /// keychain and requests use the shared URL session, otherwise a new one.
+    public static func shared(configurationTree: String, store: any AccountCredentialStore, session: URLSession = .shared) -> AccountStoredCredentialProvider {
+        guard let keychain = store as? KeychainDeviceCredentialStore, session === URLSession.shared else {
+            return AccountStoredCredentialProvider(configurationTree: configurationTree, store: store, session: session)
+        }
+        let key = keychainKey(service: keychain.service, configurationTree: configurationTree)
+        return keychainProviders.withLock { providers in
+            if let provider = providers[key] { return provider }
+            let provider = AccountStoredCredentialProvider(configurationTree: configurationTree, store: store, session: session)
+            providers[key] = provider
+            return provider
+        }
+    }
+
+    /// Drop a shared provider whose keychain entry changed; the next client reads it afresh.
+    static func discardShared(service: String, configurationTree: String) {
+        _ = keychainProviders.withLock { $0.removeValue(forKey: keychainKey(service: service, configurationTree: configurationTree)) }
+    }
+
+    private static func keychainKey(service: String, configurationTree: String) -> String { "\(service)\u{0}\(configurationTree)" }
+
     private let configurationTree: String
     private let store: any AccountCredentialStore
     private let session: URLSession
@@ -738,7 +768,7 @@ public actor NativeAccountService {
         if let configurationTree {
             return ProtocolClient(
                 origin: origin,
-                credentialProvider: AccountStoredCredentialProvider(configurationTree: configurationTree, store: credentials, session: session),
+                credentialProvider: AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: credentials, session: session),
                 session: session,
                 retryDelay: retryDelay
             )
