@@ -19,6 +19,8 @@ export class PersistentMergeWorker {
   lastTimings?: Record<string, number>;
   private failure?: Error;
   private closed = false;
+  /** Why the process ended, once it has. */
+  private exit?: Error;
   private readonly limit = 8 * 1024 * 1024;
   constructor(
     command: string[],
@@ -47,19 +49,19 @@ export class PersistentMergeWorker {
     this.exited = new Promise((resolve) => {
       this.child.on("close", (code, signal) => {
         this.closed = true;
+        this.exit = this.failure ?? new Error(`Merge worker exited (${code ?? signal})`);
         if (this.pending) {
           clearTimeout(this.pending.timer);
-          this.pending.reject(
-            this.failure ??
-              new Error(`Merge worker exited (${code ?? signal})`),
-          );
+          this.pending.reject(this.exit);
           this.pending = undefined;
         }
         resolve();
       });
     });
     this.child.on("error", (error) => this.fail(error));
-    this.child.stdin.on("error", (error) => this.fail(error));
+    // A pipe error means the process is gone or going: its exit rejects the
+    // pending request with the reason, and the timeout covers the rest.
+    this.child.stdin.on("error", () => {});
     this.child.stdout.on("data", (chunk: Buffer) => {
       if (!this.pending) {
         this.fail(new Error("Unsolicited merge worker output"));
@@ -124,6 +126,7 @@ export class PersistentMergeWorker {
     this.child.kill("SIGKILL");
   }
   request(value: unknown, timeoutMs: number): Promise<string> {
+    if (this.exit) return Promise.reject(this.exit);
     if (!this.alive || this.pending)
       return Promise.reject(new Error("Merge worker is unavailable or busy"));
     this.stderrBytes = 0;
@@ -134,9 +137,7 @@ export class PersistentMergeWorker {
         timeoutMs,
       );
       this.pending = { resolve, reject, timer };
-      this.child.stdin.write(JSON.stringify(value) + "\n", (error) => {
-        if (error) this.fail(error);
-      });
+      this.child.stdin.write(JSON.stringify(value) + "\n");
     });
   }
   async close(): Promise<void> {
