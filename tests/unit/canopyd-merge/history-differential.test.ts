@@ -12,8 +12,9 @@ type State = { object: string; state: string };
 type Step = { text: string; result: State };
 
 /** Eager evaluation re-projects every state and re-enforces all history; the
- * default path trusts recorded projections and enforces only deletions newer
- * than an editable basis. Every accepted outcome must be identical. */
+ * default path trusts recorded projections, reuses the projections of
+ * subtrees nothing edited, and enforces only deletions newer than an editable
+ * basis. Every accepted outcome must be identical. */
 async function differential(f: Fixture, request: IntentRequest) {
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,

@@ -146,7 +146,12 @@ type ProjectedMaterial = Map<string, {node: Readonly<Node>; object: string}>;
 /** What one projection walk shares: the view's child index, and with
  * `projected` each subtree's object and height (its deepest descendant's
  * distance below it), for a walk over a view nothing edits meanwhile. */
-type Walk = {index?: Map<string, Readonly<Node>[]>; projected?: Map<string, {object: string; height: number}>};
+type Walk = {index?: Map<string, Readonly<Node>[]>; projected?: Map<string, Projected>};
+/** A directory a trusted projection read: its node, object, contents and
+ * active children. */
+type TrustedDirectory = {node: Readonly<Node>; object: string; directory: ProtocolDirectory; children: Readonly<Node>[]};
+/** A subtree's object and height (its deepest descendant's distance below it). */
+type Projected = {object: string; height: number};
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
   /** The effects an editable basis already enforced, when evaluation may
@@ -180,6 +185,16 @@ class Engine {
   private readonly contexts = new Map<string, IntentState>();
   private readBytes = 0;
   private writtenBytes = 0;
+  /** Subtree projections this evaluation established, per nodes map (so a
+   * state's copy never shares its original's) and by node. An entry holds
+   * while nothing in the subtree changes: every node edit goes through
+   * `edit`, `assign`, `setNode`, `deleteNode` or `replaceNodes`, which forget
+   * the entries of the node and its ancestors. Projecting a subtree again in
+   * this evaluation would put and read only what it already did, so an entry
+   * is reused in its place (see `projectNode`). */
+  private readonly subtrees = new WeakMap<View["nodes"], Map<string, Projected>>();
+  /** Counts node edits: a walk that an edit interleaved keeps no entry. */
+  private editCount = 0;
   private started = performance.now();
   checkBudget() {
     if (
@@ -265,33 +280,68 @@ class Engine {
   }
 
   // ---- Node edits ---------------------------------------------------------
-  // Every edit to a node a view holds goes through these. A view's nodes are
-  // read-only in its type, so only these write them (and a node built
-  // `detached` is edited freely until `setNode` places it).
+  // Every edit to a node a view holds goes through these, so that the
+  // projections `subtrees` keeps for the node and its ancestors are forgotten.
+  // A view's nodes are read-only in its type, so only these write them (and
+  // a node built `detached` is edited freely until `setNode` places it).
 
-  /** Edit `node`, a node of `view`, in place. */
-  edit(view: View, node: Readonly<Node>, change: (node: Node) => void): void {
-    change(node as Node);
+  /** Forget the kept projections of node `id` and of its ancestors from
+   * `parent` up, in `view`. */
+  private forget(view: View, id: string, parent: string | null): void {
+    this.editCount++;
+    const kept = this.subtrees.get(view.nodes);
+    if (!kept?.size) return;
+    kept.delete(id);
+    const seen = new Set([id]);
+    for (let at = parent; at !== null && !seen.has(at); at = view.nodes[at]?.parent ?? null) {
+      seen.add(at);
+      kept.delete(at);
+    }
   }
-  /** Set one field of `node`, a node of `view`. */
+  /** Edit `node`, a node of `view`, in place. A changed parent leaves both
+   * the old and the new ancestors unprojected. */
+  edit(view: View, node: Readonly<Node>, change: (node: Node) => void): void {
+    const { id, parent } = node;
+    this.forget(view, id, parent);
+    change(node as Node);
+    if (node.parent !== parent || node.id !== id) this.forget(view, node.id, node.parent);
+  }
+  /** Set one field of `node`, a node of `view`. The assignment always happens;
+   * an equal value forgets nothing, since projection reads only values. */
   assign<K extends keyof Node>(view: View, node: Readonly<Node>, field: K, value: Node[K]): void {
-    this.edit(view, node, (n) => { n[field] = value; });
+    if (same(node[field], value)) (node as Node)[field] = value;
+    else this.edit(view, node, (n) => { n[field] = value; });
   }
   /** Place `node` in `view` under `id`, replacing any node there. */
   setNode(view: View, id: string, node: Node): void {
+    const old = view.nodes[id];
+    if (old) this.forget(view, id, old.parent);
     (view.nodes as Record<string, Node>)[id] = node;
+    this.forget(view, id, node.parent);
   }
   /** Remove node `id` from `view`. */
   deleteNode(view: View, id: string): void {
+    const old = view.nodes[id];
+    this.forget(view, id, old?.parent ?? null);
     delete (view.nodes as Record<string, Node>)[id];
   }
-  /** Replace `view`'s nodes with a copy of `from`'s. */
+  /** Replace `view`'s nodes with a copy of `from`'s, keeping what is known
+   * of `from`'s projections (the copy is equal to it). */
   replaceNodes(view: View, from: View): void {
+    this.editCount++;
     (view as {nodes: View["nodes"]}).nodes = clone(from.nodes);
+    this.inherit(view.nodes, from.nodes);
   }
-  /** A copy of `state` to edit (`cloneState`). */
+  /** A copy of `state` to edit (`cloneState`), which starts with what is
+   * known of `state`'s projections: it is equal to `state` when taken. */
   cloneState(state: IntentState): IntentState {
-    return cloneState(state);
+    const result = cloneState(state);
+    this.inherit(result.nodes, state.nodes);
+    return result;
+  }
+  private inherit(nodes: View["nodes"], from: View["nodes"]): void {
+    const kept = this.subtrees.get(from);
+    if (kept?.size) this.subtrees.set(nodes, new Map(kept));
   }
   async importNode(
     view: View,
@@ -370,6 +420,7 @@ class Engine {
       for (const [id, entry] of material)
         if (!this.projection.previous!.has(id))
           this.projection.previous!.set(id, {node: clone(entry.node), object: entry.object});
+      this.seed(state, material);
     }
     return this.validateState(state, ref, trusted);
   }
@@ -474,20 +525,41 @@ class Engine {
     visiting = new Set<string>(),
     walk: Walk | Map<string, Readonly<Node>[]> = {}
   ): Promise<string> {
-    this.checkBudget();
     const shared: Walk = walk instanceof Map ? { index: walk } : walk;
+    return (await this.projectNode(view, root, visiting, shared)).object;
+  }
+  /** The object `root` projects to, and its height. */
+  private async projectNode(
+    view: View,
+    root: string,
+    visiting: Set<string>,
+    shared: Walk
+  ): Promise<Projected> {
+    this.checkBudget();
     // A subtree this walk projected already, while nothing edited the view:
     // it projects to the same object, and every object it put is still put.
     // Reused only where projecting it again would not reach the depth budget.
     const known = shared.projected?.get(root);
-    if (known && visiting.size + known.height <= 256) return known.object;
+    if (known && visiting.size + known.height <= 256) return known;
+    // A subtree this evaluation projected (or seeded, see `load`) in this
+    // nodes map, unedited since: the same, by the same argument. Nothing in it
+    // changed, so it holds no cycle through `visiting`, no duplicate name and
+    // no inactive node, and within the depth budget no walk of it can fail.
+    const kept = this.eager ? undefined : this.subtrees.get(view.nodes);
+    const reused = kept?.get(root);
+    if (reused && visiting.size + reused.height <= 256) {
+      shared.projected?.set(root, reused);
+      return reused;
+    }
     const node = view.nodes[root];
     if (!node?.active) return fail("Projection root is absent");
     if (visiting.has(root)) return fail("Directory cycle");
     if (visiting.size > 256)
       throw new MergeRefusal("limit", "Directory depth budget exceeded");
+    const edits = this.editCount;
     visiting.add(root);
     try {
+      let projected: Projected;
       if (node.kind === "file") {
         const material = this.projection;
         const previous = material?.previous?.get(node.id);
@@ -496,43 +568,49 @@ class Engine {
           : node.pieces ? this.put(await this.bytes(node.pieces))
           : (await this.read(node.object), node.object);
         material?.next.set(node.id, {node, object});
-        shared.projected?.set(root, {object, height: 0});
-        return object;
-      }
-      if (node.kind === "tree") {
-        shared.projected?.set(root, {object: node.object, height: 0});
-        return node.object;
-      }
-      const entries = [];
-      const names = new Set<string>();
-      let height = 0;
-      for (const child of this.children(view, root, (shared.index ??= this.childIndex(view))).sort((a, b) =>
-        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
-      )) {
-        if (names.has(child.name)) return fail("Duplicate directory placement");
-        names.add(child.name);
-        const object = await this.project(view, child.id, visiting, shared);
-        if (shared.projected) height = Math.max(height, shared.projected.get(child.id)!.height + 1);
-        entries.push(
-          child.kind === "file"
-            ? { name: child.name, file: object }
-            : child.kind === "directory"
-            ? { name: child.name, directory: object }
-            : { name: child.name, tree: object }
+        projected = {object, height: 0};
+      } else if (node.kind === "tree") projected = {object: node.object, height: 0};
+      else {
+        const entries = [];
+        const names = new Set<string>();
+        let height = 0;
+        for (const child of this.children(view, root, (shared.index ??= this.childIndex(view))).sort((a, b) =>
+          Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
+        )) {
+          if (names.has(child.name)) return fail("Duplicate directory placement");
+          names.add(child.name);
+          const { object, height: below } = await this.projectNode(view, child.id, visiting, shared);
+          height = Math.max(height, below + 1);
+          entries.push(
+            child.kind === "file"
+              ? { name: child.name, file: object }
+              : child.kind === "directory"
+              ? { name: child.name, directory: object }
+              : { name: child.name, tree: object }
+          );
+        }
+        const object = this.put(
+          encodeProtocolDirectory({
+            ...node.directory,
+            type: "directory",
+            entries,
+          } as ProtocolDirectory)
         );
+        projected = {object, height};
       }
-      const object = this.put(
-        encodeProtocolDirectory({
-          ...node.directory,
-          type: "directory",
-          entries,
-        } as ProtocolDirectory)
-      );
-      shared.projected?.set(root, {object, height});
-      return object;
+      shared.projected?.set(root, projected);
+      // Kept only when no edit interleaved the walk (it awaits reads).
+      if (!this.eager && this.editCount === edits) this.keep(view.nodes).set(root, projected);
+      return projected;
     } finally {
       visiting.delete(root);
     }
+  }
+  /** The kept projections of `nodes`. */
+  private keep(nodes: View["nodes"]): Map<string, Projected> {
+    let kept = this.subtrees.get(nodes);
+    if (!kept) this.subtrees.set(nodes, (kept = new Map()));
+    return kept;
   }
   /** Projections of several nodes of `view` in a loop that edits no node of
    * it (only decisions): one child index, and each subtree projected once.
@@ -2908,14 +2986,17 @@ class Engine {
   private async trustedProjection(state: IntentState, object: string): Promise<ProjectedMaterial> {
     const index = this.childIndex(state);
     const material: ProjectedMaterial = new Map();
+    const directories: TrustedDirectory[] = [];
     const visit = async (id: string, hash: string, depth: number): Promise<void> => {
       this.checkBudget();
       if (depth > 256) return fail("Directory depth budget exceeded");
       const node = state.nodes[id] ?? fail("Missing validated node");
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
-      const entries = new Map(directoryOf(await this.read(hash)).entries.map(e => [e.name, e]));
-      for (const child of this.children(state, id, index)) {
+      const directory = directoryOf(await this.read(hash));
+      const entries = new Map(directory.entries.map(e => [e.name, e]));
+      const children = this.children(state, id, index);
+      for (const child of children) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
           : child.kind === "directory" && "directory" in entry ? entry.directory
@@ -2923,9 +3004,47 @@ class Engine {
         if (!target) return fail("Validated basis directory mismatch");
         await visit(child.id, target, depth + 1);
       }
+      directories.push({node, object: hash, directory, children});
     };
     await visit(state.root, object, 0);
+    this.trusted.set(material, directories);
     return material;
+  }
+  /** The directories each trusted projection read, children first. */
+  private readonly trusted = new WeakMap<ProjectedMaterial, TrustedDirectory[]>();
+  /** Keep, for `state`'s nodes, the projections its trusted projection
+   * `material` already establishes: exactly those a walk now would compute
+   * without putting or reading anything. A file is kept when the walk would
+   * take its object from `projection.previous`; a directory when it is active
+   * and each of its entries is a kept child of that name, kind and object, and
+   * its own metadata is the directory's, so that its encoding is the very
+   * bytes the trusted projection read (and put finds them read). A tree is
+   * its node's object. Nothing is kept when eager. */
+  private seed(state: IntentState, material: ProjectedMaterial): void {
+    const directories = this.trusted.get(material);
+    if (this.eager || !directories) return;
+    const previous = this.projection?.previous, kept = this.keep(state.nodes);
+    const known = (child: Readonly<Node>): Projected | undefined => {
+      if (child.kind === "tree") return {object: child.object, height: 0};
+      if (child.kind === "directory") return kept.get(child.id);
+      const entry = previous?.get(child.id);
+      return entry && same(entry.node, child) ? {object: entry.object, height: 0} : undefined;
+    };
+    for (const {node, object, directory, children} of directories) {
+      if (!node.active || state.nodes[node.id] !== node) continue;
+      let height = 0, complete = children.length === directory.entries.length;
+      const named = new Map(children.map((child) => [child.name, child]));
+      if (named.size !== children.length) complete = false;
+      for (const entry of complete ? directory.entries : []) {
+        const child = named.get(entry.name), projected = child && known(child);
+        if (projected && child.kind !== "directory") kept.set(child.id, projected);
+        const target = child?.kind === "file" ? entry.file : child?.kind === "directory" ? entry.directory : entry.tree;
+        if (!projected || projected.object !== target) complete = false;
+        else height = Math.max(height, projected.height + 1);
+      }
+      if (complete && same({ ...node.directory, type: "directory", entries: directory.entries }, directory))
+        kept.set(node.id, {object, height});
+    }
   }
 
   /** Exact-basis source replacements and entry additions cannot import
@@ -2967,6 +3086,7 @@ class Engine {
     const basis = loadState(retained);
     const projected = await this.trustedProjection(basis, request.base.object);
     this.projection = {previous: projected, next: new Map()};
+    this.seed(basis, projected);
     const authored = this.cloneState(basis);
     // Frames apply in order. Each one is authored against the previous frame's
     // result, which this path has just projected, so its material needs no
@@ -2988,11 +3108,13 @@ class Engine {
       frameBasis = this.cloneState(authored);
       // Carry the projected file objects into the next frame, detached from the
       // live nodes: the next frame edits those nodes in place, and a reused
-      // entry must still describe the material as this frame left it.
-      this.projection = {
-        previous: new Map([...this.projection!.next].map(([id, entry]) => [id, {node: clone(entry.node), object: entry.object}])),
-        next: new Map(),
-      };
+      // entry must still describe the material as this frame left it. A file
+      // whose kept projection was reused was not walked, so it keeps the entry
+      // it had: it is unedited since, and this path removes no node, so every
+      // file the frame could reach is either walked or so kept.
+      const previous: ProjectedMaterial = new Map(this.projection!.previous);
+      for (const [id, entry] of this.projection!.next) previous.set(id, {node: clone(entry.node), object: entry.object});
+      this.projection = { previous, next: new Map() };
     }
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
     authored.changes[request.incoming.change] = this.put(encodeJSON(changeIdentity(request)));
@@ -3037,9 +3159,9 @@ export async function mergeIntent(
 ): Promise<IntentEvaluation> {
   checkTrace(request);
   const engine = new Engine(request, objects);
-  // Eager evaluation re-projects every state and re-enforces all history.
-  // It is the reference the differential suite compares the incremental
-  // path against.
+  // Eager evaluation re-projects every state and re-enforces all history,
+  // and keeps no subtree projection. It is the reference the differential
+  // suite compares the incremental path against.
   engine.eager = options.eager ?? false;
   const result = await engine.run(options.incremental);
   await keep(engine, objects);
