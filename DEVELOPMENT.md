@@ -128,7 +128,36 @@ Documentation ownership is summarized in [docs/README.md](docs/README.md).
 
 ## Verification
 
-Run the maintained automated gates from the repository root:
+Before each commit, run the checks the change can reach:
+
+```sh
+bun run test:affected
+```
+
+It reads the uncommitted changes (add `--base main` to include a branch's
+commits, or name paths after `--` when the working tree holds unrelated
+work), selects every product test whose import closure contains a changed
+file, and adds the gates the change touches: typecheck for TypeScript, the
+build for the CLI's closure, a migration's own suite, the performance
+benchmark for its closure, and `check:links` for Markdown. `test:protocol`
+runs for the wire models, the portable vectors, the reference fixtures, the
+Swift packages it tests, and the Mac app's daemon client. A CanopyEditor
+change runs that package's full suite; any other app change runs the
+`CanopyAppTests` bundle through `swift/scripts/test-canopy-app.sh`. Quit a
+running debug Canopy first, or the bundle cannot launch. A
+changed data file selects the tests that name it. Root configuration, the
+test preload, and any file no test names run the whole product suite.
+`--list` prints the plan without running it. The closure follows imports and
+literal `.ts` paths that tests spawn, not paths computed at runtime, so it is
+a pre-commit gate, not a substitute for the full one.
+
+Also run `bun run test:protocol` when an Arbor Sync or canopyd HTTP route or
+response shape changes: its live scenarios drive those servers from the Swift
+clients, which the import graph cannot see.
+
+The full gate runs before pushing `main` (which deploys canopyd), before any
+live migration or install, when a plan is closed, and after a change that
+spans most packages:
 
 ```sh
 bun run typecheck
@@ -136,7 +165,6 @@ bun run test
 bun run test:protocol
 bun run build
 bun run test:performance
-bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
 bun run check:links
 git diff --check
 ```

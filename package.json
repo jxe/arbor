@@ -31,6 +31,7 @@
     "test": "bun test --parallel=4 tests/unit tests/integration",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
+    "test:affected": "bun tools/affected-tests.ts",
     "test:migration": "bun test --path-ignore-patterns=__requested_migration_only__",
     "test:sync-merge": "bun test tests/unit/protocol-updates/update-intent.test.ts tests/unit/canopyd/update-decision.test.ts tests/unit/canopyd/update-store.test.ts tests/unit/tree-merge/update-merge.test.ts tests/integration/canopyd/update-host.test.ts tests/integration/self-sync.test.ts",
     "test:protocol": "bun tests/protocol/conformance.ts",

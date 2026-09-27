@@ -14,7 +14,9 @@ Bun test file is named `*.test.ts`.
 | `helpers/` | Shared setup, including `data-home-guard.ts`, which `bunfig.toml` preloads so no test can touch the real `~/.arbor` | preloaded |
 
 `bun run test` is the maintained product suite: `unit/` and `integration/`
-with four parallel workers. Migrations under `packages/canopyd/migrations/` are excluded from
+with four parallel workers. `bun run test:affected` runs only the files whose
+import closure reaches a changed file, plus the gates the change touches; see
+[DEVELOPMENT.md](../DEVELOPMENT.md#verification). Migrations under `packages/canopyd/migrations/` are excluded from
 default discovery and run with `bun run test:migration <dir>`. Postgres
 integration is opt-in through `ARBOR_TEST_POSTGRES_DSN`; see
 [DEVELOPMENT.md](../DEVELOPMENT.md).

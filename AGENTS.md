@@ -11,9 +11,12 @@ first. The points below are the ones that most often go wrong for an agent.
 - `plans/` contains only remaining work. Delete a completed or superseded
   plan after recording its evidence in `status.md` or `docs/`; do not mark
   it done in place.
-- Documentation-only changes still run `bun run check:links` and
-  `git diff --check`; path moves also run every affected build or fixture
-  test.
+- Before a commit, run `bun run test:affected`, not the full gate; it
+  selects the tests and gates the change can reach (name your paths after
+  `--` when the working tree holds unrelated work). Run the full gate in
+  DEVELOPMENT.md only before pushing `main`, before a live migration or
+  install, when closing a plan, or when Joe asks. Add `bun run
+  test:protocol` when an HTTP route or response shape changes.
 - Never `swift build` or `swift test` the `CanopyEditor` package standalone
   while its Quagmire dependency is in editable mode; use
   `swift/scripts/test-canopy-editor-local.sh`, which preserves the
