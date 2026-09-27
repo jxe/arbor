@@ -1,5 +1,5 @@
 import { homedir, hostname } from "node:os";
-import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
 import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
@@ -110,17 +110,6 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
   } else {
-    const legacyAuthoredFiles = [
-      join(arborDataRoot(), "account.yaml"),
-      join(arborDataRoot(), "trees.yaml"),
-    ];
-    const hasLegacyLayout = (await Promise.all([
-      ...legacyAuthoredFiles.map((candidate) => stat(candidate).then(() => true).catch(() => false)),
-      readdir(join(arborDataRoot(), "devices")).then((entries) => entries.length > 0).catch(() => false),
-    ])).some(Boolean);
-    if (hasLegacyLayout) {
-      throw new ProtocolError("conflict", "Account bootstrap will not mix the plural layout with legacy account files", 409);
-    }
     const existingAccounts = await loadAccountConfigurations();
     if (existingAccounts.some((candidate) => candidate.diagnostics.length || !candidate.configuration || !candidate.currentDevice)) {
       throw new ProtocolError("conflict", "All existing account checkouts must be valid before another account is added", 409);
