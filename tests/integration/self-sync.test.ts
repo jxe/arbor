@@ -10,7 +10,6 @@ import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts
 import { serveHost } from "@overstory/canopyd";
 import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
-import { retireEarlierSyncState } from "@overstory/client";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 const token = "self-sync-owner";
@@ -112,23 +111,6 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-
-test("an earlier sync state with pending work is refused and never rewritten; a clean one is retired", async () => {
-  process.env.ARBOR_DATA_HOME = stateA;
-  const id = generateArborID("tr");
-  const directory = join(stateA, ".state", "sync");
-  const path = join(directory, `${Buffer.from(id).toString("base64url")}.json`);
-  await mkdir(directory, { recursive: true });
-  const original = JSON.stringify({ pending: { base: "up_old", change: "c", candidate: "sha256:0", trace: null, objects: [], deltas: [] } });
-  await writeFile(path, original);
-  try {
-    await expect(retireEarlierSyncState(id)).rejects.toThrow("earlier Arbor Sync");
-    expect(await readFile(path, "utf8")).toBe(original);
-  } finally { await rm(path); }
-  await writeFile(path, JSON.stringify({ accepted: { root: "sha256:0", hashes: [] } }));
-  await retireEarlierSyncState(id);
-  await expect(readFile(path, "utf8")).rejects.toThrow();
-});
 
 describe("private self-sync", () => {
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {

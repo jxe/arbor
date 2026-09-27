@@ -260,7 +260,8 @@ export class FolderSync implements AcceptedTree {
       this.known = value;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      // A folder the earlier synchronizer left clean held its accepted state.
+      // A placement whose accepted base was recorded outside the machine (an
+      // account checkout's configuration ref) holds that accepted state.
       const accepted = await this.accepted();
       if (accepted) this.known = { root: accepted.root, basis: { kind: "accepted", root: accepted.root, update: accepted.update } };
     }

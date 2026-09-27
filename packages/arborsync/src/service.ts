@@ -16,7 +16,7 @@ import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurati
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@overstory/client";
 import { type SharedTreePlacement } from "./state/index.ts";
-import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
+import { resolveUserPath } from "@overstory/client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
@@ -511,8 +511,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const existing = this.folders.get(placement.tree);
     if (existing?.root === workspace.root) return existing.sync;
     await existing?.sync.close();
-    // Pending work or conflict material from the earlier synchronizer is refused, never rewritten.
-    await retireEarlierSyncState(placement.tree);
     const tree = placement.tree;
     const accountKey = placement.configurationTree;
     const sync = new FolderSync(tree, folderStateRoot(tree), {

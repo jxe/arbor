@@ -89,8 +89,8 @@ stat index; a scan whose root differs from what the folder last held appends a
 was last written with, or its previous change). Folder records are sparse:
 directories plus the candidate's new files, and the element carries exactly
 the objects its basis lacks. `sync/folder.json` records the root the folder
-last held and that basis. A clean earlier `sync/<tree>.json` is removed on
-first open; one with pending work or a conflict is refused.
+last held and that basis; without one, a placement whose accepted base was
+recorded outside the machine (an account checkout) starts from that base.
 
 ## Durable state
 
