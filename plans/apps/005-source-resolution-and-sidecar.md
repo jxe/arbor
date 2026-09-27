@@ -106,7 +106,7 @@ access without the caller's approval. Today a grant with no lender allows it
 can do anything that person can. Proposed: code gets `everyone` access and the
 tree's own `app` rules, and anything more of the caller's needs the caller's
 `who: me` entry in `apps.yaml`. This matches what code on a placement host gets
-([Security 007](../security/007-placement-hosts.md#code-on-b)), where no
+([Security 007](../soon/007-placement-hosts.md#code-on-b)), where no
 `apps.yaml` is readable. The decision edits access control §1.1.
 Strip all client-supplied context headers; never forward browser credentials as
 sidecar service credentials. Sidecar canopyd calls use the host-private execution

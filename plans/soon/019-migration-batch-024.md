@@ -35,12 +35,12 @@ cutover commit.
 Each joins as a step when its plan reaches its schema work; the challenge
 table is ready whenever the batch wants it.
 
-- **Actor columns on accepted updates**, [canopyd 006](006-line-provenance.md)
+- **Actor columns on accepted updates**, [canopyd 006](../canopyd/006-line-provenance.md)
   (line provenance): a server-derived actor per accepted update.
-- **Placement accounts and cached device keys**, [Security 007](../security/007-placement-hosts.md)
+- **Placement accounts and cached device keys**, [Security 007](007-placement-hosts.md)
   Phase 2's placement role: host state for accounts whose home is another
   host.
-- **The packed-object index**, [canopyd 001](001-pack-object-storage.md), if
+- **The packed-object index**, [canopyd 001](../canopyd/001-pack-object-storage.md), if
   packing goes ahead after measurement.
 - **One challenge table.** `account_challenges` (account claims) and
   `device_challenges` (device sessions) have identical columns and already

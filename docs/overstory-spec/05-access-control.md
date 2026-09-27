@@ -140,7 +140,7 @@ are opaque, limited to that execution authority, and contain no general
 caller credentials. Their encoding is host-private. The authority evaluates
 underlying access without recursively treating the proposed delegation as its
 own justification. Until
-[Security 008](../../plans/security/008-portable-profiles.md), an `apps.yaml`
+[Security 008](../../plans/soon/008-portable-profiles.md), an `apps.yaml`
 entry applies only on its profile's home host, and cross-server delegation
 transport is not defined.
 

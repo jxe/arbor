@@ -476,7 +476,7 @@ Exact claim retry uses the same pairing secret, DeviceID, label, and key or
 credential digest and is idempotent; concurrent, altered, or expired reuse
 fails. No response returns a raw credential. Clients that support keys pair
 with one; digest devices remain for compatibility until
-[Security 008](../../plans/security/008-portable-profiles.md) retires them.
+[Security 008](../../plans/soon/008-portable-profiles.md) retires them.
 
 Pairing happens at the home host, so one physical installation has one
 `DeviceID` per profile it acts for, and there is no multi-account pairing

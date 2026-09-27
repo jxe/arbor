@@ -109,7 +109,7 @@ configurations have their shape, and the tests for each refused case, are in
   `GET /.arbor/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked key devices'
   DeviceIDs, keys and administrator flags, never labels or digest devices.
-  The placement role that reads it is [Security 007](../../../plans/security/007-placement-hosts.md).
+  The placement role that reads it is [Security 007](../../../plans/soon/007-placement-hosts.md).
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, the database, or a
   system call is a logged 500 whose detail stays in the log

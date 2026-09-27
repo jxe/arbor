@@ -1,7 +1,7 @@
 # 023: Device keys
 
 Schema 22 → 23, with no wire break: key devices sign in beside digest
-devices ([Security 006](../../../../plans/security/006-device-keys.md); the
+devices ([Security 006](../../../../plans/soon/006-device-keys.md); the
 contract is [accounts §5](../../../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing)).
 Existing clients keep working unchanged: every device already paired keeps
 its credential, and a claim or pairing that sends a credential digest is
