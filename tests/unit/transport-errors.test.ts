@@ -45,3 +45,16 @@ test("a watch that goes silent past its idle timeout fails as a transport error"
     expect(error).toBeInstanceOf(ProtocolTransportError);
   } finally { server.stop(true); }
 });
+
+test("a conflict without update details is still a refusal with its code", async () => {
+  const error = await withHost(
+    () => Response.json({ error: "conflict", message: "The update would change an independently versioned tree boundary", retryable: false, details: { kind: "server-update" }, path: "/nested" }, { status: 409 }),
+    client => {
+      const directory = encodeProtocolDirectory({ type: "directory", entries: [] });
+      return client.submitUpdate("tr_transporterrorsaaaaaaaaaaaa", "up_base", { root: hashObject(directory), objects: new Map([[hashObject(directory), directory]]) })
+        .catch((caught: unknown) => caught);
+    },
+  );
+  expect(error).toBeInstanceOf(ProtocolHTTPError);
+  expect(error).toMatchObject({ status: 409, code: "conflict", retryable: false });
+});

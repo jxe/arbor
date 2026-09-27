@@ -460,7 +460,10 @@ export class ProtocolClient {
         throw new ProtocolUnsupportedOperation(JSON.parse(body) as OverstoryError);
       }
       if (error.status === 409 && error.code === "conflict") {
-        const conflict = decodeUpdateConflictJSON(JSON.parse(body));
+        let conflict: UpdateConflictResult;
+        // A conflict without the update details (a boundary conflict among them)
+        // is still a refusal: it keeps its code rather than failing to decode.
+        try { conflict = decodeUpdateConflictJSON(JSON.parse(body)); } catch { throw error; }
         if (conflict.details.failedIndex >= expected.length
           || conflict.details.completed.some((item, index) => item.requestDigest !== expected[index])) {
           throw new Error("Server conflict update-string identity mismatch");

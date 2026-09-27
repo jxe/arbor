@@ -100,6 +100,61 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Host–client communication review — 2026-09-27
+
+Implemented, not installed or deployed. A review of how canopyd and its
+clients talk, and the fixes it led to:
+
+- **Errors keep their codes.** TypeScript's `ProtocolHTTPError` carries the
+  envelope's `code`, `retryable` and `details`. A 409 other than a decodable
+  conflict (`resync-required`, a boundary conflict) was a plain `Error` the
+  working-tree coordinator retried forever; it now holds, as Swift did.
+  canopyd marks an expired account challenge `details.challenge: "expired"`
+  and every protocol route answers 404/405 with the envelope; public pages
+  give a browser a small page. A public raw file is typed by its name,
+  `no-cache`, `nosniff` and sandboxed.
+- **Watches.** canopyd comments on every watch at once and every 20 s, with
+  no opt-in header (spec §4.2); the TypeScript watch treats 60 s of silence as
+  lost and Arbor Sync replaces an ended session on a watch 401. One host-wide
+  ticker replaces each stream's 250 ms revocation timer. Swift's three
+  observation loops share `runObservationLoop` and TypeScript's two share
+  `reconnectingStream`: only an event resets the backoff, which fixes the
+  visit follower's 500 ms retry loop.
+- **Fewer round trips.** The update response's `head` is in the spec and
+  installed by TypeScript, so a publish no longer reads the descriptor; a
+  clean tree skips its 30 s poll while its watch is open. Visits replay the
+  watch's transitions instead of downloading a snapshot per update. Each
+  account shares one device session per process in both languages (Swift
+  built a new provider, and so a new session, per request). `GET /trees`
+  and every tree route make one access decision instead of `canRead` then
+  `canWrite`; a snapshot's ETag is its root.
+- **Smaller wire.** Update conflicts carry `kind`, `completed`,
+  `failedIndex`, `current` and `conflicts`; the unused draft transition and
+  echoed roots are gone from the spec, host and both clients.
+- **One decode.** The accepted-read contracts and the codecs are one layer in
+  each language, so a watch object is base64-decoded and hashed once (it was
+  three times in TypeScript; Swift re-encoded each transition to JSON). The
+  request codecs have one name each, one `arbor-update/2` digest chain
+  remains, and snapshot codecs no longer duplicate each other.
+- **Structure.** The profile identity, `placements.yaml` and the setup lock
+  moved into `@overstory/client`, ending its import cycle with Arbor Sync.
+  Swift has one CBOR encoder; `LayeredObjectStore` and the app's leftover
+  mutation-path models are deleted.
+- **Kept deliberately.** The Mac app and Arbor Sync each watch an open tree
+  ([local state](docs/architecture/canopy-browser/local-state.md#native-working-trees));
+  Railway's readiness probe stays `/`, since `/.arbor/health` runs
+  `PRAGMA quick_check` over the whole database.
+
+Client-side legacy readers are in [Cleanup 007](plans/soon/007-remove-legacy-compatibility.md).
+`test:protocol` had pointed at a deleted test directory and ran 2 of its 8
+suites; it runs all 8. Evidence: `bun run typecheck`, `bun run test`,
+`bun run test:protocol` (TypeScript half), `bun run build`, `bun run check:links`,
+new tests in `tests/unit/transport-errors.test.ts`, `reconnecting-stream.test.ts`,
+`coordinator-poll.test.ts`, `device-key-store.test.ts` and the Swift packages'
+suites. The Swift packages and the app's account, visit and Arbor Sync files
+were compiled and tested on Linux against stand-ins for Apple frameworks,
+not on a Mac; the app target and `CanopyAppTests` still need an Xcode build.
+
 ## Tree configurations (canopyd 005) — 2026-09-26
 
 Deployed and verified live 2026-09-26 at schema 22 by
@@ -255,12 +310,10 @@ snapshot rule. Evidence: `tests/unit/declined-paths.test.ts`;
 `tests/integration/self-sync.test.ts` (a real canopyd rejection of an account
 configuration path, kept across restart and restored; independent edits
 published and a remote update written while a path is declined, then resent; a
-path released when the folder is put back); `bun run test`. Found in passing,
-not fixed: canopyd's child-tree boundary rejection
-(`ReservedBoundaryConflictError`) answers 409 `conflict` without the conflict
-details the client decodes, so a client would treat it as a transport failure
-and retry; folder scans emit canonical boundaries virtually, so the daemon
-cannot currently trigger it. The hands-on gate is in
+path released when the folder is put back); `bun run test`. canopyd's child-tree
+boundary rejection (`ReservedBoundaryConflictError`) answers 409 `conflict`
+without update details; since 2026-09-27 both clients treat that as a refusal
+and hold it rather than retrying (`tests/unit/transport-errors.test.ts`). The hands-on gate is in
 [release and verification](plans/release-and-soak.md#observation-and-soak-closeout).
 
 ## Arbor Sync write path removed — 2026-09-25
