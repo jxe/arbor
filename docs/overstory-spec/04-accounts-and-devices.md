@@ -43,8 +43,8 @@ its first authored H1 as the group name. This fallback remains presentation
 only and does not add or imply a `displayName` field.
 
 A **host account** is host state: the host's record that one profile
-`TreeID` is claimed there, with the credential bindings of that profile's
-devices. It has no authored tree of its own; the person's devices and app
+`TreeID` is claimed there, with the DeviceIDs that profile's devices have
+used there. It has no authored tree of its own; the person's devices and app
 approvals live in the profile tree's own [tree configuration](#2-tree-configuration-graph).
 Its identity is the pair of host and profile TreeID. How a host allocates
 account locators is host policy, not Overstory identity. canopyd uses
@@ -57,13 +57,12 @@ the profile TreeID is the account identity and the complete host account URL
 is the claim target.
 
 **Home and placement hosts.** A profile's configuration lives on one host,
-its **home host**, which accepts every edit to it and binds its devices'
-credentials. A profile may also hold **placement accounts** at other hosts
+its **home host**, which accepts every edit to it, including its
+`devices.yaml`. A profile may also hold **placement accounts** at other hosts
 (§1.3), so that a person can place trees under several hosts' canonical URLs.
 A placement host keeps no device list or configuration of the profile: it
-reads the home host's published device keys (§5.4), so only key devices
-(§5.1) act there. A host refuses a claim for a profile it already has an
-account for.
+reads the home host's published device keys (§5.4). A host refuses a claim for
+a profile it already has an account for.
 
 Every account may host trees. Overstory does not define a second account
 species for membership without hosting, a separate principal, or account
@@ -170,22 +169,22 @@ other host.
 
 The account-claim body names the host-allocated account locator, that existing
 local profile `TreeID`, its derived configuration `TreeID`, a generated
-`DeviceID`, device label, either a credential digest or a device `key`
-(§5.1), and the complete initial
+`DeviceID`, device label, the device's `key` (§5), and the complete initial
 snapshot of the profile's tree configuration. It contains no profile snapshot
 or filesystem path. The initial configuration must grant the profile `admin`,
-list the claiming device as its one administrator device, and mount nothing.
+list the claiming device, with that `key`, as its one administrator device,
+and mount nothing.
 The claim **declares the profile tree**: the server validates the reservation
 and configuration, then atomically creates the host account, the profile's
-tree configuration, credential binding, accepted update and first
-administrator device, and reserves the profile tree as
+tree configuration, accepted update and first administrator device, and reserves the profile tree as
 `awaiting-initialization` (§6). It does not create, copy, or locate the
 profile tree's content; the person activates it with its first snapshot. Exact retry is
 idempotent; a different attempt after success returns `already-claimed`. For
 a pending invitation, the body also supplies its code. The host verifies the
 digest and advances the community profile to an accepted root with that entry
 replaced by the proven Profile TreeID in the same commit. No
-response returns a raw device credential. An exact profile reservation selects
+response returns a secret: the device opens sessions with its key (§5.1). An
+exact profile reservation selects
 who may claim; an invitation code permits its holder to bind the pending slot
 to their identity. The
 profile-key signature proves control of that identity. Exact replay of one
@@ -221,7 +220,7 @@ profile `admin` and mounts nothing. It is the parent of the person's trees on
 that host. Every tree on the placement host has its tree configuration there,
 with rules that name the profile as on any host.
 
-On a placement host the profile's key devices may read, update and watch as
+On a placement host the profile's devices may read, update and watch as
 the profile, edit tree configurations from administrator devices, and declare,
 activate and mount trees under the placement root. Code there has the
 authority [access control §1.1](05-access-control.md#11-execution-authority)
@@ -334,8 +333,6 @@ dv_mac:
 dv_phone:
   label: "Joe's iPhone"
   key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k
-dv_ipad:
-  label: "Joe's iPad"
 ```
 
 **`access.yaml`** is the tree's list of [resource rules](05-access-control.md#1-subjects-and-rules)
@@ -365,15 +362,13 @@ other file. Any other `who` lends the access
 **`devices.yaml`** is keyed directly by `DeviceID`. An entry means that device
 is active for this person at the home host.
 `administrator` is optional and defaults to `false`. At least one device is an
-administrator. `key` is optional: an entry with one is a **key device**, which
-authenticates by signing (§5.1); an entry without one is a **digest device**,
-whose bearer credential's digest the home host binds as host state, never in
-this file. `key` is an algorithm tag and a raw public key in unpadded
-base64url: `ed25519:` and 32 bytes, or `p256:` and a 33-byte compressed SEC1
-point. No two entries share a key. Pairing adds a new ordinary-device entry.
-Deleting an entry atomically revokes its credential or key and every session
-it opened, and permanently retires its `DeviceID`; pairing it again creates a
-new identity.
+administrator. `key` is required: the device's public key, with which it
+authenticates by signing (§5.1). It is an algorithm tag and a raw public key
+in unpadded base64url: `ed25519:` and 32 bytes, or `p256:` and a 33-byte
+compressed SEC1 point. No two entries share a key. Pairing adds a new
+ordinary-device entry with the key the device chose. Deleting an entry
+atomically revokes its key and every session it opened, and permanently
+retires its `DeviceID`; pairing it again creates a new identity.
 
 ### 3.1 Who may edit a tree configuration
 
@@ -390,10 +385,10 @@ pairing and revoking. A device cannot create its own entry, change its own
 administrator bit, or revive a retired `DeviceID` through a configuration
 edit.
 
-`key` is the one field only its own device sets: a digest device may add a
-`key` to its own entry once (§5.2), and no edit, an administrator's included,
-adds a key to another device's entry or changes or removes an existing key. A
-device that loses its key is deleted and paired again.
+`key` is written only when a device enrolls, by claiming (§1.2) or pairing
+(§5): no configuration edit, an administrator's included, adds an entry's key,
+changes it or removes it, and an entry without one is invalid. A device that
+loses its key is deleted and paired again.
 
 **Mounting** a tree additionally requires the submitting device's person to
 administer the child. Renaming or removing a mount needs only this tree's
@@ -420,7 +415,7 @@ active tree is invalid until Overstory specifies a remote deletion lifecycle
 ([deferred 1](README.md#deferred)).
 
 YAML never contains refs, update IDs, retry state, conflict choices, status,
-device credential digests, raw credentials, identity private keys,
+session tokens or their digests, identity or device private keys,
 signatures, raw access-link secrets, filesystem paths, placement options, or
 proof issuers. Link-subject digests are allowed because they are ACL
 identity, not the secret. A conforming parser rejects duplicate keys, aliases,
@@ -437,9 +432,9 @@ The account tokens, and what each survives:
 | person-profile `TreeID` | one person and one public identity key; with the host, one host account | `arbor me create` | all account, canonical-name, and hosting changes |
 | configuration `TreeID` | one tree's configuration | derived from the tree's `TreeID` | everything the tree survives |
 | group-profile `TreeID` | one authored group | the first local workspace | canonical-name and hosting changes |
-| `DeviceID` | one device of one person, with its credential binding or key | the device | everything except deletion of its `devices.yaml` entry, a recovery (§5.3) included |
-| device key | one key device's public key | the device | nothing; a device never changes its key |
-| device session | one key device at one host, for at most an hour | that host | nothing; it expires, and ends when its device is deleted |
+| `DeviceID` | one device of one person, with its key | the device | everything except deletion of its `devices.yaml` entry, a recovery (§5.3) included |
+| device key | one device's public key | the device | nothing; a device never changes its key |
+| device session | one device at one host, for at most an hour | that host | nothing; it expires, and ends when its device is deleted |
 | `PairingID` | one short-lived pairing secret for one account | the server | nothing; it is single use |
 | account and session challenges | one short-lived, host-bound signature | the host that issued it | nothing; each is single use and expires |
 | access-link digest | one access link | hashing the secret, which is shown once and never stored | deleting the rule revokes it |
@@ -465,24 +460,21 @@ PUT  /.arbor/pairings/{PairingID}/claim
 ```
 
 An authenticated device creates a short-lived, single-use pairing secret for
-its account. The claimant locally generates a new `DeviceID` and either a key
-pair, whose private key never leaves it, or a bearer credential, which it
-durably stores before claiming. It sends its public `key` or only the
-credential's digest, together with its label and the pairing secret. The
+its account. The claimant locally generates a new `DeviceID` and a key pair,
+whose private key never leaves it and which it durably stores before claiming.
+It sends its public `key`, together with its label and the pairing secret. The
 server atomically advances the person profile's tree configuration with an
-ordinary-device entry in `devices.yaml`, carrying the `key` when there is one,
-and binds a digest as host state. Pairing carries no placement or local path.
-Exact claim retry uses the same pairing secret, DeviceID, label, and key or
-credential digest and is idempotent; concurrent, altered, or expired reuse
-fails. No response returns a raw credential. Clients that support keys pair
-with one; digest devices remain for compatibility until
-[Security 008](../../plans/soon/008-portable-profiles.md) retires them.
+ordinary-device entry in `devices.yaml` carrying that `key`. Pairing carries
+no placement or local path. Exact claim retry uses the same pairing secret,
+DeviceID, label and key and is idempotent; concurrent, altered, or expired
+reuse fails. No response returns a secret: the new device opens sessions with
+its key (§5.1).
 
 Pairing happens at the home host, so one physical installation has one
 `DeviceID` per profile it acts for, and there is no multi-account pairing
 transaction or global device identity. Several local clients on one
-installation MAY share that installation's device credential, or sessions its
-key opens: to the host they are one device, and their request digests share
+installation MAY share the sessions that installation's key opens: to the
+host they are one device, and their request digests share
 one scope, which is what makes adoption
 ([working-tree updates §2.2](09-client-synchronization.md#32-entry)) sound.
 Local clients then never hold the key itself.
@@ -494,7 +486,7 @@ POST /.arbor/device-sessions/challenges
 POST /.arbor/device-sessions
 ```
 
-A key device never sends a long-lived secret. It asks a host for a challenge,
+A device never sends a long-lived secret. It asks a host for a challenge,
 naming `profileTree` and `device`, and the host returns a random, single-use
 challenge valid for at most two minutes:
 
@@ -512,7 +504,7 @@ challenge valid for at most two minutes:
 }
 ```
 
-The host issues one only for a key device listed for that profile: at the home
+The host issues one only for a device listed for that profile: at the home
 host, in the accepted `devices.yaml`; at a placement host, in the home host's
 published device keys (§5.4). The device verifies `origin` is the host it
 meant, signs the canonical CBOR encoding of the challenge
@@ -530,23 +522,23 @@ its expiry, at most one hour later:
 { "token": "ars_…", "device": "dv_…", "expiresAt": 1790003600000 }
 ```
 
-The token is a bearer credential for that host alone: requests send it
-exactly where a device credential goes
+The token is a bearer credential for that host alone, and a session is the
+only way a device authenticates: requests send it as
+`Authorization: Bearer`
 ([access control §2](05-access-control.md#2-authentication-and-secrets)). The
 host stores only its digest. It stops working when it expires or its device
 is deleted, a recovery included, whichever comes first, and it cannot open another
 session; the device signs a new challenge instead. A watch ends when its
 session does ([access control §3.2](05-access-control.md#32-watches-and-revocation)).
 
-### 5.2 Moving to a key
+### 5.2 A device's key
 
-A digest device whose client supports keys moves to one without a new
-`DeviceID`: it generates a key pair and submits, authenticated with its
-current credential, an ordinary update of its person's configuration that
-adds `key` to its own entry and changes nothing else. Accepting it deletes
-the device's credential binding in the same commit, so from then on the
-device holds exactly one kind. A second move, or an update that adds a key to
-another device's entry, is refused (§3.1).
+A device's key is fixed when it enrolls, by claiming an account (§1.2) or
+pairing (§5), and never changes: no configuration edit adds, changes or
+removes one (§3.1). A device that loses its key, or moves to new key storage,
+is deleted and paired again as a new `DeviceID`. There is no long-lived device
+credential: what a device presents is a session, which works at one host for
+at most an hour and cannot open another.
 
 ### 5.3 Recovering a profile's devices
 
@@ -560,8 +552,8 @@ The operator issues a **recovery pairing** for the account: a pairing secret
 as in §5, valid for longer (canopyd: a day, `canopyd recover <handle>`), passed
 to the person out of band. The person claims it from a new device exactly as an
 ordinary pairing, with a key. Claiming it advances the profile's configuration
-so that `devices.yaml` holds only the new device, an administrator key device,
-and revokes every earlier device and its sessions in the same commit. Until it
+so that `devices.yaml` holds only the new device, an administrator, and
+revokes every earlier device and its sessions in the same commit. Until it
 is claimed, every existing device keeps working, and an unclaimed recovery
 pairing expires like any other.
 
@@ -584,8 +576,8 @@ needs, as of the accepted configuration:
 }
 ```
 
-It lists key devices only, never labels or digest devices. Anyone can
-therefore see how many key devices a profile has, which are administrators,
+It never lists labels. Anyone can therefore see how many devices a profile
+has, which are administrators,
 and when that changes; limiting that would need hosts to authenticate to each
 other.
 
@@ -597,7 +589,7 @@ challenge request naming a DeviceID missing from its copy makes it refetch
 early, at most once every few seconds per profile. It refreshes the copy of
 every profile with open sessions and ends the sessions and watches of any
 device no longer listed, so a deletion at the home host reaches it within the
-copy's lifetime. Digest devices act only at their home host.
+copy's lifetime.
 
 ## 6. Declaring, activating and mounting a tree
 
@@ -658,10 +650,10 @@ algorithm; it is not a `version` field in any authored YAML file.
 For every candidate and merged root, the server parses and validates the
 complete graph and semantic diff, authorizes the submitting device against the
 current accepted configurations (§3.1), enforces the invariants (§3.2), and
-atomically applies credential revocation, administrator changes, rule changes
+atomically applies device revocation, administrator changes, rule changes
 and canonical-boundary changes with acceptance of the root. Caller assertions
 never replace authorization from the current accepted roots. Derived
-credential bindings, retired IDs, status, and indexes live in the server
+device keys and sessions, retired IDs, status, and indexes live in the server
 database while the accepted graphs remain canonical.
 
 Entries merge by key: `devices.yaml` by `DeviceID`, `mounts.yaml` by path,

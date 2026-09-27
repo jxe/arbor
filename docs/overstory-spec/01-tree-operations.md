@@ -437,7 +437,7 @@ MUST NOT derive one from the other or compare their numeric/string values as acc
 ordering. Replayed frames are deduplicated by observation cursor before applying the
 transport chain. An overlapping replay must not apply old transitions to a newer head.
 
-For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated by the exact bearer credential that submitted that accepted request. This allows watchers to identify the revision that includes an update they sent.
+For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated as the device (or execution token) that submitted that accepted request, whichever of its sessions it uses. This allows watchers to identify the revision that includes an update they sent.
 A digest on a net transition identifies the request for its destination accepted
 update, not every request accepted within the span. An absent or different digest
 therefore does not prove that a pending request was excluded. Clients preserve
@@ -785,7 +785,7 @@ successors from one prefix. It starts a new epoch only after the previous
 speculative string has been completely acknowledged and its resulting accepted
 transition has been durably applied, using that watchpoint as the new `base`.
 
-The host derives a credential-scoped request digest for each element. For
+The host derives a device-scoped request digest for each element. For
 the first element the digest basis is the accepted update id in `base`. For
 each later element it is `{ requestDigest, candidate }` from the preceding
 element. Consequently every digest commits to the complete prefix, and the
@@ -793,7 +793,7 @@ same prefix has the same identities in every longer request.
 
 The host serializes update strings per tree. Before processing new work,
 it finds the longest supplied prefix already represented by successful
-credential-scoped request digests in accepted history and trims that prefix.
+device-scoped request digests in accepted history and trims that prefix.
 If the longer request arrives first it may apply every element; if a shorter
 request arrives first the longer request resumes after it; an old shorter
 request arriving last changes nothing. A previously returned `unchanged` element
@@ -965,7 +965,7 @@ with absent `ifCurrent` encoded as CBOR null. The digest covers the whole trace,
 including each frame's `before` and `after`, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
-scoped to the authenticated credential.
+scoped to the authenticated device, across its sessions.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
 `{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter
@@ -1000,7 +1000,7 @@ Three tokens that serve different purposes are often encountered together:
 - A client-authored `change` identifies an immutable authored change; operation
   material results are named by that change and their operation keys, without an
   independently named output. A moved result retains existing origins.
-- A credential-scoped `requestDigest` identifies one canonical update
+- A device-scoped `requestDigest` identifies one canonical update
   semantic request across retries and different object/delta packaging.
 
 ### 2.5 Sparse transfer with object deltas

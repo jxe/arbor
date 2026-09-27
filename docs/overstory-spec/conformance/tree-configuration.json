@@ -19,7 +19,7 @@
         "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n- who: everyone\n  allow: [read]\n",
         "mounts.yaml": "todos: tr_owozr6aegt5z7x6qyllvzljl5u\nprojects/garden: tr_gggggggggggggggggggggggggg\n",
         "apps.yaml": "tr_ssssssssssssssssssssssssss:\n  - resource: tr_pppppppppppppppppppppppppp\n    allow: [read, create-child]\n    within: /inventory\ntr_hhhhhhhhhhhhhhhhhhhhhhhhhh:\n  - resource: tr_llllllllllllllllllllllllll\n    who: everyone\n    allow: [read]\n    within: /new-books\n",
-        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n"
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n  key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k\n"
       },
       "values": {
         "access": [
@@ -32,8 +32,8 @@
           "tr_hhhhhhhhhhhhhhhhhhhhhhhhhh": [{ "resource": "tr_llllllllllllllllllllllllll", "who": "everyone", "allow": ["read"], "within": "/new-books" }]
         },
         "devices": {
-          "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Joe's Mac", "administrator": true },
-          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false }
+          "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Joe's Mac", "administrator": true, "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" },
+          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" }
         }
       }
     },
@@ -44,7 +44,7 @@
       "files": {
         "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n",
         "mounts.yaml": "{}\n",
-        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n"
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\n"
       }
     },
     {
@@ -83,7 +83,7 @@
         "access.yaml": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n",
         "mounts.yaml": "{}\n",
         "apps.yaml": "{}\n",
-        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n  key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k\ndv_dddddddddddddddddddddddddd:\n  label: Joe's iPad\n"
+        "devices.yaml": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Joe's Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\ndv_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  label: Joe's iPhone\n  key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k\n"
       },
       "values": {
         "access": [{ "who": { "profile": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq" }, "allow": ["admin"] }],
@@ -91,8 +91,7 @@
         "apps": {},
         "devices": {
           "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm": { "id": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm", "label": "Joe's Mac", "administrator": true, "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" },
-          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" },
-          "dv_dddddddddddddddddddddddddd": { "id": "dv_dddddddddddddddddddddddddd", "label": "Joe's iPad", "administrator": false }
+          "dv_iiiiiiiiiiiiiiiiiiiiiiiiii": { "id": "dv_iiiiiiiiiiiiiiiiiiiiiiiiii", "label": "Joe's iPhone", "administrator": false, "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k" }
         }
       }
     }

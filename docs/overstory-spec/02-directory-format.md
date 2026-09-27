@@ -177,7 +177,7 @@ its interpretation and validation are defined by
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
 - `.state` is forbidden in a tree configuration graph as specified by [configuration](04-accounts-and-devices.md#2-tree-configuration-graph).
 
-The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.
+The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device keys are never portable authored format.
 
 ## 7. Tree membership and ignore files
 

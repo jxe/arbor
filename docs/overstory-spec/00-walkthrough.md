@@ -18,14 +18,15 @@ send the same public TreeID to its administrator, who would add that exact pair
 to the structured members list.
 
 The laptop requests a fresh account challenge and signs it with the profile
-private key. It then generates a `DeviceID` and a raw device credential that
-never leaves the machine, and derives his profile's configuration `TreeID`
-from the profile `TreeID`. It sends `PUT /.arbor/accounts` with the complete
-account locator, challenge, public key, profile signature, credential digest,
+private key. It then generates a `DeviceID` and a device key pair whose
+private key never leaves the machine, and derives his profile's configuration
+`TreeID` from the profile `TreeID`. It sends `PUT /.arbor/accounts` with the
+complete account locator, challenge, public key, profile signature, the
+device's public key,
 the already-existing profile `TreeID`, and the first snapshot of the profile's
 tree configuration: `access.yaml` granting his profile `admin` and everyone
 `read`, empty `mounts.yaml` and `apps.yaml`, and `devices.yaml` marking the
-laptop as the first administrator device. The server derives the reserved
+laptop, with its key, as the first administrator device. The server derives the reserved
 Profile TreeID from the supplied public key, verifies the target-bound
 signature locally, and in one transaction creates the account and the
 configuration and declares the profile tree. It receives no profile bytes yet

@@ -165,19 +165,20 @@ disclosed.
 Authenticated ordinary requests use:
 
 ```text
-Authorization: Bearer <device credential or device session token>
+Authorization: Bearer <device session token>
 Arbor-Access-Link: <access-link secret>
 ```
 
-A device credential, sent by a digest device to its home host, or a session
-token a key device opened at this host
+A session token, which a device opened at this host by signing its challenge
+with the device key
 ([accounts §5.1](04-accounts-and-devices.md#51-device-sessions)), identifies
-one account and device and contributes the profile TreeID. Both are checked
-against the device's current state on every request: a deleted device, and an
-expired session, authenticate nothing. A request presenting such a token is
-refused as unauthenticated (401) on every route, never answered as an
-anonymous request would be, so a client knows to refresh its credential or open
-a new session rather than seeing a private tree as missing.
+one account and device and contributes the profile TreeID. It is the only
+credential a device presents; there is no long-lived device secret. It is
+checked against the device's current state on every request: a session of a
+deleted device, and an expired session, authenticate nothing. A request
+presenting such a token is refused as unauthenticated (401) on every route,
+never answered as an anonymous request would be, so a client knows to open a
+new session rather than seeing a private tree as missing.
 The host establishes executable context separately over an authenticated runtime
 channel. Incoming public requests cannot forge or override it. Across matching
 rules, allowed operations union within their scopes. Caller authentication,
@@ -208,7 +209,7 @@ Content-Type: application/json
 
 The body is an ordinary `UpdateRequest`, including its normal exact-state guard
 when required. No lender, caller, `app`, or grant field in that body supplies
-authority. Ordinary clients continue using device credentials. Execution tokens
+authority. Ordinary clients continue using device sessions. Execution tokens
 also authenticate authorized resolution, object/read, receipt and watch requests;
 a runtime cannot substitute a source-binding ID for a token.
 
