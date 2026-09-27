@@ -36,12 +36,26 @@ export interface HostAccountRecord {
   connected: true;
 }
 
-/** A session within this long of expiring is replaced before it is handed out. */
+/**
+ * A session within this long of expiring is replaced before it is handed out,
+ * or within a quarter of its length when that is shorter: a placement host
+ * issues shorter sessions near the end of its grace (accounts §5.4), and each
+ * would otherwise be replaced as soon as it was opened.
+ */
 const SESSION_MARGIN_MS = 5 * 60_000;
+type CachedSession = { token: string; expiresAt: number; openedAt?: number };
 /** Keyed by a connection's private directory: one data home, one account or placement. */
-const sessions = new Map<string, { token: string; expiresAt: number }>();
+const sessions = new Map<string, CachedSession>();
 /** Session opens in flight, so concurrent callers share one challenge and one session. */
-const sessionOpens = new Map<string, Promise<{ token: string; expiresAt: number }>>();
+const sessionOpens = new Map<string, Promise<CachedSession>>();
+
+/** Whether a cached session is still worth handing out. */
+export function sessionUsable(session: CachedSession, now = Date.now()): boolean {
+  const margin = session.openedAt === undefined
+    ? SESSION_MARGIN_MS
+    : Math.min(SESSION_MARGIN_MS, (session.expiresAt - session.openedAt) / 4);
+  return session.expiresAt - margin > now;
+}
 /**
  * Each account's record and secret as last read, so a request does not reread
  * the connection file and the keychain. Writes through this store replace it;
@@ -56,12 +70,14 @@ const credentialReads = new Map<string, { record: HostAccountRecord; secret: str
  * callers share one challenge and one session.
  */
 async function openCachedSession(key: string, sessionPath: string, origin: string, profileTree: string, deviceID: string, seed: string): Promise<string> {
-  const usable = (value?: { token: string; expiresAt: number }) => value && value.expiresAt - SESSION_MARGIN_MS > Date.now() ? value : undefined;
+  const usable = (value?: CachedSession) => value && sessionUsable(value) ? value : undefined;
   let cached = usable(sessions.get(key));
   if (!cached) {
     try {
-      const saved = JSON.parse(await readFile(sessionPath, "utf8")) as { device?: string; token?: string; expiresAt?: number };
-      if (saved.device === deviceID && typeof saved.token === "string" && typeof saved.expiresAt === "number") cached = usable({ token: saved.token, expiresAt: saved.expiresAt });
+      const saved = JSON.parse(await readFile(sessionPath, "utf8")) as { device?: string; token?: string; expiresAt?: number; openedAt?: number };
+      if (saved.device === deviceID && typeof saved.token === "string" && typeof saved.expiresAt === "number") {
+        cached = usable({ token: saved.token, expiresAt: saved.expiresAt, ...(typeof saved.openedAt === "number" ? { openedAt: saved.openedAt } : {}) });
+      }
     } catch {}
   }
   if (cached) {
@@ -71,8 +87,9 @@ async function openCachedSession(key: string, sessionPath: string, origin: strin
   let opening = sessionOpens.get(key);
   if (!opening) {
     opening = (async () => {
+      const openedAt = Date.now();
       const opened = await openDeviceSession(origin, profileTree, deviceID, seed);
-      const value = { token: opened.token, expiresAt: opened.expiresAt };
+      const value = { token: opened.token, expiresAt: opened.expiresAt, openedAt };
       sessions.set(key, value);
       const temporary = `${sessionPath}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, JSON.stringify({ device: deviceID, ...value }), { mode: 0o600 });

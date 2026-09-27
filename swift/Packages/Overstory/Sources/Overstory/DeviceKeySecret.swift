@@ -73,8 +73,17 @@ extension ProtocolClient {
     }
 }
 
+/// Whether a session opened at `openedAt` (milliseconds) is still worth
+/// handing out at `now`.
+public func deviceSessionUsable(expiresAt: Int, openedAt: Int, now: Int = Int(Date().timeIntervalSince1970 * 1000)) -> Bool {
+    let margin = min(5 * 60 * 1000, (expiresAt - openedAt) / 4)
+    return expiresAt - margin > now
+}
+
 /// Hands out sessions a device key opens, reusing one until five minutes
-/// before it expires. `load` reads the key; nil means the account has none.
+/// before it expires, or a quarter of its length when that is shorter: a
+/// placement host issues shorter sessions near the end of its grace (accounts
+/// §5.4). `load` reads the key; nil means the account has none.
 public actor DeviceSessionCredentialProvider: ProtocolCredentialProvider {
     private let origin: URL
     private let profileTree: String
@@ -82,6 +91,7 @@ public actor DeviceSessionCredentialProvider: ProtocolCredentialProvider {
     private let key: DeviceKeySecret
     private let session: URLSession
     private var cached: ProtocolDeviceSession?
+    private var cachedAt = 0
     private var opening: Task<ProtocolDeviceSession, Error>?
 
     public init(origin: URL, profileTree: String, device: String, key: DeviceKeySecret, session: URLSession = .shared) {
@@ -93,15 +103,16 @@ public actor DeviceSessionCredentialProvider: ProtocolCredentialProvider {
     }
 
     public func credential() async throws -> String? {
-        let margin = 5 * 60 * 1000
-        if let cached, cached.expiresAt - margin > Int(Date().timeIntervalSince1970 * 1000) { return cached.token }
+        if let cached, deviceSessionUsable(expiresAt: cached.expiresAt, openedAt: cachedAt) { return cached.token }
         if let opening { return try await opening.value.token }
+        let openedAt = Int(Date().timeIntervalSince1970 * 1000)
         let (origin, profileTree, device, key, session) = (origin, profileTree, device, key, session)
         let task = Task { try await ProtocolClient(origin: origin, session: session).openDeviceSession(profileTree: profileTree, device: device, key: key) }
         opening = task
         defer { opening = nil }
         let opened = try await task.value
         cached = opened
+        cachedAt = openedAt
         return opened.token
     }
 
