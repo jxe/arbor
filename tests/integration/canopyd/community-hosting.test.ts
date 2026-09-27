@@ -224,7 +224,7 @@ describe("client-generated profile and account bootstrap", () => {
     expect((await administrator.descriptor(notes)).tree.canonical?.path).toBe("/~bob/notes");
 
     // Nobody mounts a tree they do not administer: the owner cannot give Bob's notes an address.
-    const ownerProfile = running.canopy.accountByHandle("owner")!.profileTree;
+    const ownerProfile = running.canopy.accountByHandle("owner")!.id;
     await expect(editTreeConfig(owner, ownerProfile, "person", (current) => ({ ...current, mounts: { ...current.mounts, "bobs-notes": notes } })))
       .rejects.toThrow();
     // Nor edits a configuration of a tree they do not administer.
@@ -257,7 +257,7 @@ describe("client-generated profile and account bootstrap", () => {
       const ownerAccount = running.canopy.accountByHandle("owner")!;
       const community = await owner.descriptor(running.canopy.community().id);
       const source = await profileFolder("community-with-charlie", "group", [
-        { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
+        { profile: `arbor://${ownerAccount.id}/`, handle: "owner" },
         { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
         { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
         { profile: `arbor://${localProfileTree}/`, handle: "charlie" },
@@ -356,7 +356,7 @@ describe("client-generated profile and account bootstrap", () => {
       // One host per profile: a second reservation for the same profile cannot be claimed.
       const communityAfterClaim = await owner.descriptor(running.canopy.community().id);
       const secondSource = await profileFolder("community-with-charlie-twice", "group", [
-        { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
+        { profile: `arbor://${ownerAccount.id}/`, handle: "owner" },
         { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
         { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
         { profile: `arbor://${localProfileTree}/`, handle: "charlie" },
@@ -400,15 +400,15 @@ describe("profile invariants derived from root frontmatter", () => {
 
     const source = await profileFolder("owner-with-members", "person");
     await writeFile(join(source, "_index.md"), ["---", "type: person", "members:", `  - ${JSON.stringify(aliceLocator)}`, "---", "", "# Owner", ""].join("\n"));
-    await submitRoot(ownerAccount.profileTree!, source);
-    expect(running.canopy.rootProfileType(ownerAccount.profileTree!)).toBe("person");
+    await submitRoot(ownerAccount.id, source);
+    expect(running.canopy.rootProfileType(ownerAccount.id)).toBe("person");
     expect(running.canopy.canWrite(alice, community.id)).toBe(false);
     expect(running.canopy.canRead(alice, community.id)).toBe(true);
   });
 
   test("an account's profile tree must keep type: person and the community root type: group", async () => {
     const ownerAccount = running.canopy.accountByHandle("owner")!;
-    await expect(submitRoot(ownerAccount.profileTree!, await profileFolder("owner-as-group", "group")))
+    await expect(submitRoot(ownerAccount.id, await profileFolder("owner-as-group", "group")))
       .rejects.toThrow(/type: person/);
     await expect(submitRoot(running.canopy.community().id, await profileFolder("community-as-person", "person")))
       .rejects.toThrow(/type: group/);
@@ -619,7 +619,7 @@ test("community administrators may mount a tree at an unclaimed /~name, which th
   const ownerAccount = running.canopy.accountByHandle("owner")!;
   expect(running.canopy.canAdminister(ownerAccount, community)).toBe(true);
   const snapshot = await resolveSnapshot(await snapshotDirectory(await profileFolder("garden-club", "group", [
-    { profile: `arbor://${ownerAccount.profileTree}/` },
+    { profile: `arbor://${ownerAccount.id}/` },
   ])));
   const club = await hostTree(owner, snapshot);
   // A name a person holds cannot be mounted.
@@ -629,7 +629,7 @@ test("community administrators may mount a tree at an unclaimed /~name, which th
   expect(running.canopy.boundary("/~garden-club")?.id).toBe(club);
 
   const source = await profileFolder("community-reserving-a-tree-name", "group", [
-    { profile: `arbor://${ownerAccount.profileTree}/`, handle: "owner" },
+    { profile: `arbor://${ownerAccount.id}/`, handle: "owner" },
     { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
     { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
     { profile: `arbor://${testProfileIdentity().profileTree}/`, handle: "garden-club" },

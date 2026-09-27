@@ -132,7 +132,7 @@ export class AccessControl {
     const tree = this.host.tree(treeID);
     if (!tree || tree.policy !== "ordinary") return undefined;
     const rules = this.rules(treeID).filter((rule) => !rule.app && !rule.allow.includes("admin") && ruleMatches(rule, {
-      callerProfile: account?.profileTree ?? null, linkDigest, isGroupMember: this.isGroupMember,
+      callerProfile: account?.id ?? null, linkDigest, isGroupMember: this.isGroupMember,
     }));
     return { code: "", version: "direct", caller: account?.id ?? null, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
@@ -153,7 +153,7 @@ export class AccessControl {
     if (!tree || tree.policy !== "ordinary" || tree.status !== "active") return false;
     const caller = context.caller ? this.accounts.enabledAccount(context.caller) : null;
     if (context.caller && !caller) return false;
-    const callerProfile = caller?.profileTree ?? null;
+    const callerProfile = caller?.id ?? null;
     if (grant.lender === null) {
       if (this.holds(callerProfile, tree.id, path, operation, context.linkDigest)) return true;
       return !!context.code && rulesAllow(this.rules(tree.id).filter((rule) => rule.app === context.code),
@@ -184,13 +184,13 @@ export class AccessControl {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree || tree.status !== "active") return false;
     // Only a tree's administrators see its configuration.
-    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(account.profileTree, tree.governs);
-    return this.holds(account?.profileTree ?? null, tree.id, "/", operation, linkDigest);
+    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(account.id, tree.governs);
+    return this.holds(account?.id ?? null, tree.id, "/", operation, linkDigest);
   }
 
   canAdminister(account: HostAccount, treeOrID: string | HostTree): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree || isTreeConfigPolicy(tree.policy)) return false;
-    return this.administers(account.profileTree, tree.id);
+    return this.administers(account.id, tree.id);
   }
 }

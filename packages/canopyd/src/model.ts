@@ -26,7 +26,6 @@ export function isTreeConfigPolicy(policy: HostTree["policy"]): boolean {
 export interface HostAccount {
   id: string;
   handle: string;
-  profileTree: string;
   enabled: boolean;
 }
 

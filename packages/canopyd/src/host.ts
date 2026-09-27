@@ -132,14 +132,14 @@ function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
 }
 
 function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor {
-  const profile = account.profileTree ? canopy.get(account.profileTree) : null;
-  const configuration = canopy.get(treeConfigurationID(account.profileTree));
+  const profile = canopy.get(account.id);
+  const configuration = canopy.get(treeConfigurationID(account.id));
   const community = canopy.community();
   if (!configuration) throw new ServerFaultError("Account configuration tree is missing");
   return {
     id: account.id,
     handle: account.handle,
-    profileTree: account.profileTree,
+    profileTree: account.id,
     profileURL: profile ? arborLocator(descriptorWithUpdate(origin, canopy, profile, "write")) : null,
     community: descriptorWithUpdate(origin, canopy, community, canopy.canWrite(account, community) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, canopy, configuration, "write"),
@@ -333,7 +333,7 @@ export async function serveHost(options: {
             options.queryRuntime,
             request,
             treeID,
-            account?.profileTree ? { profile: account.profileTree } : null,
+            account ? { profile: account.id } : null,
           );
         }
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
@@ -346,7 +346,7 @@ export async function serveHost(options: {
             options.mutationRuntime,
             request,
             treeID,
-            account.profileTree ? { profile: account.profileTree } : null,
+            { profile: account.id },
           );
         }
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
@@ -467,7 +467,7 @@ export async function serveHost(options: {
               // therefore cannot be represented by a remote TreeDescriptor.
               // A tree configuration is listed only for its own profile's account,
               // and a tree mounted nowhere only for its administrators.
-              .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.profileTree
+              .filter((tree) => tree.status === "active" && (tree.kind === "tree-configuration" ? tree.governs === account?.id
                 : tree.canonicalPath !== null || (account !== null && canopy.canAdminister(account, tree))))
               .filter((tree) => canopy.canRead(account, tree, link))
               .map((tree) => descriptorWithUpdate(publicOrigin, canopy, tree, canopy.canWrite(account, tree, link) ? "write" : "read")),
@@ -538,7 +538,7 @@ export async function serveHost(options: {
             const policy = canopy.resourcePolicy(authenticated, treeID);
             if (!administer && !policy) return protocolError("not-found", "Tree not found", 404);
             const snapshot: AccessEntry[] = !administer ? [] : canopy.accessEntries(treeID)
-              .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.profileTree)
+              .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.id)
               .map((entry) => {
               if (entry.subjectKind === "profile") {
                 const profile = canopy.get(entry.subject);
@@ -850,7 +850,7 @@ export async function serveHost(options: {
           }
           const claimed = pendingHandle ? canopy.accountByHandle(pendingHandle) : null;
           if (pendingHandle && claimed && !canopy.boundary(requestLocator.path)) {
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.profileTree ?? "unbound")}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
+            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.id)}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
           }
           const resolved = canopy.resolve(requestLocator.path);
           if (!resolved) return new Response("Not found", { status: 404 });

@@ -16,7 +16,7 @@ test("canonical ;arbor-config locators resolve a tree's configuration for its ad
   });
   try {
     const owner = new ProtocolClient(running.url, "owner");
-    const profile = running.canopy.accountByHandle("owner")!.profileTree!;
+    const profile = running.canopy.accountByHandle("owner")!.id;
     const configuration = treeConfigurationID(profile);
 
     const resolved = await owner.resolveConfiguration("/~owner");

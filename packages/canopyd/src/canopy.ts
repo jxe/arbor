@@ -703,7 +703,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     const account = this.account(pairing.accountID)!;
     const now = Date.now();
-    const accepted = await this.advanceConfig(account.profileTree, `pairing:${id}`, (values) => {
+    const accepted = await this.advanceConfig(account.id, `pairing:${id}`, (values) => {
       if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");
       return { ...values, devices: { ...values.devices, [input.deviceID]: {
         id: input.deviceID, label: safeLabel, administrator: false, ...(input.key !== undefined ? { key: input.key } : {}),
@@ -730,7 +730,7 @@ export class HostDaemon implements AsyncDisposable {
     const deviceID = generateArborID("dv");
     const label = "Recovered device";
     const now = Date.now();
-    const accepted = await this.advanceConfig(account.profileTree, `recovery:${deviceID}`, (values) => ({
+    const accepted = await this.advanceConfig(account.id, `recovery:${deviceID}`, (values) => ({
       ...values,
       devices: { [deviceID]: { id: deviceID, label, administrator: true } },
     }), () => {
@@ -870,7 +870,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** A profile's pending reset, for its own devices. */
   async pendingProfileReset(authentication: HostAuthentication, profileTree: string): Promise<PendingProfileReset | null> {
-    if (authentication.account.profileTree !== profileTree) throw new NotFoundError("No such account");
+    if (authentication.account.id !== profileTree) throw new NotFoundError("No such account");
     await this.completeDueResets();
     const pending = this.accounts.pendingReset(profileTree);
     return pending ? publicReset(pending) : null;
@@ -878,7 +878,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** An administrator device cancels a pending reset before it takes effect. */
   async cancelProfileReset(authentication: HostAuthentication, profileTree: string): Promise<void> {
-    if (authentication.account.profileTree !== profileTree) throw new NotFoundError("No such account");
+    if (authentication.account.id !== profileTree) throw new NotFoundError("No such account");
     if (!await this.isAdministratorDevice(authentication.account, authentication.device)) {
       throw new PermissionDeniedError("Only an administrator device may cancel a reset");
     }
@@ -997,7 +997,7 @@ export class HostDaemon implements AsyncDisposable {
   /** Whether `device` is an administrator device of the account's person profile. */
   private async isAdministratorDevice(account: HostAccount, device: string | null): Promise<boolean> {
     if (!device) return false;
-    return (await this.treeConfig(account.profileTree))?.devices?.[device]?.administrator === true;
+    return (await this.treeConfig(account.id))?.devices?.[device]?.administrator === true;
   }
 
   /** A configuration's first accepted update, validated and stored before its transaction. */
@@ -1181,7 +1181,7 @@ export class HostDaemon implements AsyncDisposable {
     const snapshot: TreeSnapshot = { root: update.candidate, objects: new Map(update.objects.map(({ hash, bytes }) => [hash, bytes])) };
     const prepared = await this.prepareConfig(tree, "tree", snapshot);
     const admins = adminProfiles(prepared.values.access);
-    if (!admins.some((admin) => admin === account.profileTree || this.access.isGroupMember(admin, account.profileTree))) {
+    if (!admins.some((admin) => admin === account.id || this.access.isGroupMember(admin, account.id))) {
       throw new PermissionDeniedError("A declared tree's configuration must make the submitter an administrator");
     }
     this.checkMountAdditions(tree, account, {}, prepared.values.mounts);
@@ -1214,7 +1214,7 @@ export class HostDaemon implements AsyncDisposable {
       const existing = this.get(child);
       if (existing && existing.policy !== "ordinary") throw new Error("A tree configuration cannot be mounted");
       if (!existing && !this.get(treeConfigurationID(child))) throw new Error(`Unknown tree: ${child}`);
-      if (!this.access.administers(account.profileTree, child)) {
+      if (!this.access.administers(account.id, child)) {
         throw new PermissionDeniedError(`Mounting ${child} requires administering it`);
       }
       const mounted = this.mountOf(child);
@@ -1238,7 +1238,7 @@ export class HostDaemon implements AsyncDisposable {
       throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
     }
     if (!this.get(treeConfigurationID(treeID))) throw new Error(`TreeID is not declared for activation: ${treeID}`);
-    if (!this.access.administers(authentication.account.profileTree, treeID)) throw new PermissionDeniedError("Only an administrator may initialize a tree");
+    if (!this.access.administers(authentication.account.id, treeID)) throw new PermissionDeniedError("Only an administrator may initialize a tree");
     if (!await this.isAdministratorDevice(authentication.account, authentication.device)) throw new PermissionDeniedError("Only an administrator device may initialize a tree");
     const requiredType = this.requiredProfileType(treeID, null);
     const profiles = this.profileReader();
@@ -2019,7 +2019,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Only a device of an administering profile may update a tree configuration. */
   private configurationCaller(tree: HostTree, account: HostAccount | null, credentialSubject: string | undefined): { account: HostAccount; subject: string } {
-    if (!account || !tree.governs || !this.access.administers(account.profileTree, tree.governs) || credentialSubject?.startsWith("device:") !== true) {
+    if (!account || !tree.governs || !this.access.administers(account.id, tree.governs) || credentialSubject?.startsWith("device:") !== true) {
       throw new PermissionDeniedError("An administrator's device is required for configuration updates");
     }
     return { account, subject: credentialSubject };
@@ -2103,7 +2103,7 @@ export class HostDaemon implements AsyncDisposable {
     // A person's own configuration governs itself: its devices.yaml names the
     // devices that may edit it. Every other configuration is edited from an
     // administrator device of an administering person.
-    const own = kind === "person" && governed === account.profileTree;
+    const own = kind === "person" && governed === account.id;
     const graphAt = (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>, accepted = false) =>
       this.configGraphAt(root, kind, governed, objects, accepted);
     let candidateGraph: TreeConfigValues;

@@ -41,7 +41,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
   try {
     const owner = new ProtocolClient(running.url, "owner");
     const account = running.canopy.accountByHandle("owner")!;
-    const tree = account.profileTree!;
+    const tree = account.id;
     const current = await owner.descriptor(tree);
     const snapshot = await owner.snapshot(tree, current.tree.root);
     let sessionActive = true;
@@ -49,7 +49,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
       code: "tr_supplies",
       version: "v1",
       caller: account.id,
-      subject: account.profileTree!,
+      subject: account.id,
       expiresAt: Date.now() + 60000,
       active: () => sessionActive,
       grants: [
@@ -143,13 +143,13 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       code: "tr_supplies",
       version: "v1",
       caller: account.id,
-      subject: account.profileTree!,
+      subject: account.id,
       expiresAt: Date.now() + 60000,
       active: () => true,
       grants: [
         {
           lender: null,
-          tree: account.profileTree!,
+          tree: account.id,
           within: "/",
           allow: ["read"],
         },
@@ -165,7 +165,7 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       "event: refresh"
     );
     const watch = await fetch(
-      `${running.url}/.arbor/trees/${account.profileTree}/watch`,
+      `${running.url}/.arbor/trees/${account.id}/watch`,
       { headers, signal: abort.signal }
     );
     expect(watch.status).toBe(200);

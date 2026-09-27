@@ -85,7 +85,7 @@ beforeAll(async () => {
   ids = {
     community: running.canopy.community().id,
     ownerProfile: account.profileTree!,
-    bobProfile: running.canopy.accountByHandle("bob")!.profileTree!,
+    bobProfile: running.canopy.accountByHandle("bob")!.id,
     club,
     notes,
   };

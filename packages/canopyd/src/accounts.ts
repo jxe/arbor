@@ -41,7 +41,7 @@ export class AccountDirectory {
       | { id: string; handle: string; enabled: number }
       | null;
     return row
-      ? { id: row.id, handle: row.handle, profileTree: row.id, enabled: row.enabled === 1 }
+      ? { id: row.id, handle: row.handle, enabled: row.enabled === 1 }
       : null;
   }
 
