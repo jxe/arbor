@@ -21,11 +21,8 @@ const PARSED_RULES_LIMIT = 256;
 
 export interface AccessHost {
   tree(id: string): HostTree | null;
-  /**
-   * Whether a group profile tree's current root lists this person: by Profile
-   * TreeID, or by handle for a legacy scalar `/~handle` member locator.
-   */
-  isProfileMember(group: HostTree, profileTree: string, handle: string | undefined): boolean;
+  /** Whether a group profile tree's current root lists this person by Profile TreeID. */
+  isProfileMember(group: HostTree, profileTree: string): boolean;
   /** The tree's current root frontmatter `type`, or null when it declares neither profile kind. */
   rootProfileType(tree: HostTree): "person" | "group" | null;
 }
@@ -85,8 +82,7 @@ export class AccessControl {
   readonly isGroupMember = (groupID: string, profile: string): boolean => {
     const group = this.groupTree(groupID);
     if (!group) return false;
-    const handle = this.accounts.handleForProfile(profile);
-    return handle !== undefined && this.host.isProfileMember(group, profile, handle);
+    return this.accounts.handleForProfile(profile) !== undefined && this.host.isProfileMember(group, profile);
   };
 
   /** Whether `profile` administers `tree`, directly or through a group it belongs to. */

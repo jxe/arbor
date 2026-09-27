@@ -61,8 +61,9 @@ configurations have their shape, and the tests for each refused case, are in
   handle or claiming an account is refused while mounts hold the name, and a
   root mount under a person's name is refused.
 - **Group membership.** A profile subject that is a `type: group` tree grants
-  its access to every member whose Profile TreeID its `members` list names;
-  a legacy scalar `/~handle` member still matches by handle.
+  its access to every member whose Profile TreeID its `members` list names.
+  A `members` entry that is not a structured entry, such as a bare string,
+  is ignored.
 - **Profile facts.** Authorization and the directory read a tree's `type`,
   `members` and card fields (display name, description, avatar) from one
   `profile_facts` row per tree whose head declares `type: person` or

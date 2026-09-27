@@ -7,7 +7,6 @@ const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
 export const HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
 const HANDLE_PATH = new RegExp(`^/~(${HANDLE_SOURCE})/?$`);
 const PROFILE_LOCATOR = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/;
-const LEGACY_HANDLE_LOCATOR = new RegExp(`/~(${HANDLE_SOURCE})/?$`);
 
 /** The handle a `/~handle` path names, exactly (a trailing slash allowed). */
 export function handleOfPath(path: string): string | undefined {
@@ -19,20 +18,15 @@ export function profileLocatorTree(locator: string | undefined): string | undefi
   return locator ? PROFILE_LOCATOR.exec(locator)?.[1] : undefined;
 }
 
-/** The handle a legacy scalar member's `/~handle` locator names. */
-export function legacyMemberHandle(member: { profile?: string; legacy?: true }): string | undefined {
-  return member.legacy && member.profile ? LEGACY_HANDLE_LOCATOR.exec(member.profile)?.[1] : undefined;
-}
-
 /** The handles a group's members reserve on this Canopy: each structured
- * handle, with the Profile TreeID its locator names, and each legacy
- * `/~handle` locator's handle, which names no profile. */
+ * handle, with the Profile TreeID its locator names or its pending
+ * invitation's digest. */
 export function memberReservations(members: RootProfileFacts["members"]): Map<string, { profileTree?: string; inviteDigest?: string }> {
   const reservations = new Map<string, { profileTree?: string; inviteDigest?: string }>();
   for (const member of members) {
-    const handle = member.handle ?? legacyMemberHandle(member);
+    const handle = member.handle;
     if (!handle) continue;
-    const profileTree = member.legacy ? undefined : profileLocatorTree(member.profile);
+    const profileTree = profileLocatorTree(member.profile);
     reservations.set(handle, profileTree ? { profileTree } : member.inviteDigest ? { inviteDigest: member.inviteDigest } : {});
   }
   return reservations;
@@ -41,7 +35,7 @@ export function memberReservations(members: RootProfileFacts["members"]): Map<st
 export interface RootProfileFacts {
   version: 3;
   type: "person" | "group" | null;
-  members: Array<{ profile?: string; handle?: string; inviteDigest?: string; legacy?: true }>;
+  members: Array<{ profile?: string; handle?: string; inviteDigest?: string }>;
   displayName?: string;
   headingTitle?: string;
   description?: string;
@@ -71,9 +65,10 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
  * decides whether a later update must recompute them.
  *
  * The facts are what the root declares in its `_index.md` frontmatter: the
- * `type` and each authored profile locator / Canopy-local handle. String
- * members remain a v1 shorthand; structured members keep identity separate
- * from this Canopy's allocation policy. canopyd stores them per tree
+ * `type` and each structured member's profile locator / Canopy-local
+ * handle; a member that is not a well-formed structured entry, including a
+ * bare string, is ignored. Structured members keep identity separate from
+ * this Canopy's allocation policy. canopyd stores them per tree
  * (`profile_facts`) so authorization never reparses mutable state; migration
  * 020 rebuilt the rows for every head. */
 export interface RootProfileRead {
@@ -105,7 +100,6 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
   const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
   const members = declared.flatMap((value): RootProfileFacts["members"] => {
-    if (typeof value === "string") return [{ profile: value, legacy: true }];
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
     const candidate = value as Record<string, unknown>;
     const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile : undefined;

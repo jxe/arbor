@@ -70,7 +70,7 @@ import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory, isRecoveryPairing, type DeviceBinding } from "./accounts.ts";
 import {
-  HANDLE, handleOfPath, legacyMemberHandle, memberReservations, profileChanged, profileLocatorTree,
+  HANDLE, handleOfPath, memberReservations, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
 } from "./profile.ts";
@@ -108,19 +108,17 @@ export interface HostBootstrap {
 interface RootProfile {
   type: "person" | "group" | null;
   members: RootProfileFacts["members"];
-  /** Community reservations: structured handles plus legacy `/~handle` locators. */
+  /** Community reservations: each structured member's handle. */
   reservations: ReadonlyMap<string, { profileTree?: string; inviteDigest?: string }>;
   /** Group membership for access: the Profile TreeID each member locator names. */
   profiles: ReadonlySet<string>;
-  /** Group membership for access by a legacy `/~handle` locator alone. */
-  legacyHandles: ReadonlySet<string>;
 }
 /** A tree's stored profile row and the facts authorization derives from it. */
 interface TreeProfile {
   stored: StoredProfile | null;
   profile: RootProfile;
 }
-const NO_PROFILE: RootProfile = { type: null, members: [], reservations: new Map(), profiles: new Set(), legacyHandles: new Set() };
+const NO_PROFILE: RootProfile = { type: null, members: [], reservations: new Map(), profiles: new Set() };
 /** One accept's profile reads: each root's `_index.md` is parsed at most
  * once, and its validations and stored facts share the result. */
 type ProfileReader = (root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>) => Promise<RootProfileRead>;
@@ -342,7 +340,7 @@ export class HostDaemon implements AsyncDisposable {
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
-      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group.id, profileTree, handle),
+      isProfileMember: (group, profileTree) => this.isProfileMember(group.id, profileTree),
       rootProfileType: (tree) => this.rootProfileType(tree.id),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
@@ -2330,11 +2328,9 @@ export class HostDaemon implements AsyncDisposable {
     return null;
   }
 
-  /** Whether a group root lists this person: by Profile TreeID, or by handle
-   * for a legacy scalar `/~handle` member locator. */
-  private isProfileMember(group: string, profileTree: string, handle: string | undefined): boolean {
-    const profile = this.rootProfile(group);
-    return profile.profiles.has(profileTree) || (handle !== undefined && profile.legacyHandles.has(handle));
+  /** Whether a group root lists this person by Profile TreeID. */
+  private isProfileMember(group: string, profileTree: string): boolean {
+    return this.rootProfile(group).profiles.has(profileTree);
   }
 
   /** Current-Canopy allocation policy: the community's member handles reserve /~handle. */
@@ -2415,7 +2411,6 @@ export class HostDaemon implements AsyncDisposable {
         members,
         reservations: memberReservations(members),
         profiles: memberProfiles(members),
-        legacyHandles: new Set(members.flatMap((member) => legacyMemberHandle(member) ?? [])),
       } : NO_PROFILE,
     };
     if (!this.db.inTransaction) this.treeProfiles.set(tree, value);
@@ -2460,13 +2455,11 @@ export class HostDaemon implements AsyncDisposable {
     const members = [...memberReservations(community?.members ?? [])].map(([handle, reservation]) => ({
       handle,
       profileTree: reservation.profileTree ?? null,
-      legacy: !reservation.profileTree && !reservation.inviteDigest,
     }));
     this.db.run(`UPDATE accounts SET enabled = EXISTS (
       SELECT 1 FROM json_each(?) AS member
       WHERE json_extract(member.value, '$.handle') = accounts.handle
-      AND (json_extract(member.value, '$.profileTree') = accounts.id
-        OR json_extract(member.value, '$.legacy') = 1)
+      AND json_extract(member.value, '$.profileTree') = accounts.id
     )`, [JSON.stringify(members)]);
   }
 

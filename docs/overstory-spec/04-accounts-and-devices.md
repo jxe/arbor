@@ -78,8 +78,8 @@ Profile TreeID alone. A host may define further per-member fields for its own
 account allocation, such as [canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) `handle`, which
 reserves an account for exactly that profile; they never establish identity or
 membership. The person can create the profile tree locally first and share its
-raw TreeID locator with the host's administrator. A scalar member locator is
-legacy input compatibility, not the normative authored form.
+raw TreeID locator with the host's administrator. A scalar `members` entry
+names no member: readers ignore it.
 
 canopyd also accepts a pending community invitation with `handle` and
 `inviteDigest: sha256:<hex>` in place of `profile`. It reserves the account

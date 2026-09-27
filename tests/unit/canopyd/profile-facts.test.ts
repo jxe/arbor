@@ -63,6 +63,12 @@ describe("profile presentation facts", () => {
     });
     expect((await rootProfileFacts(source.root, source.load)).displayName).toBeUndefined();
   });
+
+  test("ignores a bare-string member, keeping only structured entries", async () => {
+    const profile = "arbor://tr_aaaaaaaaaaaaaaaaaaaaaaaaaa/";
+    const source = fixture(`type: group\nmembers:\n  - /~alice\n  - ${profile}\n  - profile: ${profile}\n    handle: bob`);
+    expect((await rootProfileFacts(source.root, source.load)).members).toEqual([{ profile, handle: "bob" }]);
+  });
 });
 
 describe("stored profile rows", () => {
