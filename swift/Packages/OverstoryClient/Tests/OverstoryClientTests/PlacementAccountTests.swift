@@ -44,17 +44,22 @@ private actor PlacementHostState {
     private(set) var requests: [PlacementCapturedRequest] = []
     var claimed = false
     var homeUnreachable = false
+    /// Refuse sessions with a 403 naming the home host, as a placement host
+    /// does for a route that is the home host's.
+    var homeRefuses = false
     var profileTree = ""
 
     func reset(profileTree: String) {
         requests = []
         claimed = false
         homeUnreachable = false
+        homeRefuses = false
         self.profileTree = profileTree
     }
 
     func setClaimed(_ value: Bool) { claimed = value }
     func setHomeUnreachable(_ value: Bool) { homeUnreachable = value }
+    func setHomeRefuses(_ value: Bool) { homeRefuses = value }
 
     private var account: [String: Any] {
         let zero = "sha256:" + String(repeating: "0", count: 64)
@@ -101,6 +106,9 @@ private actor PlacementHostState {
             guard claimed else { return (404, Data(#"{"error":"not-found","message":"No such account","retryable":false}"#.utf8)) }
             if homeUnreachable {
                 return (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.test"}}"#.utf8))
+            }
+            if homeRefuses {
+                return (403, Data(#"{"error":"permission-denied","message":"ask the home host","retryable":false,"details":{"homeHost":"https://home.test"}}"#.utf8))
             }
             return (201, jsonData([
                 "version": 1, "purpose": "device-session", "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb", "origin": "https://place.test",
@@ -278,6 +286,29 @@ struct PlacementAccountTests {
             #expect(error.homeHost == "https://home.test")
             #expect(error.localizedDescription.contains("home.test"))
         }
+    }
+
+    @Test("Reconnecting reports a refusal that names the home host instead of claiming again")
+    func adoptReportsHomeHostRefusal() async throws {
+        let identityStore = KeychainProfileIdentityStore(service: "org.nxhx.Arbor.test.profile.\(UUID().uuidString)")
+        let identity = try await identityStore.create()
+        await PlacementHostProtocol.state.reset(profileTree: identity.profileTree)
+        let store = PlacementTestCredentialStore()
+        let configurationTree = try await homeAccount(profileTree: identity.profileTree, in: store)
+        let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
+        _ = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
+
+        // A 4xx without `details.homeHost` would mean "no account here"; this one names the home host.
+        await PlacementHostProtocol.state.setHomeRefuses(true)
+        do {
+            _ = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
+            Issue.record("A refusal naming the home host is reported")
+        } catch let error as ProtocolHTTPError {
+            #expect(error.status == 403)
+            #expect(error.homeHost == "https://home.test")
+        }
+        #expect(await PlacementHostProtocol.state.requests.filter { $0.method == "PUT" }.count == 1)
+        #expect(await PlacementHostProtocol.state.requests.filter { $0.url.hasSuffix("/.arbor/account-challenges") }.count == 1)
     }
 
     @Test("Placement targets are HTTPS Canopy URLs other than the home host")

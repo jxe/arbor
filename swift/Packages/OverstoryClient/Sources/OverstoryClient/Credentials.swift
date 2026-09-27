@@ -827,13 +827,16 @@ public actor NativeAccountService {
 
         /// The placement account the host already holds for the profile, read
         /// with a session this device's key opens; nil when the host opens no
-        /// session for it. A home host that cannot be reached is reported.
+        /// session for it. A host that holds the account but cannot check this
+        /// device now says so, with a 5xx or by naming the home host
+        /// (`details.homeHost`); that is reported, since claiming again would
+        /// only hide it.
         func adopt() async throws -> NativePlacementResult? {
             let token: String
             do {
                 token = try await ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
                     .openDeviceSession(profileTree: profileTree, device: home.deviceID, key: key).token
-            } catch let error as ProtocolHTTPError where (400..<500).contains(error.status) {
+            } catch let error as ProtocolHTTPError where error.status < 500 && error.homeHost == nil {
                 return nil
             }
             let account = try await ProtocolClient(origin: targetURL, credential: token, session: session, retryDelay: retryDelay)

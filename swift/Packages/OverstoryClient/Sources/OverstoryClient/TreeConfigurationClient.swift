@@ -136,7 +136,7 @@ public struct TreeConfigurationClient: Sendable {
             currentProfileTree: account.profileTree
         )
         let nextSource = try TreeConfigurationYAML.replacingAccess(in: source) { declaration in
-            declaration.access.removeAll { $0.subject == subject }
+            declaration.access.removeAll { $0.subject.sameSubject(as: subject) }
             if access != "none" {
                 declaration.access.append(AccountAccessRule(subject: subject, access: access))
             }
