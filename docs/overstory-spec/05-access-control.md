@@ -139,10 +139,10 @@ resolved resources; it never silently upgrades while resuming. Runtime tokens
 are opaque, limited to that execution authority, and contain no general
 caller credentials. Their encoding is host-private. The authority evaluates
 underlying access without recursively treating the proposed delegation as its
-own justification. Until
-[Security 008](../../plans/soon/008-portable-profiles.md), an `apps.yaml`
-entry applies only on its profile's home host, and cross-server delegation
-transport is not defined.
+own justification. An `apps.yaml` entry applies only on its profile's home
+host ([Apps 008](../../plans/apps/008-app-approvals-on-placement-hosts.md)),
+and cross-server delegation transport is not defined
+([Apps 009](../../plans/apps/009-cross-host-delegation.md)).
 
 **On a placement host**
 ([accounts §1.3](04-accounts-and-devices.md#13-claiming-a-placement-account)),

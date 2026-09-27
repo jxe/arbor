@@ -59,6 +59,8 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after the implemented 007 and authority prerequisites of 004.** Extract the headless HTTP runtime, prove failure independence and a QuickJS-free daemon graph; browser hosting follows in 001/003.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
+- [Apps 008 — App approvals and lending on placement hosts](apps/008-app-approvals-on-placement-hosts.md) — **P3 · PLANNED; after Apps 005 and Security 009.** A placement host reads a placement account's `apps.yaml` from its home host with a per-placement read token and enforces its approvals and lends there.
+- [Apps 009 — Code on one host using access held on another](apps/009-cross-host-delegation.md) — **P3 · DESIGN SKETCH; after Apps 005 and 008.** The caller's device signs an execution grant naming the app, code and target host, which the resource's host verifies; anonymous and `everyone` lends stay same-host.
 
 ## Postgres
 
@@ -78,8 +80,9 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Security 002 — Decode URL paths once at the external boundary](security/002-path-decoding.md) — **P1 · TODO.**
 - [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
-- [Security 007 — Place trees on other hosts](soon/007-placement-hosts.md) — **SOON · P3 · SPEC WRITTEN; home role (published device keys) deployed 2026-09-26; placement role next.** A placement host accepts a profile's key devices from the device keys its home host publishes, cached briefly, so one profile holds canonical trees on several hosts with no per-account data; code there uses only `everyone` and `app` rules until Security 008 brings `apps.yaml` across hosts.
-- [Security 008 — Portable profiles and delegation across hosts](soon/008-portable-profiles.md) — **SOON · P3 · PROPOSED; after Security 007.** A device list that traces to the profile key, profile configuration beyond the home host, `apps.yaml` and delegation across hosts, remote groups, moving a home host; to be split once designed.
+- [Security 007 — Place trees on other hosts](soon/007-placement-hosts.md) — **SOON · P3 · SPEC WRITTEN; home role (published device keys) deployed 2026-09-26; placement role next.** A placement host accepts a profile's key devices from the device keys its home host publishes, cached briefly, so one profile holds canonical trees on several hosts with no per-account data; code there uses only `everyone` and `app` rules until Apps 008 brings `apps.yaml` across hosts.
+- [Security 009 — Placement hosts through a home outage, and remote groups](soon/009-configuration-beyond-home.md) — **SOON · P3 · PLANNED 2026-09-27; after Security 007.** A placement host keeps opening sessions from its last device list for a grace while the home host is unreachable, and rules match the members of publicly readable groups hosted elsewhere; trusts other hosts over HTTPS.
+- [Security 010 — Signed profile statements, and moving a home host](security/010-signed-profile-statements.md) — **P4 · DEFERRED; design sketch.** A chained, signed statement of a profile's devices and app lends that other hosts verify back to the profile key, so a compromised home cannot act as the profile elsewhere and a profile can leave a home that is gone; needs a cross-host tree transfer. Waits for a host Joe does not control.
 
 ## Verification
 
@@ -101,7 +104,7 @@ or a concrete implementation trigger; they are not new executor plans.
 
 - **Product gaps awaiting design** — These outcomes need interaction, ownership, recovery, and acceptance decisions before receiving numbered executor plans.
   - **Name-based sharing and profile avatars** — **NEEDS DESIGN.** Define user lookup, ambiguous-name selection, visibility and avatar ownership before writing an executor plan.
-  - **Claim disputes, and recovery without the operator** — **NEEDS DESIGN** (Security 008). Operator recovery is a recovery pairing (Security 006, `canopyd recover`); recovery by the profile key or DNS across hosts, and disputed claims, preserve the same self-certifying Profile TreeID with auditable proof of control rather than raw-credential transfer.
+  - **Claim disputes, and recovery without the operator** — **NEEDS DESIGN** (Security 010). Operator recovery is a recovery pairing (Security 006, `canopyd recover`); recovery by the profile key or DNS across hosts, and disputed claims, preserve the same self-certifying Profile TreeID with auditable proof of control rather than raw-credential transfer.
   - **Claimed-member removal/restoration and access-history recovery** — **NEEDS DESIGN.** Define confirmation, revocation, historical visibility, and restoration without a parallel group database.
   - **Persistent-host administration** — **NEEDS DESIGN.** Productize permanent domains, graceful restart, replacement-host restore, and verification while keeping migration scripts procedural.
 

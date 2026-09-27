@@ -18,7 +18,7 @@
   key devices and sessions opened by signing a host challenge
   ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing), Security 006,
   deployed 2026-09-26); from schema 26 every device is a key device.
-- **Followed by:** [Security 008](008-portable-profiles.md).
+- **Followed by:** [Security 009](009-configuration-beyond-home.md); later [Apps 008](../apps/008-app-approvals-on-placement-hosts.md) and [Security 010](../security/010-signed-profile-statements.md).
 
 ## The problem
 
@@ -93,7 +93,7 @@ fails, since B refuses to open new sessions once its copy is stale.
 ### Code on B
 
 B cannot read the caller's `apps.yaml`, so until
-[Security 008](008-portable-profiles.md) code on B uses only rules B holds:
+[Apps 008](../apps/008-app-approvals-on-placement-hosts.md) code on B uses only rules B holds:
 
 - `everyone` rules, and
 - rules with an `app` in the `access.yaml` of B's own trees.
@@ -102,7 +102,7 @@ Code on B never uses a caller's personal access. A tree's administrators on B
 approve an app for that tree by adding an `app` rule to its configuration,
 which is stored and enforced on B. What this leaves out is an app acting as
 its caller on a tree that grants the caller access but has no `app` rule;
-Security 008 can allow that later without taking anything back.
+Apps 008 can allow that later without taking anything back.
 
 This does not wait on anything: canopyd runs no hosted app code yet, and
 [Apps 005](../apps/005-source-resolution-and-sidecar.md) owns the execution
@@ -114,17 +114,17 @@ needs the caller's own approval.
 B trusts A, over HTTPS, for the device lists of the profiles whose own profile
 key named A. A compromised A can act as those profiles on B, which is no more
 than A holds already. B trusts A for nothing else. Checking the list back to
-the profile key, so that B need not trust A at all, is Security 008.
+the profile key, so that B need not trust A at all, is Security 010.
 
 ## Decided
 
 1. **Lifetimes:** a placement host keeps a fetched list for 60 s, refetches
    early for an unknown DeviceID at most once per 5 s per profile, and refuses
    to open a session from a copy older than 60 s that it cannot refresh.
-   [Security 008](008-portable-profiles.md) proposes a grace once lists are
-   signed.
+   [Security 009](009-configuration-beyond-home.md) adds a grace while the
+   home is unreachable.
 2. **The tree at `/~handle` on B** is the **placement root** (accounts §1.3).
-   It cannot become the profile tree if the home moves; Security 008 Q7.
+   It cannot become the profile tree if the home moves (Security 010).
 3. **Both names stay:** a tree's `admin` rule and a device's `administrator`
    flag. B's errors say "administrator device" for the second.
 
