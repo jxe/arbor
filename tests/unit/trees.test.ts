@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { deviceKeyFromSeed, HostAccountStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@overstory/protocol";
+import { deviceKeyFromSeed, HostAccountStore, HostPlacementStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@overstory/protocol";
 import { loadTreeRegistry, savePlacementSyncMetadata } from "@overstory/arborsync/state";
-import { parseLocalPlacements } from "@overstory/client";
+import { addLocalPlacement, loadLocalPlacements, parseLocalPlacements, replaceLocalPlacement } from "@overstory/client";
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
 const temporary: string[] = [];
@@ -69,4 +69,63 @@ test("invalid account candidates do not invent an active projection", async () =
   expect(result.invalidAccounts).toContain(cfg);
   expect(result.placements.filter((placement) => placement.kind === "tree-configuration")).toEqual([]);
   expect(result.diagnostics.map(d => d.code)).toContain("invalid-access-yaml");
+});
+test("a placement may name a placement host; a bare TreeID stays the home host", () => {
+  const orchard = "https://orchard.example";
+  const other = "tr_cccccccccccccccccccccccccc";
+  expect(parseLocalPlacements(`${cfg}:\n  /tmp/notes: ${shared}\n  /tmp/orchard:\n    tree: ${other}\n    host: ${orchard}\n`)).toEqual([
+    { configurationTree: cfg, path: "/tmp/notes", tree: shared },
+    { configurationTree: cfg, path: "/tmp/orchard", tree: other, host: orchard },
+  ]);
+  expect(parseLocalPlacements(`${cfg}:\n  /tmp/orchard: {tree: ${other}}\n`)).toEqual([{ configurationTree: cfg, path: "/tmp/orchard", tree: other }]);
+  expect(() => parseLocalPlacements(`${cfg}:\n  /tmp/orchard: {tree: ${other}, origin: ${orchard}}\n`)).toThrow("unknown field");
+  expect(() => parseLocalPlacements(`${cfg}:\n  /tmp/orchard: {host: ${orchard}}\n`)).toThrow();
+  for (const host of ["http://orchard.example", `${orchard}/~joe`, "orchard.example"]) {
+    expect(() => parseLocalPlacements(`${cfg}:\n  /tmp/orchard: {tree: ${other}, host: "${host}"}\n`)).toThrow("HTTPS origin");
+  }
+});
+test("adding and moving a placement keeps its host and leaves the home placements' form alone", async () => {
+  const home = await dataHome();
+  const orchard = "https://orchard.example";
+  const other = "tr_cccccccccccccccccccccccccc";
+  const original = `# Joe's folders\n${cfg}:\n  /tmp/notes: ${shared}\n`;
+  await writeFile(join(home, "placements.yaml"), original);
+  await addLocalPlacement({ configurationTree: cfg, path: "/tmp/orchard", tree: other, host: orchard });
+  const added = await readFile(join(home, "placements.yaml"), "utf8");
+  expect(added.startsWith(original)).toBe(true);
+  // The same tree and path at another host is a different placement.
+  await expect(addLocalPlacement({ configurationTree: cfg, path: "/tmp/orchard", tree: other })).rejects.toThrow("already placed");
+  await addLocalPlacement({ configurationTree: cfg, path: "/tmp/orchard", tree: other, host: orchard });
+  expect(await readFile(join(home, "placements.yaml"), "utf8")).toBe(added);
+  await expect(replaceLocalPlacement({ configurationTree: cfg, path: "/tmp/orchard", tree: other }, { configurationTree: cfg, path: "/tmp/moved" }))
+    .rejects.toThrow("changed before update");
+  await replaceLocalPlacement({ configurationTree: cfg, path: "/tmp/orchard", tree: other, host: orchard }, { configurationTree: cfg, path: "/tmp/moved" });
+  expect((await loadLocalPlacements()).placements).toEqual([
+    { configurationTree: cfg, path: "/tmp/notes", tree: shared },
+    { configurationTree: cfg, path: "/tmp/moved", tree: other, host: orchard },
+  ]);
+});
+test("a placement on a placement host takes its endpoint from the placement connection, and needs one", async () => {
+  const home = await dataHome(), placed = join(home, "orchard-tree");
+  const orchard = "https://orchard.example";
+  await mkdir(placed); await writeConfiguration(home, join(home, "unused"));
+  await writeFile(join(home, "placements.yaml"), `${cfg}:\n  ${placed}: {tree: ${shared}, host: "${orchard}"}\n`);
+  const missing = await loadTreeRegistry();
+  expect(missing.placementsValid).toBe(false);
+  expect(missing.diagnostics.map((diagnostic) => diagnostic.code)).toContain("unknown-placement-host");
+  expect(missing.placements.some((placement) => placement.tree === shared)).toBe(false);
+
+  await new HostPlacementStore(cfg, orchard).set({ account: `${orchard}/~joe`, accountID: profile, profileTree: profile, homeHost: canopy, placementRoot: "tr_dddddddddddddddddddddddddd" });
+  await savePlacementSyncMetadata(shared, { canonicalPath: "/~joe/shared" }, cfg);
+  const result = await loadTreeRegistry();
+  expect(result.diagnostics).toEqual([]);
+  const placement = result.placements.find((candidate) => candidate.tree === shared)!;
+  expect(placement).toMatchObject({ configurationTree: cfg, path: placed, endpoint: orchard, canonical: "arbor://orchard.example/~joe/shared" });
+  expect(placement).not.toHaveProperty("host");
+  // The configuration checkout stays at the home host.
+  expect(result.placements.find((candidate) => candidate.kind === "tree-configuration")?.endpoint).toBe(canopy);
+
+  // A host naming the home is the home.
+  await writeFile(join(home, "placements.yaml"), `${cfg}:\n  ${placed}: {tree: ${shared}, host: "${canopy}"}\n`);
+  expect((await loadTreeRegistry()).placements.find((candidate) => candidate.tree === shared)?.endpoint).toBe(canopy);
 });

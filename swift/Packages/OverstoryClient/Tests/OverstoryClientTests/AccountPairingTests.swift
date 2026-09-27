@@ -282,6 +282,58 @@ struct NativeAccountPairingTests {
         #expect(changed.contains("  '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"))
     }
 
+    @Test("Local placement YAML reads and writes a placement host beside home placements")
+    func localPlacementYAMLHost() throws {
+        let source = """
+        tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
+          '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb
+          '/Users/joe/Orchard':
+            tree: tr_dddddddddddddddddddddddddd
+            host: https://orchard.example
+        """
+        let entries = try LocalPlacementsYAML.entries(from: source)
+        #expect(entries["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Notes"] == LocalPlacementEntry(tree: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"))
+        #expect(entries["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Orchard"]
+            == LocalPlacementEntry(tree: "tr_dddddddddddddddddddddddddd", host: "https://orchard.example"))
+        // The TreeID view covers every placement, whatever host holds it.
+        #expect(try LocalPlacementsYAML.placements(from: source)["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Orchard"] == "tr_dddddddddddddddddddddddddd")
+
+        let changed = try LocalPlacementsYAML.adding(
+            configurationTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path: "/Users/joe/Research",
+            tree: "tr_cccccccccccccccccccccccccc",
+            host: "http://127.0.0.1:4100",
+            to: source
+        )
+        #expect(changed.hasPrefix(source))
+        let decoded = try LocalPlacementsYAML.entries(from: changed)["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        #expect(decoded?["/Users/joe/Research"] == LocalPlacementEntry(tree: "tr_cccccccccccccccccccccccccc", host: "http://127.0.0.1:4100"))
+        #expect(decoded?["/Users/joe/Orchard"]?.host == "https://orchard.example")
+        #expect(decoded?["/Users/joe/Notes"]?.host == nil)
+
+        // A new account's block keeps the host too.
+        let other = try LocalPlacementsYAML.adding(
+            configurationTree: "tr_eeeeeeeeeeeeeeeeeeeeeeeeee",
+            path: "/Users/joe/Elsewhere",
+            tree: "tr_ffffffffffffffffffffffffff",
+            host: "https://orchard.example",
+            to: changed
+        )
+        #expect(try LocalPlacementsYAML.entries(from: other)["tr_eeeeeeeeeeeeeeeeeeeeeeeeee"]?["/Users/joe/Elsewhere"]?.host == "https://orchard.example")
+
+        #expect(throws: (any Error).self) {
+            try LocalPlacementsYAML.adding(configurationTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", path: "/Users/joe/Bad",
+                tree: "tr_gggggggggggggggggggggggggg", host: "https://orchard.example/~joe", to: source)
+        }
+        for invalid in [
+            "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n  '/x': {tree: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb, origin: https://orchard.example}\n",
+            "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n  '/x': {host: https://orchard.example}\n",
+            "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n  '/x': {tree: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb, host: 'http://orchard.example'}\n",
+        ] {
+            #expect(throws: (any Error).self) { try LocalPlacementsYAML.entries(from: invalid) }
+        }
+    }
+
     @Test("Profile ACL labels prefer handles and protect the current user")
     func profileACLPresentation() throws {
         #expect(ProfileConfigurationYAML.profileDisplayName(

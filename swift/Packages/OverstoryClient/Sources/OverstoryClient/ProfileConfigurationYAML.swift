@@ -563,24 +563,99 @@ public extension ProfileConfigurationYAML {
     }
 }
 
-public enum LocalPlacementsYAML {
-    public static func placements(from source: String) throws -> [String: [String: String]] {
-        try YAMLDecoder().decode([String: [String: String]].self, from: source)
+/// One folder's placement in `placements.yaml`: the tree, and the placement
+/// host's origin when the tree is hosted on one of the profile's placement
+/// accounts (accounts §1.3) rather than at its home host. In the file it is a
+/// bare TreeID for the home host, or a mapping `{tree, host}`.
+public struct LocalPlacementEntry: Hashable, Sendable, Codable {
+    public let tree: String
+    /// The placement host's origin; nil means the profile's home host.
+    public let host: String?
+
+    public init(tree: String, host: String? = nil) {
+        self.tree = tree
+        self.host = host
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let tree = try? container.decode(String.self) {
+            self.init(tree: tree)
+            return
+        }
+        let fields = try container.decode([String: String].self)
+        if let unknown = fields.keys.first(where: { $0 != "tree" && $0 != "host" }) {
+            throw ProtocolValidationError.invalidValue("A placement has an unknown field: \(unknown)")
+        }
+        guard let tree = fields["tree"] else {
+            throw ProtocolValidationError.invalidValue("A placement mapping requires a tree")
+        }
+        if let host = fields["host"], !Self.isHostOrigin(host) {
+            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://canopy.example")
+        }
+        self.init(tree: tree, host: fields["host"])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let host {
+            try container.encode(["tree": tree, "host": host])
+        } else {
+            try container.encode(tree)
+        }
+    }
+
+    /// An exact origin: HTTPS, or HTTP on loopback for local hosts; no path, query, fragment or credentials.
+    public static func isHostOrigin(_ value: String) -> Bool {
+        guard let url = URL(string: value), let scheme = url.scheme, let host = url.host, !host.isEmpty,
+              url.path.isEmpty, url.query == nil, url.fragment == nil, url.user == nil, url.password == nil
+        else { return false }
+        let loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].contains(host)
+        guard scheme == "https" || (scheme == "http" && loopback) else { return false }
+        let port = url.port.map { ":\($0)" } ?? ""
+        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return value == "\(scheme)://\(bracketed)\(port)"
+    }
+
+    /// The YAML value written for this entry.
+    func yamlValue() throws -> String {
+        guard let host else { return tree }
+        let quotedHost = String(decoding: try JSONEncoder().encode(host), as: UTF8.self)
+        return "{tree: \(tree), host: \(quotedHost)}"
+    }
+}
+
+public enum LocalPlacementsYAML {
+    /// Every placement, grouped by configuration TreeID and keyed by folder path.
+    public static func entries(from source: String) throws -> [String: [String: LocalPlacementEntry]] {
+        try YAMLDecoder().decode([String: [String: LocalPlacementEntry]].self, from: source)
+    }
+
+    /// The placed TreeIDs, grouped by configuration TreeID and keyed by folder path, whatever host holds them.
+    public static func placements(from source: String) throws -> [String: [String: String]] {
+        try entries(from: source).mapValues { $0.mapValues(\.tree) }
+    }
+
+    /// Add one placement, preserving the rest of the file where it can.
+    /// `host` names a placement host's origin; nil places the tree at the
+    /// profile's home host, as a bare TreeID.
     public static func adding(
         configurationTree: String,
         path: String,
         tree: String,
+        host: String? = nil,
         to source: String
     ) throws -> String {
-        var placements = try placements(from: source)
-        if placements[configurationTree]?[path] == tree { return source }
-        if let occupied = placements.values.first(where: { $0[path] != nil })?[path], occupied != tree {
+        if let host, !LocalPlacementEntry.isHostOrigin(host) {
+            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://canopy.example")
+        }
+        let entry = LocalPlacementEntry(tree: tree, host: host)
+        var placements = try entries(from: source)
+        if placements[configurationTree]?[path] == entry { return source }
+        if placements.values.contains(where: { $0[path] != nil }) {
             throw ProtocolValidationError.invalidValue("Another tree is already placed at \(path)")
         }
-        if let existing = placements.values.flatMap(\.values).first(where: { $0 == tree }), existing == tree,
-           placements[configurationTree]?[path] != tree {
+        if placements.values.flatMap(\.values).contains(where: { $0.tree == tree }) {
             throw ProtocolValidationError.invalidValue("Tree \(tree) already has a local placement")
         }
         if placements[configurationTree] != nil {
@@ -590,18 +665,18 @@ public enum LocalPlacementsYAML {
                 let newline = source[..<range.upperBound].hasSuffix("\n") ? "" : "\n"
                 return source.replacingCharacters(
                     in: range.upperBound..<range.upperBound,
-                    with: "\(newline)  \(quotedPath): \(tree)\n"
+                    with: "\(newline)  \(quotedPath): \(try entry.yamlValue())\n"
                 )
             }
-            placements[configurationTree]![path] = tree
+            placements[configurationTree]![path] = entry
             return try YAMLEncoder().encode(placements)
         }
-        placements[configurationTree, default: [:]][path] = tree
+        placements[configurationTree, default: [:]][path] = entry
         if placements.count == 1 {
             return try YAMLEncoder().encode(placements)
         }
         let prefix = source.hasSuffix("\n") ? source : source + "\n"
-        return prefix + (try YAMLEncoder().encode([configurationTree: [path: tree]]))
+        return prefix + (try YAMLEncoder().encode([configurationTree: [path: entry]]))
     }
 }
 

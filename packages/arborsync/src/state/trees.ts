@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Diagnostic, TreeID, SharedTreePlacement, TreePlacement } from "@overstory/protocol";
-import { revisionOf, HostAccountStore, arborPrivateRoot } from "@overstory/protocol";
+import { revisionOf, HostAccountStore, HostPlacementStore, arborPrivateRoot } from "@overstory/protocol";
 import {
   loadProfileConfigurations,
   watchProfileConfigurations,
@@ -63,6 +63,10 @@ function canonicalLocator(origin: string, path: string): string {
  * configuration, placed at its checkout, and every folder `placements.yaml`
  * places for it. A tree's canonical path is not authored locally; it is the
  * one the host last reported, kept with the placement's sync metadata.
+ *
+ * A placement's endpoint is its origin: the account's home host, or the
+ * placement host its `host` names, whose placement connection
+ * (`HostPlacementStore`) must be recorded in this data home.
  */
 export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   const pluralConfigurations = await loadProfileConfigurations();
@@ -125,12 +129,24 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       });
       continue;
     }
+    const { host, ...placed } = placement;
+    const endpoint = host ?? configuration.canopy;
+    if (endpoint !== configuration.canopy && !await new HostPlacementStore(placement.configurationTree, endpoint).safe()) {
+      placementsValid = false;
+      diagnostics.push({
+        code: "unknown-placement-host",
+        message: `Placement ${placement.path} names ${endpoint}, where account ${placement.configurationTree} has no placement connection; run \`arbor account place ${endpoint}\``,
+        path: placementsFilePath(),
+        severity: "warning",
+      });
+      continue;
+    }
     const { canonicalPath, ...sync } = await loadPlacementSyncMetadata(placement.tree, placement.configurationTree);
     placements.push({
-      ...placement,
-      ...(canonicalPath ? { canonical: canonicalLocator(configuration.canopy, canonicalPath), canonicalPath } : {}),
+      ...placed,
+      ...(canonicalPath ? { canonical: canonicalLocator(endpoint, canonicalPath), canonicalPath } : {}),
       access: "write",
-      endpoint: configuration.canopy,
+      endpoint,
       ...sync,
     });
   }

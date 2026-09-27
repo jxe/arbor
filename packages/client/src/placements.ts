@@ -3,12 +3,18 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import type { Diagnostic, TreeID } from "@overstory/protocol";
 import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
-import { arborDataRoot, prepareArborDataRoot, configurationTreeID } from "@overstory/protocol";
+import { arborDataRoot, prepareArborDataRoot, configurationTreeID, isHomeHostOrigin } from "@overstory/protocol";
 
 export interface LocalPlacement {
   configurationTree: TreeID;
   path: string;
   tree: TreeID;
+  /**
+   * The placement host's origin (accounts §1.3), when the tree is hosted on
+   * one of the profile's placement accounts rather than at its home host.
+   * Absent means the home host.
+   */
+  host?: string;
 }
 
 export interface LocalPlacementsSnapshot {
@@ -41,6 +47,29 @@ export function placementsFilePath(): string {
   return join(arborDataRoot(), "placements.yaml");
 }
 
+/**
+ * One placement's value: a TreeID, hosted at the profile's home host, or a
+ * mapping `{ tree, host }` naming the placement host's origin.
+ */
+function placementEntry(value: unknown, label: string): { tree: TreeID; host?: string } {
+  if (typeof value === "string") return { tree: configurationTreeID(value, label) };
+  const entry = record(value, label);
+  for (const key of Object.keys(entry)) {
+    if (key !== "tree" && key !== "host") throw new Error(`${label} has an unknown field: ${key}`);
+  }
+  const tree = configurationTreeID(entry.tree, `${label}.tree`);
+  if (entry.host === undefined) return { tree };
+  if (typeof entry.host !== "string" || !isHomeHostOrigin(entry.host)) {
+    throw new Error(`${label}.host must be an HTTPS origin such as https://canopy.example`);
+  }
+  return { tree, host: entry.host };
+}
+
+/** The YAML value `placements.yaml` stores for a placement: its TreeID, or `{ tree, host }` on a placement host. */
+function placementValue(placement: LocalPlacement): string | { tree: string; host: string } {
+  return placement.host ? { tree: placement.tree, host: placement.host } : placement.tree;
+}
+
 export function parseLocalPlacements(source: string): LocalPlacement[] {
   const document = parseDocument(source, { uniqueKeys: true });
   if (document.errors.length) throw new Error(document.errors[0]!.message);
@@ -56,10 +85,10 @@ export function parseLocalPlacements(source: string): LocalPlacement[] {
       if (!isAbsolute(path) || normalize(path) !== path) throw new Error(`Placement path must be canonical and absolute: ${path}`);
       if (paths.has(path)) throw new Error(`Placement path appears in several accounts: ${path}`);
       paths.add(path);
-      const tree = configurationTreeID(treeValue, `placements.yaml.${configurationTree}.${path}`);
+      const { tree, host } = placementEntry(treeValue, `placements.yaml.${configurationTree}.${path}`);
       if (trees.has(tree)) throw new Error(`Tree appears in several placements: ${tree}`);
       trees.add(tree);
-      placements.push({ configurationTree, path, tree });
+      placements.push({ configurationTree, path, tree, ...(host ? { host } : {}) });
     }
   }
   return placements;
@@ -98,6 +127,7 @@ export async function addLocalPlacement(placement: LocalPlacement): Promise<void
     candidate.configurationTree === placement.configurationTree
     && candidate.path === placement.path
     && candidate.tree === placement.tree
+    && candidate.host === placement.host
   );
   if (exact) return;
   const occupiedPath = parsed.find((candidate) => candidate.path === placement.path);
@@ -106,7 +136,7 @@ export async function addLocalPlacement(placement: LocalPlacement): Promise<void
   if (placedTree) throw new Error(`Tree ${placement.tree} is already placed at ${placedTree.path}`);
   const document = parseDocument(original, { uniqueKeys: true, keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0]!.message);
-  document.setIn([placement.configurationTree, placement.path], placement.tree);
+  document.setIn([placement.configurationTree, placement.path], placementValue(placement));
   const next = document.toString({ lineWidth: 0 });
   parseLocalPlacements(next);
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
@@ -118,7 +148,7 @@ export async function addLocalPlacement(placement: LocalPlacement): Promise<void
   }
 }
 
-/** Atomically replace one exact local placement while preserving YAML style. */
+/** Atomically replace one exact local placement while preserving YAML style and its host. */
 export async function replaceLocalPlacement(
   source: LocalPlacement,
   destination: Pick<LocalPlacement, "configurationTree" | "path">,
@@ -128,10 +158,11 @@ export async function replaceLocalPlacement(
   const document = parseDocument(original, { uniqueKeys: true, keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0]!.message);
   const value = document.toJS({ maxAliasCount: 0 }) as Record<string, Record<string, unknown>>;
-  if (value[source.configurationTree]?.[source.path] !== source.tree) {
+  const parsed = parseLocalPlacements(original);
+  const current = parsed.find((placement) => placement.configurationTree === source.configurationTree && placement.path === source.path);
+  if (!current || current.tree !== source.tree || current.host !== source.host) {
     throw new Error(`Placement changed before update: ${source.path}`);
   }
-  const parsed = parseLocalPlacements(original);
   const occupied = parsed.find((placement) =>
     placement.path === destination.path
     && (placement.configurationTree !== source.configurationTree || placement.tree !== source.tree)
@@ -139,7 +170,7 @@ export async function replaceLocalPlacement(
   if (occupied) throw new Error(`Another tree is already placed at ${destination.path}`);
   document.deleteIn([source.configurationTree, source.path]);
   if (Object.keys(value[source.configurationTree] ?? {}).length === 1) document.deleteIn([source.configurationTree]);
-  document.setIn([destination.configurationTree, destination.path], source.tree);
+  document.setIn([destination.configurationTree, destination.path], placementValue(current));
   const next = document.toString({ lineWidth: 0 });
   parseLocalPlacements(next);
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
