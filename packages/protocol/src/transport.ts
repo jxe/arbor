@@ -29,10 +29,15 @@ import {
   type TreeSnapshot,
 } from "./objects.ts";
 import {
+  WIRE_CONTENT_TYPE,
   decodeUpdateConflictJSON,
   decodeUpdateResponseJSON,
-  encodeTreeSnapshotJSON,
+  decodeWireBody,
+  encodeCandidateUpdateJSON,
   encodeUpdateRequestJSON,
+  encodeWireBody,
+  wireEncodingOf,
+  type WireEncoding,
 } from "./updates/json.ts";
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
@@ -93,7 +98,24 @@ export interface ExistingProfileAccountRequest {
   signature: string;
   inviteCode?: string;
   device: DeviceEnrollment;
-  configuration: TreeSnapshot;
+  /** The configuration tree's activation element: its complete first snapshot (accounts §1.2). */
+  configuration: CandidateUpdate;
+}
+
+/**
+ * The activation element of a tree's first snapshot: snapshot semantics
+ * (`trace: null`), no resolutions, every object complete and no deltas. A
+ * claim carries its configuration in this shape, and `declareTree` sends it.
+ */
+export function activationElement(snapshot: TreeSnapshot, change: string = crypto.randomUUID()): CandidateUpdate {
+  return {
+    change,
+    trace: null,
+    candidate: snapshot.root,
+    resolves: [],
+    objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+    deltas: [],
+  };
 }
 
 /** A device a claim or pairing adds: a key device sends its public `key`, a
@@ -193,14 +215,17 @@ export class ProtocolTransportError extends TypeError {
 export class ProtocolClient {
   private readonly timeoutMs: number;
   private readonly watchIdleTimeoutMs: number;
+  /** How requests that carry objects travel unless a call says otherwise (tree operations §4.4). */
+  readonly encoding: WireEncoding;
 
   constructor(
     readonly origin: string,
     private accountToken?: string,
-    options: { timeoutMs?: number; watchIdleTimeoutMs?: number } = {},
+    options: { timeoutMs?: number; watchIdleTimeoutMs?: number; encoding?: WireEncoding } = {},
   ) {
     this.timeoutMs = options.timeoutMs ?? 5_000;
     this.watchIdleTimeoutMs = options.watchIdleTimeoutMs ?? WATCH_IDLE_TIMEOUT_MS;
+    this.encoding = options.encoding ?? "cbor";
   }
 
   private headers(json = false): HeadersInit {
@@ -267,11 +292,12 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async joinAccount(input: ExistingProfileAccountRequest): Promise<AccountClaimResult> {
+  async joinAccount(input: ExistingProfileAccountRequest, options: { encoding?: WireEncoding } = {}): Promise<AccountClaimResult> {
+    const encoding = options.encoding ?? this.encoding;
     const response = await this.checked(await this.request("/.arbor/accounts", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      headers: { "content-type": WIRE_CONTENT_TYPE[encoding] },
+      body: encodeWireBody({
         account: input.account,
         profileTree: input.profileTree,
         configurationTree: input.configurationTree,
@@ -280,8 +306,8 @@ export class ProtocolClient {
         signature: input.signature,
         ...(input.inviteCode ? { inviteCode: input.inviteCode } : {}),
         device: input.device,
-        configuration: encodeTreeSnapshotJSON(input.configuration),
-      }),
+        configuration: encodeCandidateUpdateJSON(input.configuration, encoding),
+      }, encoding) as Uint8Array<ArrayBuffer>,
     }));
     return response.json();
   }
@@ -416,12 +442,9 @@ export class ProtocolClient {
     options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
-      change: options.change ?? crypto.randomUUID(),
-      trace: null,
-      candidate: snapshot.root,
+      ...activationElement(snapshot, options.change),
       resolves: options.resolves ?? [],
       ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),
-      objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: options.deltas ?? [],
     };
     return (await this.submitUpdates(tree, { base, updates: [update] })).results[0]!;
@@ -443,15 +466,20 @@ export class ProtocolClient {
     return { tree: current.tree, snapshot: await this.snapshot(id, current.tree.root) };
   }
 
-  /** Submit one append-only string of candidate generations against a confirmed watchpoint. */
-  async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
+  /**
+   * Submit one append-only string of candidate generations against a
+   * confirmed watchpoint. `encoding` chooses how the request and its success
+   * response travel; either carries the same request and digests.
+   */
+  async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
+    const encoding = options.encoding ?? this.encoding;
     // A `tr_x;arbor-config` reference is answered under the configuration's TreeID.
     const reference = /^tr_[a-z2-7]+;arbor-config$/.test(tree) ? parseTreeReference(tree) : null;
     const expected = updateRequestDigests(reference ? treeConfigurationID(reference.tree) : tree, request);
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
-      headers: this.headers(true),
-      body: JSON.stringify(encodeUpdateRequestJSON(request)),
+      headers: { ...this.headers(), "content-type": WIRE_CONTENT_TYPE[encoding], accept: WIRE_CONTENT_TYPE[encoding] },
+      body: encodeWireBody(encodeUpdateRequestJSON(request, encoding), encoding) as Uint8Array<ArrayBuffer>,
     });
     if (!response.ok) {
       const body = await response.text();
@@ -473,7 +501,9 @@ export class ProtocolClient {
       // Any other refusal (a 409 `resync-required` among them) keeps its code.
       throw error;
     }
-    const result = decodeUpdateResponseJSON(await response.json());
+    // Error envelopes are JSON on every route; a success answers in the encoding its Content-Type names.
+    const answered = wireEncodingOf(response.headers.get("content-type"));
+    const result = decodeUpdateResponseJSON(decodeWireBody(new Uint8Array(await response.arrayBuffer()), answered), answered);
     if (result.results.length !== expected.length
       || result.results.some((item, index) => item.requestDigest !== expected[index])) {
       throw new Error("Server response update-string identity mismatch");

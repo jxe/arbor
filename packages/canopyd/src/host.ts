@@ -2,7 +2,8 @@ import { AuthenticationRequiredError, ExpiredChallengeError, isServerFault, NotF
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateHead, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateHead, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
@@ -35,6 +36,41 @@ const WATCH_KEEPALIVE_MS = 20_000;
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } });
+}
+
+/** A success answered in the encoding the request's `Accept` asked for; errors stay `json` (tree operations §4.4). */
+function wire(value: unknown, encoding: WireEncoding, status = 200, headers: Record<string, string> = {}): Response {
+  if (encoding === "json") return json(value, status, headers);
+  return new Response(encodeWireBody(value, encoding) as Uint8Array<ArrayBuffer>, {
+    status,
+    headers: { "content-type": WIRE_CONTENT_TYPE.cbor, "cache-control": "no-store", ...headers },
+  });
+}
+
+/** The encoding a request asks its success response in. */
+function answerEncoding(request: Request): WireEncoding {
+  return acceptsCBOR(request.headers.get("accept")) ? "cbor" : "json";
+}
+
+/** A request body as a wire value, read by its `Content-Type`; `bytes` is its size on the wire. */
+async function wireBody(request: Request): Promise<{ value: unknown; encoding: WireEncoding; bytes: number }> {
+  const encoding = wireEncodingOf(request.headers.get("content-type"));
+  const raw = new Uint8Array(await request.arrayBuffer());
+  return { value: decodeWireBody(raw, encoding), encoding, bytes: raw.byteLength };
+}
+
+/**
+ * A claim's configuration: the configuration tree's activation element, the
+ * same shape `declareTree` sends (accounts §1.2), carrying the complete first
+ * snapshot.
+ */
+function claimConfiguration(value: unknown, encoding: WireEncoding): { configurationSnapshot: TreeSnapshot; configurationChange: string } {
+  const element = decodeCandidateUpdateJSON(value, true, encoding);
+  if (element.trace !== null) throw new Error("A claim's configuration is a snapshot activation element with a null trace");
+  return {
+    configurationSnapshot: { root: element.candidate, objects: new Map(element.objects.map(({ hash, bytes }) => [hash, bytes])) },
+    configurationChange: element.change,
+  };
 }
 
 /** One structured line per update request; silent under the test runner. */
@@ -126,9 +162,10 @@ function watchDescriptor(
 }
 
 
-function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
-  if ("error" in value) return encodeUpdateConflictJSON(value);
-  return encodeUpdateResponseJSON(value);
+/** An update answer: a success in the requested encoding, a conflict always as its JSON envelope. */
+function updateResponse(value: UpdateResponse | UpdateConflictResult, encoding: WireEncoding, status: number, headers: Record<string, string> = {}): Response {
+  if ("error" in value) return json(encodeUpdateConflictJSON(value), status, headers);
+  return wire(encodeUpdateResponseJSON(value, encoding), encoding, status, headers);
 }
 
 function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor {
@@ -496,7 +533,8 @@ export async function serveHost(options: {
           });
         }
         if (url.pathname === "/.arbor/accounts" && request.method === "PUT") {
-          const body = await request.json() as {
+          const { value, encoding } = await wireBody(request);
+          const body = value as {
             account?: unknown;
             profileTree?: unknown;
             configurationTree?: unknown;
@@ -505,7 +543,7 @@ export async function serveHost(options: {
             signature?: unknown;
             inviteCode?: unknown;
             device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
-            configuration?: { root?: unknown; objects?: unknown };
+            configuration?: unknown;
           };
           let accountURL: URL | undefined;
           try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
@@ -533,12 +571,12 @@ export async function serveHost(options: {
             deviceID: body.device.id,
             deviceLabel: body.device.label,
             ...enrollment(body.device),
-            configurationSnapshot: decodeTreeSnapshotJSON(body.configuration),
+            ...claimConfiguration(body.configuration, encoding),
           });
-          return json({
+          return wire({
             account: accountDescriptor(publicOrigin, canopy, result.account),
             configuration: descriptorWithUpdate(publicOrigin, canopy, result.configuration, "write"),
-          }, 201);
+          }, answerEncoding(request), 201);
         }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
         if (access) {
@@ -637,15 +675,15 @@ export async function serveHost(options: {
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
           return await withPhaseTimer(timer, async () => {
-            // Read the body as text so the request's encoded size can be
-            // recorded; `trace-frames` counts the authored steps and
-            // `trace-ops` the operations across them. All are diagnostics,
-            // never content.
-            const raw = await request.text();
-            const body = JSON.parse(raw) as Record<string, unknown>;
+            // Read the body's bytes, in either encoding, so its size on the
+            // wire can be recorded; `trace-frames` counts the authored steps
+            // and `trace-ops` the operations across them. All are
+            // diagnostics, never content.
+            const body = await wireBody(request);
+            const answer = answerEncoding(request);
             timer.mark("body");
-            timer.count("body-bytes", new TextEncoder().encode(raw).length);
-            const update = decodeUpdateRequestJSON(body);
+            timer.count("body-bytes", body.bytes);
+            const update = decodeUpdateRequestJSON(body.value, body.encoding);
             timer.count("trace-frames", update.updates.reduce((sum, element) => sum + (element.trace?.length ?? 0), 0));
             timer.count("trace-ops", update.updates.reduce((sum, element) =>
               sum + (element.trace ?? []).reduce((ops, frame) => ops + frame.operations.length, 0), 0));
@@ -653,7 +691,7 @@ export async function serveHost(options: {
             // Declaring a tree is the null-base first update of its configuration.
             if (!tree && reference.governs && update.base === null && !execution) {
               const declared = await canopy.declareTree(reference.governs, update, authentication);
-              return json(updateJSON(declared.result), declared.status);
+              return updateResponse(declared.result, answer, declared.status);
             }
             const writable = tree ? canopy.canWrite(account, tree, link) : false;
             // A null base activates a reserved tree, which has no descriptor yet;
@@ -687,8 +725,8 @@ export async function serveHost(options: {
             const head: UpdateHead | undefined = headTree && headUpdate
               ? { update: headUpdate.id, root: headTree.ref as ObjectHash, conflicted: headUpdate.conflicted, observedThrough: canopy.observedThrough(treeID) }
               : undefined;
-            const payload = "error" in result.result ? updateJSON(result.result) : updateJSON({ ...result.result, ...(head ? { head } : {}) });
-            const response = json(payload, result.status, { "server-timing": timer.serverTiming() });
+            const payload = "error" in result.result ? result.result : { ...result.result, ...(head ? { head } : {}) };
+            const response = updateResponse(payload, answer, result.status, { "server-timing": timer.serverTiming() });
             timer.mark("respond");
             const counters = canopy.objectCounters();
             for (const key of Object.keys(counters)) timer.count(key, Math.round((counters[key]! - countersBefore[key]!) * 10) / 10);

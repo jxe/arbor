@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import {
   accountChallengeBytes,
+  activationElement,
   deviceSessionChallengeBytes,
   generateArborID,
   initialPersonConfig,
@@ -230,7 +231,7 @@ describe("recovery pairing (accounts §5.3)", () => {
       publicKey: carol.publicKey,
       signature: carol.sign(accountChallengeBytes(challenge)),
       device: { id: laptopID, label: "Carol's laptop", key: laptop.key },
-      configuration: snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key })),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key }))),
     });
     laptopClient = await openSession(carol.profileTree, laptopID, laptop);
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);

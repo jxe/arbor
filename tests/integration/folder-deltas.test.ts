@@ -1,5 +1,6 @@
 import { installAccountHome } from "../helpers/account-home.ts";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
+import { interceptedUpdateRequest } from "../support/wire-body.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,7 +9,7 @@ import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
-  HostAccountStore, ProtocolClient, decodeProtocolDirectory, decodeUpdateRequestJSON, hashObject,
+  HostAccountStore, ProtocolClient, decodeProtocolDirectory, hashObject,
   type UpdateRequest,
 } from "@overstory/protocol";
 
@@ -57,9 +58,10 @@ async function recording<T>(body: (requests: UpdateRequest[], offline: (value: b
   let failing = false;
   globalThis.fetch = (async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+    const request = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
+    if (request) {
       if (failing) throw new TypeError("connection lost");
-      requests.push(decodeUpdateRequestJSON(JSON.parse(init.body)));
+      requests.push(request);
     }
     return systemFetch(input, init);
   }) as typeof fetch;

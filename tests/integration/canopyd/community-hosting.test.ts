@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@overstory/protocol";
+import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateArborID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@overstory/protocol";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -111,7 +111,7 @@ describe("client-generated profile and account bootstrap", () => {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: deviceID, label: "Invited Mac", credentialDigest: `sha256:${sha256(credential)}` as const },
-      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac" })),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac" }))),
     };
     await expect(client.joinAccount({ ...request, inviteCode: "wrong-code" })).rejects.toThrow("Invitation code is invalid");
     expect(running.canopy.accountByHandle(handle)).toBeNull();
@@ -154,7 +154,7 @@ describe("client-generated profile and account bootstrap", () => {
     const administratorCredential = "locally-generated-bob-credential";
     const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
     const initial = initialPersonConfig(profileTree, { id: administratorID, label: "Bob's Mac" });
-    const configuration = snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
+    const configuration = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] }));
     const request = {
       profileTree,
       configurationTree,
@@ -169,12 +169,21 @@ describe("client-generated profile and account bootstrap", () => {
     const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     // A person's configuration names that person as its only administrator.
-    const coAdministered = snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] });
+    const coAdministered = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] }));
     await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: coAdministered }))
       .rejects.toThrow("no one else");
-    const mounting = snapshotTreeConfig({ ...initial, mounts: { notes: generateArborID("tr") } });
+    const mounting = activationElement(snapshotTreeConfig({ ...initial, mounts: { notes: generateArborID("tr") } }));
     await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: mounting }))
       .rejects.toThrow("mounts nothing");
+    // The configuration travels as an activation element; the retired `{ root, objects }` shape is refused.
+    const retired = await fetch(`${running.url}/.arbor/accounts`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: {
+        root: configuration.candidate, objects: configuration.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+      } }),
+    });
+    expect(retired.status).toBe(400);
     const claimed = await client.joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof });
     expect(claimed.account).toMatchObject({ handle: "bob", profileTree, id: profileTree });
     expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration", canonical: null });
@@ -445,7 +454,7 @@ describe("self-certifying profile account proof", () => {
       const configurationTree = treeConfigurationID(profileTree);
       const deviceID = generateArborID("dv");
       const credential = "guest-target-credential";
-      const configuration = snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac" }));
+      const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac" })));
       const anonymous = new ProtocolClient(target.url);
       const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 

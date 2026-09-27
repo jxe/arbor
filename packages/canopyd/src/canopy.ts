@@ -1196,6 +1196,8 @@ export class HostDaemon implements AsyncDisposable {
     credentialDigest?: string;
     key?: string;
     configurationSnapshot: TreeSnapshot;
+    /** The activation element's `change`, recorded on the configuration's first accepted update. */
+    configurationChange?: string;
   }): Promise<{ account: HostAccount; configuration: HostTree }> {
     const proof = this.verifyAccountIdentityProof(input);
     const claimDigest = sha256(stableJSONString({
@@ -1266,7 +1268,7 @@ export class HostDaemon implements AsyncDisposable {
         [input.profileTree, input.handle, claimDigest],
       );
       this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, binding, now);
-      this.insertConfig(prepared, now, `device:${input.deviceID}`);
+      this.insertConfig(prepared, now, `device:${input.deviceID}`, undefined, input.configurationChange);
       this.insertMemberMount(community.id, input.handle, input.profileTree);
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);

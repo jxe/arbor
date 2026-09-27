@@ -12,6 +12,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import {
   accountChallengeBytes,
+  activationElement,
   canonicalHTTPURL,
   generateArborID,
   initialPersonConfig,
@@ -104,7 +105,7 @@ async function setup(): Promise<void> {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: device, label, credentialDigest: `sha256:${sha256(token)}` },
-      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label })),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label }))),
     });
     const client = new ProtocolClient(LOCAL_COMMUNITY, token, TIMEOUT);
     const profile = await client.submitUpdate(
