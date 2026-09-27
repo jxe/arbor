@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -357,7 +357,9 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   const prior = await submit(left), db = new Database(`${dir}/canopy.sqlite3`);
   try {
     db.run("CREATE TRIGGER fail_snapshot_conflict AFTER INSERT ON accepted_updates BEGIN SELECT RAISE(ABORT, 'injected snapshot conflict failure'); END");
-    await expect(submit(right)).rejects.toThrow("injected snapshot conflict failure");
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    await expect(submit(right)).rejects.toThrow("internal-error");
+    logged.mockRestore();
     expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
     db.run("DROP TRIGGER fail_snapshot_conflict");
     expect((await submit(right)).conflicted).toBe(true);

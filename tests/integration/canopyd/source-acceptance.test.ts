@@ -1,5 +1,5 @@
 import { CANOPY_SCHEMA_VERSION } from "../../../packages/canopyd/src/schema.ts";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -283,7 +283,11 @@ test("injected provenance write failure rolls back acceptance and permits exact 
   const db = new Database(`${dir}/canopy.sqlite3`);
   db.run("CREATE TRIGGER fail_source AFTER INSERT ON accepted_updates BEGIN SELECT RAISE(ABORT, 'injected source failure'); END");
   const request = { base, updates: [await edit("ABC")] };
-  await expect(client.submitUpdates(tree, request)).rejects.toThrow("injected source failure");
+  // A database failure is a logged internal error; its SQL stays out of the response.
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  await expect(client.submitUpdates(tree, request)).rejects.toThrow("internal-error");
+  expect(String(logged.mock.calls[0]?.[1])).toContain("injected source failure");
+  logged.mockRestore();
   expect(running.canopy.currentUpdate(tree)!.id).toBe(base);
   expect(records()).toHaveLength(0);
   db.run("DROP TRIGGER fail_source"); db.close();
@@ -456,7 +460,9 @@ test("a failed conflict-state insert cannot acknowledge or partially publish a c
   const prior = (await client.submitUpdates(tree, { base, updates: [a] })).results[0]!.update;
   const db = new Database(`${dir}/canopy.sqlite3`);
   db.run("CREATE TRIGGER fail_conflict AFTER INSERT ON accepted_updates BEGIN SELECT RAISE(ABORT, 'injected conflict failure'); END");
-  await expect(client.submitUpdates(tree, { base, updates: [b] })).rejects.toThrow("injected conflict failure");
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  await expect(client.submitUpdates(tree, { base, updates: [b] })).rejects.toThrow("internal-error");
+  logged.mockRestore();
   expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
   db.run("DROP TRIGGER fail_conflict"); db.close();
   expect((await client.submitUpdates(tree, { base, updates: [b] })).results[0]!.update.conflicted).toBe(true);
