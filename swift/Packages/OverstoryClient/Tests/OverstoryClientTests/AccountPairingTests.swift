@@ -229,7 +229,7 @@ struct NativeAccountPairingTests {
             .appending(path: "ArborAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dataHome) }
         let checkout = ProfileConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
-        #expect(checkout.path.hasSuffix("/accounts/tr_config"))
+        #expect(checkout.path.hasSuffix("/configurations/tr_config"))
         try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
         let source = "# mounted trees\nfirst: tr_first\n"
         try source.write(to: checkout.appending(path: "mounts.yaml"), atomically: true, encoding: .utf8)
