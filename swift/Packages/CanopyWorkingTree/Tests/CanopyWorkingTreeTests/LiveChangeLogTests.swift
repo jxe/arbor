@@ -590,7 +590,7 @@ private actor ReviewResponseLossTransport: UpdateTransport {
     func replayedExactBody() -> Bool { dropped != nil && dropped == replay }
     func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         let response = try await client.submitUpdateResponse(prepared)
-        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+        let request = try prepared.decodedRequest()
         if shouldHold, request.updates.contains(where: { !$0.resolves.isEmpty }) {
             await withCheckedContinuation { continuation = $0 }
         }

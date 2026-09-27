@@ -62,7 +62,8 @@ public struct ProtocolAuthoredCandidate: Codable, Sendable, Equatable {
         for key in [CodingKeys.change, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
             intent[key.rawValue] = try c.decode(ProtocolSemanticValue.self, forKey: key)
         }
-        // Validate canonical base64 before Foundation's Data decoder can normalize it.
+        // Read bytes by the decoder's encoding: JSON's base64 is validated as
+        // canonical before Foundation's Data decoder could normalize it.
         let envelopes = try c.decode([EncodedEnvelope].self, forKey: .objects)
         let payload = ProtocolTransitionPayload(objects: envelopes.map(\.object), deltas: try c.decode([ProtocolObjectDelta].self, forKey: .deltas))
         try self.init(intent: intent, payload: payload)
@@ -79,10 +80,7 @@ public struct ProtocolAuthoredCandidate: Codable, Sendable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let hash = try c.decode(String.self, forKey: .hash)
-            let text = try c.decode(String.self, forKey: .bytes)
-            guard let bytes = Data(base64Encoded: text), bytes.base64EncodedString() == text else {
-                throw ProtocolValidationError.invalidValue("Object bytes must use canonical padded base64")
-            }
+            let bytes = try decodeProtocolBytes(c, forKey: .bytes, from: decoder, invalid: "Object bytes must use canonical padded base64")
             object = ProtocolObjectEnvelope(hash: hash, bytes: bytes)
         }
     }

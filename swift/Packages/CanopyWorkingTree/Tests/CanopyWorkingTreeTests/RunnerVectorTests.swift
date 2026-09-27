@@ -20,6 +20,7 @@ struct RunnerVectorTests {
             let sync: Bool?
             let transport: Bool?
             let restart: Bool?
+            let restartWithJSONAttempt: Bool?
             let discardHeld: Bool?
             let expect: Expectation?
         }
@@ -29,6 +30,8 @@ struct RunnerVectorTests {
             let lastElements: Int?
             let repeatsPrefix: Bool?
             let sameBody: Bool?
+            let sameDigests: Bool?
+            let lastEncoding: String?
             let pending: Int?
             let document: String?
         }
@@ -78,6 +81,11 @@ struct RunnerVectorTests {
                 await coordinator.close()
                 coordinator = try open()
             }
+            if step.restartWithJSONAttempt == true {
+                await coordinator.close()
+                try Self.rewriteAttemptAsJSON(stateRoot: root)
+                coordinator = try open()
+            }
             if step.discardHeld == true { try await coordinator.discardHeldChanges() }
             guard let expect = step.expect else { continue }
             if let phase = expect.phase {
@@ -88,7 +96,7 @@ struct RunnerVectorTests {
             let requests = await host.requests
             if let count = expect.requests { #expect(requests.count == count, label) }
             if let elements = expect.lastElements {
-                let last = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.last).body)
+                let last = try #require(requests.last).decodedRequest()
                 #expect(last.updates.count == elements, label)
             }
             if expect.repeatsPrefix == true, requests.count >= 2 {
@@ -97,6 +105,12 @@ struct RunnerVectorTests {
             }
             if expect.sameBody == true, requests.count >= 2 {
                 #expect(requests[requests.count - 2].body == requests[requests.count - 1].body, label)
+            }
+            if expect.sameDigests == true, requests.count >= 2 {
+                #expect(requests[requests.count - 2].requestDigests == requests[requests.count - 1].requestDigests, label)
+            }
+            if let encoding = expect.lastEncoding {
+                #expect(try #require(requests.last).encoding == (encoding == "cbor" ? .cbor : .json), label)
             }
             if let pending = expect.pending { #expect(try await coordinator.pendingLocalChanges().count == pending, label) }
             if let document = expect.document {
@@ -107,6 +121,18 @@ struct RunnerVectorTests {
         }
         await coordinator.close()
         await workingTree.close()
+    }
+
+    /// Rewrite the persisted attempt as a client wrote it before bodies could
+    /// be CBOR: the request's sorted-key JSON, with no content type.
+    static func rewriteAttemptAsJSON(stateRoot: URL) throws {
+        let url = stateRoot.appending(path: "sync/update-control.json")
+        var control = try JSONDecoder().decode(UpdateControl.self, from: Data(contentsOf: url))
+        guard var attempt = control.attempt else { throw UpdateError.requestEmpty }
+        attempt.body = try sortedKeysJSON(try attempt.request())
+        attempt.contentType = nil
+        control.attempt = attempt
+        try sortedKeysJSON(control).write(to: url)
     }
 
     static func snapshot(markdown: String) throws -> ProtocolSnapshot {
@@ -138,7 +164,8 @@ private actor VectorHost: UpdateTransport {
     func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         requests.append(prepared)
         let action = script.isEmpty ? "accept" : script.removeFirst()
-        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+        // The host reads a body in the encoding its prepared content type names.
+        let request = try prepared.decodedRequest()
         switch action {
         case "fail":
             throw URLError(.networkConnectionLost)

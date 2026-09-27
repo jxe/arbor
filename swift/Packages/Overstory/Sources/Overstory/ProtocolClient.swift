@@ -30,6 +30,8 @@ public actor ProtocolClient {
     private let credentialProvider: any ProtocolCredentialProvider
     private let session: URLSession
     private let retryDelay: RetryDelay
+    /// How requests that carry objects travel (tree operations §4.4).
+    private let wireEncoding: ProtocolWireEncoding
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         // Protocol retries are byte-stable as well as semantically identical.
@@ -42,24 +44,28 @@ public actor ProtocolClient {
         origin: URL,
         credential: String? = nil,
         session: URLSession = .shared,
-        retryDelay: @escaping RetryDelay = ProtocolClient.defaultRetryDelay
+        retryDelay: @escaping RetryDelay = ProtocolClient.defaultRetryDelay,
+        encoding: ProtocolWireEncoding = .cbor
     ) {
         self.origin = origin
         self.credentialProvider = StaticProtocolCredential(credential)
         self.session = session
         self.retryDelay = retryDelay
+        self.wireEncoding = encoding
     }
 
     public init(
         origin: URL,
         credentialProvider: any ProtocolCredentialProvider,
         session: URLSession = .shared,
-        retryDelay: @escaping RetryDelay = ProtocolClient.defaultRetryDelay
+        retryDelay: @escaping RetryDelay = ProtocolClient.defaultRetryDelay,
+        encoding: ProtocolWireEncoding = .cbor
     ) {
         self.origin = origin
         self.credentialProvider = credentialProvider
         self.session = session
         self.retryDelay = retryDelay
+        self.wireEncoding = encoding
     }
 
     public func account() async throws -> ProtocolAccountSnapshot {
@@ -184,10 +190,16 @@ public actor ProtocolClient {
         }
         try validateObjectHash(base.root)
         let request = ProtocolUpdateRequest(base: base.update, updates: updates)
-        return PreparedProtocolUpdate(
+        return try prepared(tree: tree, request: request, requestDigests: updateRequestDigests(tree: tree, base: base, updates: updates))
+    }
+
+    /// Fix a request's body in this client's encoding; every retry sends these bytes.
+    func prepared(tree: String, request: ProtocolUpdateRequest, requestDigests: [String]) throws -> PreparedProtocolUpdate {
+        PreparedProtocolUpdate(
             tree: tree,
-            body: try encoder.encode(request),
-            requestDigests: updateRequestDigests(tree: tree, base: base, updates: updates)
+            body: try wireEncoding.encode(request),
+            requestDigests: requestDigests,
+            contentType: wireEncoding.storedContentType
         )
     }
 
@@ -198,7 +210,9 @@ public actor ProtocolClient {
     public func submitUpdateResponse(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(prepared.tree))/updates")
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The body keeps the encoding it was prepared in; the success answers in the same one.
+        request.setValue(prepared.encoding.mediaType, forHTTPHeaderField: "Content-Type")
+        request.setValue(prepared.encoding.mediaType, forHTTPHeaderField: "Accept")
         request.httpBody = prepared.body
 
         var lastError: Error = URLError(.unknown)
@@ -213,7 +227,9 @@ public actor ProtocolClient {
             do {
                 let (data, response) = try await loggedData(request, entry: &entry)
                 let status = try statusCode(response)
-                let decoded = status < 400 ? Result { try decoder.decode(ProtocolUpdateResponse.self, from: data) } : nil
+                // A success is read in the encoding its Content-Type names; errors are always JSON.
+                let answered = ProtocolWireEncoding(contentType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"))
+                let decoded = status < 400 ? Result { try answered.decode(ProtocolUpdateResponse.self, from: data) } : nil
                 if case let .success(value)? = decoded {
                     entry.updateIDs = value.results.map { element in
                         switch element.result { case .accepted(let update), .unchanged(let update): update.id }
@@ -279,8 +295,13 @@ public actor ProtocolClient {
 
     public func joinAccount(_ value: ProtocolExistingProfileClaimRequest) async throws -> ProtocolAccountClaimResult {
         _ = try value.device.validated()
-        _ = try ProtocolObjectGraph.validate(value.configuration)
-        let result: ProtocolAccountClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false)
+        // The configuration is its tree's activation element: one complete snapshot (accounts §1.2).
+        let configuration = value.configuration
+        guard configuration.trace == nil, configuration.resolves.isEmpty, configuration.ifCurrent == nil, configuration.deltas.isEmpty else {
+            throw ProtocolValidationError.invalidValue("A claim's configuration is a snapshot activation element")
+        }
+        _ = try ProtocolObjectGraph.validate(ProtocolSnapshot(root: configuration.candidate, objects: configuration.objects))
+        let result: ProtocolAccountClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false, encoding: wireEncoding)
         _ = try result.configuration.validated()
         return result
     }
@@ -430,11 +451,12 @@ public actor ProtocolClient {
         return try await perform(request)
     }
 
-    private func put<T: Decodable, Body: Encodable>(path: String, body: Body, authorized: Bool = true) async throws -> T {
+    /// A PUT whose body travels in `encoding`; its success answers JSON.
+    private func put<T: Decodable, Body: Encodable>(path: String, body: Body, authorized: Bool = true, encoding: ProtocolWireEncoding = .json) async throws -> T {
         var request = authorized ? try await authorizedRequest(path: path) : URLRequest(url: url(path))
         request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(body)
+        request.setValue(encoding.mediaType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoding == .json ? encoder.encode(body) : encoding.encode(body)
         return try await perform(request)
     }
 

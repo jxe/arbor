@@ -693,7 +693,9 @@ public actor NativeAccountService {
                 signature: claim.signature,
                 inviteCode: claim.inviteCode,
                 device: try enrollment(id: claim.deviceID, label: claim.deviceLabel, secret: claim.credential, digest: claim.credentialDigest),
-                configuration: claim.configuration
+                // The journal keeps the snapshot; the claim sends it as the configuration
+                // tree's activation element, named by the device so a replay sends the same one.
+                configuration: .activation(claim.configuration, change: claim.deviceID)
             )
         }
         let result: ProtocolAccountClaimResult

@@ -112,6 +112,10 @@ enum CanonicalCBOR {
                 for byte in bytes { bits = bits << 8 | UInt64(byte) }
                 let value = Double(bitPattern: bits)
                 guard value.isFinite else { throw ProtocolValidationError.invalidCBOR("Non-finite float") }
+                // A safe integer is always a CBOR integer (§4.1), as the TypeScript encoder writes it.
+                if value.rounded() == value, abs(value) <= 9_007_199_254_740_991 {
+                    throw ProtocolValidationError.invalidCBOR("Integral float is not canonical")
+                }
                 return .float(value)
             default: break
             }

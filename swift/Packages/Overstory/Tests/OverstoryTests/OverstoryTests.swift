@@ -697,7 +697,7 @@ struct UpdateProtocolTests {
         let captured = await HostURLProtocolStub.state.snapshot()
         #expect(captured.count == 1)
         #expect(captured.bodies.first == prepared.body)
-        #expect(try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body).updates == [update])
+        #expect(try prepared.decodedRequest().updates == [update])
     }
 
     @Test("Pairing claims never send an existing credential")
