@@ -1,4 +1,4 @@
-import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDeniedError, ServerBusyError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, ExpiredChallengeError, isServerFault, NotFoundError, PermissionDeniedError, ServerBusyError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
@@ -870,7 +870,6 @@ export async function serveHost(options: {
 
           const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Arbor";
           if (logical.kind === "file") {
-            const body = new TextDecoder().decode(logical.bytes);
             if (objectName.endsWith(".md")) {
               if (request.headers.get("accept")?.includes("text/markdown")) {
                 return new Response(logical.bytes.buffer.slice(
@@ -879,17 +878,21 @@ export async function serveHost(options: {
                 ) as ArrayBuffer, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
               }
               return html(renderPublicMarkdownPage({
-                source: body,
+                source: new TextDecoder().decode(logical.bytes),
                 fallbackTitle: objectName.slice(0, -3),
                 origin: publicOrigin,
                 treeCanonicalPath: canonicalPath,
                 sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
               }));
             }
-            return new Response(logical.bytes.buffer.slice(
-              logical.bytes.byteOffset,
-              logical.bytes.byteOffset + logical.bytes.byteLength,
-            ) as ArrayBuffer);
+            // A tree's raw file, typed by its name. The sandbox keeps an HTML
+            // or SVG file from running script with this origin's authority.
+            return new Response(logical.bytes, { headers: {
+              "content-type": Bun.file(objectName).type,
+              "cache-control": "no-cache",
+              "x-content-type-options": "nosniff",
+              "content-security-policy": "sandbox",
+            } });
           }
           const prefix = publicPath.replace(/\/$/, "");
           const source = logical.body ? new TextDecoder().decode(logical.body) : "";
@@ -969,6 +972,7 @@ export async function serveHost(options: {
         if (error instanceof AuthenticationRequiredError) return protocolError("unauthenticated", message, 401);
         if (error instanceof PermissionDeniedError) return protocolError("permission-denied", message, 403);
         if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
+        if (error instanceof ExpiredChallengeError) return protocolError("invalid-request", message, 400, false, { challenge: "expired" });
         if (error instanceof ServerBusyError) return protocolError("internal-error", message, 503, true);
         if (isServerFault(error)) {
           console.error(`canopyd fault on ${request.method} ${url.pathname}`, error);

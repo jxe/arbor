@@ -1,5 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, ExpiredChallengeError, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -1220,7 +1220,7 @@ export class HostDaemon implements AsyncDisposable {
     const challengeJSON = stableJSONString(proof.challenge);
     const issued = this.accounts.challenge("account_challenges", proof.challenge.id);
     if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
-    if (issued.expiresAt <= Date.now()) throw new Error("Account challenge is expired");
+    if (issued.expiresAt <= Date.now()) throw new ExpiredChallengeError("Account challenge is expired");
     if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
     if (this.nameHeldByTree(input.handle)) throw new AlreadyClaimedError(input.handle);
     if (!this.communityReservations().has(input.handle)) {

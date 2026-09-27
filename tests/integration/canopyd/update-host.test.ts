@@ -4,7 +4,7 @@ import { Database, SQLiteError } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildNetworkLocator, canonicalStableKey, generateArborID, markdownStableKey, rowPathSegment, sha256, ProtocolClient, applyTransitionPayload, ProtocolUpdateConflict, ProtocolUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
+import { buildNetworkLocator, canonicalStableKey, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, generateArborID, markdownStableKey, rowPathSegment, sha256, ProtocolClient, applyTransitionPayload, ProtocolUpdateConflict, ProtocolUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@overstory/protocol";
 import { serveHost } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
@@ -932,5 +932,25 @@ describe("canopyd request failure classification", () => {
       expect(response.status).toBe(503);
       expect(await response.json()).toMatchObject({error: "internal-error", retryable: true});
     } finally { submit.mockRestore(); }
+  });
+
+  test("a public raw file is served typed by its name, bytes intact and sandboxed", async () => {
+    const account = await client.account();
+    const community = await client.descriptor(account.account.community.id);
+    const snapshot = await client.snapshot(community.tree.id, community.tree.root);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00]);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    const directory = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "logo.png", file: hashObject(png) }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) });
+    const objects = new Map(snapshot.objects);
+    objects.set(hashObject(png), png);
+    objects.set(hashObject(directory), directory);
+    await client.submitUpdate(community.tree.id, community.tree.update, { root: hashObject(directory), objects });
+
+    const response = await fetch(`${running.url}/logo.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toBe("sandbox");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(png);
   });
 });

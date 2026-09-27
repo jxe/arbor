@@ -20,6 +20,12 @@ export class NotFoundError extends Error {
   override readonly name = "NotFoundError";
 }
 
+/** 400 with `details.challenge: "expired"`: a signed challenge outlived its
+ * window; the client asks for a fresh one and signs again. */
+export class ExpiredChallengeError extends Error {
+  override readonly name = "ExpiredChallengeError";
+}
+
 /** 503, retryable: a bounded host resource is full; nothing is wrong with the
  * request or with canopyd's state. */
 export class ServerBusyError extends Error {

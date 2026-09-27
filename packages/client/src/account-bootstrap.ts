@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -222,7 +222,7 @@ async function claimAccountProfileBootstrap(
   try {
     result = await submitClaim();
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("Account challenge is expired")) throw error;
+    if (!(error instanceof ProtocolHTTPError) || error.details?.challenge !== "expired") throw error;
     pending.challenge = await client.createAccountChallenge({
       account: pending.account === origin ? undefined : pending.account,
       profileTree: pending.profileTree,

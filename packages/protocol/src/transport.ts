@@ -154,12 +154,36 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
   };
 }
 
-/** HTTP failure with machine-readable status; the message retains existing diagnostics. */
+/**
+ * An HTTP failure. `code`, `retryable` and `details` come from the host's
+ * error envelope when it sent one; classify by them, never by the message.
+ */
 export class ProtocolHTTPError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly code?: string;
+  readonly retryable?: boolean;
+  readonly details?: Record<string, unknown>;
+
+  constructor(readonly status: number, message: string, envelope: Partial<OverstoryError> = {}) {
     super(message);
     this.name = "ProtocolHTTPError";
+    if (typeof envelope.error === "string") this.code = envelope.error;
+    if (typeof envelope.retryable === "boolean") this.retryable = envelope.retryable;
+    if (envelope.details && typeof envelope.details === "object") this.details = envelope.details as Record<string, unknown>;
   }
+}
+
+/** The error a non-2xx response stands for, from its body text. */
+function httpError(response: Response, body: string): ProtocolHTTPError {
+  let envelope: Partial<OverstoryError> = {};
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (parsed && typeof parsed === "object") envelope = parsed as Partial<OverstoryError>;
+  } catch {}
+  return new ProtocolHTTPError(
+    response.status,
+    `${response.url}: ${envelope.error ?? response.status} ${envelope.message ?? (body || response.statusText)}`,
+    envelope,
+  );
 }
 
 export class ProtocolTransportError extends TypeError {
@@ -192,10 +216,7 @@ export class ProtocolClient {
 
   private async checked(response: Response): Promise<Response> {
     if (response.ok) return response;
-    const body = await response.text();
-    let envelope: OverstoryError | undefined;
-    try { envelope = JSON.parse(body) as OverstoryError; } catch {}
-    throw new ProtocolHTTPError(response.status, `${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
+    throw httpError(response, await response.text());
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -436,23 +457,24 @@ export class ProtocolClient {
       headers: this.headers(true),
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
-    if (response.status === 422) {
-      const body = await response.clone().json() as OverstoryError;
-      if (body.error === "unsupported-operation" && body.retryable === false) throw new ProtocolUnsupportedOperation(body);
-    }
-    if (response.status === 409) {
-      const body = await response.json() as { error?: unknown; message?: unknown };
-      if (body.error === "conflict") {
-        const conflict = decodeUpdateConflictJSON(body);
+    if (!response.ok) {
+      const body = await response.text();
+      const error = httpError(response, body);
+      if (error.status === 422 && error.code === "unsupported-operation" && error.retryable === false) {
+        throw new ProtocolUnsupportedOperation(JSON.parse(body) as OverstoryError);
+      }
+      if (error.status === 409 && error.code === "conflict") {
+        const conflict = decodeUpdateConflictJSON(JSON.parse(body));
         if (conflict.details.failedIndex >= expected.length
           || conflict.details.completed.some((item, index) => item.requestDigest !== expected[index])) {
           throw new Error("Server conflict update-string identity mismatch");
         }
         throw new ProtocolUpdateConflict(conflict);
       }
-      throw new Error(`${response.url}: ${typeof body.error === "string" ? body.error : "update rejected"}${typeof body.message === "string" ? `: ${body.message}` : ""}`);
+      // Any other refusal (a 409 `resync-required` among them) keeps its code.
+      throw error;
     }
-    const result = decodeUpdateResponseJSON(await (await this.checked(response)).json());
+    const result = decodeUpdateResponseJSON(await response.json());
     if (result.results.length !== expected.length
       || result.results.some((item, index) => item.requestDigest !== expected[index])) {
       throw new Error("Server response update-string identity mismatch");

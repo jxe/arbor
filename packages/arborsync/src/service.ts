@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@overstory/protocol";
-import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath, retireEarlierSyncState } from "@overstory/client";
@@ -659,7 +659,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
               throw new UnsynchronizedTreeError(placement.tree, presentation.detail);
             }
           } catch (error) {
-            if (!(error instanceof UnsynchronizedTreeError)) this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
+            if (!(error instanceof UnsynchronizedTreeError)) this.trees.setSyncState(placement.tree, error instanceof ProtocolTransportError ? "offline" : "error");
             if (throwErrors) throw error;
           }
         }

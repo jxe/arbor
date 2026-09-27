@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "../index.ts";
-import { ProtocolHTTPError } from "../transport.ts";
+import { ProtocolHTTPError, ProtocolTransportError } from "../transport.ts";
 import { deviceKeyFromSeed, generateDeviceKeySeed, openDeviceSession } from "./device-key.ts";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
@@ -260,7 +260,7 @@ export class HostAccountStore {
       await this.session({ ...record, deviceKey: deviceKeyFromSeed(seed) }, seed);
     } catch (error) {
       // Not listed yet, or the host is out of reach: keep the credential.
-      if (error instanceof ProtocolHTTPError || error instanceof TypeError) return false;
+      if (error instanceof ProtocolHTTPError || error instanceof ProtocolTransportError) return false;
       throw error;
     }
     await this.adoptDeviceKey();
