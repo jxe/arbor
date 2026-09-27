@@ -107,7 +107,7 @@ authority for the implemented subset; the request grammar itself is in
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, consumed by `@overstory/protocol` and Swift `Overstory`.
+- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject's `homeHost` ([access control §1](../05-access-control.md#1-subjects-and-rules)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which leave out `homeHost`, and one home host per profile), and the safe projection, which redacts a link and keeps a `homeHost`; consumed by `@overstory/protocol` and Swift `Overstory`.
 - `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@overstory/protocol` (derivation also by Swift `Overstory`).
 - `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@overstory/protocol`, canopyd and Swift `Overstory`.
 
@@ -128,7 +128,7 @@ authority for the implemented subset; the request grammar itself is in
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
-| `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar |
+| `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, `homeHost`, and one file's rules |
 | `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |
 | `source-copy.json`, `source-preservation.json` | Source transfer and exact-byte preservation |
 | `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |

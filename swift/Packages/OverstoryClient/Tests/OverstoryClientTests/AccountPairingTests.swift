@@ -104,6 +104,62 @@ struct NativeAccountPairingTests {
         #expect(treeConfigurationID("tr_joe").count == 55)
     }
 
+    @Test("Editing a tree's access keeps a remote group's home host")
+    func remoteGroupHomeHost() throws {
+        let club = ProtocolResourceWho.profile("tr_club", homeHost: "https://club.example")
+        let source = """
+        - who: {profile: tr_joe}
+          allow: [admin]
+        - who: {profile: tr_club, homeHost: "https://club.example"}
+          allow: [read]
+        - who: {profile: tr_club, homeHost: "https://club.example"}
+          app: tr_supplies
+          allow: [create-child]
+          within: /inbox
+        """
+        let declaration = try TreeConfigurationYAML.declaration(canonical: "", source: source)
+        let entry = try #require(declaration.access.first { $0.subject.sameSubject(as: .profile(tree: "tr_club")) })
+        #expect(entry.subject == .profile(tree: "tr_club", homeHost: "https://club.example"))
+
+        // Changing the level through the existing subject keeps its host.
+        let written = try TreeConfigurationYAML.replacingAccess(in: source) { declaration in
+            declaration.access.removeAll { $0.subject.sameSubject(as: entry.subject) }
+            declaration.access.append(AccountAccessRule(subject: entry.subject, access: "write"))
+        }
+        let rules = try TreeConfigurationYAML.access(from: written)
+        #expect(rules.contains(try ProtocolResourceAccessRule(who: club, allow: [.write])))
+        #expect(rules.allSatisfy { $0.who.mergeSubject != .profile("tr_club") || $0.who == club })
+
+        // A subject added again by TreeID alone takes the host the file gives it.
+        let respelled = try TreeConfigurationYAML.replacingAccess(in: source) { declaration in
+            declaration.access.removeAll { $0.subject.sameSubject(as: .profile(tree: "tr_club")) }
+            declaration.access.append(AccountAccessRule(subject: .profile(tree: "tr_club"), access: "write"))
+        }
+        #expect(try TreeConfigurationYAML.access(from: respelled).contains(try ProtocolResourceAccessRule(who: club, allow: [.write])))
+
+        // An app rule respelled without the host keeps it too, in either file.
+        let appRule = try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("tr_club"), allow: [.read], within: "/inbox")
+        let review = try ProfileConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies", rule: appRule, source: source)
+        #expect(review.rule.who == club)
+        #expect(review.previous?.allow == [.createChild])
+        #expect(try TreeConfigurationYAML.access(from: review.after).filter { $0.app == "tr_supplies" }.map(\.who) == [club])
+        #expect(review.rule.consentDescription(app: "tr_supplies").contains("held at https://club.example"))
+        let apps = "tr_supplies:\n  - resource: tr_notes\n    who: {profile: tr_club, homeHost: \"https://club.example\"}\n    allow: [read]\n"
+        let lent = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+            rule: ProtocolAppAccessRule(resource: "tr_notes", who: .profile("tr_club"), allow: [.read, .createChild]), source: apps)
+        #expect(try TreeConfigurationYAML.apps(from: lent.after)["tr_supplies"] == [
+            try ProtocolAppAccessRule(resource: "tr_notes", who: club, allow: [.read, .createChild]),
+        ])
+
+        // One file names one host per profile.
+        #expect(throws: (any Error).self) {
+            try TreeConfigurationYAML.access(from: source + "\n- who: {profile: tr_club}\n  allow: [read]\n  within: /other\n")
+        }
+        #expect(throws: (any Error).self) {
+            try TreeConfigurationYAML.apps(from: apps + "tr_other:\n  - resource: tr_notes\n    who: {profile: tr_club}\n    allow: [read]\n")
+        }
+    }
+
     @Test("Device administrator edits preserve other device source")
     func deviceAdministratorYAML() throws {
         let source = """

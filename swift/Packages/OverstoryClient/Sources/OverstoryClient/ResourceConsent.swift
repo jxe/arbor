@@ -51,7 +51,8 @@ private func caller(_ who: ProtocolResourceWho) -> String {
     case .me: "Me"
     case .members: "The group's members"
     case .everyone: "Everyone"
-    case .profile(let tree): "Profile or group \(tree)"
+    case .profile(let tree, nil): "Profile or group \(tree)"
+    case .profile(let tree, let host?): "Group \(tree), held at \(host)"
     case .link: "Access-link holders"
     }
 }
@@ -74,18 +75,14 @@ public extension ProtocolResourceAccessRule {
     var consentDescription: String {
         "\(caller(who))\(app.map { " through app " + $0 } ?? " using ordinary access, including through code"): \(operations(allow)) within \(within ?? "/") (excluding nested trees)."
     }
-    func sameConsentKey(as other: ProtocolResourceAccessRule) -> Bool {
-        who == other.who && app == other.app && (within ?? "/") == (other.within ?? "/")
-    }
+    func sameConsentKey(as other: ProtocolResourceAccessRule) -> Bool { sameMergeKey(as: other) }
 }
 
 public extension ProtocolAppAccessRule {
     func consentDescription(app: String) -> String {
         "\(caller(who)) through app \(app): \(operations(allow)) of \(resource) within \(within ?? "/") (excluding nested trees)."
     }
-    func sameConsentKey(as other: ProtocolAppAccessRule) -> Bool {
-        resource == other.resource && who == other.who && (within ?? "/") == (other.within ?? "/")
-    }
+    func sameConsentKey(as other: ProtocolAppAccessRule) -> Bool { sameMergeKey(as: other) }
 }
 
 public extension ProfileConfigurationYAML {
@@ -97,7 +94,11 @@ public extension ProfileConfigurationYAML {
     ) throws -> NativeResourceConsent {
         guard TreeID.isWellFormed(app), TreeID.isWellFormed(profile) else { throw ResourcePolicyError.invalid }
         guard rule.who != (group ? .me : .members) else { throw ResourcePolicyError.invalid }
-        let prior = try TreeConfigurationYAML.apps(from: source, group: group)[app] ?? []
+        let file = try TreeConfigurationYAML.apps(from: source, group: group)
+        // A remote group keeps the home host the file already gives it.
+        let rule = try ProtocolAppAccessRule(resource: rule.resource, who: rule.who.adoptingHomeHost(from: file.values.joined().map(\.who)),
+                                             allow: rule.allow, within: rule.within)
+        let prior = file[app] ?? []
         let previous = prior.first { $0.sameConsentKey(as: rule) }
         let after = try TreeConfigurationYAML.replacingApps(in: source, group: group) { apps in
             var rules = (apps[app] ?? []).filter { !$0.sameConsentKey(as: rule) }
@@ -114,8 +115,11 @@ public extension ProfileConfigurationYAML {
         removing: Bool = false, source: String
     ) throws -> NativeResourceConsent {
         guard TreeID.isWellFormed(app), rule.resource == tree, rule.who != .me, rule.who != .members else { throw ResourcePolicyError.invalid }
-        let accessRule = try ProtocolResourceAccessRule(who: rule.who, app: app, allow: rule.allow, within: rule.within)
         let rules = try TreeConfigurationYAML.access(from: source)
+        // A remote group keeps the home host the file already gives it.
+        let rule = try ProtocolAppAccessRule(resource: rule.resource, who: rule.who.adoptingHomeHost(from: rules.map(\.who)),
+                                             allow: rule.allow, within: rule.within)
+        let accessRule = try ProtocolResourceAccessRule(who: rule.who, app: app, allow: rule.allow, within: rule.within)
         let previous = rules.first { $0.sameConsentKey(as: accessRule) }
         var next = rules.filter { !$0.sameConsentKey(as: accessRule) }
         if !removing { next.append(accessRule) }
@@ -160,7 +164,5 @@ func validateAccessYAML(_ source: String) throws {
     }
     try visit(root)
     let decoded = try rules.map { try YAMLDecoder().decode(ProtocolResourceAccessRule.self, from: Yams.serialize(node: $0)) }
-    for (i, rule) in decoded.enumerated() where decoded.prefix(i).contains(where: { $0.sameConsentKey(as: rule) }) {
-        throw ResourcePolicyError.invalid
-    }
+    try ProtocolResourceAccessRule.validateFile(decoded)
 }

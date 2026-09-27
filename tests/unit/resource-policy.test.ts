@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   intersectResourceRules,
+  parseAppsYAML,
   safeResourceRule,
   parseResourceRule,
   parseResourceRules,
@@ -18,6 +19,13 @@ describe("resource policy contract", () => {
       expect(parseResourceRule(v.rule), v.name).toEqual(v.rule as any);
     for (const v of fixtures.invalid)
       expect(() => parseResourceRule(v.rule), v.name).toThrow();
+  });
+  test("shared file vectors: merge keys and one home host per profile", () => {
+    // JSON is YAML, so an apps.yaml vector is its own source.
+    const parse = (v: { access?: unknown; apps?: unknown }) =>
+      v.access !== undefined ? parseResourceRules(v.access) : parseAppsYAML(JSON.stringify(v.apps), "person");
+    for (const v of fixtures.validFiles) expect(() => parse(v), v.name).not.toThrow();
+    for (const v of fixtures.invalidFiles) expect(() => parse(v), v.name).toThrow();
   });
   test("an app restriction is optional, and me and members name the apps.yaml owner", () => {
     const context = {
@@ -124,7 +132,7 @@ describe("opaque execution contexts", () => {
   });
 });
 
-test("safe policy projection redacts bearer link identity", () => {
+test("safe policy projection redacts bearer link identity and keeps a home host", () => {
   for (const vector of fixtures.safe) expect<unknown>(safeResourceRule(parseResourceRule(vector.rule))).toEqual(vector.redacted);
 });
 
