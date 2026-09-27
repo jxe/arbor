@@ -35,6 +35,46 @@ At cutover the batch's last schema becomes `CANOPY_SCHEMA_VERSION`, and
    first (as the reset code was removed before its table) lands on `main` on
    its own.
 
+## Before cutover: the survey
+
+Two read-only scripts check that the state each removed legacy reader existed
+for is gone, on the host, the Mac and the iPhone. Neither writes anything.
+
+1. **The host.** [`survey-host.ts`](survey-host.ts) opens the live database
+   read-only and prints counts only, never content or digests: unrevoked
+   devices with no public key, group members stored as bare strings in
+   `profile_facts`, and `profile_resets` rows. It runs from the deployed
+   image, so the deployed commit must contain it (it is not imported by the
+   product); a restored backup (`tools/restore-canopy.ts`) works too.
+
+   ```sh
+   railway ssh -- bun run packages/canopyd/migrations/next/survey-host.ts /data > survey-host.json
+   ```
+
+2. **The iPhone.** Copy the app's data container (bundle id `org.nxhx.Arbor`,
+   from `swift/project.yml`) to the Mac; `xcrun devicectl list devices` gives
+   the device id:
+
+   ```sh
+   xcrun devicectl device copy from --device <id> --domain-type appDataContainer \
+     --domain-identifier org.nxhx.Arbor --source / --destination ~/iphone-arbor
+   ```
+
+3. **The Mac.** [`survey.ts`](survey.ts) reads `~/.arbor`, the Mac app's
+   `~/Library/Application Support/Arbor`, the macOS Keychain (attributes only,
+   through `security`), and the two optional inputs:
+
+   ```sh
+   bun run packages/canopyd/migrations/next/survey.ts \
+     --iphone ~/iphone-arbor --live survey-host.json
+   ```
+
+   `--home <dir>` (or `SURVEY_HOME`) surveys another home directory. Each line
+   is `PASS`, `FAIL` or `SKIP`, the check, the commit to `git revert` if it
+   fails (or the work it gates), and details; the script exits 1 when any
+   check fails. `SKIP` marks an input not given. The iPhone's Keychain cannot
+   be read from the Mac: check Settings → Accounts on the phone by hand.
+
 ## Cutover
 
 The [common procedure](../README.md#the-procedure) applies to the whole batch:
