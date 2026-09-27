@@ -1,5 +1,4 @@
-import { decodeDecisionPage, type DecisionPage } from "./updates/accepted-contract.ts";
-import { decodeAcceptedWatchChange } from "./updates/accepted-contract.ts";
+import { decodeAcceptedWatchChange, decodeDecisionPage, type DecisionPage } from "./updates/accepted-contract.ts";
 import type {
   AcceptedTransition,
   UpdateConflictResult,
@@ -30,7 +29,6 @@ import {
   type TreeSnapshot,
 } from "./objects.ts";
 import {
-  decodeAcceptedTransitionJSON,
   decodeUpdateConflictJSON,
   decodeUpdateResponseJSON,
   encodeTreeSnapshotJSON,
@@ -135,15 +133,8 @@ export type WatchEvent =
   | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string };
 
 function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.update" }> {
-  if (!value || typeof value !== "object") throw new Error("Malformed tree.update change");
-  const change = value as { descriptor?: RemoteTreeDescriptor; transitions?: unknown; requestDigest?: unknown };
-  const descriptor = change.descriptor;
-  if (!descriptor || descriptor.id !== tree || !Array.isArray(change.transitions) || !change.transitions.length) {
-    throw new Error("Malformed tree.update change");
-  }
-  decodeAcceptedWatchChange(change, tree);
-  const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
-  const requestDigest = change.requestDigest;
+  const change = decodeAcceptedWatchChange<RemoteTreeDescriptor>(value, tree);
+  const requestDigest = (value as { requestDigest?: unknown }).requestDigest;
   if (requestDigest !== undefined && (typeof requestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestDigest))) {
     throw new Error("Malformed tree.update request digest");
   }
@@ -151,8 +142,8 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
     kind: "tree.update",
     cursor,
     tree,
-    descriptor,
-    transitions,
+    descriptor: change.descriptor,
+    transitions: change.transitions,
     ...(requestDigest ? { requestDigest: requestDigest as ObjectHash } : {}),
   };
 }

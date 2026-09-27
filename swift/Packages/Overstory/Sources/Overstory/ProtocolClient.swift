@@ -372,36 +372,9 @@ public actor ProtocolClient {
                             guard event.cursor.utf8.elementsEqual(id.utf8), event.kind == kind, event.tree == tree else {
                                 throw ProtocolValidationError.malformedSSE("Observation frame fields disagree")
                             }
-                            let descriptor = try event.change.descriptor.validated()
-                            let transitions = event.change.transitions
-                            guard !transitions.isEmpty,
-                                  transitions.last?.update.id.utf8.elementsEqual(descriptor.update.utf8) == true,
-                                  transitions.last?.update.root == descriptor.root,
-                                  transitions.last?.update.conflicted == descriptor.conflicted else {
-                                throw ProtocolValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
-                            }
-                            var seen = Set<Data>()
-                            if let predecessor = transitions.first?.transportBasis { seen.insert(Data(predecessor.id.utf8)) }
-                            for (index, transition) in transitions.enumerated() {
-                                guard seen.insert(Data(transition.update.id.utf8)).inserted else {
-                                    throw ProtocolValidationError.malformedSSE("Repeated accepted identity")
-                                }
-                                guard transition.update.tree == tree else {
-                                    throw ProtocolValidationError.malformedSSE("Tree ref transition belongs to another tree")
-                                }
-                                if index > 0 {
-                                    let previous = transitions[index - 1].update
-                                    guard transition.transportBasis?.root == previous.root,
-                                          transition.transportBasis?.id.utf8.elementsEqual(previous.id.utf8) == true else {
-                                        throw ProtocolValidationError.malformedSSE("Tree ref transition batch is not contiguous")
-                                    }
-                                }
-                            }
-                            if let outerDigest = event.change.requestDigest,
-                               let finalDigest = transitions.last?.requestDigest,
-                               outerDigest != finalDigest {
-                                throw ProtocolValidationError.malformedSSE("Tree ref request digests disagree")
-                            }
+                            let change = try event.change.validated(tree: tree)
+                            let descriptor = change.descriptor
+                            let transitions = change.transitions
                             frames += 1
                             if let log {
                                 let digest = event.change.requestDigest ?? transitions.last?.requestDigest

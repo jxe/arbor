@@ -1,13 +1,13 @@
-/** Target read contracts; active HTTP codecs retain the deployed encoding until cutover. */
-import { decodeTransitionPayloadJSON, type TransitionPayloadJSON } from "./json.ts";
-import { hashObject } from "../objects.ts";
+/**
+ * Structural checks for accepted reads beyond the codecs in `json.ts`: the
+ * accepted-state grammar, accepted chains, watch batches and conflict
+ * inspection pages. Each payload is decoded and hash-verified once, by the
+ * transition decoder; nothing here decodes it again.
+ */
+import { decodeAcceptedTransitionJSON } from "./json.ts";
 import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
+import type { AcceptedTransition, AcceptedUpdate } from "./types.ts";
 export interface StateLink { id: string; root: string }
-export interface AcceptedState {
-  id: string; tree: string; root: string; previous: StateLink | null;
-  acceptedAt: number; subject: string | null; conflicted: boolean;
-}
-export type SubmissionOutcome = "unchanged" | "accepted";
 export interface Contribution { change: string; operation: string | null }
 export interface InspectedAlternative {
   id: string; revision: string;
@@ -41,17 +41,17 @@ function page(raw: unknown, field: string): Obj {
   check(Array.isArray(v[field])); if(v.next !== null) { token(v.next); check(v[field].length>0); }
   return v;
 }
-export function decodeAcceptedState(raw: unknown): AcceptedState {
+export function decodeAcceptedUpdate(raw: unknown): AcceptedUpdate {
   const v=obj(raw); required(v,["id","tree","root","previous","acceptedAt","subject","conflicted"]);
   token(v.id); token(v.tree); hash(v.root); check(Number.isSafeInteger(v.acceptedAt) && v.acceptedAt >= 0);
   if(v.subject !== null) token(v.subject); check(typeof v.conflicted === "boolean");
   if(v.previous !== null) { const p=obj(v.previous); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==v.id); }
-  return v as AcceptedState;
+  return v as AcceptedUpdate;
 }
-export function validateAcceptedChain(tree: string, previous: StateLink | null, updates: AcceptedState[], head: StateLink) {
+export function validateAcceptedChain(tree: string, previous: StateLink | null, updates: AcceptedUpdate[], head: StateLink) {
   token(tree); check(updates.length>0); const seen=new Set(previous ? [previous.id] : []);
   for(const raw of updates) {
-    const u=decodeAcceptedState(raw); check(u.tree===tree && !seen.has(u.id)); seen.add(u.id);
+    const u=decodeAcceptedUpdate(raw); check(u.tree===tree && !seen.has(u.id)); seen.add(u.id);
     check(previous===null ? u.previous===null : u.previous!==null && u.previous.id===previous.id && u.previous.root===previous.root);
     previous={id:u.id,root:u.root};
   }
@@ -91,48 +91,32 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
   }
   return v as DecisionPage;
 }
-export interface SubmissionReceipt { outcome: SubmissionOutcome; update: AcceptedState; requestDigest: string; reconciliation?: TransitionPayloadJSON }
-export interface SubmissionResponse { results: SubmissionReceipt[]; observedThrough: string }
-export function decodeSubmissionResponse(raw: unknown): SubmissionResponse {
-  const v=obj(raw); required(v,["results","observedThrough"]); token(v.observedThrough); check(Array.isArray(v.results) && v.results.length>0);
-  for(const raw of v.results) { const r=obj(raw); required(r,["outcome","update","requestDigest"]); check(["unchanged","accepted"].includes(r.outcome)); decodeAcceptedState(r.update); hash(r.requestDigest); if (Object.hasOwn(r,"reconciliation")) validateReadPayload(r.reconciliation); }
-  return v as SubmissionResponse;
-}
-
-/** Validate known transfer fields without discarding open read extensions. */
-export function validateReadPayload(raw: unknown): void {
-  const v=obj(raw), payload=decodeTransitionPayloadJSON(v);
-  check(payload.objects.length===v.objects.length);
-  for (const object of payload.objects) check(hashObject(object.bytes)===object.hash);
-}
-export interface AcceptedReadTransition extends TransitionPayloadJSON {
-  update: AcceptedState; from?: StateLink; requestDigest?: string;
-}
-export interface AcceptedWatchChange {
-  descriptor: { id: string; update: string; root: string; conflicted: boolean };
-  transitions: AcceptedReadTransition[];
+/** A tree watch's `tree.update` change: its descriptor and a contiguous, verified transition batch. */
+export interface AcceptedWatchChange<Descriptor = { id: string; update: string; root: string; conflicted: boolean }> {
+  descriptor: Descriptor;
+  transitions: AcceptedTransition[];
 }
 /** The caller must deduplicate observation replay before checking its confirmed basis.
  * A cursor is never compared to an accepted ID. Descriptor policy fields are
  * validated by the tree descriptor decoder; this checks the accepted-state binding.
  */
-export function decodeTransitionBasis(raw: unknown, update: AcceptedState): StateLink {
+export function decodeTransitionBasis(raw: unknown, update: AcceptedUpdate): StateLink {
   const p=obj(raw); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==update.id);
   return p as StateLink;
 }
-export function decodeAcceptedWatchChange(raw: unknown, tree: string, basis?: StateLink): AcceptedWatchChange {
+export function decodeAcceptedWatchChange<Descriptor extends { id: string; update: string; root: string; conflicted: boolean }>(
+  raw: unknown, tree: string, basis?: StateLink,
+): AcceptedWatchChange<Descriptor> {
   const v=obj(raw); required(v,["descriptor","transitions"]);
   const d=obj(v.descriptor); required(d,["id","update","root","conflicted"]);
   token(tree); check(d.id===tree); token(d.update); hash(d.root); check(typeof d.conflicted==="boolean");
   check(Array.isArray(v.transitions) && v.transitions.length>0);
-  const updates=v.transitions.map((raw: unknown)=>{
-    const t=obj(raw); required(t,["update","objects","deltas"]);
-    const update=decodeAcceptedState(t.update); check(update.previous!==null);
-    validateReadPayload(t);
-    if(Object.hasOwn(t,"requestDigest")) hash(t.requestDigest);
-    return Object.hasOwn(t,"from") ? {...update, previous: decodeTransitionBasis(t.from, update)} : update;
+  const transitions: AcceptedTransition[]=v.transitions.map((raw: unknown)=>{
+    required(obj(raw),["update","objects","deltas"]);
+    return decodeAcceptedTransitionJSON(raw);
   });
+  const updates=transitions.map((t)=>t.from ? {...t.update, previous: t.from} : t.update);
   validateAcceptedChain(tree,basis ?? updates[0]!.previous,updates,{id:d.update,root:d.root});
   check(updates.at(-1)!.conflicted===d.conflicted);
-  return v as AcceptedWatchChange;
+  return { descriptor: d as Descriptor, transitions };
 }

@@ -169,6 +169,48 @@ public struct ProtocolTreeRefChange: Codable, Sendable, Equatable {
     public var descriptor: ProtocolTreeDescriptor
     public var requestDigest: String?
     public var transitions: [ProtocolAcceptedTransition]
+
+    /// A contiguous batch of `tree`'s transitions ending at the descriptor,
+    /// starting from `basis` when the caller knows its confirmed state.
+    /// Identities compare by UTF-8 bytes, never Unicode-normalized.
+    public func validated(tree: String, basis: ProtocolAcceptedLink? = nil) throws -> Self {
+        let descriptor = try descriptor.validated()
+        guard descriptor.id == tree, !transitions.isEmpty,
+              transitions.last?.update.id.utf8.elementsEqual(descriptor.update.utf8) == true,
+              transitions.last?.update.root == descriptor.root,
+              transitions.last?.update.conflicted == descriptor.conflicted else {
+            throw ProtocolValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
+        }
+        if let basis {
+            guard let first = transitions.first?.transportBasis, first.root == basis.root,
+                  first.id.utf8.elementsEqual(basis.id.utf8) else {
+                throw ProtocolValidationError.malformedSSE("Tree ref transition batch does not start at the confirmed state")
+            }
+        }
+        var seen = Set<Data>()
+        if let predecessor = transitions.first?.transportBasis { seen.insert(Data(predecessor.id.utf8)) }
+        for (index, transition) in transitions.enumerated() {
+            guard seen.insert(Data(transition.update.id.utf8)).inserted else {
+                throw ProtocolValidationError.malformedSSE("Repeated accepted identity")
+            }
+            guard transition.update.tree == tree else {
+                throw ProtocolValidationError.malformedSSE("Tree ref transition belongs to another tree")
+            }
+            if index > 0 {
+                let previous = transitions[index - 1].update
+                guard transition.transportBasis?.root == previous.root,
+                      transition.transportBasis?.id.utf8.elementsEqual(previous.id.utf8) == true else {
+                    throw ProtocolValidationError.malformedSSE("Tree ref transition batch is not contiguous")
+                }
+            }
+        }
+        if let requestDigest, let finalDigest = transitions.last?.requestDigest, requestDigest != finalDigest {
+            throw ProtocolValidationError.malformedSSE("Tree ref request digests disagree")
+        }
+        var validated = self
+        validated.descriptor = descriptor
+        return validated
+    }
 }
 
 public struct ProtocolTreeRefObservation: Codable, Sendable, Equatable {

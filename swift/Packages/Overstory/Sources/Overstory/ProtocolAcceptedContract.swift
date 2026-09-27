@@ -28,98 +28,12 @@ public indirect enum ProtocolReadValue: Codable, Sendable, Equatable {
     var items: [ProtocolReadValue]? { if case .array(let a) = self { return a }; return nil }
 }
 
-public struct ProtocolAcceptedStateContract: Codable, Sendable, Equatable {
-    public let fields: [String: ProtocolReadValue]
-    public init(from decoder: Decoder) throws {
-        fields = try decoder.singleValueContainer().decode([String: ProtocolReadValue].self)
-        try AcceptedReadValidation.state(fields)
-    }
-    public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
-    public static func validateChain(tree: String, previous: [String: ProtocolReadValue]?, updates: [Self], head: [String: ProtocolReadValue]) throws {
-        var prior = previous
-        var seen = Set<Data>()
-        if let previous { seen.insert(Data(try AcceptedReadValidation.string(previous["id"]).utf8)) }
-        try AcceptedReadValidation.check(!updates.isEmpty)
-        for update in updates {
-            let u = update.fields
-            try AcceptedReadValidation.check(AcceptedReadValidation.equal(u["tree"], .string(tree)))
-            let id = Data(try AcceptedReadValidation.string(u["id"]).utf8)
-            try AcceptedReadValidation.check(seen.insert(id).inserted)
-            if let prior {
-                let p = try AcceptedReadValidation.object(u["previous"])
-                try AcceptedReadValidation.check(AcceptedReadValidation.equal(p["id"], prior["id"]) && p["root"] == prior["root"])
-            } else { try AcceptedReadValidation.check(u["previous"] == .null) }
-            prior = ["id": u["id"]!, "root": u["root"]!]
-        }
-        try AcceptedReadValidation.check(AcceptedReadValidation.equal(prior?["id"], head["id"]) && prior?["root"] == head["root"])
-    }
-}
 public struct ProtocolDecisionPageContract: Codable, Sendable, Equatable {
     public let fields: [String: ProtocolReadValue]
     public init(from decoder: Decoder) throws { fields = try decoder.singleValueContainer().decode([String: ProtocolReadValue].self); try AcceptedReadValidation.inspection(fields) }
     public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
     public func validateContext(tree: String, state: String, root: String) throws {
         for (k,v) in [("tree",tree),("state",state),("root",root)] { try AcceptedReadValidation.check(AcceptedReadValidation.equal(fields[k], .string(v))) }
-    }
-}
-public struct ProtocolSubmissionResponseContract: Codable, Sendable, Equatable {
-    public let fields: [String: ProtocolReadValue]
-    public init(from decoder: Decoder) throws {
-        fields = try decoder.singleValueContainer().decode([String: ProtocolReadValue].self)
-        try AcceptedReadValidation.required(fields, ["results","observedThrough"]); try AcceptedReadValidation.token(fields["observedThrough"])
-        let results = try AcceptedReadValidation.array(fields["results"]); try AcceptedReadValidation.check(!results.isEmpty)
-        for raw in results {
-            let r = try AcceptedReadValidation.object(raw); try AcceptedReadValidation.required(r,["outcome","update","requestDigest"])
-            try AcceptedReadValidation.check(["unchanged","accepted"].contains(r["outcome"]?.text ?? ""))
-            try AcceptedReadValidation.state(AcceptedReadValidation.object(r["update"])); try AcceptedReadValidation.hash(r["requestDigest"])
-            if let payload=r["reconciliation"] { _ = try AcceptedReadValidation.payload(payload) }
-        }
-    }
-    public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
-}
-/// Validates accepted-state bindings and transport; descriptor policy validation
-/// remains the descriptor decoder's responsibility. Deduplicate observation replay
-/// before calling validateBasis. Observation cursors are not accepted identities.
-public struct ProtocolAcceptedWatchChangeContract: Codable, Sendable, Equatable {
-    public let fields: [String: ProtocolReadValue]
-    public init(from decoder: Decoder) throws {
-        fields = try decoder.singleValueContainer().decode([String: ProtocolReadValue].self)
-        let descriptor=try AcceptedReadValidation.object(fields["descriptor"])
-        try validate(tree: AcceptedReadValidation.string(descriptor["id"]), basis: nil)
-    }
-    public func encode(to encoder: Encoder) throws { var c=encoder.singleValueContainer(); try c.encode(fields) }
-    public func validateBasis(tree: String, id: String, root: String) throws {
-        try validate(tree: tree, basis: ["id":.string(id),"root":.string(root)])
-    }
-    private func validate(tree: String, basis: [String: ProtocolReadValue]?) throws {
-        let d=try AcceptedReadValidation.object(fields["descriptor"])
-        try AcceptedReadValidation.required(d,["id","update","root","conflicted"])
-        try AcceptedReadValidation.token(.string(tree))
-        try AcceptedReadValidation.check(AcceptedReadValidation.equal(d["id"],.string(tree)))
-        try AcceptedReadValidation.token(d["update"]); try AcceptedReadValidation.hash(d["root"])
-        guard case .bool=d["conflicted"] else { try AcceptedReadValidation.check(false); return }
-        let transitions=try AcceptedReadValidation.array(fields["transitions"])
-        try AcceptedReadValidation.check(!transitions.isEmpty)
-        let updates=try transitions.map { raw -> ProtocolAcceptedStateContract in
-            let t=try AcceptedReadValidation.object(raw)
-            try AcceptedReadValidation.required(t,["update","objects","deltas"])
-            let update=try JSONDecoder().decode(ProtocolAcceptedStateContract.self,from:JSONEncoder().encode(t["update"]))
-            try AcceptedReadValidation.check(update.fields["previous"] != .null)
-            _ = try AcceptedReadValidation.payload(raw)
-            if let digest=t["requestDigest"] { try AcceptedReadValidation.hash(digest) }
-            if let from=t["from"] {
-                let p=try AcceptedReadValidation.object(from)
-                try AcceptedReadValidation.required(p,["id","root"])
-                try AcceptedReadValidation.token(p["id"]); try AcceptedReadValidation.hash(p["root"])
-                try AcceptedReadValidation.check(!AcceptedReadValidation.equal(p["id"],update.fields["id"]))
-                var fields=update.fields
-                fields["previous"]=from
-                return try JSONDecoder().decode(ProtocolAcceptedStateContract.self,from:JSONEncoder().encode(ProtocolReadValue.object(fields)))
-            }
-            return update
-        }
-        try ProtocolAcceptedStateContract.validateChain(tree:tree,previous:basis ?? updates[0].fields["previous"]?.fields,updates:updates,head:["id":d["update"]!,"root":d["root"]!])
-        try AcceptedReadValidation.check(updates.last!.fields["conflicted"]==d["conflicted"])
     }
 }
 enum AcceptedReadValidation {
@@ -163,23 +77,6 @@ enum AcceptedReadValidation {
         try check(t>=0 && t<=9_007_199_254_740_991 && t.rounded()==t)
         if v["subject"] != .null { try token(v["subject"]) }
         if v["previous"] != .null { let p=try object(v["previous"]); try required(p,["id","root"]); try token(p["id"]); try hash(p["root"]); try check(!equal(p["id"],v["id"])) }
-    }
-    static func payload(_ raw: ProtocolReadValue) throws -> ProtocolTransitionPayload {
-        let v=try object(raw)
-        for raw in try array(v["objects"]) {
-            let envelope=try object(raw), text=try string(envelope["bytes"])
-            guard let bytes=Data(base64Encoded:text), bytes.base64EncodedString()==text else {
-                throw ProtocolValidationError.invalidValue("Noncanonical object base64")
-            }
-        }
-        let payload=try JSONDecoder().decode(ProtocolTransitionPayload.self,from:JSONEncoder().encode(raw))
-        var instructions=0, inserted=0
-        for delta in payload.deltas {
-            instructions += delta.instructions.count
-            for instruction in delta.instructions { if case .insert(let bytes)=instruction { inserted += bytes.count } }
-        }
-        try check(payload.deltas.count<=10_000 && instructions<=100_000 && inserted<=64*1024*1024)
-        return payload
     }
     static func inspection(_ v: Obj) throws {
         let decisions=try page(v,"decisions"); try required(v,["root","conflicted"]); try hash(v["root"])

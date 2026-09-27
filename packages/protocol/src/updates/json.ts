@@ -1,4 +1,4 @@
-import { decodeTransitionBasis, decodeAcceptedState, decodeSubmissionResponse, validateReadPayload } from "./accepted-contract.ts";
+import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
 import { authoredIntentFromTransport, decodeAuthoredUpdateRequestJSON, decodeAuthoredCandidateJSON, encodeAuthoredUpdateRequestJSON, encodeAuthoredCandidateJSON } from "./authored-transport.ts";
 import { decodeAuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeProtocolDirectory, hashObject, protocolEntryObject, type ProtocolEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
@@ -176,7 +176,7 @@ export function encodeAcceptedTransitionJSON(transition: AcceptedTransition): Ac
 }
 
 export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
-  return decodeAcceptedState(value) as AcceptedUpdate;
+  return decodeAcceptedUpdate(value);
 }
 
 /** Decode one watch transition, verifying every complete object's hash. */
@@ -185,11 +185,7 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
   const record = value as { update?: unknown; from?: unknown; requestDigest?: unknown };
   const update = decodeAcceptedUpdateJSON(record.update);
   if (update.previous === null) throw new Error("Activation cannot be replayed as a watch transition");
-  validateReadPayload(value);
-  const payload = decodeTransitionPayloadJSON(value);
-  for (const object of payload.objects) {
-    if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
-  }
+  const payload = decodeVerifiedTransitionPayload(value);
   if (record.requestDigest !== undefined && (typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest))) {
     throw new Error("Invalid transition request digest");
   }
@@ -236,10 +232,10 @@ export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
   details: Omit<UpdateConflictResult["details"], "completed"> & { completed: UpdateResultJSON[] };
 };
 
-/** Decode a transition payload, verifying every complete object's hash. */
+/** Decode a transition payload once, verifying every complete object's hash and refusing one listed twice. */
 function decodeVerifiedTransitionPayload(value: unknown): TransitionPayload {
-  validateReadPayload(value);
   const payload = decodeTransitionPayloadJSON(value);
+  if (payload.objects.length !== (value as { objects: unknown[] }).objects.length) throw new Error("Transition object supplied more than once");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
   }
@@ -382,10 +378,10 @@ function decodeUpdateHead(value: unknown): UpdateHead {
 }
 
 export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
-  decodeSubmissionResponse(value);
-  if (!value || typeof value !== "object") throw new Error("Update response must be an object");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Update response must be an object");
   const record = value as { results?: unknown; observedThrough?: unknown; head?: unknown };
-  if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough) {
+  if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough
+    || new TextEncoder().encode(record.observedThrough).length > 1024) {
     throw new Error("Invalid update response");
   }
   return {

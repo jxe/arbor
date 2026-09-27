@@ -34,12 +34,25 @@ export function decodeAuthoredUpdateRequestJSON(raw: unknown): AuthoredUpdateReq
   return { base: intent.base, updates };
 }
 
+/**
+ * In-process builders meet the same contract as received JSON: the intent is
+ * validated and every object's bytes must hash to its name. The bytes are
+ * checked as they are, not encoded and decoded again.
+ */
 export function encodeAuthoredUpdateRequestJSON(request: AuthoredUpdateRequest): AuthoredUpdateRequestJSON {
   const intent = authoredIntentFromTransport(request);
-  const value = { base: intent.base, updates: intent.updates.map((u, i) => ({ ...u, ...encodeTransitionPayloadJSON(request.updates[i]!) })) };
-  // In-process builders must meet the same contract as received JSON.
-  decodeAuthoredUpdateRequestJSON(value);
-  return value;
+  if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
+  request.updates.forEach(verifyCandidateObjects);
+  return { base: intent.base, updates: intent.updates.map((u, i) => ({ ...u, ...encodeTransitionPayloadJSON(request.updates[i]!) })) };
+}
+
+function verifyCandidateObjects(candidate: TransitionPayload): void {
+  const seen = new Set<string>();
+  for (const object of candidate.objects) {
+    if (seen.has(object.hash)) throw new Error("Duplicate complete object");
+    seen.add(object.hash);
+    if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
+  }
 }
 
 export function authoredTransportIdentities(tree: string, request: AuthoredUpdateRequest) {
@@ -59,7 +72,6 @@ export function decodeAuthoredCandidateJSON(raw: unknown): AuthoredCandidate {
 }
 export function encodeAuthoredCandidateJSON(candidate: AuthoredCandidate): AuthoredUpdateIntent & TransitionPayloadJSON {
   const {objects: _objects,deltas: _deltas,...fields} = candidate;
-  const value = {...decodeAuthoredCandidateIntent(fields),...encodeTransitionPayloadJSON(candidate)};
-  decodeAuthoredCandidateJSON(value);
-  return value;
+  verifyCandidateObjects(candidate);
+  return {...decodeAuthoredCandidateIntent(fields),...encodeTransitionPayloadJSON(candidate)};
 }

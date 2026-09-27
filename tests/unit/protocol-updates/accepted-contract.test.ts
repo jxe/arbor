@@ -1,15 +1,16 @@
 import { expect, test } from "bun:test";
 import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-state.json";
-import { decodeAcceptedState, decodeDecisionPage, decodeSubmissionResponse, validateAcceptedChain } from "../../../packages/protocol/src/updates/accepted-contract.ts";
+import { decodeAcceptedUpdate, decodeDecisionPage, validateAcceptedChain } from "../../../packages/protocol/src/updates/accepted-contract.ts";
+import { decodeUpdateResponseJSON, encodeUpdateResponseJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { decodeAuthoredRequestIntent } from "../../../packages/protocol/src/updates/authored-contract.ts";
 for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
   const value:any=structuredClone(c.value);
   if(c.repeatDecisions) value.decisions=Array.from({length:c.repeatDecisions},(_,i)=>({...value.decisions[0],id:`decision_${i}`}));
   const decode=()=>{
     switch(c.kind) {
-      case "state":return decodeAcceptedState(value);
+      case "state":return decodeAcceptedUpdate(value);
       case "inspection":return decodeDecisionPage(value);
-      case "response":return decodeSubmissionResponse(value);
+      case "response":return encodeUpdateResponseJSON(decodeUpdateResponseJSON(value));
       case "chain":return validateAcceptedChain(value.tree,value.previous,value.updates,value.head);
       default:throw new Error("Unexpected fixture kind");
     }

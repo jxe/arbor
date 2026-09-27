@@ -252,14 +252,15 @@ public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
     }
     private enum CodingKeys: String, CodingKey { case id, tree, root, previous, acceptedAt, subject, conflicted }
     public init(from decoder: Decoder) throws {
-        let value=try ProtocolAcceptedStateContract(from:decoder)
-        let f=value.fields
-        typealias Read = AcceptedReadValidation
-        id=try Read.string(f["id"]); tree=try Read.string(f["tree"]); root=try Read.string(f["root"])
-        previous=try f["previous"]?.fields.map { ProtocolAcceptedLink(id:try Read.string($0["id"]),root:try Read.string($0["root"])) }
-        if case .number(let time)?=f["acceptedAt"] { acceptedAt=time } else { throw ProtocolValidationError.invalidValue("Invalid accepted time") }
-        subject=f["subject"]?.text
-        if case .bool(let flag)?=f["conflicted"] { conflicted=flag } else { throw ProtocolValidationError.invalidValue("Missing conflict signal") }
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        // `previous` and `subject` are required even when null.
+        guard c.contains(.previous), c.contains(.subject) else { throw ProtocolValidationError.invalidValue("Invalid accepted-state contract") }
+        id=try c.decode(String.self,forKey:.id); tree=try c.decode(String.self,forKey:.tree); root=try c.decode(String.self,forKey:.root)
+        previous=try c.decodeIfPresent(ProtocolAcceptedLink.self,forKey:.previous)
+        acceptedAt=try c.decode(Double.self,forKey:.acceptedAt)
+        subject=try c.decodeIfPresent(String.self,forKey:.subject)
+        conflicted=try c.decode(Bool.self,forKey:.conflicted)
+        _ = try validated()
     }
     public func encode(to encoder: Encoder) throws {
         var c=encoder.container(keyedBy:CodingKeys.self)
@@ -267,6 +268,25 @@ public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
         try c.encode(previous,forKey:.previous); try c.encode(acceptedAt,forKey:.acceptedAt)
         try c.encode(subject,forKey:.subject); try c.encode(conflicted,forKey:.conflicted)
     }
+    /// `updates` extend `previous` one by one and end at `head`; identities
+    /// compare by UTF-8 bytes and none repeats.
+    public static func validateChain(tree: String, previous: ProtocolAcceptedLink?, updates: [ProtocolAcceptedUpdate], head: ProtocolAcceptedLink) throws {
+        var prior = previous
+        var seen = Set<Data>()
+        if let previous { seen.insert(Data(previous.id.utf8)) }
+        try AcceptedReadValidation.check(!updates.isEmpty)
+        for update in updates {
+            try AcceptedReadValidation.check(update.tree.utf8.elementsEqual(tree.utf8) && seen.insert(Data(update.id.utf8)).inserted)
+            if let prior {
+                try AcceptedReadValidation.check(update.previous?.id.utf8.elementsEqual(prior.id.utf8) == true && update.previous?.root == prior.root)
+            } else {
+                try AcceptedReadValidation.check(update.previous == nil)
+            }
+            prior = ProtocolAcceptedLink(id: update.id, root: update.root)
+        }
+        try AcceptedReadValidation.check(prior?.id.utf8.elementsEqual(head.id.utf8) == true && prior?.root == head.root)
+    }
+
     public func validated() throws -> Self {
         try AcceptedReadValidation.state([
             "id": .string(id), "tree": .string(tree), "root": .string(root),
@@ -284,6 +304,19 @@ public struct ProtocolObjectEnvelope: Codable, Sendable, Equatable {
 
     public init(hash: String, bytes: Data) {
         self.hash = hash
+        self.bytes = bytes
+    }
+
+    private enum CodingKeys: String, CodingKey { case hash, bytes }
+
+    /// Object bytes are standard padded base64 with nothing to normalize.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        hash = try values.decode(String.self, forKey: .hash)
+        let text = try values.decode(String.self, forKey: .bytes)
+        guard let bytes = Data(base64Encoded: text), bytes.base64EncodedString() == text else {
+            throw ProtocolValidationError.invalidValue("Noncanonical object base64")
+        }
         self.bytes = bytes
     }
 }
@@ -472,7 +505,7 @@ public struct ProtocolAcceptedTransition: Codable, Sendable, Equatable {
         if values.contains(.from) { from = try values.decode(ProtocolAcceptedLink.self, forKey: .from) }
         else { from = nil }
         update = try values.decode(ProtocolAcceptedUpdate.self, forKey: .update)
-        let payload = try AcceptedReadValidation.payload(ProtocolReadValue(from: decoder))
+        let payload = try ProtocolTransitionPayload(from: decoder)
         objects = payload.objects
         deltas = payload.deltas
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
@@ -656,6 +689,14 @@ public struct ProtocolTransitionPayload: Codable, Sendable, Equatable {
     }
 
     public func validated() throws -> Self {
+        var instructions = 0, inserted = 0
+        for delta in deltas {
+            instructions += delta.instructions.count
+            for instruction in delta.instructions { if case .insert(let bytes) = instruction { inserted += bytes.count } }
+        }
+        guard deltas.count <= 10_000, instructions <= 100_000, inserted <= 64 * 1024 * 1024 else {
+            throw ProtocolValidationError.invalidValue("Transition deltas exceed their limits")
+        }
         var results = Set<String>()
         for envelope in objects {
             try validateObjectHash(envelope.hash)
@@ -776,7 +817,7 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
         requestDigest = try values.decode(String.self, forKey: .requestDigest)
         try validateObjectHash(requestDigest)
         if values.contains(.reconciliation) {
-            reconciliation = try AcceptedReadValidation.payload(values.decode(ProtocolReadValue.self, forKey: .reconciliation))
+            reconciliation = try values.decode(ProtocolTransitionPayload.self, forKey: .reconciliation)
         } else { reconciliation = nil }
     }
 
@@ -789,7 +830,7 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
 }
 
 /// The server's current head as of an accepted update response.
-public struct ProtocolUpdateHead: Sendable, Equatable, Decodable {
+public struct ProtocolUpdateHead: Sendable, Equatable, Codable {
     public var update: String
     public var root: String
     public var conflicted: Bool
@@ -799,7 +840,7 @@ public struct ProtocolUpdateHead: Sendable, Equatable, Decodable {
     }
 }
 
-public struct ProtocolUpdateResponse: Sendable, Equatable, Decodable {
+public struct ProtocolUpdateResponse: Sendable, Equatable, Codable {
     public var results: [ProtocolUpdateElementResult]
     public var observedThrough: String
     /// Present when the server reported its head; lets the client skip a descriptor read.
@@ -832,6 +873,13 @@ public struct ProtocolUpdateResponse: Sendable, Equatable, Decodable {
             guard !head.update.isEmpty, !head.observedThrough.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid update head") }
             try validateObjectHash(head.root)
         }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(results, forKey: .results)
+        try values.encode(observedThrough, forKey: .observedThrough)
+        try values.encodeIfPresent(head, forKey: .head)
     }
 }
 

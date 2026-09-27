@@ -1,19 +1,18 @@
 import { expect, test } from "bun:test";
 import { applyObjectDelta } from "../../../packages/protocol/src/updates/apply.ts";
-import { decodeAcceptedTransitionJSON, decodeUpdateResponseJSON, decodeObjectEnvelopes, decodeTransitionPayloadJSON, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
+import { encodeAcceptedTransitionJSON, decodeUpdateResponseJSON, encodeUpdateResponseJSON, decodeObjectEnvelopes, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
 import { hashObject, type ObjectHash } from "../../../packages/protocol/src/objects.ts";
 import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-transport.json";
-import { decodeAcceptedWatchChange, decodeSubmissionResponse } from "../../../packages/protocol/src/updates/accepted-contract.ts";
+import { decodeAcceptedWatchChange } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 for (const c of vectors.cases) test(`accepted transport: ${c.name}`, () => {
   const value = structuredClone(c.value);
   const decode = () => {
+    // Decoding then encoding again must reproduce the vector exactly.
     if (c.kind === "watch") {
       const change = decodeAcceptedWatchChange(value, vectors.tree, c.basis);
-      change.transitions.forEach(decodeAcceptedTransitionJSON);
-      return change;
+      return { ...value, transitions: change.transitions.map(encodeAcceptedTransitionJSON) };
     }
-    decodeUpdateResponseJSON(value);
-    return decodeSubmissionResponse(value);
+    return encodeUpdateResponseJSON(decodeUpdateResponseJSON(value));
   };
   if (c.valid) expect<unknown>(decode()).toEqual(value);
   else expect(decode).toThrow();
@@ -26,7 +25,7 @@ test("complete and sparse batches reconstruct exact bytes after a same-root deci
     let objects = new Map(decodeObjectEnvelopes(vectors.snapshot.objects).map(o => [o.hash, o.bytes]));
     for (const transition of change.transitions) {
       expect(transition.update.previous!.root).toBe(root);
-      const payload = decodeTransitionPayloadJSON(transition);
+      const payload = transition;
       const supplied = new Map(payload.objects.map(o => [o.hash, o.bytes]));
       for (const delta of payload.deltas) {
         const bytes = applyObjectDelta(objects.get(delta.base)!, delta);
