@@ -168,6 +168,20 @@ export function decodeCBOR(bytes: Uint8Array): unknown {
   return decoded.value;
 }
 
+/**
+ * Decode bytes that must already be canonical: one value whose re-encoding is
+ * byte-identical, so a non-minimal head, an integral float, or unsorted keys
+ * fail rather than normalize. Request and response bodies use this.
+ */
+export function decodeCanonicalCBOR(bytes: Uint8Array): unknown {
+  const value = decodeCBOR(bytes);
+  const encoded = encodeCanonicalCBOR(value);
+  if (encoded.length !== bytes.length || encoded.some((byte, index) => byte !== bytes[index])) {
+    throw new Error("CBOR is not canonical");
+  }
+  return value;
+}
+
 /** SHA-256 of the canonical CBOR encoding: the one hash rule for every Arbor identity. */
 export function canonicalCBORHash(value: unknown): Hash {
   return `sha256:${sha256(encodeCanonicalCBOR(value))}`;

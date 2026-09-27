@@ -40,7 +40,7 @@ try {
   if (!directoryFixture.observedThrough || !directoryFixture.snapshot?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
     throw new Error("Malformed shared profile-directory fixture");
   }
-  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts"]);
+  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts", "tests/unit/protocol-updates/cbor-transport.test.ts"]);
 
   // One local Canopy with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the

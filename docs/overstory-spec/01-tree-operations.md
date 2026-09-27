@@ -688,7 +688,10 @@ POST /.arbor/trees/{TreeID}/updates
 ```
 
 The client submits a nonempty, ordered string of candidate updates against the
-last accepted watchpoint it has confirmed:
+last accepted watchpoint it has confirmed. The request travels as JSON or as
+canonical CBOR of the same value
+([request and response encodings](#44-request-and-response-encodings)); the
+examples here are JSON:
 
 ```ts
 type UpdateRequest = {
@@ -893,7 +896,9 @@ documentation and status.
 ### 2.4 Results, conflicts, and retry
 
 A successful response is always plural and contains one result for every
-element, including any element trimmed as an exact replay:
+element, including any element trimmed as an exact replay. It is JSON, or CBOR
+when the request asked for it; a rejection is always the JSON error envelope
+([request and response encodings](#44-request-and-response-encodings)):
 
 ```ts
 type UpdateResponse = {
@@ -970,9 +975,10 @@ For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
 `{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter
 object is part of semantic identity but is implicit in the ordered JSON request.
-`objects`, `deltas`, and their ordering are
+`objects`, `deltas`, their ordering, and the body's
+[encoding](#44-request-and-response-encodings) are
 transport choices and are excluded. An ambiguous retry may therefore replace a
-delta with complete bytes without changing identity. Exact accepted
+delta with complete bytes, or a JSON body with CBOR, without changing identity. Exact accepted
 elements replay their original results and create no duplicate accepted update.
 An `unchanged` element may be evaluated again. Clients durably retain their epoch
 base, ordered elements, required content, successful-prefix boundary, and any
@@ -1016,7 +1022,8 @@ object reachable in the relevant basis graph:
 
 An `ObjectDelta` concatenates ordered instructions into the complete canonical
 bytes of the `result` object. `copy` addresses the exact canonical bytes of the
-`base` object and `insert` is canonical padded base64. Copy ranges are
+`base` object and `insert` is canonical padded base64 in JSON or a byte string
+in CBOR (§4.4). Copy ranges are
 nonempty, nonnegative safe JSON integers wholly within the base bytes; inserts
 and the instruction list are nonempty. Because instructions address encoded
 bytes rather than a decoded payload, one rule covers every object kind: a
@@ -1128,12 +1135,14 @@ envelope = {
 }
 ```
 
+In a CBOR body (§4.4) `bytes` is a byte string holding `objectBytes` itself.
 To validate an envelope, the receiver decodes `bytes` as canonical padded
-base64 and requires the SHA-256 of the resulting bytes to equal `hash`.
+base64 (or takes the byte string) and requires the SHA-256 of the resulting
+bytes to equal `hash`.
 Graph validation separately interprets directory objects according to their
 references and requires their canonical encoding. The envelope is not itself hashed and is not a node in the object graph;
-it only carries an addressed object's hash and bytes through a JSON response or
-transition payload.
+it only carries an addressed object's hash and bytes through a request,
+response, or transition payload.
 
 Model hashes, collection-file `childSetHash` values, update and mutation
 request digests, and query output hashes apply the same CBOR-then-SHA-256
@@ -1183,3 +1192,37 @@ applicable.
 
 Names reject NUL, slashes, backslashes, dot segments, non-NFC text, and
 reserved ambiguity. Directory entries are canonically ordered.
+
+### 4.4 Request and response encodings
+
+A request that carries objects — `POST /.arbor/trees/{TreeID}/updates` and the
+account claim, `PUT /.arbor/accounts` ([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key))
+— and the success response to it travel as JSON or as CBOR. The encoding is
+chosen by ordinary HTTP content negotiation, never required:
+
+- A client sends `Content-Type: application/cbor` for a CBOR request body and
+  `Accept: application/cbor` for a CBOR success response. Without them the
+  body and the response are JSON (`application/json`), as before CBOR joined
+  it. A host accepts and produces both; a client may use either, and may mix
+  them (a CBOR request with a JSON response, or the reverse).
+- A CBOR body is the canonical CBOR (§4.1) of exactly the value the JSON body
+  would carry, with a byte string wherever JSON carries padded base64: an
+  object envelope's `bytes` and an object delta's `insert`. Keys, nesting,
+  `null`, and the rules for optional fields are unchanged. There is no second
+  schema.
+- A receiver decodes canonical CBOR only. A non-minimal length, an indefinite
+  length, map keys out of canonical order, a float where an integer belongs,
+  or text where a byte string belongs is an invalid request (`400
+  invalid-request`); a client refuses such a response.
+- Error envelopes (§4.2), a `409` conflict's included, are JSON on every
+  route and in every encoding.
+- A request's identity does not depend on its encoding. Request digests are
+  computed over the intent, not the body (§2.4), so a JSON and a CBOR
+  submission of the same request are the same request: they share digests,
+  receipts, and exact replay.
+
+The tree watch (§1.1.3) stays JSON over SSE: SSE is text, and most frames are
+small. Accepted snapshots (§1.1.2) are already a canonical CBOR bundle.
+The [`protocol-cbor-transport`](conformance/protocol-cbor-transport.json)
+vectors give the CBOR bytes of every request, response, and claim vector,
+and CBOR bodies a receiver must refuse.

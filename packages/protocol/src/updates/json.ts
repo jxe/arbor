@@ -1,6 +1,7 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
 import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeProtocolDirectory, hashObject, protocolEntryObject, type ProtocolEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
+import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "../model/cbor.ts";
 import type {
   AcceptedTransition,
   AcceptedUpdate,
@@ -15,27 +16,76 @@ import type {
   UpdateResult,
 } from "./types.ts";
 
-export interface ObjectEnvelopeJSON {
-  hash: ObjectHash;
-  bytes: string;
+/**
+ * A request or response body travels as JSON or as the canonical CBOR of the
+ * same value (tree operations §4.4). The two differ only where object bytes
+ * travel: padded base64 text in JSON, a byte string in CBOR. The `…JSON`
+ * shapes below name that one value; `B` is how its bytes are spelled.
+ */
+export type WireEncoding = "json" | "cbor";
+export type WireBytes<E extends WireEncoding = "json"> = E extends "cbor" ? Uint8Array : string;
+
+export const WIRE_CONTENT_TYPE: Readonly<Record<WireEncoding, string>> = { json: "application/json", cbor: "application/cbor" };
+
+/** The encoding a `Content-Type` names: CBOR for `application/cbor`, JSON otherwise (as before CBOR joined it). */
+export function wireEncodingOf(contentType: string | null | undefined): WireEncoding {
+  return contentType?.split(";")[0]!.trim().toLowerCase() === WIRE_CONTENT_TYPE.cbor ? "cbor" : "json";
 }
 
-export interface ObjectDeltaJSON {
+/** Whether an `Accept` header asks for a CBOR success response. */
+export function acceptsCBOR(accept: string | null | undefined): boolean {
+  return !!accept && accept.split(",").some(part => part.split(";")[0]!.trim().toLowerCase() === WIRE_CONTENT_TYPE.cbor);
+}
+
+/** A wire value as body bytes: JSON text, or canonical CBOR. */
+export function encodeWireBody(value: unknown, encoding: WireEncoding): Uint8Array {
+  return encoding === "cbor" ? encodeCanonicalCBOR(value) : new TextEncoder().encode(JSON.stringify(value));
+}
+
+/** Body bytes as a wire value. CBOR must already be canonical; JSON must be UTF-8. */
+export function decodeWireBody(bytes: Uint8Array, encoding: WireEncoding): unknown {
+  return encoding === "cbor" ? decodeCanonicalCBOR(bytes) : JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+}
+
+function encodeWireBytes<E extends WireEncoding>(bytes: Uint8Array, encoding: E): WireBytes<E> {
+  return (encoding === "cbor" ? bytes : encodeBase64(bytes)) as WireBytes<E>;
+}
+
+/**
+ * The one reader of a bytes field: a CBOR byte string, or JSON's canonical
+ * padded base64. Each encoding admits only its own spelling, so base64 text
+ * where CBOR carries bytes is refused.
+ */
+export function decodeWireBytes(value: unknown, encoding: WireEncoding, what = "Object bytes"): Uint8Array {
+  if (encoding === "cbor") {
+    if (!(value instanceof Uint8Array)) throw new Error(`${what} must be a CBOR byte string`);
+    return value;
+  }
+  if (typeof value !== "string") throw new Error(`${what} must be base64 text`);
+  return decodeBase64(value);
+}
+
+export interface ObjectEnvelopeJSON<B extends string | Uint8Array = string> {
+  hash: ObjectHash;
+  bytes: B;
+}
+
+export interface ObjectDeltaJSON<B extends string | Uint8Array = string> {
   base: ObjectHash;
   result: ObjectHash;
-  instructions: Array<{ copy: { offset: number; length: number } } | { insert: string }>;
+  instructions: Array<{ copy: { offset: number; length: number } } | { insert: B }>;
 }
 
-export interface UpdateRequestJSON {
+export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
   base: string | null;
-  updates: CandidateUpdateJSON[];
+  updates: CandidateUpdateJSON<B>[];
 }
 
-export interface CandidateUpdateJSON extends AuthoredUpdateIntent, TransitionPayloadJSON {}
+export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends AuthoredUpdateIntent, TransitionPayloadJSON<B> {}
 
-export interface TransitionPayloadJSON {
-  objects: ObjectEnvelopeJSON[];
-  deltas: ObjectDeltaJSON[];
+export interface TransitionPayloadJSON<B extends string | Uint8Array = string> {
+  objects: ObjectEnvelopeJSON<B>[];
+  deltas: ObjectDeltaJSON<B>[];
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
@@ -66,15 +116,15 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.length === right.length && left.every((byte, index) => byte === right[index]);
 }
 
-export function decodeObjectEnvelopes(value: unknown): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
+export function decodeObjectEnvelopes(value: unknown, encoding: WireEncoding = "json"): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
   if (!Array.isArray(value)) throw new Error("Expected objects");
   const objects = new Map<ObjectHash, Uint8Array>();
   for (const item of value) {
     if (!item || typeof item !== "object") throw new Error("Invalid object envelope");
     const record = item as { hash?: unknown; bytes?: unknown };
-    if (typeof record.hash !== "string" || typeof record.bytes !== "string") throw new Error("Invalid object envelope");
+    if (typeof record.hash !== "string") throw new Error("Invalid object envelope");
     const hash = record.hash as ObjectHash;
-    const bytes = decodeBase64(record.bytes);
+    const bytes = decodeWireBytes(record.bytes, encoding);
     const existing = objects.get(hash);
     if (existing && !bytesEqual(existing, bytes)) throw new Error(`Object ${hash} was supplied with different bytes`);
     objects.set(hash, bytes);
@@ -82,11 +132,11 @@ export function decodeObjectEnvelopes(value: unknown): Array<{ hash: ObjectHash;
   return [...objects].map(([hash, bytes]) => ({ hash, bytes }));
 }
 
-export function encodeObjectEnvelopes(objects: Iterable<readonly [ObjectHash, Uint8Array]>): ObjectEnvelopeJSON[] {
-  return [...objects].map(([hash, bytes]) => ({ hash, bytes: encodeBase64(bytes) }));
+export function encodeObjectEnvelopes<E extends WireEncoding = "json">(objects: Iterable<readonly [ObjectHash, Uint8Array]>, encoding: E = "json" as E): ObjectEnvelopeJSON<WireBytes<E>>[] {
+  return [...objects].map(([hash, bytes]) => ({ hash, bytes: encodeWireBytes(bytes, encoding) }));
 }
 
-export function decodeObjectDeltas(value: unknown): ObjectDelta[] {
+export function decodeObjectDeltas(value: unknown, encoding: WireEncoding = "json"): ObjectDelta[] {
   if (!Array.isArray(value)) throw new Error("deltas must be an array");
   if (value.length > MAX_DELTAS) throw new Error("deltas exceeds the delta quota");
   const results = new Set<ObjectHash>();
@@ -119,8 +169,7 @@ export function decodeObjectDeltas(value: unknown): ObjectDelta[] {
         }
         return { copy: { offset: copy.offset as number, length: copy.length as number } };
       }
-      if (typeof value.insert !== "string") throw new Error("Invalid object delta insert");
-      const insert = decodeBase64(value.insert);
+      const insert = decodeWireBytes(value.insert, encoding, "Object delta insert");
       if (insert.byteLength === 0) throw new Error("Object delta insert is empty");
       insertedBytes += insert.byteLength;
       if (insertedBytes > MAX_DELTA_INSERT_BYTES) throw new Error("deltas exceeds the insert-byte quota");
@@ -130,13 +179,13 @@ export function decodeObjectDeltas(value: unknown): ObjectDelta[] {
   });
 }
 
-export function encodeObjectDeltaJSON(delta: ObjectDelta): ObjectDeltaJSON {
+export function encodeObjectDeltaJSON<E extends WireEncoding = "json">(delta: ObjectDelta, encoding: E = "json" as E): ObjectDeltaJSON<WireBytes<E>> {
   return {
     base: delta.base,
     result: delta.result,
     instructions: delta.instructions.map((instruction) => "copy" in instruction
       ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
-      : { insert: encodeBase64(instruction.insert) }),
+      : { insert: encodeWireBytes(instruction.insert, encoding) }),
   };
 }
 
@@ -148,19 +197,19 @@ function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: Obj
   }
 }
 
-export function decodeTransitionPayloadJSON(value: unknown): TransitionPayload {
+export function decodeTransitionPayloadJSON(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
-  const objects = decodeObjectEnvelopes(record.objects);
-  const deltas = decodeObjectDeltas(record.deltas);
+  const objects = decodeObjectEnvelopes(record.objects, encoding);
+  const deltas = decodeObjectDeltas(record.deltas, encoding);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
   return { objects, deltas };
 }
 
-export function encodeTransitionPayloadJSON(payload: TransitionPayload): TransitionPayloadJSON {
+export function encodeTransitionPayloadJSON<E extends WireEncoding = "json">(payload: TransitionPayload, encoding: E = "json" as E): TransitionPayloadJSON<WireBytes<E>> {
   return {
-    objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    deltas: payload.deltas.map(encodeObjectDeltaJSON),
+    objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeWireBytes(bytes, encoding) })),
+    deltas: payload.deltas.map(delta => encodeObjectDeltaJSON(delta, encoding)),
   };
 }
 
@@ -213,18 +262,18 @@ export function validateUpdateRequestIntent(request: UpdateRequest): void {
 }
 
 /** Decode a request and verify its complete object bytes; graph and operation execution are authority checks. */
-export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
+export function decodeUpdateRequestJSON(value: unknown, encoding: WireEncoding = "json"): UpdateRequest {
   const intent = authoredIntentFromTransport(value);
-  const updates = (value as { updates: Record<string, unknown>[] }).updates.map((raw) => decodeCandidateUpdateJSON(raw));
+  const updates = (value as { updates: Record<string, unknown>[] }).updates.map((raw) => decodeCandidateUpdateJSON(raw, false, encoding));
   if (intent.base === null && updates[0]!.deltas.length) throw new Error("Activation has no delta basis");
   return { base: intent.base, updates };
 }
 
-export function decodeCandidateUpdateJSON(value: unknown, activation = false): CandidateUpdate {
+export function decodeCandidateUpdateJSON(value: unknown, activation = false, encoding: WireEncoding = "json"): CandidateUpdate {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected candidate");
   const { objects, deltas, ...fields } = value as Record<string, unknown>;
   const intent = decodeAuthoredCandidateIntent(fields);
-  const payload = decodeTransitionPayloadJSON({ objects, deltas });
+  const payload = decodeTransitionPayloadJSON({ objects, deltas }, encoding);
   if (payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
@@ -241,17 +290,17 @@ export function decodeCandidateUpdateJSON(value: unknown, activation = false): C
  * validated and every object's bytes must hash to its name. The bytes are
  * checked as they are, not encoded and decoded again.
  */
-export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJSON {
+export function encodeUpdateRequestJSON<E extends WireEncoding = "json">(request: UpdateRequest, encoding: E = "json" as E): UpdateRequestJSON<WireBytes<E>> {
   const intent = authoredIntentFromTransport(request);
   if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
   request.updates.forEach(verifyCandidateObjects);
-  return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!) })) };
+  return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) };
 }
 
-export function encodeCandidateUpdateJSON(update: CandidateUpdate): CandidateUpdateJSON {
+export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: CandidateUpdate, encoding: E = "json" as E): CandidateUpdateJSON<WireBytes<E>> {
   const { objects: _objects, deltas: _deltas, ...fields } = update;
   verifyCandidateObjects(update);
-  return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update) };
+  return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update, encoding) };
 }
 
 function verifyCandidateObjects(candidate: TransitionPayload): void {
@@ -268,16 +317,16 @@ export interface TreeSnapshotJSON {
   objects: ObjectEnvelopeJSON[];
 }
 
-export type UpdateResultJSON = Omit<UpdateResult, "reconciliation"> & { reconciliation?: TransitionPayloadJSON };
-export type UpdateResponseJSON = Omit<UpdateResponse, "results"> & { results: UpdateResultJSON[] };
+export type UpdateResultJSON<B extends string | Uint8Array = string> = Omit<UpdateResult, "reconciliation"> & { reconciliation?: TransitionPayloadJSON<B> };
+export type UpdateResponseJSON<B extends string | Uint8Array = string> = Omit<UpdateResponse, "results"> & { results: UpdateResultJSON<B>[] };
 
 export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
   details: Omit<UpdateConflictResult["details"], "completed"> & { completed: UpdateResultJSON[] };
 };
 
 /** Decode a transition payload once, verifying every complete object's hash and refusing one listed twice. */
-function decodeVerifiedTransitionPayload(value: unknown): TransitionPayload {
-  const payload = decodeTransitionPayloadJSON(value);
+function decodeVerifiedTransitionPayload(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
+  const payload = decodeTransitionPayloadJSON(value, encoding);
   if (payload.objects.length !== (value as { objects: unknown[] }).objects.length) throw new Error("Transition object supplied more than once");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
@@ -341,7 +390,7 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete"
 }
 
 export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): UpdateConflictJSON {
-  return { ...conflict, details: { ...conflict.details, completed: conflict.details.completed.map(encodeUpdateResultJSON) } };
+  return { ...conflict, details: { ...conflict.details, completed: conflict.details.completed.map(result => encodeUpdateResultJSON(result)) } };
 }
 
 const CONFLICT_KINDS = new Set(["server-update", "tree-configuration"]);
@@ -370,7 +419,7 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
     ...(record.tree ? { tree: record.tree as string } : {}),
     details: {
       kind: details.kind as UpdateConflictResult["details"]["kind"],
-      completed: completed.map(decodeUpdateResultJSON),
+      completed: completed.map(result => decodeUpdateResultJSON(result)),
       failedIndex: failedIndex as number,
       current: decodeAcceptedUpdateJSON(details.current),
       conflicts: details.conflicts as UpdateConflict[],
@@ -378,14 +427,14 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
   };
 }
 
-export function encodeUpdateResultJSON(result: UpdateResult): UpdateResultJSON {
+export function encodeUpdateResultJSON<E extends WireEncoding = "json">(result: UpdateResult, encoding: E = "json" as E): UpdateResultJSON<WireBytes<E>> {
   const { reconciliation, ...rest } = result;
-  return { ...rest, ...(reconciliation ? { reconciliation: encodeTransitionPayloadJSON(reconciliation) } : {}) };
+  return { ...rest, ...(reconciliation ? { reconciliation: encodeTransitionPayloadJSON(reconciliation, encoding) } : {}) };
 }
 
 const OUTCOMES = new Set(["unchanged", "accepted"]);
 
-export function decodeUpdateResultJSON(value: unknown): UpdateResult {
+export function decodeUpdateResultJSON(value: unknown, encoding: WireEncoding = "json"): UpdateResult {
   if (!value || typeof value !== "object") throw new Error("Update result must be an object");
   const record = value as Record<string, unknown>;
   if (typeof record.outcome !== "string" || !OUTCOMES.has(record.outcome)
@@ -397,14 +446,14 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
     outcome: record.outcome as UpdateResult["outcome"],
     update,
     requestDigest: record.requestDigest as ObjectHash,
-    ...(record.reconciliation === undefined ? {} : { reconciliation: decodeVerifiedTransitionPayload(record.reconciliation) }),
+    ...(record.reconciliation === undefined ? {} : { reconciliation: decodeVerifiedTransitionPayload(record.reconciliation, encoding) }),
   };
 }
 
 
-export function encodeUpdateResponseJSON(response: UpdateResponse): UpdateResponseJSON {
+export function encodeUpdateResponseJSON<E extends WireEncoding = "json">(response: UpdateResponse, encoding: E = "json" as E): UpdateResponseJSON<WireBytes<E>> {
   return {
-    results: response.results.map(encodeUpdateResultJSON),
+    results: response.results.map(result => encodeUpdateResultJSON(result, encoding)),
     observedThrough: response.observedThrough,
     ...(response.head ? { head: response.head } : {}),
   };
@@ -420,7 +469,7 @@ function decodeUpdateHead(value: unknown): UpdateHead {
   return { update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough };
 }
 
-export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
+export function decodeUpdateResponseJSON(value: unknown, encoding: WireEncoding = "json"): UpdateResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Update response must be an object");
   const record = value as { results?: unknown; observedThrough?: unknown; head?: unknown };
   if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough
@@ -428,7 +477,7 @@ export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
     throw new Error("Invalid update response");
   }
   return {
-    results: record.results.map(decodeUpdateResultJSON),
+    results: record.results.map(result => decodeUpdateResultJSON(result, encoding)),
     observedThrough: record.observedThrough,
     ...(record.head === undefined ? {} : { head: decodeUpdateHead(record.head) }),
   };

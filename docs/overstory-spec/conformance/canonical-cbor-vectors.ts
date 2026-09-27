@@ -3,6 +3,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
+import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@overstory/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const emptyDirectory = encodeProtocolDirectory({ type: "directory", entries: [] });
@@ -96,6 +97,72 @@ const invalid = [
 ];
 await writeFile("docs/overstory-spec/conformance/canonical-cbor-values.json", JSON.stringify({ version: 1, valid, invalid }, null, 2) + "\n");
 console.log("Regenerated Wire vectors");
+
+// Request and response bodies in both encodings (tree operations §4.4): each
+// JSON vector's CBOR form comes from the one codec, so the two cannot drift.
+{
+  const conformance = "docs/overstory-spec/conformance";
+  const read = async (name: string) => JSON.parse(await readFile(`${conformance}/${name}`, "utf8"));
+  const same = (left: unknown, right: unknown, what: string) => {
+    if (!Bun.deepEquals(left, right, true)) throw new Error(`${what} does not round-trip through the JSON codec`);
+  };
+  const authored = await read("protocol-authored-transport.json");
+  const accepted = await read("protocol-accepted-transport.json");
+  const challenges = await read("protocol-account-challenges.json");
+  const requests = [
+    ...authored.cases.filter((c: any) => c.valid).map((c: any) => ({ name: c.name, source: `protocol-authored-transport.json#${c.name}`, tree: authored.tree, value: c.value })),
+    ...endpoints.cases.filter((c: any) => c.request.body?.updates).map((c: any) => ({
+      name: c.name, source: `protocol-endpoints.json#${c.name}`,
+      tree: decodeURIComponent(c.request.path.match(/^\/\.arbor\/trees\/([^/]+)\/updates$/)[1]), value: c.request.body,
+    })),
+  ].map(({ name, source, tree, value }) => {
+    const request = decodeUpdateRequestJSON(value);
+    same(encodeUpdateRequestJSON(request), value, source);
+    return { name, source, tree, requestDigests: updateRequestDigests(tree, request), json: value, canonicalCBORBase64: b64(encodeCanonicalCBOR(encodeUpdateRequestJSON(request, "cbor"))) };
+  });
+  const responses = [
+    ...accepted.cases.filter((c: any) => c.kind === "response" && c.valid).map((c: any) => ({ name: c.name, source: `protocol-accepted-transport.json#${c.name}`, value: c.value })),
+    ...endpoints.cases.filter((c: any) => c.request.body?.updates).map((c: any) => ({ name: c.name, source: `protocol-endpoints.json#${c.name}`, value: c.response.body })),
+  ].map(({ name, source, value }) => {
+    const response = decodeUpdateResponseJSON(value);
+    same(encodeUpdateResponseJSON(response), value, source);
+    return { name, source, json: value, canonicalCBORBase64: b64(encodeCanonicalCBOR(encodeUpdateResponseJSON(response, "cbor"))) };
+  });
+  // A claim carries its configuration as the configuration tree's activation
+  // element (accounts §1.2). The proof fields are placeholders: this vector
+  // fixes the transport, not a verifiable claim.
+  const challenge = challenges.cases.find((c: any) => c.name === "exact-account").response;
+  const device = { id: "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", label: "Alice's Mac", key: "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" };
+  const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(challenge.profileTree, device)), device.id);
+  const claim = (encoding: "json" | "cbor") => ({
+    account: challenge.account, profileTree: challenge.profileTree, configurationTree: challenge.configurationTree, challenge,
+    publicKey: "A".repeat(43), signature: "A".repeat(86), device, configuration: encodeCandidateUpdateJSON(configuration, encoding),
+  });
+  const claims = [{ name: "claim with a key device", json: claim("json"), canonicalCBORBase64: b64(encodeCanonicalCBOR(claim("cbor"))) }];
+  // Rejected bodies: each is well-formed CBOR that a receiver must refuse.
+  const first = requests[0]!, firstCBOR = Buffer.from(first.canonicalCBORBase64, "base64");
+  const firstValue = encodeUpdateRequestJSON(decodeUpdateRequestJSON(first.json), "cbor");
+  const entry = (key: string, value: unknown) => [...encodeCanonicalCBOR(key), ...encodeCanonicalCBOR(value)];
+  const rejected = [
+    { name: "map keys out of canonical order", kind: "request", reason: "keys must be ordered by their encoded bytes",
+      canonicalCBORBase64: b64(Uint8Array.from([0xa2, ...entry("updates", firstValue.updates), ...entry("base", firstValue.base)])) },
+    { name: "base64 text where bytes belong", kind: "request", reason: "object bytes are a byte string in CBOR",
+      canonicalCBORBase64: b64(encodeCanonicalCBOR(first.json)) },
+    { name: "indefinite-length map", kind: "request", reason: "indefinite lengths are not canonical",
+      canonicalCBORBase64: b64(Uint8Array.from([0xbf, ...firstCBOR.subarray(1), 0xff])) },
+    { name: "delta insert as base64 text", kind: "request", reason: "a delta insert is a byte string in CBOR",
+      canonicalCBORBase64: b64(encodeCanonicalCBOR({ ...firstValue, updates: [{ ...firstValue.updates[0]!, deltas: [{ base: first.json.updates[0].objects[0].hash, result: `sha256:${"b".repeat(64)}`, instructions: [{ insert: "QQ==" }] }] }] })) },
+    { name: "response reconciliation bytes as base64 text", kind: "response", reason: "object bytes are a byte string in CBOR",
+      canonicalCBORBase64: b64(encodeCanonicalCBOR(responses[0]!.json)) },
+    { name: "claim configuration as the retired snapshot shape", kind: "claim", reason: "the configuration is an activation element",
+      canonicalCBORBase64: b64(encodeCanonicalCBOR({ ...claim("cbor"), configuration: { root: configuration.candidate, objects: configuration.objects } })) },
+  ];
+  await writeFile(`${conformance}/protocol-cbor-transport.json`, JSON.stringify({
+    version: 1,
+    description: "Request and response bodies in both encodings (tree operations §4.4, accounts §1.2). Each case's `json` is the JSON body; `canonicalCBORBase64` is the canonical CBOR of the same value, with byte strings where JSON has padded base64 (object `bytes`, delta `insert`). Decoding either must give the same model, and a request's digests are the same in both. `rejected` bodies are CBOR a receiver must refuse. Generated by canonical-cbor-vectors.ts from the JSON vectors named in `source`.",
+    requests, responses, claims, rejected,
+  }, null, 2) + "\n");
+}
 
 // Reference kinds control sparse graph validation, including directory-shaped files.
 const graphPayload = new TextEncoder().encode("raw payload\n");
