@@ -13,15 +13,18 @@ struct CBORTransportTests {
     }
 
     private func cases(_ name: String) throws -> [[String: Any]] {
-        try #require(try vectors()[name] as? [[String: Any]])
+        let all = try vectors()
+        return try #require(all[name] as? [[String: Any]])
     }
 
     private func json(_ entry: [String: Any]) throws -> Data {
-        try JSONSerialization.data(withJSONObject: #require(entry["json"]))
+        let value = try #require(entry["json"])
+        return try JSONSerialization.data(withJSONObject: value)
     }
 
     private func cbor(_ entry: [String: Any]) throws -> Data {
-        try #require(Data(base64Encoded: #require(entry["canonicalCBORBase64"] as? String)))
+        let text = try #require(entry["canonicalCBORBase64"] as? String)
+        return try #require(Data(base64Encoded: text))
     }
 
     @Test("Every request vector decodes to one model and one set of digests in both encodings")
