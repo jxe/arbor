@@ -1,4 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
+import { appendFileSync } from "node:fs";
 import { stableJSONString } from "@overstory/protocol";
 import {
   decodeProtocolDirectory,
@@ -49,6 +50,8 @@ import {
 const encoder = new TextEncoder(),
   decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const clone = copy;
+/** A mutable copy of a node, edited freely until `setNode` places it. */
+const detached = (node: Readonly<Node>): Node => copy(node) as Node;
 /** Canonical JSON bytes, as every object the engine generates is encoded. */
 const encodeJSON = (value: unknown): Uint8Array => encoder.encode(stableJSONString(value));
 /** Whether `id` is an active node reached from `view.root` through active parents. */
@@ -140,11 +143,47 @@ const components = (path: string): string[] => {
 
 /** Projected file objects by node, reused while a node is unchanged. Seeded
  * from an accepted root's directory metadata, never from a client assertion. */
-type ProjectedMaterial = Map<string, {node: Node; object: string}>;
+type ProjectedMaterial = Map<string, {node: Readonly<Node>; object: string}>;
 /** What one projection walk shares: the view's child index, and with
  * `projected` each subtree's object and height (its deepest descendant's
  * distance below it), for a walk over a view nothing edits meanwhile. */
-type Walk = {index?: Map<string, Node[]>; projected?: Map<string, {object: string; height: number}>};
+type Walk = {index?: Map<string, Readonly<Node>[]>; projected?: Map<string, Projected>};
+/** A directory a trusted projection read: its node, object, contents and
+ * active children. */
+type TrustedDirectory = {node: Readonly<Node>; object: string; directory: ProtocolDirectory; children: Readonly<Node>[]};
+/** A subtree's object and height (its deepest descendant's distance below it). */
+type Projected = {object: string; height: number};
+/** What reads and generated objects an evaluation has counted: the budgets'
+ * books. `log`, when present, lists what one projection newly read or
+ * generated, in order (projection verification compares two such lists). */
+type Books = {
+  generated: Map<string, Uint8Array>;
+  cache: Map<string, Uint8Array>;
+  readBytes: number;
+  writtenBytes: number;
+  log?: string[];
+};
+/** How one projection walk runs: which books it counts in, whether it may
+ * reuse and keep subtree projections (`memo`), and whether it is a shadow
+ * walk that must leave no trace on the engine. */
+type ProjectionRun = {books: Books; memo: boolean; shadow: boolean};
+
+/** Test-only projection verification (`ARBOR_MERGE_VERIFY_PROJECTION`, or
+ * `verifyProjection` on `mergeIntent`): every projection is also computed the
+ * full way and compared. "1" enables it; any other value also names a file
+ * to which each evaluation that verified any projection appends this
+ * process's running totals (a spawned sidecar reports nothing else). */
+const verifySetting = process.env.ARBOR_MERGE_VERIFY_PROJECTION;
+export const projectionVerification = {checked: 0, mismatched: 0};
+let verificationNoted = -1;
+const noteVerification = () => {
+  if (!verifySetting || verifySetting === "1" || verificationNoted === projectionVerification.checked) return;
+  verificationNoted = projectionVerification.checked;
+  try {
+    appendFileSync(verifySetting, `${JSON.stringify({pid: process.pid, ...projectionVerification})}\n`);
+  } catch { /* The totals are best effort. */ }
+};
+
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
   /** The effects an editable basis already enforced, when evaluation may
@@ -175,9 +214,21 @@ class Engine {
   readonly formatEvidence: FormatEvidence[] = [];
   readonly generated = new Map<string, Uint8Array>();
   private readonly cache = new Map<string, Uint8Array>();
+  private readonly books: Books = { generated: this.generated, cache: this.cache, readBytes: 0, writtenBytes: 0 };
   private readonly contexts = new Map<string, IntentState>();
-  private readBytes = 0;
-  private writtenBytes = 0;
+  /** Test-only: compare every projection with the full walk. */
+  verifyProjection = !!verifySetting;
+  private verifying: Promise<unknown> = Promise.resolve();
+  /** Subtree projections this evaluation established, per nodes map (so a
+   * state's copy never shares its original's) and by node. An entry holds
+   * while nothing in the subtree changes: every node edit goes through
+   * `edit`, `assign`, `setNode`, `deleteNode` or `replaceNodes`, which forget
+   * the entries of the node and its ancestors. Projecting a subtree again in
+   * this evaluation would put and read only what it already did, so an entry
+   * is reused in its place (see `projectNode`). */
+  private readonly subtrees = new WeakMap<View["nodes"], Map<string, Projected>>();
+  /** Counts node edits: a walk that an edit interleaved keeps no entry. */
+  private editCount = 0;
   private started = performance.now();
   checkBudget() {
     if (
@@ -187,9 +238,9 @@ class Engine {
       throw new EvaluationFailure("Evaluation time budget exceeded", "limit");
   }
   constructor(readonly request: IntentRequest, readonly store: MergeObjects) {}
-  async read(hash: string): Promise<Uint8Array> {
+  async read(hash: string, books = this.books): Promise<Uint8Array> {
     this.checkBudget();
-    const known = this.generated.get(hash) ?? this.cache.get(hash);
+    const known = books.generated.get(hash) ?? books.cache.get(hash);
     if (known) return known;
     if (!OBJECT_HASH.test(hash)) return fail("Invalid object reference");
     let bytes: Uint8Array;
@@ -204,32 +255,34 @@ class Engine {
         `Object store failed reading ${hash}: ${error instanceof Error ? error.message : String(error)}`,
         undefined, { cause: error });
     }
-    this.readBytes += bytes.length;
+    books.readBytes += bytes.length;
+    books.log?.push(`read ${hash} ${bytes.length}`);
     if (
-      this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
+      books.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
     )
       throw new MergeRefusal("limit", "Evaluation object byte budget exceeded");
-    this.cache.set(hash, bytes);
+    books.cache.set(hash, bytes);
     return bytes;
   }
-  put(bytes: Uint8Array): string {
+  put(bytes: Uint8Array, books = this.books): string {
     const hash = hashObject(bytes);
-    if (this.cache.has(hash)) return hash;
-    if (!this.generated.has(hash)) {
-      this.writtenBytes += bytes.length;
+    if (books.cache.has(hash)) return hash;
+    if (!books.generated.has(hash)) {
+      books.writtenBytes += bytes.length;
+      books.log?.push(`put ${hash} ${bytes.length}`);
       if (
-        this.writtenBytes >
+        books.writtenBytes >
         (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
       )
         throw new MergeRefusal("limit", "Generated object byte budget exceeded");
     }
-    this.generated.set(hash, bytes);
+    books.generated.set(hash, bytes);
     return hash;
   }
-  async bytes(pieces: Piece[]): Promise<Uint8Array> {
+  async bytes(pieces: Piece[], books = this.books): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
     for (const p of pieces) {
-      const b = await this.read(p.object);
+      const b = await this.read(p.object, books);
       if (
         !Number.isSafeInteger(p.offset) ||
         !Number.isSafeInteger(p.length) ||
@@ -242,7 +295,8 @@ class Engine {
     }
     return new Uint8Array(Buffer.concat(chunks));
   }
-  async text(node: Node): Promise<Piece[]> {
+  /** A file node's pieces; a node of `view` that has none gets them. */
+  async text(view: View, node: Readonly<Node>): Promise<Piece[]> {
     if (node.kind !== "file") return fail("Source target is not a file");
     if (!node.pieces) {
       const b = await this.read(node.object);
@@ -256,9 +310,77 @@ class Engine {
         : [];
       // A recorded state's node (an operation result's view) is frozen.
       if (Object.isFrozen(node)) return pieces;
-      node.pieces = pieces;
+      this.assign(view, node, "pieces", pieces);
     }
-    return node.pieces;
+    return node.pieces!;
+  }
+
+  // ---- Node edits ---------------------------------------------------------
+  // Every edit to a node a view holds goes through these, so that the
+  // projections `subtrees` keeps for the node and its ancestors are forgotten.
+  // A view's nodes are read-only in its type, so only these write them (and
+  // a node built `detached` is edited freely until `setNode` places it).
+
+  /** Forget the kept projections of node `id` and of its ancestors from
+   * `parent` up, in `view`. */
+  private forget(view: View, id: string, parent: string | null): void {
+    this.editCount++;
+    const kept = this.subtrees.get(view.nodes);
+    if (!kept?.size) return;
+    kept.delete(id);
+    const seen = new Set([id]);
+    for (let at = parent; at !== null && !seen.has(at); at = view.nodes[at]?.parent ?? null) {
+      seen.add(at);
+      kept.delete(at);
+    }
+  }
+  /** Edit `node`, a node of `view`, in place. A changed parent leaves both
+   * the old and the new ancestors unprojected. */
+  edit(view: View, node: Readonly<Node>, change: (node: Node) => void): void {
+    const { id, parent } = node;
+    // Verification also checks that the node is the view's.
+    if (this.verifyProjection && view.nodes[id] !== node)
+      throw new EvaluationFailure(`Node ${id} edited through a view that does not hold it`);
+    this.forget(view, id, parent);
+    change(node as Node);
+    if (node.parent !== parent || node.id !== id) this.forget(view, node.id, node.parent);
+  }
+  /** Set one field of `node`, a node of `view`. The assignment always happens;
+   * an equal value forgets nothing, since projection reads only values. */
+  assign<K extends keyof Node>(view: View, node: Readonly<Node>, field: K, value: Node[K]): void {
+    if (same(node[field], value)) (node as Node)[field] = value;
+    else this.edit(view, node, (n) => { n[field] = value; });
+  }
+  /** Place `node` in `view` under `id`, replacing any node there. */
+  setNode(view: View, id: string, node: Node): void {
+    const old = view.nodes[id];
+    if (old) this.forget(view, id, old.parent);
+    (view.nodes as Record<string, Node>)[id] = node;
+    this.forget(view, id, node.parent);
+  }
+  /** Remove node `id` from `view`. */
+  deleteNode(view: View, id: string): void {
+    const old = view.nodes[id];
+    this.forget(view, id, old?.parent ?? null);
+    delete (view.nodes as Record<string, Node>)[id];
+  }
+  /** Replace `view`'s nodes with a copy of `from`'s, keeping what is known
+   * of `from`'s projections (the copy is equal to it). */
+  replaceNodes(view: View, from: View): void {
+    this.editCount++;
+    (view as {nodes: View["nodes"]}).nodes = clone(from.nodes);
+    this.inherit(view.nodes, from.nodes);
+  }
+  /** A copy of `state` to edit (`cloneState`), which starts with what is
+   * known of `state`'s projections: it is equal to `state` when taken. */
+  cloneState(state: IntentState): IntentState {
+    const result = cloneState(state);
+    this.inherit(result.nodes, state.nodes);
+    return result;
+  }
+  private inherit(nodes: View["nodes"], from: View["nodes"]): void {
+    const kept = this.subtrees.get(from);
+    if (kept?.size) this.subtrees.set(nodes, new Map(kept));
   }
   async importNode(
     view: View,
@@ -276,17 +398,17 @@ class Engine {
       throw new MergeRefusal("limit", "Evaluation node budget exceeded");
     if (view.nodes[id]) return fail("Duplicate material identity");
     const node: Node = { id, parent, name, kind, object, active: true };
-    view.nodes[id] = node;
+    this.setNode(view, id, node);
     count.nodes++;
     if (kind === "file") {
       const size = this.knownLengths?.get(object) ?? (await this.read(object)).length;
-      node.pieces = size
+      this.assign(view, node, "pieces", size
         ? [{ origin: id, start: 0, object, offset: 0, length: size }]
-        : [];
+        : []);
     }
     if (kind === "directory") {
       const directory = directoryOf(await this.read(object));
-      node.directory = { ...directory, entries: [] };
+      this.assign(view, node, "directory", { ...directory, entries: [] });
       for (const entry of directory.entries) {
         await this.importNode(
           view,
@@ -337,6 +459,7 @@ class Engine {
       for (const [id, entry] of material)
         if (!this.projection.previous!.has(id))
           this.projection.previous!.set(id, {node: clone(entry.node), object: entry.object});
+      this.seed(state, material);
     }
     return this.validateState(state, ref, trusted);
   }
@@ -408,7 +531,7 @@ class Engine {
   subtree(view: View, id: string): View {
     const index = this.childIndex(view);
     const nodes: Record<string, Node> = {};
-    const visit = (node: Node) => {
+    const visit = (node: Readonly<Node>) => {
       nodes[node.id] = clone(node);
       for (const child of this.children(view, node.id, index)) visit(child);
     };
@@ -418,8 +541,8 @@ class Engine {
   /** Every node under each parent, active or not, in node order. A walk
    * builds one and passes it down: nodes are edited in place, so an index
    * kept across edits could name a stale parent. */
-  childIndex(view: View): Map<string, Node[]> {
-    const index = new Map<string, Node[]>();
+  childIndex(view: View): Map<string, Readonly<Node>[]> {
+    const index = new Map<string, Readonly<Node>[]>();
     for (const node of Object.values(view.nodes)) if (node.parent !== null) {
       const siblings = index.get(node.parent);
       if (siblings) siblings.push(node); else index.set(node.parent, [node]);
@@ -427,7 +550,7 @@ class Engine {
     return index;
   }
   /** The active children of `id`, from `index` when the caller walks many. */
-  children(view: View, id: string, index?: Map<string, Node[]>): Node[] {
+  children(view: View, id: string, index?: Map<string, Readonly<Node>[]>): Readonly<Node>[] {
     return index
       ? (index.get(id) ?? []).filter((n) => n.active)
       : Object.values(view.nodes).filter((n) => n.active && n.parent === id);
@@ -439,72 +562,149 @@ class Engine {
     view: View,
     root = view.root,
     visiting = new Set<string>(),
-    walk: Walk | Map<string, Node[]> = {}
+    walk: Walk | Map<string, Readonly<Node>[]> = {}
   ): Promise<string> {
-    this.checkBudget();
     const shared: Walk = walk instanceof Map ? { index: walk } : walk;
+    const run: ProjectionRun = { books: this.books, memo: !this.eager, shadow: false };
+    if (!this.verifyProjection) return (await this.projectNode(view, root, visiting, shared, run)).object;
+    // One verified projection at a time, so that each one's books are its own.
+    const verified = this.verifying.then(() => this.verifiedProjection(view, root, visiting, shared, run));
+    this.verifying = verified.catch(() => undefined);
+    return verified;
+  }
+  /** `project` checked against the full walk it replaces: the same object (or
+   * the same failure), and the same objects newly read and generated, in the
+   * same order and with the same byte counts. The full walk runs first, on a
+   * copy of the books and of the walk's memo, and reuses no kept subtree. */
+  private async verifiedProjection(
+    view: View, root: string, visiting: Set<string>, shared: Walk, run: ProjectionRun
+  ): Promise<string> {
+    const outcome = async (walk: Promise<Projected>) => {
+      try { return { value: await walk }; } catch (error) { return { error }; }
+    };
+    const real = run.books;
+    const copy: Books = {
+      generated: new Map(real.generated), cache: new Map(real.cache),
+      readBytes: real.readBytes, writtenBytes: real.writtenBytes, log: [],
+    };
+    const full = await outcome(this.projectNode(view, root, new Set(visiting),
+      { index: shared.index, projected: shared.projected && new Map(shared.projected) },
+      { books: copy, memo: false, shadow: true }));
+    // The real books, with this projection's own log.
+    const tracked: Books = {
+      generated: real.generated, cache: real.cache, log: [],
+      get readBytes() { return real.readBytes; }, set readBytes(value) { real.readBytes = value; },
+      get writtenBytes() { return real.writtenBytes; }, set writtenBytes(value) { real.writtenBytes = value; },
+    };
+    const incremental = await outcome(this.projectNode(view, root, visiting, shared, { ...run, books: tracked }));
+    const describe = (result: typeof full) => "error" in result
+      ? `${(result.error as Error)?.constructor?.name}: ${(result.error as {code?: string}).code ?? ""} ${(result.error as Error)?.message}`
+      : `${result.value.object} (height ${result.value.height})`;
+    const timedOut = (result: typeof full) => "error" in result && result.error instanceof EvaluationFailure &&
+      result.error.message === "Evaluation time budget exceeded";
+    projectionVerification.checked++;
+    if (!timedOut(full) && !timedOut(incremental) && (describe(full) !== describe(incremental) ||
+        stableJSONString(copy.log) !== stableJSONString(tracked.log))) {
+      projectionVerification.mismatched++;
+      const message = `Projection verification failed for ${root}: full ${describe(full)} [${copy.log!.join(", ")}], ` +
+        `incremental ${describe(incremental)} [${tracked.log!.join(", ")}]`;
+      console.error(message);
+      noteVerification();
+      throw new EvaluationFailure(message);
+    }
+    if ("error" in incremental) throw incremental.error;
+    return incremental.value.object;
+  }
+  /** The object `root` projects to, and its height. */
+  private async projectNode(
+    view: View,
+    root: string,
+    visiting: Set<string>,
+    shared: Walk,
+    run: ProjectionRun
+  ): Promise<Projected> {
+    this.checkBudget();
     // A subtree this walk projected already, while nothing edited the view:
     // it projects to the same object, and every object it put is still put.
     // Reused only where projecting it again would not reach the depth budget.
     const known = shared.projected?.get(root);
-    if (known && visiting.size + known.height <= 256) return known.object;
+    if (known && visiting.size + known.height <= 256) return known;
+    // A subtree this evaluation projected (or seeded, see `load`) in this
+    // nodes map, unedited since: the same, by the same argument. Nothing in it
+    // changed, so it holds no cycle through `visiting`, no duplicate name and
+    // no inactive node, and within the depth budget no walk of it can fail.
+    const kept = run.memo ? this.subtrees.get(view.nodes) : undefined;
+    const reused = kept?.get(root);
+    if (reused && visiting.size + reused.height <= 256) {
+      shared.projected?.set(root, reused);
+      return reused;
+    }
     const node = view.nodes[root];
     if (!node?.active) return fail("Projection root is absent");
     if (visiting.has(root)) return fail("Directory cycle");
     if (visiting.size > 256)
       throw new MergeRefusal("limit", "Directory depth budget exceeded");
+    const edits = this.editCount;
     visiting.add(root);
     try {
+      let projected: Projected;
       if (node.kind === "file") {
         const material = this.projection;
         const previous = material?.previous?.get(node.id);
         const object = previous && same(previous.node, node)
           ? previous.object
-          : node.pieces ? this.put(await this.bytes(node.pieces))
-          : (await this.read(node.object), node.object);
-        material?.next.set(node.id, {node, object});
-        shared.projected?.set(root, {object, height: 0});
-        return object;
-      }
-      if (node.kind === "tree") {
-        shared.projected?.set(root, {object: node.object, height: 0});
-        return node.object;
-      }
-      const entries = [];
-      const names = new Set<string>();
-      let height = 0;
-      for (const child of this.children(view, root, (shared.index ??= this.childIndex(view))).sort((a, b) =>
-        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
-      )) {
-        if (names.has(child.name)) return fail("Duplicate directory placement");
-        names.add(child.name);
-        const object = await this.project(view, child.id, visiting, shared);
-        if (shared.projected) height = Math.max(height, shared.projected.get(child.id)!.height + 1);
-        entries.push(
-          child.kind === "file"
-            ? { name: child.name, file: object }
-            : child.kind === "directory"
-            ? { name: child.name, directory: object }
-            : { name: child.name, tree: object }
+          : node.pieces ? this.put(await this.bytes(node.pieces, run.books), run.books)
+          : (await this.read(node.object, run.books), node.object);
+        if (!run.shadow) material?.next.set(node.id, {node, object});
+        projected = {object, height: 0};
+      } else if (node.kind === "tree") projected = {object: node.object, height: 0};
+      else {
+        const entries = [];
+        const names = new Set<string>();
+        let height = 0;
+        for (const child of this.children(view, root, (shared.index ??= this.childIndex(view))).sort((a, b) =>
+          Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
+        )) {
+          if (names.has(child.name)) return fail("Duplicate directory placement");
+          names.add(child.name);
+          const { object, height: below } = await this.projectNode(view, child.id, visiting, shared, run);
+          height = Math.max(height, below + 1);
+          entries.push(
+            child.kind === "file"
+              ? { name: child.name, file: object }
+              : child.kind === "directory"
+              ? { name: child.name, directory: object }
+              : { name: child.name, tree: object }
+          );
+        }
+        const object = this.put(
+          encodeProtocolDirectory({
+            ...node.directory,
+            type: "directory",
+            entries,
+          } as ProtocolDirectory),
+          run.books
         );
+        projected = {object, height};
       }
-      const object = this.put(
-        encodeProtocolDirectory({
-          ...node.directory,
-          type: "directory",
-          entries,
-        } as ProtocolDirectory)
-      );
-      shared.projected?.set(root, {object, height});
-      return object;
+      shared.projected?.set(root, projected);
+      // Kept only when no edit interleaved the walk (it awaits reads).
+      if (run.memo && this.editCount === edits) this.keep(view.nodes).set(root, projected);
+      return projected;
     } finally {
       visiting.delete(root);
     }
   }
+  /** The kept projections of `nodes`. */
+  private keep(nodes: View["nodes"]): Map<string, Projected> {
+    let kept = this.subtrees.get(nodes);
+    if (!kept) this.subtrees.set(nodes, (kept = new Map()));
+    return kept;
+  }
   /** Projections of several nodes of `view` in a loop that edits no node of
    * it (only decisions): one child index, and each subtree projected once.
    * Never kept past such a loop: nodes are edited in place. */
-  projector(view: View, index?: Map<string, Node[]>): (id?: string) => Promise<string> {
+  projector(view: View, index?: Map<string, Readonly<Node>[]>): (id?: string) => Promise<string> {
     const walk: Walk = { index, projected: new Map() };
     return (id = view.root) => this.project(view, id, new Set(), walk);
   }
@@ -563,7 +763,7 @@ class Engine {
     const observed =
       binding.anchor?.observed ??
       binding.pieces ??
-      (await this.text((binding.view ?? state).nodes[binding.node]!));
+      (await this.text(binding.view ?? state, (binding.view ?? state).nodes[binding.node]!));
     const bytes = await this.bytes(observed),
       range: [number, number] = binding.anchor
         ? [binding.anchor.offset, binding.anchor.offset]
@@ -738,7 +938,7 @@ class Engine {
       ids.set(id, next);
       if (state.nodes[next])
         return fail("Alternative occurrence identity reused");
-      state.nodes[next] = { ...clone(prior), id: next, parent };
+      this.setNode(state, next, { ...clone(prior), id: next, parent });
       for (const child of this.children(context, id, index)) visit(child.id, next);
       return next;
     };
@@ -760,7 +960,7 @@ class Engine {
     const destination = state.nodes[parent];
     if (!destination?.active || destination.kind !== "directory")
       return fail("Destination is not a live directory");
-    let cursor: Node | undefined = destination;
+    let cursor: Readonly<Node> | undefined = destination;
     const seen = new Set<string>();
     while (cursor) {
       if (seen.has(cursor.id)) return fail("Parent cycle");
@@ -772,19 +972,22 @@ class Engine {
       this.children(state, parent).some((n) => n.id !== id && n.name === name)
     )
       return fail("Destination already exists");
-    const node = state.nodes[id]!;
-    node.parent = parent;
-    node.name = name;
+    this.edit(state, state.nodes[id]!, (node) => {
+      node.parent = parent;
+      node.name = name;
+    });
   }
   /** Removing changes no parent, so one index serves the whole subtree. */
   remove(state: IntentState, id: string, contribution?: string, index = this.childIndex(state)) {
     for (const child of this.children(state, id, index))
       this.remove(state, child.id, contribution, index);
-    if (contribution)
-      state.nodes[id]!.deletions = [
-        ...new Set([...(state.nodes[id]!.deletions ?? []), contribution]),
-      ];
-    state.nodes[id]!.active = false;
+    this.edit(state, state.nodes[id]!, (node) => {
+      if (contribution)
+        node.deletions = [
+          ...new Set([...(node.deletions ?? []), contribution]),
+        ];
+      node.active = false;
+    });
   }
   copy(
     state: IntentState,
@@ -797,7 +1000,7 @@ class Engine {
   ): string {
     const before = view.nodes[id]!;
     const newID = `${prefix}/${encodeURIComponent(id)}`;
-    const node = clone(before);
+    const node = detached(before);
     node.id = newID;
     node.parent = parent;
     node.name = name;
@@ -809,7 +1012,7 @@ class Engine {
         origin: `${newID}:${index}`,
         start: 0,
       }));
-    state.nodes[newID] = node;
+    this.setNode(state, newID, node);
     // Copies are placed under fresh identities, never under a node of `view`.
     for (const child of this.children(view, id, index))
       this.copy(state, view, child.id, prefix, newID, child.name, index);
@@ -860,7 +1063,7 @@ class Engine {
               "missing-context",
               "Copied choice material is unavailable"
             );
-          const node = clone(state.nodes[alternative.node]!);
+          const node = detached(state.nodes[alternative.node]!);
           node.id = `${key}:${alternative.node}`;
           node.parent = null;
           node.pieces =
@@ -871,7 +1074,7 @@ class Engine {
                   origin: `${node.id}:${i}`,
                   start: 0,
                 }));
-          state.nodes[node.id] = node;
+          this.setNode(state, node.id, node);
           return { ...alternative, node: node.id };
         }
       );
@@ -917,7 +1120,7 @@ class Engine {
       // text() or replacement changes it; other operation kinds retain the full
       // structural comparison below.
       if (validatedBasisObject) before[node.id] = clone(node);
-      const current = await this.text(node),
+      const current = await this.text(state, node),
         range =
           operation.kind === "copySource"
             ? source.range
@@ -978,13 +1181,13 @@ class Engine {
         }
         if (operation.lineage?.length)
           pieces = [...mapped, ...slice(pieces, cursor, bytes.length)];
-        node.pieces = replacePieces(current, range[0], range[1], pieces);
+        this.assign(state, node, "pieces", replacePieces(current, range[0], range[1], pieces));
         result = {
           node: node.id,
           pieces: clone(pieces),
           ...(pieces.length
             ? {}
-            : { anchor: { observed: clone(node.pieces), offset: range[0] } }),
+            : { anchor: { observed: clone(node.pieces!), offset: range[0] } }),
         };
       } else {
         const target = await this.selection(operation.at, basis, state);
@@ -1007,7 +1210,7 @@ class Engine {
         // A transfer changes its destination too; the exact-basis path compares
         // only the nodes it captured.
         if (validatedBasisObject && !Object.hasOwn(before, destination.id)) before[destination.id] = clone(destination);
-        let targetPieces = await this.text(destination);
+        let targetPieces = await this.text(state, destination);
         const atRange = this.locate(
           targetPieces,
           target.observed,
@@ -1028,13 +1231,13 @@ class Engine {
         else {
           if (node.id === destination.id && at > range[0] && at < range[1])
             return fail("Move destination is inside source");
-          node.pieces = replacePieces(current, range[0], range[1]);
+          this.assign(state, node, "pieces", replacePieces(current, range[0], range[1]));
           if (node.id === destination.id) {
             if (at >= range[1]) at -= range[1] - range[0];
-            targetPieces = node.pieces;
+            targetPieces = node.pieces!;
           }
         }
-        destination.pieces = replacePieces(targetPieces, at, at, pieces);
+        this.assign(state, destination, "pieces", replacePieces(targetPieces, at, at, pieces));
         if (operation.kind === "moveSource") {
           for (const decision of state.decisions) {
             if (decision.placement?.node !== node.id) continue;
@@ -1046,12 +1249,12 @@ class Engine {
               if (observed[0] < range[0] || observed[1] > range[1]) continue;
               const moved = await this.evolved(
                 state,
-                destination.pieces,
+                destination.pieces!,
                 decision.placement.pieces
               );
               decision.placement = {
                 node: destination.id,
-                pieces: clone(slice(destination.pieces, ...moved)),
+                pieces: clone(slice(destination.pieces!, ...moved)),
                 anchor: moved[0],
               };
               decision.affected = [destination.id];
@@ -1067,7 +1270,7 @@ class Engine {
             source.node,
             destination.id,
             source.observed,
-            destination.pieces,
+            destination.pieces!,
             key,
             source.range,
             at
@@ -1153,24 +1356,28 @@ class Engine {
             for (const child of this.children(state, node.id, index))
               this.remove(state, child.id, undefined, index);
           }
-          node.kind = other.kind;
-          node.object = other.object;
-          node.pieces = other.pieces ? clone(other.pieces) : undefined;
-          node.directory = other.directory ? clone(other.directory) : undefined;
+          this.edit(state, node, (node) => {
+            node.kind = other.kind;
+            node.object = other.object;
+            node.pieces = other.pieces ? clone(other.pieces) : undefined;
+            node.directory = other.directory ? clone(other.directory) : undefined;
+          });
           for (const child of this.children(state, other.id))
-            child.parent = node.id;
+            this.edit(state, child, (child) => { child.parent = node.id; });
         } else {
           const index = this.childIndex(state);
           for (const child of this.children(state, node.id, index))
             this.remove(state, child.id, undefined, index);
           const object = "file" in value ? value.file : value.directory;
-          node.kind = "file" in value ? "file" : "directory";
-          node.object = object;
-          delete node.pieces;
-          delete node.directory;
+          this.edit(state, node, (node) => {
+            node.kind = "file" in value ? "file" : "directory";
+            node.object = object;
+            delete node.pieces;
+            delete node.directory;
+          });
           const replacementBytes = await this.read(object);
           if (node.kind === "file")
-            node.pieces = replacementBytes.length
+            this.assign(state, node, "pieces", replacementBytes.length
               ? [
                   {
                     origin: key,
@@ -1180,7 +1387,7 @@ class Engine {
                     length: replacementBytes.length,
                   },
                 ]
-              : [];
+              : []);
           if (node.kind === "directory") {
             const temporary: View = { root: key, nodes: {} };
             await this.importNode(
@@ -1191,7 +1398,7 @@ class Engine {
               null,
               node.name
             );
-            node.directory = temporary.nodes[key]!.directory;
+            this.assign(state, node, "directory", temporary.nodes[key]!.directory);
             const imported = this.childIndex(temporary);
             for (const child of this.children(temporary, key, imported))
               this.copy(state, temporary, child.id, key, node.id, child.name, imported);
@@ -1268,7 +1475,7 @@ class Engine {
               node.pieces &&
               realm(node.id) === realm(id)
             )
-              node.pieces = normalize(subtractPieces(node.pieces, edit.removed));
+              this.assign(state, node, "pieces", normalize(subtractPieces(node.pieces, edit.removed)));
         }
       }
     }
@@ -1369,7 +1576,7 @@ class Engine {
             ]);
             oldPieces = retained.placement.pieces;
             newPieces = material.pieces;
-            target.pieces = replacePieces(target.pieces, at[0], at[1], newPieces);
+            this.assign(context, target, "pieces", replacePieces(target.pieces, at[0], at[1], newPieces));
             updated.placement = {
               node: target.id,
               pieces: clone(newPieces),
@@ -1377,9 +1584,9 @@ class Engine {
             };
             for (const [index, alternative] of updated.alternatives.entries()) {
               if (alternative.node && authored.nodes[alternative.node])
-                context.nodes[alternative.node] = clone(
+                this.setNode(context, alternative.node, clone(
                   authored.nodes[alternative.node]!
-                );
+                ));
               else if (
                 retained.alternatives[index]?.object === alternative.object
               )
@@ -1476,7 +1683,7 @@ class Engine {
                 0,
                 length(oldPieces),
               ]);
-              fragment.pieces = replacePieces(fragment.pieces, at[0], at[1], newPieces);
+              this.assign(authored, fragment, "pieces", replacePieces(fragment.pieces, at[0], at[1], newPieces));
               branch.object = await this.project(authored, fragment.id);
               if (
                 parent.alternatives[parent.selected] === branch &&
@@ -1501,7 +1708,7 @@ class Engine {
   }
   /** A retained context state, as a copy the caller may edit. */
   async context(hash: string): Promise<IntentState> {
-    return cloneState(await this.contextView(hash));
+    return this.cloneState(await this.contextView(hash));
   }
   /** A retained context state, loaded and validated once per evaluation and
    * shared: callers only read it. */
@@ -1644,7 +1851,7 @@ class Engine {
       // mutate the authored basis, so copy that view rather than loading and
       // validating the identical retained graph a second time.
       current = sameBasis
-        ? (!base.decisions.length && !request.alternatives?.length ? base : cloneState(base))
+        ? (!base.decisions.length && !request.alternatives?.length ? base : this.cloneState(base))
         : await this.load(request.current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
     // An editable base's nodes reflect every deletion in its effects, so only
@@ -1734,11 +1941,11 @@ class Engine {
       if (!decision || !same(decision, now))
         return fail("Resolution decision is absent or stale");
     }
-    const authored = cloneState(base);
+    const authored = this.cloneState(base);
     // Each frame is authored against its own `before` tree, so a later frame's
     // basis references name the previous frame's result. The frame a given
     // operation was authored in is kept for the concurrent replay below.
-    let basis = cloneState(base);
+    let basis = this.cloneState(base);
     const authoredIn = new Map<string, View>();
     for (const [index, frame] of request.incoming.trace.entries()) {
       for (const operation of frame.operations) {
@@ -1751,7 +1958,7 @@ class Engine {
       if (index === request.incoming.trace.length - 1) break;
       if ((await this.project(authored)) !== frame.after)
         return fail("Frame does not reproduce its result");
-      basis = cloneState(authored);
+      basis = this.cloneState(authored);
     }
     const wrapped = new Set<string>([...this.pendingEnclosures].filter(key => !resolved.has(key)));
     for (const decision of authored.decisions) {
@@ -1832,8 +2039,8 @@ class Engine {
               visibleAfter.pieces,
               placement.pieces
             );
-            node.pieces = clone(slice(visibleAfter.pieces, ...at));
-            placement.pieces = clone(node.pieces);
+            this.assign(authored, node, "pieces", clone(slice(visibleAfter.pieces, ...at)));
+            placement.pieces = clone(node.pieces!);
             placement.anchor = at[0];
           } catch (error) {
             rethrowUnlessFallback(error);
@@ -1858,7 +2065,7 @@ class Engine {
                 length(decision.placement.pieces),
               ])
             : [decision.placement.anchor, decision.placement.anchor];
-          target.pieces = replacePieces(target.pieces, located[0]!, located[1]!, node.pieces ?? []);
+          this.assign(authored, target, "pieces", replacePieces(target.pieces, located[0]!, located[1]!, node.pieces ?? []));
           decision.placement.pieces = clone(node.pieces ?? []);
           decision.placement.anchor = located[0]!;
         }
@@ -1889,10 +2096,10 @@ class Engine {
           op.source.material.kind === "basis" && op.source.material.path === filePath);
       if (fileOnly) {
         const alternatives = [fileBefore!, fileAfter!].map((source, index) => {
-          const node = clone(source);
+          const node = detached(source);
           node.id = `enclosure-file:${request.incoming.change}:${index}`;
           node.parent = null;
-          authored.nodes[node.id] = node;
+          this.setNode(authored, node.id, node);
           return node;
         });
         authored.decisions.push({
@@ -1932,7 +2139,7 @@ class Engine {
     }
     // Recording is immutable. Without resolution removals, copying the entire
     // authored graph/history before serializing it adds no isolation.
-    const authoredSnapshot = resolved.size ? cloneState(authored) : authored;
+    const authoredSnapshot = resolved.size ? this.cloneState(authored) : authored;
     if (resolved.size) {
       authoredSnapshot.decisions = authoredSnapshot.decisions.filter(d => !resolved.has(d.key));
       for (const decision of authoredSnapshot.decisions)
@@ -1961,7 +2168,7 @@ class Engine {
         current.root === base.root &&
         authored.decisions.length === base.decisions.length
       ) {
-        const attempt = cloneState(current);
+        const attempt = this.cloneState(current);
         // Same-anchor insertions this replay orders (see below).
         const anchored: Array<{
           node: string;
@@ -2080,7 +2287,7 @@ class Engine {
             const ordered = entry.key < entry.concurrentKey ? [a, c] : [c, a];
             const [start, end] = [Math.min(a[0], c[0]), Math.max(a[1], c[1])];
             const parts = ordered.map((r) => slice(node.pieces!, r[0], r[1]));
-            node.pieces = replacePieces(node.pieces, start, end, parts.flat());
+            this.assign(attempt, node, "pieces", replacePieces(node.pieces, start, end, parts.flat()));
             const path = basePath(entry.node);
             const policy = evaluateProseInsertions(
               path,
@@ -2129,7 +2336,7 @@ class Engine {
           rethrowUnlessFallback(error);
         }
       }
-      const merged = cloneState(current),
+      const merged = this.cloneState(current),
         affected: string[] =
           structuralTransfer && !transported ? [base.root] : [];
       // Merging edits `merged` only, so the candidate records once as well.
@@ -2235,12 +2442,12 @@ class Engine {
         const { decision, alternative, index, node } = matches[0]!;
         // Visible edits already use the ordinary three-way path.
         if (index === decision.selected && !decision.context) continue;
-        if (same(node.pieces, before.pieces)) node.pieces = clone(after.pieces);
+        if (same(node.pieces, before.pieces)) this.assign(merged, node, "pieces", clone(after.pieces));
         else {
           const at = this.locate(before.pieces, node.pieces!, [0, length(node.pieces!)]);
-          node.pieces = normalize(applyPieceEdits(node.pieces!, (await edits()).map(e => ({
+          this.assign(merged, node, "pieces", normalize(applyPieceEdits(node.pieces!, (await edits()).map(e => ({
             ...e, range: [e.range[0] - at[0], e.range[1] - at[0]] as [number, number],
-          }))));
+          })))));
         }
         alternative.object = await this.project(merged, node.id);
         alternative.state = this.authoredResult!.state;
@@ -2255,7 +2462,7 @@ class Engine {
             candidate: { object: string; state: string };
           }
         | undefined;
-      const existenceChoice = async (id: string, sides: [Node | undefined, Node | undefined]) => {
+      const existenceChoice = async (id: string, sides: [Readonly<Node> | undefined, Readonly<Node> | undefined]) => {
         branchStates ??= {
           old: await recordCurrent(),
           candidate: await recordCandidate(),
@@ -2268,15 +2475,15 @@ class Engine {
             : contributed();
           // The deleted side names its whole branch and no node of its own.
           if (!node?.active || !node.pieces) return { ...branch, contributions };
-          const occurrence = clone(node);
+          const occurrence = detached(node);
           occurrence.id = `existence:${request.incoming.change}:${id}:${side}`;
           occurrence.parent = null;
-          merged.nodes[occurrence.id] = occurrence;
+          this.setNode(merged, occurrence.id, occurrence);
           return { state: branch.state, object: await this.project(merged, occurrence.id), node: occurrence.id, contributions };
         }));
         const chosen = sides[selectedSide];
-        if (chosen) merged.nodes[id] = clone(chosen);
-        else delete merged.nodes[id];
+        if (chosen) this.setNode(merged, id, clone(chosen));
+        else this.deleteNode(merged, id);
         contentDecisions.push({
           key: `${request.incoming.change}:existence:${id}`,
           kind: "existence",
@@ -2299,7 +2506,7 @@ class Engine {
         if (same(b, incoming)) continue;
         if (!b) {
           if (remote && !same(remote, incoming)) affected.push(id);
-          else if (incoming) merged.nodes[id] = clone(incoming);
+          else if (incoming) this.setNode(merged, id, clone(incoming));
           continue;
         }
         const existenceConflict = !incoming || !remote || (
@@ -2321,14 +2528,14 @@ class Engine {
           if (field === "deletions") {
             const prior = new Set(b.deletions ?? []),
               desired = new Set(incoming.deletions ?? []);
-            remote.deletions = [
+            this.assign(merged, remote, "deletions", [
               ...new Set([
                 ...(remote.deletions ?? []).filter(
                   (d) => !prior.has(d) || desired.has(d)
                 ),
                 ...[...desired].filter((d) => !prior.has(d)),
               ]),
-            ].sort();
+            ].sort());
             continue;
           }
           if (!same(remote[field], b[field])) {
@@ -2366,7 +2573,7 @@ class Engine {
                 );
                 this.formatEvidence.push(evidence);
                 if (evidence.outcome === "resolved") {
-                  remote.pieces = proposal;
+                  this.assign(merged, remote, "pieces", proposal);
                   continue;
                 }
               }
@@ -2540,7 +2747,7 @@ class Engine {
                           node = `choice:${request.incoming.change}:${id}:${start}:${end}:${side}`;
                         // Alternative material has its own occurrence; binding it is
                         // explicit and cannot accidentally target equal visible text.
-                        merged.nodes[node] = {
+                        this.setNode(merged, node, {
                           id: node,
                           parent: null,
                           name: "",
@@ -2548,7 +2755,7 @@ class Engine {
                           object,
                           pieces: clone(pieces),
                           active: true,
-                        };
+                        });
                         return {
                           state:
                             side === 0
@@ -2588,15 +2795,13 @@ class Engine {
                   });
                 } else selected.push(...group);
               }
-              remote.pieces = normalize(applyPieceEdits(b.pieces, selected));
+              this.assign(merged, remote, "pieces", normalize(applyPieceEdits(b.pieces, selected)));
               continue;
             }
             affected.push(id);
             continue;
           }
-          (remote as unknown as Record<string, unknown>)[field] = clone(
-            incoming[field]
-          );
+          this.assign(merged, remote, field, clone(incoming[field]) as never);
         }
       }
       for (const map of [
@@ -2610,7 +2815,7 @@ class Engine {
       }
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
-        if (node.deletions?.length) node.active = false;
+        if (node.deletions?.length) this.assign(merged, node, "active", false);
       for (const decision of contentDecisions)
         await this.declineDeletions(merged, decision,
           decision.placement?.pieces ?? merged.nodes[decision.affected[0]!]?.pieces ?? []);
@@ -2685,10 +2890,10 @@ class Engine {
           request.rules.config?.conflictProjection === "current" ? 0 : 1;
         decision.alternatives = await Promise.all(
           values.map(async (value, index) => {
-            const occurrence = clone(value!);
+            const occurrence = detached(value!);
             occurrence.id = `file-choice:${decision.key}:${index}`;
             occurrence.parent = null;
-            resultState.nodes[occurrence.id] = occurrence;
+            this.setNode(resultState, occurrence.id, occurrence);
             const object = await this.project(resultState, occurrence.id);
             // `authored` may be the result state, which this pass edits.
             const context = await (index === 0 ? recordCurrent() : this.record(authored));
@@ -2707,7 +2912,7 @@ class Engine {
           })
         );
         const chosen = values[decision.selected]!;
-        resultState.nodes[node]!.pieces = clone(chosen.pieces!);
+        this.assign(resultState, resultState.nodes[node]!, "pieces", clone(chosen.pieces!));
         decision.placement = { node, pieces: clone(chosen.pieces!), anchor: 0 };
         decision.subject = {
           material: {
@@ -2734,7 +2939,7 @@ class Engine {
           d.key === `change:${request.incoming.change}`
       );
       if (rootChoice) {
-        resultState.nodes = clone(current.nodes);
+        this.replaceNodes(resultState, current);
         resultState.root = current.root;
         // The kept nodes are current's. The effects added below that they do
         // not reflect are the candidate's, whose deletions this choice
@@ -2823,7 +3028,7 @@ class Engine {
         const child = resultDecisions.get(dependency);
         if (!child?.placement)
           return fail("Coupled decisions require one guarded resolution");
-        const matches: Array<{ node: Node; range: [number, number] }> = [];
+        const matches: Array<{ node: Readonly<Node>; range: [number, number] }> = [];
         for (const node of Object.values(resultState.nodes)) {
           if (
             !node.active ||
@@ -2870,14 +3075,17 @@ class Engine {
   private async trustedProjection(state: IntentState, object: string): Promise<ProjectedMaterial> {
     const index = this.childIndex(state);
     const material: ProjectedMaterial = new Map();
+    const directories: TrustedDirectory[] = [];
     const visit = async (id: string, hash: string, depth: number): Promise<void> => {
       this.checkBudget();
       if (depth > 256) return fail("Directory depth budget exceeded");
       const node = state.nodes[id] ?? fail("Missing validated node");
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
-      const entries = new Map(directoryOf(await this.read(hash)).entries.map(e => [e.name, e]));
-      for (const child of this.children(state, id, index)) {
+      const directory = directoryOf(await this.read(hash));
+      const entries = new Map(directory.entries.map(e => [e.name, e]));
+      const children = this.children(state, id, index);
+      for (const child of children) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
           : child.kind === "directory" && "directory" in entry ? entry.directory
@@ -2885,9 +3093,47 @@ class Engine {
         if (!target) return fail("Validated basis directory mismatch");
         await visit(child.id, target, depth + 1);
       }
+      directories.push({node, object: hash, directory, children});
     };
     await visit(state.root, object, 0);
+    this.trusted.set(material, directories);
     return material;
+  }
+  /** The directories each trusted projection read, children first. */
+  private readonly trusted = new WeakMap<ProjectedMaterial, TrustedDirectory[]>();
+  /** Keep, for `state`'s nodes, the projections its trusted projection
+   * `material` already establishes: exactly those a walk now would compute
+   * without putting or reading anything. A file is kept when the walk would
+   * take its object from `projection.previous`; a directory when it is active
+   * and each of its entries is a kept child of that name, kind and object, and
+   * its own metadata is the directory's, so that its encoding is the very
+   * bytes the trusted projection read (and put finds them read). A tree is
+   * its node's object. Nothing is kept when eager. */
+  private seed(state: IntentState, material: ProjectedMaterial): void {
+    const directories = this.trusted.get(material);
+    if (this.eager || !directories) return;
+    const previous = this.projection?.previous, kept = this.keep(state.nodes);
+    const known = (child: Readonly<Node>): Projected | undefined => {
+      if (child.kind === "tree") return {object: child.object, height: 0};
+      if (child.kind === "directory") return kept.get(child.id);
+      const entry = previous?.get(child.id);
+      return entry && same(entry.node, child) ? {object: entry.object, height: 0} : undefined;
+    };
+    for (const {node, object, directory, children} of directories) {
+      if (!node.active || state.nodes[node.id] !== node) continue;
+      let height = 0, complete = children.length === directory.entries.length;
+      const named = new Map(children.map((child) => [child.name, child]));
+      if (named.size !== children.length) complete = false;
+      for (const entry of complete ? directory.entries : []) {
+        const child = named.get(entry.name), projected = child && known(child);
+        if (projected && child.kind !== "directory") kept.set(child.id, projected);
+        const target = child?.kind === "file" ? entry.file : child?.kind === "directory" ? entry.directory : entry.tree;
+        if (!projected || projected.object !== target) complete = false;
+        else height = Math.max(height, projected.height + 1);
+      }
+      if (complete && same({ ...node.directory, type: "directory", entries: directory.entries }, directory))
+        kept.set(node.id, {object, height});
+    }
   }
 
   /** Exact-basis source replacements and entry additions cannot import
@@ -2929,7 +3175,8 @@ class Engine {
     const basis = loadState(retained);
     const projected = await this.trustedProjection(basis, request.base.object);
     this.projection = {previous: projected, next: new Map()};
-    const authored = cloneState(basis);
+    this.seed(basis, projected);
+    const authored = this.cloneState(basis);
     // Frames apply in order. Each one is authored against the previous frame's
     // result, which this path has just projected, so its material needs no
     // second trusted projection; the projected file objects carry forward.
@@ -2947,14 +3194,16 @@ class Engine {
         return fail(trace.length > 1
           ? "Frame does not reproduce its result"
           : "Operations do not reproduce the complete candidate");
-      frameBasis = cloneState(authored);
+      frameBasis = this.cloneState(authored);
       // Carry the projected file objects into the next frame, detached from the
       // live nodes: the next frame edits those nodes in place, and a reused
-      // entry must still describe the material as this frame left it.
-      this.projection = {
-        previous: new Map([...this.projection!.next].map(([id, entry]) => [id, {node: clone(entry.node), object: entry.object}])),
-        next: new Map(),
-      };
+      // entry must still describe the material as this frame left it. A file
+      // whose kept projection was reused was not walked, so it keeps the entry
+      // it had: it is unedited since, and this path removes no node, so every
+      // file the frame could reach is either walked or so kept.
+      const previous: ProjectedMaterial = new Map(this.projection!.previous);
+      for (const [id, entry] of this.projection!.next) previous.set(id, {node: clone(entry.node), object: entry.object});
+      this.projection = { previous, next: new Map() };
     }
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
     authored.changes[request.incoming.change] = this.put(encodeJSON(changeIdentity(request)));
@@ -2995,14 +3244,15 @@ export const engineDiagnostics: Record<string, number> = {};
 export async function mergeIntent(
   request: IntentRequest,
   objects: MergeObjects,
-  options: {incremental?: boolean; eager?: boolean} = {}
+  options: {incremental?: boolean; eager?: boolean; verifyProjection?: boolean} = {}
 ): Promise<IntentEvaluation> {
   checkTrace(request);
   const engine = new Engine(request, objects);
-  // Eager evaluation re-projects every state and re-enforces all history.
-  // It is the reference the differential suite compares the incremental
-  // path against.
+  // Eager evaluation re-projects every state and re-enforces all history,
+  // and keeps no subtree projection. It is the reference the differential
+  // suite compares the incremental path against.
   engine.eager = options.eager ?? false;
+  engine.verifyProjection = options.verifyProjection ?? engine.verifyProjection;
   const result = await engine.run(options.incremental);
   await keep(engine, objects);
   return result;
@@ -3010,6 +3260,7 @@ export async function mergeIntent(
 
 /** Keep what a completed evaluation generated: its objects and its states. */
 async function keep(engine: Engine, objects: MergeObjects): Promise<void> {
+  noteVerification();
   await objects.store([...engine.generated].map(([hash, bytes]) => ({ hash, bytes })));
   for (const [id, state] of engine.generatedStates) objects.states.set(id, state);
 }
@@ -3040,7 +3291,7 @@ export async function checkpointIntent(
   // name: it is editable, and the tree's first edit can fast-forward.
   const editable = !request.current.state || engine.retained(request.current.state).editable;
   const previous = await engine.load(request.current);
-  const state = cloneState(previous);
+  const state = engine.cloneState(previous);
   // The previous state as a record: a wrapped decision's context and the kept
   // alternative. Only decisions need it, so a plain snapshot never stores it.
   let previousRecorded: Promise<{ object: string; state: string }> | undefined;
@@ -3082,7 +3333,7 @@ export async function checkpointIntent(
   const local = (id: string) => id.startsWith(fresh.root) ? id.slice(fresh.root.length) || "/" : id;
   const freshChildren = engine.childIndex(fresh);
   // Each old directory's active children by name, the first of a name winning.
-  const previousNames = new Map<string, Map<string, Node>>();
+  const previousNames = new Map<string, Map<string, Readonly<Node>>>();
   const priorChild = (parent: string, name: string) => {
     let names = previousNames.get(parent);
     if (!names) {
@@ -3102,23 +3353,23 @@ export async function checkpointIntent(
       old = oldID ? previous.nodes[oldID] : undefined;
     const next =
       old?.kind === value.kind ? old.id : `snapshot:${request.change}:${local(id)}`;
-    state.nodes[next] = {
+    engine.setNode(state, next, {
       ...clone(value),
       id: next,
       parent,
       ...(old?.kind === "file" && oldObjects.get(old.id) === value.object
         ? { pieces: clone(old.pieces) }
         : {}),
-    };
+    });
     if (
       value.kind === "file" &&
       state.nodes[next]!.pieces &&
       (!old || oldObjects.get(old.id) !== value.object)
     )
-      state.nodes[next]!.pieces = state.nodes[next]!.pieces!.map((p) => ({
+      engine.assign(state, state.nodes[next]!, "pieces", state.nodes[next]!.pieces!.map((p) => ({
         ...p,
         origin: `snapshot:${request.change}:${local(p.origin)}`,
-      }));
+      })));
     for (const child of engine.children(fresh, id, freshChildren)) {
       const prior = old ? priorChild(old.id, child.name) : undefined;
       rebind(child.id, next, prior?.id);
@@ -3126,7 +3377,7 @@ export async function checkpointIntent(
     return next;
   };
   for (const node of Object.values(state.nodes))
-    if (engine.realm(previous, node.id) === previous.root) node.active = false;
+    if (engine.realm(previous, node.id) === previous.root) engine.assign(state, node, "active", false);
   state.root = rebind(fresh.root, null, previous.root);
   const changedNodes = Object.values(state.nodes)
     .filter(
@@ -3160,7 +3411,7 @@ export async function checkpointIntent(
   // once, and it is recorded once; an import sees only objects an earlier one
   // read, so sharing it changes no budget.
   const imports = new Map<string, IntentState>();
-  const importChildren = new Map<IntentState, Map<string, Node[]>>();
+  const importChildren = new Map<IntentState, Map<string, Readonly<Node>[]>>();
   const importRecords = new Map<IntentState, Promise<{ object: string; state: string }>>();
   const imported = async (object: string): Promise<IntentState> => {
     let context = imports.get(object);
@@ -3205,10 +3456,10 @@ export async function checkpointIntent(
           length(decision.placement.pieces) === length(old.pieces)
         ) {
           const selected = decision.alternatives[decision.selected]!;
-          const material = clone(node);
+          const material = detached(node);
           material.id = `snapshot-alternative:${request.change}:${decision.key}`;
           material.parent = null;
-          state.nodes[material.id] = material;
+          engine.setNode(state, material.id, material);
           selected.node = material.id;
           selected.object = node.object;
           selected.contributions.push({
@@ -3236,10 +3487,10 @@ export async function checkpointIntent(
           selected.node && before !== undefined && after !== undefined) {
         // Editing the kept file edits that alternative; the deletion stays.
         continuations.push({ decision, apply: async () => {
-          const material = clone(state.nodes[id]!);
+          const material = detached(state.nodes[id]!);
           material.id = `snapshot-alternative:${request.change}:${decision.key}`;
           material.parent = null;
-          state.nodes[material.id] = material;
+          engine.setNode(state, material.id, material);
           selected.node = material.id;
           selected.object = after;
           selected.contributions.push({ change: request.change, operation: null });
@@ -3258,7 +3509,7 @@ export async function checkpointIntent(
           selected.node === id && before !== undefined && after !== undefined) {
         // Editing the displayed folder edits that alternative, as a traced edit would.
         continuations.push({ decision, apply: async () => {
-          const context = cloneState(state);
+          const context = engine.cloneState(state);
           context.root = id;
           selected.object = after;
           selected.contributions.push({ change: request.change, operation: null });
@@ -3311,8 +3562,8 @@ export async function checkpointIntent(
       for (const [index, a] of input.alternatives.entries()) {
         const id = `imported:${input.key}:${index}`;
         const size = (await objects.read(a.object)).byteLength;
-        state.nodes[id] = { id, parent: null, name: "", kind: "file", object: a.object,
-          pieces: [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true };
+        engine.setNode(state, id, { id, parent: null, name: "", kind: "file", object: a.object,
+          pieces: [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true });
         alternatives.push({ state: context, object: a.object, node: id, contributions: a.contributions });
       }
       const shown = await engine.project(state, node.id);
@@ -3360,17 +3611,17 @@ export async function checkpointIntent(
           for (const name of parentPath)
             parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Checkpoint decision parent is absent");
           target = { ...clone(kept), id: `existence:${input.key}`, parent: parent.id, name: input.path.at(-1)!, active: false };
-          state.nodes[target.id] = target;
+          engine.setNode(state, target.id, target);
         }
         const alternatives = [];
         for (const [index, a] of input.alternatives.entries()) {
           const recorded = await recordImport(contexts[index]!), node = present[index];
           if (!node) { alternatives.push({ ...recorded, contributions: a.contributions }); continue; }
-          const material = clone(node);
+          const material = detached(node);
           material.id = `imported:${input.key}:${index}`;
           material.parent = null;
           if (index === input.selected && target.active) material.pieces = clone(target.pieces);
-          state.nodes[material.id] = material;
+          engine.setNode(state, material.id, material);
           alternatives.push({ ...recorded, object: await engine.project(state, material.id), node: material.id, contributions: a.contributions });
         }
         addDecision({
@@ -3422,13 +3673,13 @@ export async function checkpointIntent(
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
         const context = contexts[index]!,
-          material = clone(locate(context));
+          material = detached(locate(context));
         if (!material.pieces)
           return fail("Checkpoint file alternative is not a file");
         material.id = `imported:${input.key}:${index}`;
         material.parent = null;
         if (index === input.selected) material.pieces = clone(selected.pieces);
-        state.nodes[material.id] = material;
+        engine.setNode(state, material.id, material);
         alternatives.push({
           ...(await recordImport(context)),
           object: await engine.project(state, material.id),
@@ -3490,7 +3741,7 @@ export async function checkpointIntent(
       contributions: [{ change: request.change, operation: null }],
     };
     if (request.conflictProjection === "current") {
-      state.nodes = clone(previous.nodes);
+      engine.replaceNodes(state, previous);
       state.root = previous.root;
       const previousDecisions = byKey(previous.decisions);
       for (const decision of state.decisions) {

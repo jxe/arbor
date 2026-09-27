@@ -153,8 +153,21 @@ The last 32 solved questions are kept, so replaying the entry canopyd just recor
 an answer reuses that answer's state. The cache is dropped whole when its objects and
 the estimated size of its states exceed `ARBOR_MERGE_CACHE_MB` (default 512).
 
+**Projection.** Recording a state projects its tree to a root. Within one evaluation
+the engine keeps each subtree's projected object for each working copy of a state and
+reuses it until an edit reaches that subtree: every node edit goes through the engine's
+edit helpers, which forget the edited node's and its ancestors' projections (old and new
+ancestors on a move), and a view's nodes are read-only in its type, so no other code can
+write them. A state loaded against its recorded root starts with the projections that
+root's directories establish. Recording after a small edit therefore walks the paths from
+the edited nodes to the root, not the whole tree. A reused subtree is one this evaluation
+already projected, so the objects it generates, their order and the byte budgets are those
+of the full walk; `eager` keeps nothing. With `ARBOR_MERGE_VERIFY_PROJECTION=1` (tests
+only) every projection is also computed the full way and must match exactly.
+
 A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
-start, and chains only grow: about 17 ms an entry at 110 files, locally. So one question
+start, and chains only grow: about 10 ms an entry at 120 files (15 ms with a choice
+open), locally. So one question
 replays for at most `ARBOR_MERGE_REPLAY_MS` (default 10 s; with canopyd's 20-second
 evaluation budget that leaves 15 s of canopyd's 45-second timeout for the entry that
 overruns the deadline, which is checked only between entries), then answers
@@ -534,7 +547,11 @@ both arrival orders, requires one answer from each (and from the eager reference
 and keeps a case where each proof fails; `source-acceptance.test.ts` repeats a list
 item move and a same-anchor pair through canopyd with replay checks.
 `tests/unit/canopyd-merge/history-differential.test.ts` compares every incremental result
-against an eager reference that re-projects every state and enforces all history.
+against an eager reference that re-projects every state and enforces all history, with
+projection verification on. To run any suite or benchmark with it, set
+`ARBOR_MERGE_VERIFY_PROJECTION` to `1`, or to a file that receives each process's count of
+checked projections; canopyd passes a spawned sidecar a fixed environment, so point
+`ARBOR_MERGE_EXECUTABLE` at a wrapper that sets it.
 
 Ordinary plain list edits, including splitting, removing, and rearranging list
 items, may merge with disjoint prose changes. This allowance checks the affected

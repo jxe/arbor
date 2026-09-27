@@ -94,7 +94,7 @@ export interface Node {
 }
 export interface View {
   root: string;
-  nodes: Record<string, Node>;
+  readonly nodes: Readonly<Record<string, Readonly<Node>>>;
 }
 export interface Material {
   node: string;
