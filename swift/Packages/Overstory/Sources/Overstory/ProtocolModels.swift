@@ -996,6 +996,11 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var nonce: String
     public var issuedAt: Int
     public var expiresAt: Int
+    /// A placement claim's home host (accounts §1.3): the origin whose
+    /// published device keys the placement host will trust for this profile.
+    /// The profile key signs it with the rest of the challenge; a home
+    /// claim's challenge has none, so neither stands in for the other.
+    public var homeHost: String? = nil
 
     public func validated() throws -> Self {
         guard version == 1, !id.isEmpty, !origin.isEmpty, !account.isEmpty,
@@ -1003,8 +1008,151 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
               expiresAt > issuedAt else {
             throw ProtocolValidationError.invalidValue("Malformed account challenge")
         }
+        if let homeHost, !isHomeHostOrigin(homeHost) || homeHost == origin {
+            throw ProtocolValidationError.invalidValue("Malformed account challenge")
+        }
         return self
     }
+}
+
+/// Whether `value` is an origin a placement host may read device keys from
+/// (accounts §1.3): exactly an HTTPS origin, or plain HTTP on a loopback
+/// address for local hosts. Matches `isHomeHostOrigin` in `@overstory/protocol`.
+public func isHomeHostOrigin(_ value: String) -> Bool {
+    guard let url = URL(string: value), let origin = webOrigin(url), origin == value else { return false }
+    switch url.scheme?.lowercased() {
+    case "https": return true
+    case "http": return ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host()?.lowercased() ?? "")
+    default: return false
+    }
+}
+
+/// A profile's placement root on a placement host (accounts §1.3): the
+/// ordinary tree the claim declares where the host allocates the account, as
+/// the parent of the person's trees there.
+public struct ProtocolPlacementRoot: Codable, Sendable, Equatable {
+    public var id: String
+    /// The canonical path the host mounts it at (canopyd: `/~handle`).
+    public var path: String
+    /// Its descriptor once its first snapshot activated it; nil until then.
+    public var tree: ProtocolTreeDescriptor?
+
+    public init(id: String, path: String, tree: ProtocolTreeDescriptor? = nil) {
+        self.id = id
+        self.path = path
+        self.tree = tree
+    }
+}
+
+/// The account descriptor a placement host returns (accounts §1.3). It has
+/// no `configuration`: the profile's configuration lives only at `homeHost`.
+public struct ProtocolPlacementAccountDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    /// Optional Canopy-specific presentation hint; never account identity.
+    public var handle: String?
+    public var profileTree: String?
+    public var profileURL: String?
+    public var community: ProtocolTreeDescriptor
+    public var writableProfiles: [ProtocolTreeDescriptor]
+    public var device: ProtocolAccountDescriptor.Device? = nil
+    /// The origin of the profile's home host, whose device keys this host reads.
+    public var homeHost: String
+    public var placementRoot: ProtocolPlacementRoot
+
+    public func validated() throws -> Self {
+        _ = try community.validated()
+        for profile in writableProfiles { _ = try profile.validated() }
+        _ = try placementRoot.tree?.validated()
+        guard !id.isEmpty, isHomeHostOrigin(homeHost), placementRoot.id.hasPrefix("tr_"), placementRoot.id.count > 3,
+              placementRoot.path.hasPrefix("/"), placementRoot.tree.map({ $0.id == placementRoot.id }) != false else {
+            throw ProtocolValidationError.invalidValue("Malformed placement account")
+        }
+        return self
+    }
+}
+
+public struct ProtocolPlacementAccountSnapshot: Codable, Sendable, Equatable {
+    public var account: ProtocolPlacementAccountDescriptor
+    public var observedThrough: String
+}
+
+/// `GET /.arbor/account` as a host sends it: a home host's account, with its
+/// configuration, or a placement host's (accounts §1.3), told apart by
+/// `homeHost` as `isPlacementAccountDescriptor` does in TypeScript.
+public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {
+    case home(ProtocolAccountDescriptor)
+    case placement(ProtocolPlacementAccountDescriptor)
+
+    private enum CodingKeys: String, CodingKey { case homeHost }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if (try? values.decodeIfPresent(String.self, forKey: .homeHost)) != nil {
+            self = .placement(try ProtocolPlacementAccountDescriptor(from: decoder))
+        } else {
+            self = .home(try ProtocolAccountDescriptor(from: decoder))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case let .home(account): try account.encode(to: encoder)
+        case let .placement(account): try account.encode(to: encoder)
+        }
+    }
+
+    public var id: String {
+        switch self {
+        case let .home(account): account.id
+        case let .placement(account): account.id
+        }
+    }
+
+    public var profileTree: String? {
+        switch self {
+        case let .home(account): account.profileTree
+        case let .placement(account): account.profileTree
+        }
+    }
+}
+
+public struct ProtocolAnyAccountSnapshot: Codable, Sendable, Equatable {
+    public var account: ProtocolAnyAccountDescriptor
+    public var observedThrough: String
+}
+
+/// A placement claim (accounts §1.3): the profile-key proof, with no device
+/// and no configuration. Its challenge names `homeHost`.
+public struct ProtocolPlacementClaimRequest: Codable, Sendable, Equatable {
+    public var account: String
+    public var profileTree: String
+    public var configurationTree: String
+    public var challenge: ProtocolAccountChallenge
+    public var publicKey: String
+    public var signature: String
+    public var inviteCode: String?
+
+    public init(
+        account: String,
+        profileTree: String,
+        configurationTree: String,
+        challenge: ProtocolAccountChallenge,
+        publicKey: String,
+        signature: String,
+        inviteCode: String? = nil
+    ) {
+        self.account = account
+        self.profileTree = profileTree
+        self.configurationTree = configurationTree
+        self.challenge = challenge
+        self.publicKey = publicKey
+        self.signature = signature
+        self.inviteCode = inviteCode
+    }
+}
+
+public struct ProtocolPlacementClaimResult: Codable, Sendable, Equatable {
+    public var account: ProtocolPlacementAccountDescriptor
 }
 
 public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable {
@@ -1140,6 +1288,37 @@ public struct ProtocolHTTPError: Error, Sendable, Equatable {
     public var code: String
     public var message: String?
     public var retryable: Bool
+    /// `details.homeHost`: the profile's home host, which a placement host
+    /// names when it refuses a route that is the home host's (403
+    /// `permission-denied`), or cannot refresh the profile's device keys from
+    /// it (503, retryable) (accounts §1.3, §5.4).
+    public var homeHost: String? = nil
+
+    public init(status: Int, code: String, message: String?, retryable: Bool, homeHost: String? = nil) {
+        self.status = status
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.homeHost = homeHost
+    }
+
+    /// What to tell the person when a placement host refused because of its
+    /// home host; nil for every other error.
+    public var placementDescription: String? {
+        guard let homeHost else { return nil }
+        let home = URL(string: homeHost)?.host() ?? homeHost
+        if status == 403 {
+            return "This account is a placement. Its devices and settings are managed at its home host, \(home)."
+        }
+        if status == 503 || retryable {
+            return "This host can't reach the account's home host, \(home), to check this device. Try again in a minute."
+        }
+        return message.map { "\($0) (home host \(home))" }
+    }
+}
+
+extension ProtocolHTTPError: LocalizedError {
+    public var errorDescription: String? { placementDescription ?? message }
 }
 
 func validateObjectHash(_ value: String) throws {

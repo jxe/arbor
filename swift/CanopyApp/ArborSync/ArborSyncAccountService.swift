@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Overstory
+import OverstoryClient
 
 /// The Mac's accounts: the data home, which owns this Mac's identity and
 /// account credentials (Native 011, option 1). Every operation is one of the
@@ -12,7 +13,7 @@ struct ArborSyncAccountService: CanopyAccountService {
     let connect: @Sendable () async throws -> ArborSyncRESTClient
 
     var capabilities: Set<CanopyAccountCapability> {
-        [.restoreIdentity, .backupIdentity, .cancelPendingClaim, .resumePairing]
+        [.restoreIdentity, .backupIdentity, .cancelPendingClaim, .resumePairing, .placeAccount]
     }
 
     func state() async throws -> CanopyAccountState {
@@ -79,6 +80,26 @@ struct ArborSyncAccountService: CanopyAccountService {
 
     func forget(origin _: URL, configurationTree _: String?) async throws {
         throw CanopyAccountServiceError.unsupported(.forget)
+    }
+
+    /// The data home's placement connections, read from disk as the
+    /// `arbor` command and the daemon write them (`HostPlacementStore`).
+    func placements(configurationTree: String) async throws -> [CanopyPlacement] {
+        DataHomePlacementStore(dataHome: CanopySupportDirectories.dataHome)
+            .placements(configurationTree: configurationTree)
+            .map { CanopyPlacement($0) }
+    }
+
+    /// The data home holds the profile key, so the daemon claims (Security
+    /// 007): the same claim as `arbor account place <host>`.
+    func placeAccount(configurationTree _: String, host: String, inviteCode: String?) async throws {
+        try await connect().placeAccount(host: host, inviteCode: inviteCode)
+    }
+
+    /// Remove the connection's directory, as `HostPlacementStore.remove()` does.
+    func forgetPlacement(_ placement: CanopyPlacement) async throws {
+        try DataHomePlacementStore(dataHome: CanopySupportDirectories.dataHome)
+            .remove(configurationTree: placement.configurationTree, origin: placement.origin)
     }
 
     /// The data home's profile folder: the identity's own, or the app's

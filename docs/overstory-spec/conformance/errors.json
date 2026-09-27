@@ -7,5 +7,7 @@
   { "error": "read-only", "message": "Historical node is read only", "retryable": false, "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/readonly" },
   { "error": "resync-required", "message": "Read a new snapshot", "retryable": true, "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" },
   { "error": "already-claimed", "message": "Profile already claimed", "retryable": false },
+  { "error": "permission-denied", "message": "Devices are managed at this profile's home host", "retryable": false, "details": { "homeHost": "https://home.example" } },
+  { "error": "internal-error", "message": "The home host cannot be reached to check this device", "retryable": true, "details": { "homeHost": "https://home.example" } },
   { "error": "future-error-code", "message": "Future", "retryable": false, "details": { "futureDetail": 1 } }
 ]

@@ -31,6 +31,7 @@ private protocol CanopyAccountPresentable {
 private extension CanopyAccountPresentable {
     var profileSectionID: String { "profile:\(configurationTree)" }
     var devicesSectionID: String { "devices:\(configurationTree)" }
+    var placementsSectionID: String { "placements:\(configurationTree)" }
 
     var accountDisplayName: String {
         guard let handle, !handle.isEmpty else { return "Canopy account" }
@@ -3457,6 +3458,125 @@ private struct CanopyDevicesHeader: View {
     }
 }
 
+/// One account's placements on other hosts (accounts §1.3): the placement
+/// connections this device holds, an action to place the account on
+/// another host, and removing a connection from this device. Placing
+/// folders under a placement root is not here.
+private struct CanopyPlacementsSection: View {
+    let workspace: CanopyWorkspaceState
+    let configurationTree: String
+    var title = "Other Hosts"
+    @State private var placements: [CanopyPlacement] = []
+    @State private var hostPromptPresented = false
+    @State private var host = ""
+    @State private var working = false
+    @State private var message: String?
+    @State private var removal: CanopyPlacement?
+
+    private var canPlace: Bool { workspace.accountService.capabilities.contains(.placeAccount) }
+
+    var body: some View {
+        Section {
+            ForEach(placements) { placement in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(placement.handle.map { "~\($0) on \(placement.hostName)" } ?? placement.hostName)
+                        Text("Signs in through \(placement.homeHostName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Button(role: .destructive) {
+                        removal = placement
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(working)
+                    .accessibilityLabel("Remove \(placement.hostName) from this device")
+                    .help("Remove from this device…")
+                }
+            }
+            if placements.isEmpty {
+                Text("This account is not placed on another host.").foregroundStyle(.secondary)
+            }
+            if working { ProgressView() }
+            if let message {
+                Text(message).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text(title).textCase(nil)
+        } footer: {
+            if canPlace {
+                Button("Place on another host…") {
+                    host = ""
+                    hostPromptPresented = true
+                }
+#if os(macOS)
+                .buttonStyle(.link)
+#endif
+                .textCase(nil)
+                .disabled(working)
+            }
+        }
+        .task(id: configurationTree) { await load() }
+        .alert("Place on another host", isPresented: $hostPromptPresented) {
+            TextField("https://canopy.example", text: $host)
+#if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+#endif
+            Button("Place") { Task { await place() } }
+                .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your trees can then live under that host's addresses. It signs your devices in through your home host.")
+        }
+        .confirmationDialog(
+            "Remove \(removal?.hostName ?? "this host") from this device?",
+            isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }),
+            presenting: removal
+        ) { placement in
+            Button("Remove", role: .destructive) { Task { await forget(placement) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { placement in
+            Text("The account stays on \(placement.hostName); placing it there again reconnects this device.")
+        }
+    }
+
+    private func load() async {
+        do {
+            placements = try await workspace.accountService.placements(configurationTree: configurationTree)
+        } catch { message = error.localizedDescription }
+    }
+
+    private func place() async {
+        working = true
+        defer { working = false }
+        do {
+#if os(macOS)
+            try await workspace.ensureArborSync()
+#endif
+            try await workspace.accountService.placeAccount(configurationTree: configurationTree, host: host, inviteCode: nil)
+            message = nil
+        } catch {
+            // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
+            message = error.localizedDescription
+        }
+        await load()
+    }
+
+    private func forget(_ placement: CanopyPlacement) async {
+        do {
+            try await workspace.accountService.forgetPlacement(placement)
+            message = nil
+        } catch { message = error.localizedDescription }
+        removal = nil
+        await load()
+    }
+}
+
 #if os(macOS)
 private struct DeviceDeauthorizationTarget: Identifiable {
     let configurationTree: String
@@ -3538,6 +3658,13 @@ private struct MacArborSyncAccountPanel: View {
                                 .textCase(nil)
                                 .disabled(!hostAccount.credentialAvailable)
                             }
+                        }
+                        ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
+                            CanopyPlacementsSection(
+                                workspace: workspace,
+                                configurationTree: hostAccount.configurationTree,
+                                title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts"
+                            )
                         }
                     }
                     if account.accounts.isEmpty {
@@ -4361,6 +4488,13 @@ private struct IOSAccountPanel: View {
                             addAccount: { addingAccount = true }
                         )
                     }
+                }
+                ForEach(accounts, id: \.placementsSectionID) { account in
+                    CanopyPlacementsSection(
+                        workspace: workspace,
+                        configurationTree: account.configurationTree,
+                        title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts"
+                    )
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
