@@ -29,7 +29,7 @@ whole.
   `ProtocolObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
 - **iOS resolves absent files already.** `CanopyAppModel` opens each working tree
   over `HostObjectStore`, which reads any object by hash from Canopy, and
-  `LayeredObjectStore` puts local objects in front of it.
+  `WorkingTree.objectBytes` reads its own overlay first.
 - **Only placement is whole.** `WorkingTreePlacementService.place`
   (`swift/Packages/OverstoryClient/Sources/OverstoryClient/WorkingTreePlacementService.swift`)
   still calls `transport.snapshot`, which buffers the complete bundle

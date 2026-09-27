@@ -72,7 +72,7 @@ actor ArborSyncRESTClient {
         try await get(path: "/v1/status", items: [])
     }
 
-    func trees() async throws -> SnapshotEnvelope<[LocalTreeDescriptor]> {
+    func trees() async throws -> ProtocolSnapshotEnvelope<[LocalTreeDescriptor]> {
         try await get(path: "/v1/trees", items: [])
     }
 

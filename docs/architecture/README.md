@@ -72,7 +72,7 @@ and the CLI share them ([local state](canopy-browser/local-state.md)).
 | Package | Purpose | Depends on |
 |---|---|---|
 | `Overstory` | Protocol models, canonical CBOR, the SSE parser, the HTTP client, authored and accepted contracts, operations, transitions, resource policy, the network log | |
-| `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, layered, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
+| `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
 | `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the editor source, the browser tab controller | |
 | `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
 | `OverstoryClient` | Credentials, the placement service, `HostWatchRunner`, tree configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |

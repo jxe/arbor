@@ -58,26 +58,31 @@ public enum ProtocolObject: Hashable, Sendable {
 public enum ProtocolObjectCodec {
     public static func encode(_ object: ProtocolObject) throws -> Data {
         try validate(object)
-        let value: CanonicalCBORValue
         switch object {
         case let .file(bytes):
             return bytes
         case let .directory(entries, childrenSource):
-            var fields: [(String, CanonicalCBORValue)] = [
-                ("type", .text("directory")),
-                ("entries", .array(entries.map { entry in
-                    .map([
-                        ("name", .text(entry.name)),
-                        entry.file.map { ("file", .text($0)) }
-                            ?? entry.directory.map { ("directory", .text($0)) }
-                            ?? ("tree", .text(entry.tree!))
-                    ])
-                }))
-            ]
-            if let childrenSource { fields.append(("childrenSource", collectionFileValue(childrenSource))) }
-            value = .map(fields)
+            return directoryBytes(entries, childrenSource: childrenSource)
         }
-        return CanonicalCBOR.encode(value)
+    }
+
+    /// A directory object's canonical CBOR as given: entries in the order
+    /// passed, nothing validated. `encode` validates first; a working tree
+    /// that has already ordered its entries encodes with this directly.
+    public static func directoryBytes(_ entries: [ProtocolDirectoryEntry], childrenSource: ProtocolCollectionFileDescriptor? = nil) -> Data {
+        var fields: [(String, CanonicalCBORValue)] = [
+            ("type", .text("directory")),
+            ("entries", .array(entries.map { entry in
+                .map([
+                    ("name", .text(entry.name)),
+                    entry.file.map { ("file", .text($0)) }
+                        ?? entry.directory.map { ("directory", .text($0)) }
+                        ?? ("tree", .text(entry.tree!))
+                ])
+            }))
+        ]
+        if let childrenSource { fields.append(("childrenSource", collectionFileValue(childrenSource))) }
+        return CanonicalCBOR.encode(.map(fields))
     }
 
     public static func decode(_ bytes: Data, kind: ProtocolEntryKind) throws -> ProtocolObject {

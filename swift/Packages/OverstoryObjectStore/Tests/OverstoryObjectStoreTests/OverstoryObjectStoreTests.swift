@@ -3,54 +3,11 @@ import Foundation
 import Testing
 @testable import OverstoryObjectStore
 
-private final class RecordingStore: ObjectStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var objects: [String: Data]
-    private(set) var requests: [String] = []
-
-    init(_ objects: [String: Data]) { self.objects = objects }
-
-    func bytes(_ hash: String) async throws -> Data {
-        let found: Data? = lock.withLock {
-            requests.append(hash)
-            return objects[hash]
-        }
-        guard let found else { throw ObjectStoreError.missing(hash) }
-        return found
-    }
-
-    var requestCount: Int { lock.withLock { requests.count } }
-}
-
 @Suite("Object stores")
 struct ObjectStoreTests {
-    @Test("Layered lookup serves the overlay first and falls through to the platform")
-    func layeredOrder() async throws {
-        let local = try ProtocolObjectCodec.object(.file(Data("local".utf8)))
-        let remote = try ProtocolObjectCodec.object(.file(Data("remote".utf8)))
-        let overlay = InMemoryObjectOverlay()
-        try overlay.store([local.hash: local.bytes])
-        let platform = RecordingStore([remote.hash: remote.bytes, local.hash: Data("would be wrong".utf8)])
-        let layered = LayeredObjectStore(overlay: overlay, platform: platform)
-
-        #expect(try await layered.bytes(local.hash) == local.bytes)
-        #expect(platform.requestCount == 0)
-        #expect(try await layered.bytes(remote.hash) == remote.bytes)
-        #expect(platform.requestCount == 1)
-        #expect(!overlay.contains(remote.hash), "fetch-through never fills the overlay")
-        let missing = "sha256:" + String(repeating: "0", count: 64)
-        await #expect(throws: ObjectStoreError.missing(missing)) { _ = try await layered.bytes(missing) }
-    }
-
     @Test("Every store verifies the bytes it hands out")
     func hashVerification() async throws {
         let honest = try ProtocolObjectCodec.object(.file(Data("honest".utf8)))
-        let lying = RecordingStore([honest.hash: Data("tampered".utf8)])
-        let layered = LayeredObjectStore(overlay: InMemoryObjectOverlay(), platform: lying)
-        await #expect(throws: ObjectStoreError.hashMismatch(expected: honest.hash, actual: ProtocolObjectCodec.hash(Data("tampered".utf8)))) {
-            _ = try await layered.bytes(honest.hash)
-        }
-
         let overlay = InMemoryObjectOverlay()
         #expect(throws: ObjectStoreError.self) { try overlay.store([honest.hash: Data("tampered".utf8)]) }
         try overlay.store([honest.hash: honest.bytes])

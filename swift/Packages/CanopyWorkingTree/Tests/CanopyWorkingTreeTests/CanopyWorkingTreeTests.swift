@@ -24,6 +24,32 @@ func openWorkingTree(
     }
 }
 
+/// A platform store that serves fixed bytes by hash, without verifying them.
+private struct FixedObjectStore: ObjectStore {
+    let objects: [String: Data]
+    func bytes(_ hash: String) async throws -> Data {
+        guard let bytes = objects[hash] else { throw ObjectStoreError.missing(hash) }
+        return bytes
+    }
+}
+
+@Suite("Working-tree object reads")
+struct WorkingTreeObjectReadTests {
+    @Test("An object the tree lacks is read through its platform store, verified")
+    func platformFallthrough() async throws {
+        let honest = try ProtocolObjectCodec.object(.file(Data("honest".utf8)))
+        let lied = try ProtocolObjectCodec.object(.file(Data("expected".utf8)))
+        let platform = FixedObjectStore(objects: [honest.hash: honest.bytes, lied.hash: Data("tampered".utf8)])
+        let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: "tr_objectreads"), platform: platform)
+        #expect(try await tree.objectBytes(hash: honest.hash) == honest.bytes)
+        await #expect(throws: ObjectStoreError.hashMismatch(expected: lied.hash, actual: ProtocolObjectCodec.hash(Data("tampered".utf8)))) {
+            _ = try await tree.objectBytes(hash: lied.hash)
+        }
+        let missing = "sha256:" + String(repeating: "0", count: 64)
+        await #expect(throws: ObjectStoreError.missing(missing)) { _ = try await tree.objectBytes(hash: missing) }
+    }
+}
+
 @Suite("Shared replica semantics")
 struct WorkingTreeFixtureTests {
     @Test("Directory projection never materializes generated child links")
@@ -60,8 +86,8 @@ struct WorkingTreeFixtureTests {
             switch vector.model.type {
             case "file": bytes = Data(base64Encoded: vector.model.bytesBase64!)!
             case "directory":
-                bytes = WorkingTreeProtocolCodec.directory(
-                    vector.model.entries!.map { ($0.name, $0.file, $0.directory, $0.tree) },
+                bytes = ProtocolObjectCodec.directoryBytes(
+                    vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree) },
                     childrenSource: vector.model.childrenSource
                 )
             default: throw WorkingTreeError.corruptState("Unknown fixture object")

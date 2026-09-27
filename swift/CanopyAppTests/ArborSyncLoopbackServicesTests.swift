@@ -236,10 +236,6 @@ struct LoopbackServicesTests {
         await #expect(throws: ObjectStoreError.missing(absent)) {
             _ = try await store.bytes(absent)
         }
-
-        // Layered behind an overlay it is the platform fallback.
-        let layered = LayeredObjectStore(overlay: InMemoryObjectOverlay(), platform: store)
-        #expect(try await layered.bytes(hash) == bytes)
     }
 
     // MARK: Control-mode supervisor

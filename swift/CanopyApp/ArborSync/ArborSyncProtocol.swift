@@ -67,25 +67,6 @@ struct NodeRef: Codable, Sendable, Equatable {
 /// A canonical tree location is the same value on the protocol and through Arbor Sync.
 typealias CanonicalTreeDescriptor = ProtocolCanonicalDescriptor
 
-struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
-    var snapshot: Value
-    var observedThrough: String
-}
-
-struct LocatorResolution: Codable, Sendable, Equatable {
-    var ref: NodeRef
-    var enclosingTree: TreeDescriptor?
-    var historical: Bool
-    var observedThrough: String
-}
-
-struct TreeDescriptor: Codable, Sendable, Equatable {
-    var id: String
-    var kind: String
-    var access: String
-    var canonical: CanonicalTreeDescriptor?
-}
-
 /// A tree as Arbor Sync holds it: the protocol descriptor fields plus placement,
 /// display name, and synchronization state. `root` and `update` are the
 /// accepted Canopy base this placement derives from, absent until one exists.
@@ -112,17 +93,6 @@ struct ArborSyncDiagnostic: Codable, Sendable, Equatable {
     var severity: String
     var row: Int?
     var field: String?
-}
-
-struct MutationEffect: Codable, Sendable, Equatable {
-    var kind: String
-    var ref: NodeRef
-    var previousPath: String?
-    var contentRevision: String?
-    var propertiesRevision: String?
-    /// Exact top-level property names when the provider can prove them.
-    var changedProperties: [String]?
-    var directoryRevision: String?
 }
 
 struct WorkspaceChange: Codable, Sendable, Equatable {
