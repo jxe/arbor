@@ -130,6 +130,16 @@ test("bad output, nonzero exit and timeout accept nothing, retryably when the si
   }
 });
 
+test("a sidecar that keeps failing to start is not respawned on every question", async () => {
+  const base = snapshot("base"), current = snapshot("current"), incoming = snapshot("incoming");
+  const { question, inputs } = await prepare(base, current, incoming);
+  const file = join(directory, "fails.ts"); await writeFile(file, "process.exit(42)");
+  await using broken = new MergeTool(directory, { command: [process.execPath, file] });
+  await expect(broken.ask(question, inputs)).rejects.toThrow("exited");
+  await expect(broken.ask(question, inputs)).rejects.toThrow("exited");
+  await expect(broken.ask(question, inputs)).rejects.toThrow("Recent starts failed");
+});
+
 test("a failed tree merge inside the sidecar keeps the current tree behind a whole-root choice", async () => {
   const base = snapshot("base"), current = snapshot("current"), incoming = snapshot("incoming");
   const { question, inputs } = await prepare(base, current, incoming);

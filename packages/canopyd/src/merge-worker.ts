@@ -94,13 +94,17 @@ export class PersistentMergeWorker {
         this.fail(new Error("Merge worker diagnostics exceed byte budget"));
         return;
       }
-      // Timing lines are diagnostics only; anything else on stderr is ignored.
+      // Timing lines feed Server-Timing; any other line is a sidecar warning or
+      // fatal error and goes to canopyd's log.
       this.stderrPending += chunk.toString("utf8");
       let end: number;
       while ((end = this.stderrPending.indexOf("\n")) !== -1) {
         const line = this.stderrPending.slice(0, end);
         this.stderrPending = this.stderrPending.slice(end + 1);
-        if (!line.startsWith("{\"timings\":")) continue;
+        if (!line.startsWith("{\"timings\":")) {
+          if (line.trim()) console.error("Merge worker:", line);
+          continue;
+        }
         try {
           const parsed = JSON.parse(line) as { timings?: Record<string, unknown> };
           if (parsed.timings && typeof parsed.timings === "object") {
@@ -123,6 +127,7 @@ export class PersistentMergeWorker {
     if (!this.alive || this.pending)
       return Promise.reject(new Error("Merge worker is unavailable or busy"));
     this.stderrBytes = 0;
+    this.lastTimings = undefined;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => this.fail(new Error("Merge worker timed out")),

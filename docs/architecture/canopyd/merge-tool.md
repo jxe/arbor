@@ -108,12 +108,15 @@ bun run arbor-merge serve --objects /data/objects --staging /data/merge-workers/
 answer, `{ "refusal": { "code", "message" } }` for a typed refusal (`invalid`,
 `missing-context`, `unsupported`, `limit`), or `{ "error": { "message", "code"? } }` for a
 failure to evaluate. Each question's timings go to stderr as one
-`{"timings": ...}` line. canopyd keeps one sidecar alive across jobs with a bounded
+`{"timings": ...}` line; canopyd copies any other stderr line, such as a
+warning or a fatal error, to its own log. canopyd keeps one sidecar alive across jobs with a bounded
 FIFO queue, stages each question's uncommitted inputs, checks the answer, then clears
 staging before the next job. A verified answer, a well-formed refusal and a well-formed
 `{error}` line all leave the process in service with its cache. A timeout, a crash,
 unparseable or malformed output, or an answer that fails the checks below retires it:
-it is reaped before cleanup, and the queued successor starts a replacement. canopyd
+it is reaped before cleanup, and the queued successor starts a replacement. When a
+second process in a row is retired before answering anything, later starts wait 0.5 s,
+doubling to 30 s, and questions meanwhile get a retryable 503. canopyd
 shutdown drains the active job, rejects queued work, and closes the process. A custom
 executable (`ARBOR_MERGE_EXECUTABLE`) speaks the same protocol.
 
@@ -152,8 +155,9 @@ the estimated size of its states exceed `ARBOR_MERGE_CACHE_MB` (default 512).
 
 A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
 start, and chains only grow: about 17 ms an entry at 110 files, locally. So one question
-replays for at most `ARBOR_MERGE_REPLAY_MS` (default 10 s, which with canopyd's 20-second
-evaluation budget stays inside its 30-second timeout), then answers
+replays for at most `ARBOR_MERGE_REPLAY_MS` (default 10 s; with canopyd's 20-second
+evaluation budget that leaves 15 s of canopyd's 45-second timeout for the entry that
+overruns the deadline, which is checked only between entries), then answers
 `{"error": {"code": "unavailable"}}` and keeps every state it rebuilt; canopyd answers a
 retryable 503 and the client's retry continues the rebuild. Every attempt replays at
 least one entry. Without the budget canopyd's timeout would end the process and lose the
@@ -480,7 +484,7 @@ are disposable. The object store has no collector today. Entry hashes are never 
 clients; the object route serves any retained object to a caller who can read some tree
 and knows its hash, and entries fall under that rule.
 
-canopyd uses one sidecar, at most 64 queued questions, a 30-second timeout with forced
+canopyd uses one sidecar, at most 64 queued questions, a 45-second timeout with forced
 termination, and an 8 MiB stdout/stderr buffer limit. A sidecar that cannot start, exits
 or times out accepts nothing: canopyd answers a retryable 503 (`merge-failed`), and the
 client retains its durable request for retry. A fast-forward and an exact accepted retry

@@ -5,6 +5,13 @@ import { hashObject, type ObjectHash } from "@overstory/protocol";
 import { absentFrom, ObjectStore } from "@overstory/object-store";
 import { MergeRefusal, parseAnswer, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
+
+/** How long canopyd waits for one answer before killing the sidecar. It sits
+ * well above the sidecar's own budgets (a 10 s cold replay, checked only
+ * between entries, then the 20 s evaluation budget) so a slow question ends
+ * in the sidecar's retryable answer, keeping its partial rebuild, rather than
+ * in a kill that discards it. */
+const WORKER_TIMEOUT_MS = 45_000;
 export interface MergeToolOptions {
   /** Executable and fixed arguments, run as `<command> serve --objects DIR
    * --staging DIR`: one sequential JSON-lines worker. No shell interpretation. */
@@ -15,6 +22,7 @@ export interface MergeToolOptions {
   objects?: ObjectStore;
   /** Optional diagnostic counters per job; no request content or identities. */
   onCount?: (name: string, value: number) => void;
+  /** Worker timeout per question; defaults to 45 s (`WORKER_TIMEOUT_MS`). */
   timeoutMs?: number;
   /** Host evaluation budget; defaults to 20 s, bounded by the worker timeout. */
   evaluationMillis?: number;
@@ -45,6 +53,13 @@ export class MergeTool {
   private worker?: PersistentMergeWorker;
   private readonly jobs = new Set<Promise<unknown>>();
   private closing = false;
+  /** Whether the current worker has answered in form, and how many workers in
+   * a row were retired before answering. After the second such failure a
+   * start waits 0.5 s, doubling to 30 s, so a sidecar that cannot start is
+   * not respawned on every question. */
+  private workerAnswered = false;
+  private failedStarts = 0;
+  private nextStartAt = 0;
   /** Remove worker directories left by an earlier process. Each job removes
    * its own staging when it settles, so anything present at startup belonged
    * to a process that died mid-job; nothing accepted lives there. */
@@ -53,7 +68,7 @@ export class MergeTool {
     await rm(join(this.dataRoot, "merge-workers"), { recursive: true, force: true });
   }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
-  get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? 30_000); }
+  get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? WORKER_TIMEOUT_MS); }
 
   private readonly shared: ObjectStore;
   private active = 0;
@@ -63,10 +78,10 @@ export class MergeTool {
     private readonly options: MergeToolOptions = {}
   ) {
     if (
-      !Number.isInteger(options.timeoutMs ?? 30_000) ||
-      (options.timeoutMs ?? 30_000) < 1 ||
+      !Number.isInteger(options.timeoutMs ?? WORKER_TIMEOUT_MS) ||
+      (options.timeoutMs ?? WORKER_TIMEOUT_MS) < 1 ||
       !Number.isInteger(this.evaluationMillis) || this.evaluationMillis < 1 ||
-      this.evaluationMillis > Math.min(30_000, options.timeoutMs ?? 30_000)
+      this.evaluationMillis > Math.min(30_000, options.timeoutMs ?? WORKER_TIMEOUT_MS)
     )
       throw new Error("Invalid merge worker limits");
     this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));
@@ -132,7 +147,7 @@ export class MergeTool {
       const staging = new ObjectStore(join(worker.directory, "objects"));
       await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = await worker.request(question, this.options.timeoutMs ?? 30_000).catch((error) => { throw unavailable(error); });
+      const stdout = await worker.request(question, this.options.timeoutMs ?? WORKER_TIMEOUT_MS).catch((error) => { throw unavailable(error); });
       mark("worker-process");
       try {
         for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
@@ -181,7 +196,10 @@ export class MergeTool {
       return { answer, objects };
     } finally {
       if (worker) {
+        if (healthy) { this.workerAnswered = true; this.failedStarts = 0; }
         if (!healthy || !worker.alive) {
+          if (!this.workerAnswered && ++this.failedStarts > 1)
+            this.nextStartAt = Date.now() + Math.min(30_000, 500 * 2 ** (this.failedStarts - 2));
           this.worker = undefined;
           await worker.close();
           await rm(worker.directory, {recursive: true, force: true});
@@ -208,6 +226,7 @@ export class MergeTool {
       this.worker = worker = undefined;
     }
     if (worker) return worker;
+    if (Date.now() < this.nextStartAt) throw new Error("Recent starts failed; waiting before the next");
     const command = this.options.command ?? (process.env.ARBOR_MERGE_EXECUTABLE
       ? [process.env.ARBOR_MERGE_EXECUTABLE]
       : [process.execPath, fileURLToPath(new URL("../../canopyd-merge/src/cli.ts", import.meta.url))]);
@@ -218,6 +237,7 @@ export class MergeTool {
     worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"),
       join(this.dataRoot, "merge-cache"));
     this.worker = worker;
+    this.workerAnswered = false;
     return worker;
   }
 

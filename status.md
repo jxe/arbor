@@ -594,7 +594,9 @@ together with the merge boundary below (canopyd 016 steps 1 to 7 and the documen
   rebuild outlasts canopyd's 30-second timeout, which ended the process and lost the
   progress: every snapshot and concurrent merge on that tree would then fail. One question
   now replays for at most `ARBOR_MERGE_REPLAY_MS` (10 s), answers retryably and keeps its
-  progress (`replay-budget.test.ts`). Starting replay at every 64th entry instead was tried
+  progress (`replay-budget.test.ts`). canopyd's timeout is now 45 s, above the replay
+  and 20-second evaluation budgets together, so the entry that overruns the replay
+  deadline (checked between entries) still ends in that answer. Starting replay at every 64th entry instead was tried
   and rejected: the stale-edit acceptance test showed an imported start drops the current
   side's attribution for any merge whose base precedes it. The replay cost itself, a
   per-file cache, is a [candidate](plans/catalog.md#hardening-efficiency-polish-etc).
