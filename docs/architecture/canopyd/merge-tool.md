@@ -516,6 +516,7 @@ conservative format rules are described next.
 ```sh
 bun test tests/integration/canopyd-merge tests/integration/canopyd tests/unit/canopyd tests/unit/canopyd-merge
 bun tests/performance/benchmark-merge-tool.ts
+bun tests/performance/benchmark-merge-replay.ts
 FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts
 bun run typecheck
 bun run test:protocol

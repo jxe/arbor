@@ -87,6 +87,9 @@ Bun tests, TypeScript checking, shared JSON and SSE fixtures, and Swift
 Package Manager tests. The usual gates are in [DEVELOPMENT.md](../../DEVELOPMENT.md).
 Diagnostics that are not gates: `FILES=1000 bun tests/performance/snapshot-acceptance-cost.ts`
 (acceptance latency and per-phase timings through a disposable host) and
-`bun tests/performance/benchmark-merge-tool.ts` (the engine alone, in memory). Language-neutral vectors under
+`bun tests/performance/benchmark-merge-tool.ts` (the engine alone, in memory) and
+`bun tests/performance/benchmark-merge-replay.ts` (an in-process sidecar: one checkpoint
+with K conflicting files, and cold replay of chains with concurrent work; it prints a
+digest of every answer, which an engine change that must not change answers keeps). Language-neutral vectors under
 [`docs/overstory-spec/conformance/`](../overstory-spec/conformance/README.md) are the portable part; reference
 API and algorithm fixtures live under [`tests/fixtures/`](../../tests/fixtures/README.md).
