@@ -1,4 +1,4 @@
-import { AuthenticationRequiredError, ExpiredChallengeError, isServerFault, NotFoundError, PermissionDeniedError, ServerBusyError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerBusyError, ServerFaultError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
@@ -16,6 +16,7 @@ import {
   type HostAuthentication,
   type HostTree,
   type HostBootstrapAccount,
+  type HostDaemonOptions,
 } from "./canopy.ts";
 import { handleOfPath } from "./profile.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
@@ -25,6 +26,7 @@ import {
   type AcceptedTransition,
   type ObjectHash,
   type RemoteAccountDescriptor,
+  type RemotePlacementAccountDescriptor,
 } from "@overstory/protocol";
 import { escapeHTML, publicTreePath, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
@@ -168,7 +170,8 @@ function updateResponse(value: UpdateResponse | UpdateConflictResult, encoding: 
   return wire(encodeUpdateResponseJSON(value, encoding), encoding, status, headers);
 }
 
-function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor {
+function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor | RemotePlacementAccountDescriptor {
+  if (account.homeHost) return placementAccountDescriptor(origin, canopy, account);
   const profile = canopy.get(account.id);
   const configuration = canopy.get(treeConfigurationID(account.id));
   const community = canopy.community();
@@ -180,6 +183,31 @@ function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAcco
     profileURL: profile ? arborLocator(descriptorWithUpdate(origin, canopy, profile, "write")) : null,
     community: descriptorWithUpdate(origin, canopy, community, canopy.canWrite(account, community) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, canopy, configuration, "write"),
+    writableProfiles: canopy.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, canopy, tree, "write")),
+  };
+}
+
+/**
+ * A placement account's descriptor (accounts §1.3): its home host and its
+ * placement root, and no configuration, which only the home host holds.
+ */
+function placementAccountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemotePlacementAccountDescriptor {
+  const community = canopy.community();
+  const rootID = canopy.placementRootOf(account);
+  if (!rootID) throw new ServerFaultError("Placement account has no placement root");
+  const root = canopy.get(rootID);
+  return {
+    id: account.id,
+    handle: account.handle,
+    profileTree: account.id,
+    profileURL: null,
+    homeHost: account.homeHost!,
+    placementRoot: {
+      id: rootID,
+      path: `/~${account.handle}`,
+      tree: root ? descriptorWithUpdate(origin, canopy, root, canopy.accessLevel(account, root) ?? "read") : null,
+    },
+    community: descriptorWithUpdate(origin, canopy, community, canopy.canWrite(account, community) ? "write" : "read"),
     writableProfiles: canopy.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, canopy, tree, "write")),
   };
 }
@@ -313,6 +341,8 @@ export async function serveHost(options: {
   hostname?: string;
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
+  /** Session and placement device-key lifetimes; tests shorten them. */
+  lifetimes?: HostDaemonOptions;
 }) {
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
@@ -322,7 +352,7 @@ export async function serveHost(options: {
     name: options.community?.name ?? "Arbor Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  }, options.mergeTool);
+  }, options.mergeTool, options.lifetimes);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
   const onAuthorizationTick = authorizationTicker(canopy);
   const pairingClaims = new AttemptLimiter(10, 10 * 60 * 1000);
@@ -350,7 +380,10 @@ export async function serveHost(options: {
       const link = linkDigest(request);
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
       const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
-        const tree = canopy.get(treeReference(segment).id);
+        const reference = treeReference(segment);
+        if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
+        else canopy.refusePlacementConfigurationID(reference.id);
+        const tree = canopy.get(reference.id);
         const level = tree ? canopy.accessLevel(account, tree, link) : null;
         if (!tree || !level) throw new NotFoundError("Tree not found");
         return { tree, level };
@@ -461,9 +494,10 @@ export async function serveHost(options: {
           return json(await canopy.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
-          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
-            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
+          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown; homeHost?: unknown };
+          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
+            || (body.homeHost !== undefined && typeof body.homeHost !== "string")) {
+            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL and home host");
           }
           return json(canopy.createAccountChallenge({
             origin: publicOrigin,
@@ -471,6 +505,7 @@ export async function serveHost(options: {
             profileTree: body.profileTree,
             configurationTree: body.configurationTree,
             inviteCode: body.inviteCode as string | undefined,
+            ...(body.homeHost !== undefined ? { homeHost: body.homeHost as string } : {}),
           }), 201);
         }
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
@@ -537,6 +572,30 @@ export async function serveHost(options: {
           let accountURL: URL | undefined;
           try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
           const reservation = accountURL?.origin === publicOrigin ? canopy.accountReservation(body.account as string) : null;
+          // A placement claim (accounts §1.3): a challenge naming a home host, and no device or configuration.
+          if (body.challenge && typeof body.challenge === "object" && "homeHost" in body.challenge) {
+            if (
+              !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
+              || typeof body.publicKey !== "string" || typeof body.signature !== "string"
+              || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
+            ) throw new Error("A placement claim requires an exact community reservation and the profile key's signature");
+            if (body.device !== undefined || body.configuration !== undefined) throw new Error("A placement claim carries no device and no configuration");
+            if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
+              throw new Error("Account reservation names a different profile TreeID");
+            }
+            const placed = await canopy.claimPlacementAccount({
+              accountLocator: body.account as string,
+              handle: reservation.handle,
+              origin: publicOrigin,
+              profileTree: body.profileTree,
+              configurationTree: body.configurationTree,
+              challenge: body.challenge,
+              publicKey: body.publicKey,
+              signature: body.signature,
+              inviteCode: body.inviteCode as string | undefined,
+            });
+            return wire({ account: accountDescriptor(publicOrigin, canopy, placed.account) }, answerEncoding(request), 201);
+          }
           if (
             !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
             || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
@@ -660,6 +719,8 @@ export async function serveHost(options: {
         if (updates) {
           if (request.method !== "POST") return methodNotAllowed();
           const reference = treeReference(updates[1]!);
+          if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
+          else canopy.refusePlacementConfigurationID(reference.id);
           const treeID = reference.id;
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
@@ -1008,6 +1069,8 @@ export async function serveHost(options: {
         if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
         if (error instanceof ExpiredChallengeError) return protocolError("invalid-request", message, 400, false, { challenge: "expired" });
         if (error instanceof ServerBusyError) return protocolError("internal-error", message, 503, true);
+        if (error instanceof PlacementAccountError) return protocolError("permission-denied", message, 403, false, { homeHost: error.homeHost });
+        if (error instanceof HomeHostUnavailableError) return protocolError("internal-error", message, 503, true, { homeHost: error.homeHost });
         if (isServerFault(error)) {
           console.error(`canopyd fault on ${request.method} ${url.pathname}`, error);
           return protocolError("internal-error", "The server failed to complete the request", 500);

@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "26";
+export const CANOPY_SCHEMA_VERSION = "27";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "governs"],
@@ -17,7 +17,7 @@ export const AUTHORITY_SCHEMA = {
   accepted_updates: [
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
-  accounts: ["id", "handle", "enabled", "claim_digest"],
+  accounts: ["id", "handle", "enabled", "claim_digest", "home_host"],
   devices: ["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   challenges: ["id", "purpose", "challenge_json", "expires_at", "consumed_at"],
@@ -127,7 +127,8 @@ export function createHostSchema(db: Database): void {
       id TEXT PRIMARY KEY,
       handle TEXT NOT NULL UNIQUE,
       enabled INTEGER NOT NULL DEFAULT 1,
-      claim_digest TEXT
+      claim_digest TEXT,
+      home_host TEXT
     )
   `);
   createDevicesTable(db);
@@ -205,7 +206,8 @@ export function assertCurrentHostSchema(db: Database): void {
 
 /**
  * Row invariants every current data root keeps: each tree has accepted
- * history, each account a device, and no foreign key dangles. These scan
+ * history, each home account a device (a placement account has none until
+ * one opens a session), and no foreign key dangles. These scan
  * whole tables, so the integrity audit runs them rather than every start.
  */
 export function assertHostData(db: Database): void {
@@ -216,7 +218,7 @@ export function assertHostData(db: Database): void {
   `).get() as { count: number };
   const missingDevices = db.query(`
     SELECT COUNT(*) AS count FROM accounts a
-    WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
+    WHERE a.home_host IS NULL AND NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
   `).get() as { count: number };
   const missingConfigurations = db.query(`
     SELECT COUNT(*) AS count FROM trees t

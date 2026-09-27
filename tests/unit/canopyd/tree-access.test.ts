@@ -13,7 +13,7 @@ function tree(id: string, governs: string | null = null): HostTree {
   return { id, canonicalPath: governs ? null : `/${id}`, parentTree: null, kind: governs ? "tree-configuration" : "ordinary", ref: ROOT,
     policy: governs ? "tree-config-v1" : "ordinary", status: "active", governs };
 }
-const account = (profileTree: string): HostAccount => ({ id: profileTree, handle: profileTree.slice(3), enabled: true });
+const account = (profileTree: string): HostAccount => ({ id: profileTree, handle: profileTree.slice(3), enabled: true, homeHost: null });
 const joe = account("tr_joe"), alice = account("tr_alice"), carol = account("tr_carol"), bob = account("tr_bob");
 const trees = new Map([
   ["tr_todos", tree("tr_todos")],
@@ -174,6 +174,24 @@ describe("code runs as its caller, with access only its named subjects lend", ()
     configure("tr_todos", [{ who: { profile: "tr_admin" }, allow: ["admin"] }, { who: { profile: "tr_alice" }, allow: ["read"] }]);
     expect(access.executionAllows(context(null), lent("tr_joe", "tr_todos"), "/", "read")).toBe(false);
     expect(access.executionAllows(context(null), lent("tr_alice", "tr_todos"), "/", "read")).toBe(true);
+  });
+
+  test("on a placement host, code has no personal access of its caller and a placement account lends nothing", () => {
+    db.run("UPDATE accounts SET home_host = 'https://home.example' WHERE id = 'tr_alice'");
+    configure("tr_todos", [
+      { who: { profile: "tr_alice" }, allow: ["admin"] },
+      { who: "everyone", allow: ["read"], within: "/public" },
+      { who: "everyone", app: "tr_code", allow: ["read"], within: "/published" },
+    ]);
+    approve("tr_alice", "tr_code", [{ resource: "tr_todos", who: "everyone", allow: ["read"] }]);
+    // Direct execution is the caller's own access.
+    expect(access.executionAllows(context("tr_alice", ""), lent(null, "tr_todos"), "/private", "read")).toBe(true);
+    // Code gets what anyone holds and the tree's own app rules, never the caller's administration.
+    expect(access.executionAllows(context("tr_alice"), lent(null, "tr_todos"), "/private", "read")).toBe(false);
+    expect(access.executionAllows(context("tr_alice"), lent(null, "tr_todos"), "/public/a", "read")).toBe(true);
+    expect(access.executionAllows(context("tr_alice"), lent(null, "tr_todos"), "/published/a", "read")).toBe(true);
+    // Its apps.yaml is at its home host: nothing is lent here.
+    expect(access.executionAllows(context(null), lent("tr_alice", "tr_todos"), "/", "read")).toBe(false);
   });
 
   test("a lender that is neither an enabled account's person nor a group lends nothing", () => {

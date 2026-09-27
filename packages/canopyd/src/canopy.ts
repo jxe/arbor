@@ -1,5 +1,6 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { AuthenticationRequiredError, ExpiredChallengeError, NotFoundError, PermissionDeniedError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, ExpiredChallengeError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
+import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -15,6 +16,7 @@ import { createPublicKey, verify } from "node:crypto";
 import { Database } from "bun:sqlite";
 import {
   accountChallengeBytes,
+  isHomeHostOrigin,
   personProfileTreeID,
   stableJSONString,
   generateArborID,
@@ -97,6 +99,21 @@ export interface HostBootstrapAccount {
   device: { id: string; key: string };
   name?: string;
   communityWriter?: boolean;
+}
+
+/**
+ * Lifetimes, each defaulting to the field of the same name on `HostDaemon`;
+ * tests shorten them. The three device-key lifetimes are a placement host's
+ * (accounts §5.4): how long it serves a fetched copy of a home host's device
+ * keys, how soon a DeviceID missing from the copy (or a failed fetch) may
+ * refetch it, and the age past which a copy it cannot refresh opens no
+ * session.
+ */
+export interface HostDaemonOptions {
+  sessionLifetimeMs?: number;
+  deviceKeyLifetimeMs?: number;
+  deviceKeyRefetchMs?: number;
+  deviceKeyStaleMs?: number;
 }
 
 export interface HostBootstrap {
@@ -326,6 +343,10 @@ export class HostDaemon implements AsyncDisposable {
   private updateLocks = new Map<string, Promise<void>>();
   /** Recently replayed transitions by update id (`acceptedTransition`). */
   private readonly transitions = new Recent<TransitionPayload>(TRANSITION_CACHE_ENTRIES);
+  /** Placement accounts' copies of their home hosts' device keys. */
+  private readonly deviceKeys: PlacementDeviceKeys;
+  private deviceKeyTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
 
   private constructor(
     readonly dataRoot: string,
@@ -350,13 +371,21 @@ export class HostDaemon implements AsyncDisposable {
       rootProfileType: (tree) => this.rootProfileType(tree.id),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
+    this.deviceKeys = new PlacementDeviceKeys(
+      () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
+      (profileTree, copy) => this.revokeUnlisted(profileTree, copy),
+    );
   }
 
-  static async open(dataRoot: string, bootstrap?: HostBootstrap, mergeTool?: MergeToolOptions): Promise<HostDaemon> {
+  static async open(dataRoot: string, bootstrap?: HostBootstrap, mergeTool?: MergeToolOptions, options: HostDaemonOptions = {}): Promise<HostDaemon> {
     await mkdir(join(dataRoot, "objects"), { recursive: true });
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openHostDatabase(databasePath);
     const canopy = new HostDaemon(dataRoot, db, mergeTool);
+    if (options.sessionLifetimeMs !== undefined) canopy.sessionLifetimeMs = options.sessionLifetimeMs;
+    if (options.deviceKeyLifetimeMs !== undefined) canopy.deviceKeyLifetimeMs = options.deviceKeyLifetimeMs;
+    if (options.deviceKeyRefetchMs !== undefined) canopy.deviceKeyRefetchMs = options.deviceKeyRefetchMs;
+    if (options.deviceKeyStaleMs !== undefined) canopy.deviceKeyStaleMs = options.deviceKeyStaleMs;
     await canopy.mergeTool.clearStaleJobs();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -372,6 +401,7 @@ export class HostDaemon implements AsyncDisposable {
         throw error;
       }
     }
+    canopy.scheduleDeviceKeyRefresh();
     return canopy;
   }
 
@@ -601,7 +631,38 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   createPairing(account: HostAccount): PairingOffer {
+    this.refuseOwnConfiguration(account, "Pairing");
     return this.accounts.createPairing(account);
+  }
+
+  /**
+   * A placement account has no profile configuration here: its devices,
+   * pairing and recovery are its home host's (accounts §1.3).
+   */
+  private refuseOwnConfiguration(account: HostAccount, what: string): void {
+    if (account.homeHost) {
+      throw new PlacementAccountError(account.homeHost, `${what} is not available here: ~${account.handle} is a placement account, and its profile's configuration and devices are at its home host ${account.homeHost}`);
+    }
+  }
+
+  /** Refuse a route naming a placement account's profile configuration. */
+  refuseOwnConfigurationOf(profileTree: string): void {
+    const account = this.accounts.account(profileTree);
+    if (account) this.refuseOwnConfiguration(account, "The profile's configuration");
+  }
+
+  /** Refuse a route naming, by its derived TreeID, a tree configuration this
+   * host does not hold because it is a placement account's profile's. */
+  refusePlacementConfigurationID(treeID: string): void {
+    if (this.get(treeID)) return;
+    const placed = this.db.query("SELECT id FROM accounts WHERE home_host IS NOT NULL").all() as Array<{ id: string }>;
+    const profile = placed.find(({ id }) => treeConfigurationID(id) === treeID);
+    if (profile) this.refuseOwnConfigurationOf(profile.id);
+  }
+
+  /** The home host of a placement account for this profile, or null. */
+  placementHomeHost(profileTree: string): string | null {
+    return this.accounts.account(profileTree)?.homeHost ?? null;
   }
 
   createAccountChallenge(input: {
@@ -610,7 +671,17 @@ export class HostDaemon implements AsyncDisposable {
     profileTree: string;
     configurationTree: string;
     inviteCode?: string;
+    /** A placement claim's home host (accounts §1.3), signed with the challenge. */
+    homeHost?: string;
   }): AccountChallenge {
+    if (input.homeHost !== undefined) {
+      if (!isHomeHostOrigin(input.homeHost)) throw new Error("A placement claim's home host must be an HTTPS origin");
+      if (input.homeHost === input.origin) throw new Error("A placement claim names another host as the profile's home, not this one");
+      // A loopback home host is for local hosts; a public host never reads its own loopback.
+      if (new URL(input.homeHost).protocol === "http:" && new URL(input.origin).protocol !== "http:") {
+        throw new Error("A placement claim's home host must be an HTTPS origin");
+      }
+    }
     const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
     const matches = input.account === undefined
       ? [...this.communityReservations()].filter(([, value]) => inviteDigest
@@ -643,6 +714,7 @@ export class HostDaemon implements AsyncDisposable {
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
+      ...(input.homeHost !== undefined ? { homeHost: input.homeHost } : {}),
     };
     this.accounts.insertChallenge("account-claim", challenge.id, stableJSONString(challenge), challenge.expiresAt, issuedAt);
     return challenge;
@@ -655,8 +727,13 @@ export class HostDaemon implements AsyncDisposable {
     challenge: AccountChallenge;
     publicKey: string;
     signature: string;
+    /** The home host a placement claim's challenge must name; undefined for a home claim, which names none. */
+    homeHost?: string;
   }): { challenge: AccountChallenge; proofDigest: string } {
     const challenge = validateAccountChallenge(input.challenge);
+    if (challenge.homeHost !== input.homeHost) {
+      throw new Error(input.homeHost ? "A placement claim's challenge must name its home host" : "A claim with a device and configuration is a home claim; its challenge names no home host");
+    }
     if (
       challenge.account !== input.accountLocator
       || challenge.origin !== new URL(input.accountLocator).origin
@@ -721,16 +798,33 @@ export class HostDaemon implements AsyncDisposable {
   createRecoveryPairing(handle: string): PairingOffer {
     const account = this.accountByHandle(handle);
     if (!account) throw new Error(`Unknown account: ~${handle}`);
+    this.refuseOwnConfiguration(account, "Recovery");
     return this.accounts.createPairing(account, { recovery: true });
   }
 
   /** The longest a device session lasts (accounts §5.1). */
   sessionLifetimeMs = 60 * 60 * 1000;
 
-  /** A listed, active key device of an enabled account, as the accepted
-   * configuration and its binding agree; anything else is not disclosed. */
+  /** How long a placement host serves a fetched copy of a home host's device keys (accounts §5.4). */
+  deviceKeyLifetimeMs = 60 * 1000;
+
+  /** How soon a challenge naming a DeviceID missing from that copy, or a
+   * fetch that failed, may refetch it, per profile. */
+  deviceKeyRefetchMs = 5 * 1000;
+
+  /** The staleness limit: the age past which a copy this host cannot
+   * refresh opens no session. Security 009 raises it to a grace period
+   * while the home host is unreachable. */
+  deviceKeyStaleMs = 60 * 1000;
+
+  /**
+   * A listed, active key device of an enabled account: at its home host as
+   * the accepted configuration and its binding agree, at a placement host as
+   * the home host's published keys list it. Anything else is not disclosed.
+   */
   private async keyDevice(profileTree: string, device: string): Promise<{ account: HostAccount; key: string }> {
     const account = this.accounts.enabledAccount(profileTree);
+    if (account?.homeHost) return { account, key: (await this.listedDevice(account, device)).key };
     const entry = account ? (await this.treeConfig(profileTree))?.devices?.[device] : undefined;
     const row = account ? this.accounts.deviceBinding(device, account.id) : null;
     if (!account || !entry?.key || !row || row.revokedAt !== null || row.publicKey !== entry.key) throw new NotFoundError("No such key device");
@@ -738,13 +832,70 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /**
+   * A placement account's device as its home host lists it, from a fresh
+   * copy (refetched early for a DeviceID the copy lacks). A DeviceID this
+   * host has seen revoked, or bound to another key or account, never
+   * returns.
+   */
+  private async listedDevice(account: HostAccount, device: string): Promise<ListedDevice> {
+    const listed = await this.deviceKeys.device(account.id, account.homeHost!, device);
+    const row = this.accounts.deviceBinding(device, account.id);
+    if (!listed || (row && (row.revokedAt !== null || row.publicKey !== listed.key)) || (!row && this.accounts.deviceExists(device))) {
+      throw new NotFoundError("No such key device");
+    }
+    return listed;
+  }
+
+  /**
+   * After each fetch of a placement account's device keys: every device this
+   * host bound that the home host no longer lists, with the same key, is
+   * revoked and its sessions end, so its watches close at the next check.
+   */
+  private revokeUnlisted(profileTree: string, copy: DeviceKeyCopy): void {
+    if (this.disposed) return;
+    const account = this.accounts.account(profileTree);
+    if (!account?.homeHost) return;
+    const now = Date.now();
+    this.db.transaction(() => {
+      for (const id of this.accounts.activeDeviceIDs(account.id)) {
+        const listed = copy.devices.get(id);
+        if (!listed || listed.key !== this.accounts.deviceBinding(id, account.id)?.publicKey) this.accounts.revokeDevice(id, now);
+      }
+    })();
+  }
+
+  /**
+   * Refresh the device keys of every placement account with an open session,
+   * every half lifetime, so a device deleted at its home host loses its
+   * sessions here within one lifetime. A refresh that fails keeps the copy:
+   * sessions already open run to their expiry, and no new one opens once the
+   * copy is older than the staleness limit.
+   */
+  private scheduleDeviceKeyRefresh(): void {
+    if (this.disposed) return;
+    this.deviceKeyTimer = setTimeout(async () => {
+      await this.refreshDeviceKeys();
+      this.scheduleDeviceKeyRefresh();
+    }, Math.max(10, Math.floor(this.deviceKeyLifetimeMs / 2)));
+    this.deviceKeyTimer.unref?.();
+  }
+
+  /** One refresh pass over the placement accounts with open sessions. */
+  async refreshDeviceKeys(): Promise<void> {
+    if (this.disposed) return;
+    await Promise.all(this.accounts.placementAccountsWithSessions(Date.now()).map(({ id, homeHost }) =>
+      this.deviceKeys.fetch(id, homeHost).catch(() => undefined)));
+  }
+
+  /**
    * A profile's key devices as a placement host needs them (accounts §5.4):
    * each listed, unrevoked key device's DeviceID, key and administrator
-   * flag, as of the accepted configuration. Never labels.
+   * flag, as of the accepted configuration. Never labels. Only the home host
+   * publishes them; a placement host never republishes what it read.
    */
   async publishedDeviceKeys(profileTree: string): Promise<PublishedDeviceKeys> {
     const account = this.accounts.enabledAccount(profileTree);
-    if (!account) throw new NotFoundError("This host is not that profile's home");
+    if (!account || account.homeHost) throw new NotFoundError("This host is not that profile's home");
     const listed = (await this.treeConfig(profileTree))?.devices ?? {};
     const devices = Object.values(listed).filter((entry) => {
       if (!entry.key) return false;
@@ -773,11 +924,16 @@ export class HostDaemon implements AsyncDisposable {
     return challenge;
   }
 
-  /** Exchange a signed session challenge for a session token at this host. */
+  /**
+   * Exchange a signed session challenge for a session token at this host. At
+   * a placement host the key comes from a copy of the home host's list
+   * younger than the staleness limit, and a device's first session binds it
+   * here.
+   */
   async openDeviceSession(input: { origin: string; challenge: unknown; signature: string }): Promise<DeviceSession> {
     const challenge = validateDeviceSessionChallenge(input.challenge);
     if (challenge.origin !== input.origin) throw new Error("Device session challenge names another host");
-    const { key } = await this.keyDevice(challenge.profileTree, challenge.device);
+    const { account, key } = await this.keyDevice(challenge.profileTree, challenge.device);
     if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), input.signature)) {
       throw new PermissionDeniedError("Device session signature is invalid");
     }
@@ -787,6 +943,13 @@ export class HostDaemon implements AsyncDisposable {
     this.db.transaction(() => {
       if (!this.accounts.consumeChallenge("device-session", challenge.id, stableJSONString(challenge), now)) {
         throw new Error("Device session challenge is invalid, expired, or already used");
+      }
+      if (account.homeHost) {
+        const row = this.accounts.deviceBinding(challenge.device, account.id);
+        // A refresh between the lookup and this commit may have revoked it.
+        if (row && (row.revokedAt !== null || row.publicKey !== key)) throw new NotFoundError("No such key device");
+        // Labels are the home host's; none is published, so none is kept here.
+        if (!row) this.accounts.insertDevice(challenge.device, account.id, "", key, now);
       }
       this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
     })();
@@ -872,9 +1035,14 @@ export class HostDaemon implements AsyncDisposable {
     return this.configGraphAt(configuration.ref, this.treeConfigKind(tree), tree, undefined, true);
   }
 
-  /** Whether `device` is an administrator device of the account's person profile. */
+  /**
+   * Whether `device` is an administrator device of the account's person
+   * profile: its flag in the accepted `devices.yaml` at the home host, or in
+   * the home host's published keys at a placement host.
+   */
   private async isAdministratorDevice(account: HostAccount, device: string | null): Promise<boolean> {
     if (!device) return false;
+    if (account.homeHost) return (await this.listedDevice(account, device)).administrator;
     return (await this.treeConfig(account.id))?.devices?.[device]?.administrator === true;
   }
 
@@ -987,6 +1155,14 @@ export class HostDaemon implements AsyncDisposable {
     this.recomputeBoundaries();
   }
 
+  /** A placement account's placement root: the tree the community root mounts at its `/~handle`. */
+  placementRootOf(account: HostAccount): string | null {
+    const community = this.boundary("/")?.id;
+    if (!community || !account.homeHost) return null;
+    const row = this.db.query("SELECT tree_id FROM mounts WHERE parent_tree = ? AND path = ? AND member = 1").get(community, `~${account.handle}`) as { tree_id: string } | null;
+    return row?.tree_id ?? null;
+  }
+
   /** The community root mounts a member's profile at `/~handle`; callers run this inside their transaction. */
   private insertMemberMount(root: string, handle: string, profile: string): void {
     this.db.run("INSERT INTO mounts (parent_tree, path, tree_id, member) VALUES (?, ?, ?, 1) ON CONFLICT DO NOTHING", [root, `~${handle}`, profile]);
@@ -1048,6 +1224,7 @@ export class HostDaemon implements AsyncDisposable {
     const [requestDigest] = updateRequestDigests(configurationID, request);
     const replay = this.acceptedStore.acceptedRequest(configurationID, authentication.subject, requestDigest!);
     if (replay) return { status: replay.status, result: { results: [replay.result], observedThrough: this.observedThrough(configurationID) } };
+    this.refuseOwnConfigurationOf(tree);
     if (!isGeneratedArborID(tree, "tr")) throw new Error("A declared tree requires a generated TreeID");
     if (this.get(tree) || this.get(configurationID)) throw new UpdateProtocolError("activation-conflict", `TreeID is already declared: ${tree}`);
     const account = authentication.account;
@@ -1276,6 +1453,100 @@ export class HostDaemon implements AsyncDisposable {
     })();
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
+  }
+
+  /**
+   * Claim a placement account (accounts §1.3): the same reservation and
+   * profile-key proof as a home claim, with the home host signed into the
+   * challenge and no device or configuration. The home host's device keys
+   * must be readable now. The claim records the account with its home host
+   * and declares the profile's placement root, an ordinary tree with a fresh
+   * TreeID mounted at `/~handle` whose configuration makes the profile its
+   * administrator and mounts nothing; the person's first snapshot activates it.
+   */
+  async claimPlacementAccount(input: {
+    accountLocator: string;
+    handle: string;
+    origin: string;
+    profileTree: string;
+    configurationTree: string;
+    challenge: AccountChallenge;
+    publicKey: string;
+    signature: string;
+    inviteCode?: string;
+  }): Promise<{ account: HostAccount; placementRoot: string }> {
+    const homeHost = input.challenge?.homeHost;
+    if (typeof homeHost !== "string") throw new Error("A placement claim's challenge must name its home host");
+    const proof = this.verifyAccountIdentityProof({ ...input, homeHost });
+    if (homeHost === input.origin) throw new Error("A placement claim names another host as the profile's home, not this one");
+    const claimDigest = sha256(stableJSONString({
+      handle: input.handle,
+      accountLocator: input.accountLocator,
+      identityProof: proof.proofDigest,
+      profileTree: input.profileTree,
+      configurationTree: input.configurationTree,
+      homeHost,
+    }));
+    if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
+    const reservation = this.accountReservation(input.accountLocator);
+    if (!reservation || reservation.handle !== input.handle) throw new Error("Account locator is not reserved by this community");
+    if (!isPersonProfileTreeID(input.profileTree) || input.configurationTree !== treeConfigurationID(input.profileTree)) {
+      throw new Error("Account join requires a person Profile TreeID and its configuration TreeID");
+    }
+    const prior = this.accountByHandle(input.handle);
+    if (prior) {
+      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
+      const root = row.claim_digest === claimDigest ? this.placementRootOf(prior) : null;
+      if (root) return { account: prior, placementRoot: root };
+      throw new AlreadyClaimedError(input.handle);
+    }
+    const challengeJSON = stableJSONString(proof.challenge);
+    const issued = this.accounts.challenge("account-claim", proof.challenge.id);
+    if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
+    if (issued.expiresAt <= Date.now()) throw new ExpiredChallengeError("Account challenge is expired");
+    if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
+    if (this.nameHeldByTree(input.handle)) throw new AlreadyClaimedError(input.handle);
+    if (!this.communityReservations().has(input.handle)) {
+      throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
+    }
+    if (reservation.profileTree && reservation.profileTree !== input.profileTree) {
+      throw new Error("Account reservation names a different profile TreeID");
+    }
+    if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
+      throw new Error("This profile is already claimed or hosted on this Canopy");
+    }
+    const invitation = reservation.inviteDigest
+      ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
+      : null;
+    // The home host must answer for the profile's devices before this host
+    // trusts it for them.
+    try {
+      await this.deviceKeys.fetch(input.profileTree, homeHost);
+    } catch (error) {
+      throw new Error(`The profile's home host ${homeHost} does not publish its device keys: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const placementRoot = generateArborID("tr");
+    const prepared = await this.prepareConfig(placementRoot, "tree", snapshotTreeConfig({
+      access: [{ who: { profile: input.profileTree }, allow: ["admin"] }],
+      mounts: {},
+    }));
+    const community = this.community();
+    const now = Date.now();
+    this.db.transaction(() => {
+      if (!this.accounts.consumeChallenge("account-claim", proof.challenge.id, challengeJSON, now)) {
+        throw new Error("Account challenge was already consumed or expired");
+      }
+      this.db.run(
+        "INSERT INTO accounts (id, handle, claim_digest, enabled, home_host) VALUES (?, ?, ?, 1, ?)",
+        [input.profileTree, input.handle, claimDigest, homeHost],
+      );
+      this.insertConfig(prepared, now, null);
+      this.insertMemberMount(community.id, input.handle, placementRoot);
+      if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
+      if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
+    })();
+    if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
+    return { account: this.account(input.profileTree)!, placementRoot };
   }
 
   /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
@@ -2439,7 +2710,10 @@ export class HostDaemon implements AsyncDisposable {
   private nameHeldByTree(name: string): boolean {
     const root = this.boundary("/")?.id;
     if (!root) return false;
-    const owner = this.accountByHandle(name)?.id ?? null;
+    const account = this.accountByHandle(name);
+    // A member mount at /~name is the account's own: its profile tree, or for
+    // a placement account its placement root.
+    const owner = account ? account.homeHost ? this.placementRootOf(account) : account.id : null;
     return this.db.query(`
       SELECT 1 FROM mounts WHERE parent_tree = ? AND (path = ? OR substr(path, 1, ?) = ?) AND (member = 0 OR ? IS NULL OR tree_id IS NOT ?)
     `).get(root, `~${name}`, name.length + 2, `~${name}/`, owner, owner) !== null;
@@ -2500,6 +2774,8 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    this.disposed = true;
+    clearTimeout(this.deviceKeyTimer);
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.db.close();

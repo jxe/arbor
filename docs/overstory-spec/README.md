@@ -95,7 +95,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |
-| `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.2](04-accounts-and-devices.md#11-beginning-a-person-identity) |
+| `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.3](04-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](04-accounts-and-devices.md#5-device-pairing) |
 
 Authentication headers apply to every route ([access control §2](05-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](01-tree-operations.md#1-reading-trees), while SSE framing and common errors are in [encoding §4.2](01-tree-operations.md#42-stream-framing-and-errors).

@@ -139,7 +139,8 @@ export class AccessControl {
   /**
    * Grant provenance and underlying authority are re-evaluated on every use.
    * A grant without a lender is the caller's own access, or the tree's own
-   * rule through this app. A lent grant needs its lender's `apps.yaml` entry
+   * rule through this app; code acting for a placement account's caller has
+   * only what anyone holds, since that caller's `apps.yaml` is elsewhere. A lent grant needs its lender's `apps.yaml` entry
    * for this app and caller, and access a rule names the lender for directly,
    * except that a person approving an app for themselves (`who: me`) may use
    * any access they hold.
@@ -151,12 +152,20 @@ export class AccessControl {
     if (context.caller && !caller) return false;
     const callerProfile = caller?.id ?? null;
     if (grant.lender === null) {
-      if (this.holds(callerProfile, tree.id, path, operation, context.linkDigest)) return true;
+      // Code acting for a placement account's caller has no personal access
+      // of the caller's, only what anyone holds (access control §1.1, on a
+      // placement host); direct execution is the caller's own.
+      const own = context.code && caller?.homeHost ? null : callerProfile;
+      if (this.holds(own, tree.id, path, operation, context.linkDigest)) return true;
       return !!context.code && rulesAllow(this.rules(tree.id).filter((rule) => rule.app === context.code),
         { callerProfile, app: context.code, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember }, path, operation);
     }
     const lender = grant.lender;
-    const person = this.accounts.enabledAccount(lender) !== null;
+    const lenderAccount = this.accounts.enabledAccount(lender);
+    // A placement account's `apps.yaml` is at its home host, so it lends
+    // nothing here (access control §1.1, on a placement host).
+    if (lenderAccount?.homeHost) return false;
+    const person = lenderAccount !== null;
     if (!person && !this.groupTree(lender)) return false;
     if (!context.code) return false;
     const entries = this.appRules(lender, context.code).filter((rule) => rule.resource === tree.id

@@ -43,7 +43,8 @@ export async function hostTree(
     administrators?: string[];
   } = {},
 ): Promise<string> {
-  const { account } = await client.account();
+  // At a placement host as at a home host: the profile is the account's.
+  const { account } = await client.anyAccount();
   const tree = options.tree ?? generateArborID("tr");
   const admins = options.administrators ?? [account.profileTree!];
   await client.declareTree(tree, snapshotTreeConfig({

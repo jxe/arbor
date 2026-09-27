@@ -259,6 +259,26 @@ it signs in with. Every device claims an account or pairs with an Ed25519 key
 kept in operating-system credential storage, and opens hour-long sessions with
 it. `--account` is needed only when several accounts are connected.
 
+### `arbor account`
+
+```text
+arbor account
+arbor account place [--invite <code>] <placement-host-url>
+```
+
+`arbor account` lists this installation's home account and the profile's
+placement accounts. `arbor account place` claims a placement account for your
+profile at another host
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)):
+the host must have reserved an account for your Profile TreeID (or give you
+an invitation code), and your profile key signs which host is your home. The
+host then accepts every device your home host lists, with the same key, and
+declares your placement root at the account's address as the parent of your
+trees there. Give the host's origin, or the exact account URL when it
+reserved several. Running it again reconnects to an account already claimed.
+Placing folders under a placement account (`arbor place`) is not supported
+yet.
+
 ### `arbor daemon`
 
 ```text

@@ -10,10 +10,16 @@ cutover commit. The previous batch is
 
 ## Steps
 
-None yet. The live schema is 26.
+The live schema is 26; the batch ends at 27.
 
 | Step | Change | Product change at cutover |
 |---|---|---|
+| [027](steps/027-placement-accounts.ts) | `accounts.home_host` (NULL for every existing account: this host is its home). | Placement accounts (Security 007): a profile claims an account on a host that is not its home, which reads the home host's published device keys, opens sessions from them and declares the profile's placement root at `/~handle`. `CANOPY_SCHEMA_VERSION` is already 27 on this branch, ahead of the cutover; see below. |
+
+The placement role landed on a branch together with its product change, so
+that branch serves schema 27 and a host built from it enters maintenance mode
+on the live schema-26 root until this batch runs. Cut the batch over before
+deploying that branch.
 
 ## Adding a step
 

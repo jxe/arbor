@@ -32,6 +32,26 @@ export class ServerBusyError extends Error {
   override readonly name = "ServerBusyError";
 }
 
+/** 403 with `details.homeHost`: the route reads or edits a profile's own
+ * configuration (its devices, pairing, recovery), which a placement account
+ * does not have here; the home host holds it (accounts §1.3). */
+export class PlacementAccountError extends Error {
+  override readonly name = "PlacementAccountError";
+  constructor(readonly homeHost: string, message: string) {
+    super(message);
+  }
+}
+
+/** 503, retryable, with `details.homeHost`: a placement host's copy of a
+ * profile's device keys is too old and the home host cannot be read, so it
+ * opens no session (accounts §5.4). */
+export class HomeHostUnavailableError extends Error {
+  override readonly name = "HomeHostUnavailableError";
+  constructor(readonly homeHost: string, message: string) {
+    super(message);
+  }
+}
+
 /** 500: canopyd's own state or a component it trusts broke an invariant.
  * Nothing the client sent can cause it. */
 export class ServerFaultError extends Error {

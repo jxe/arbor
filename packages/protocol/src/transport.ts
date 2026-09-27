@@ -79,9 +79,60 @@ export interface RemoteAccountDescriptor {
   device?: { id: string; label: string };
 }
 
+/**
+ * A profile's placement root on a placement host (accounts §1.3): the
+ * ordinary tree the claim declares where the host allocates the account, as
+ * the parent of the person's trees there.
+ */
+export interface RemotePlacementRoot {
+  id: TreeID;
+  /** The canonical path the host mounts it at (canopyd: `/~handle`). */
+  path: string;
+  /** Its descriptor once its first snapshot activated it; null until then. */
+  tree: RemoteTreeDescriptor | null;
+}
+
+/**
+ * The account descriptor a placement host returns (accounts §1.3). It has no
+ * `configuration`: the profile's configuration lives only at `homeHost`.
+ */
+export interface RemotePlacementAccountDescriptor extends Omit<RemoteAccountDescriptor, "configuration"> {
+  /** The origin of the profile's home host, whose device keys this host reads. */
+  homeHost: string;
+  placementRoot: RemotePlacementRoot;
+}
+
 export interface RemoteAccountSnapshot {
   account: RemoteAccountDescriptor;
   observedThrough: EventCursor;
+}
+
+export interface RemotePlacementAccountSnapshot {
+  account: RemotePlacementAccountDescriptor;
+  observedThrough: EventCursor;
+}
+
+/** A placement claim (accounts §1.3): the profile-key proof, with no device and no configuration. */
+export interface PlacementAccountRequest {
+  account: string;
+  profileTree: TreeID;
+  configurationTree: TreeID;
+  /** A challenge naming `homeHost`, signed by the profile key. */
+  challenge: AccountChallenge;
+  publicKey: string;
+  signature: string;
+  inviteCode?: string;
+}
+
+export interface PlacementAccountClaimResult {
+  account: RemotePlacementAccountDescriptor;
+}
+
+/** Whether an account descriptor is a placement host's. */
+export function isPlacementAccountDescriptor(
+  account: RemoteAccountDescriptor | RemotePlacementAccountDescriptor,
+): account is RemotePlacementAccountDescriptor {
+  return typeof (account as { homeHost?: unknown }).homeHost === "string";
 }
 
 export interface AccountClaimResult {
@@ -248,7 +299,24 @@ export class ProtocolClient {
     }
   }
 
+  /** The account at its home host. A placement host's descriptor is refused: read it with `placementAccount()`. */
   async account(): Promise<RemoteAccountSnapshot> {
+    const snapshot = await this.anyAccount();
+    if (isPlacementAccountDescriptor(snapshot.account)) {
+      throw new Error(`${this.origin} is a placement host for this profile; its home host is ${snapshot.account.homeHost}`);
+    }
+    return snapshot as RemoteAccountSnapshot;
+  }
+
+  /** The account at a placement host (accounts §1.3). */
+  async placementAccount(): Promise<RemotePlacementAccountSnapshot> {
+    const snapshot = await this.anyAccount();
+    if (!isPlacementAccountDescriptor(snapshot.account)) throw new Error(`${this.origin} is this profile's home host, not a placement host`);
+    return snapshot as RemotePlacementAccountSnapshot;
+  }
+
+  /** The account descriptor as the host sent it, home or placement. */
+  async anyAccount(): Promise<RemoteAccountSnapshot | RemotePlacementAccountSnapshot> {
     const response = await this.checked(await this.request("/.arbor/account", { headers: this.headers() }));
     return response.json();
   }
@@ -280,6 +348,8 @@ export class ProtocolClient {
     profileTree: TreeID;
     configurationTree: TreeID;
     inviteCode?: string;
+    /** For a placement claim, the profile's home host (accounts §1.3). */
+    homeHost?: string;
   }): Promise<AccountChallenge> {
     const response = await this.checked(await this.request("/.arbor/account-challenges", {
       method: "POST",
@@ -305,6 +375,24 @@ export class ProtocolClient {
         device: input.device,
         configuration: encodeCandidateUpdateJSON(input.configuration, encoding),
       }, encoding) as Uint8Array<ArrayBuffer>,
+    }));
+    return response.json();
+  }
+
+  /** Claim a placement account (accounts §1.3): the profile-key proof alone, answered with the placement account. */
+  async claimPlacementAccount(input: PlacementAccountRequest): Promise<PlacementAccountClaimResult> {
+    const response = await this.checked(await this.request("/.arbor/accounts", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        account: input.account,
+        profileTree: input.profileTree,
+        configurationTree: input.configurationTree,
+        challenge: input.challenge,
+        publicKey: input.publicKey,
+        signature: input.signature,
+        ...(input.inviteCode ? { inviteCode: input.inviteCode } : {}),
+      }),
     }));
     return response.json();
   }

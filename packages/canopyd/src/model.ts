@@ -27,6 +27,10 @@ export interface HostAccount {
   id: string;
   handle: string;
   enabled: boolean;
+  /** For a placement account, the origin of the profile's home host, whose
+   * published device keys this host reads (accounts §1.3); null when this
+   * host is the profile's home. */
+  homeHost: string | null;
 }
 
 export interface HostAuthentication {

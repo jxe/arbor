@@ -32,11 +32,11 @@ export class AccountDirectory {
   constructor(private readonly db: Database) {}
 
   account(id: string): HostAccount | null {
-    const row = this.db.query("SELECT id, handle, enabled FROM accounts WHERE id = ?").get(id) as
-      | { id: string; handle: string; enabled: number }
+    const row = this.db.query("SELECT id, handle, enabled, home_host FROM accounts WHERE id = ?").get(id) as
+      | { id: string; handle: string; enabled: number; home_host: string | null }
       | null;
     return row
-      ? { id: row.id, handle: row.handle, enabled: row.enabled === 1 }
+      ? { id: row.id, handle: row.handle, enabled: row.enabled === 1, homeHost: row.home_host }
       : null;
   }
 
@@ -121,6 +121,28 @@ export class AccountDirectory {
 
   insertDevice(id: string, accountID: string, label: string, publicKey: string, at: number): void {
     this.db.run("INSERT INTO devices (id, account_id, label, public_key, created_at) VALUES (?, ?, ?, ?, ?)", [id, accountID, label, publicKey, at]);
+  }
+
+  /** The DeviceIDs of an account's unrevoked devices. */
+  activeDeviceIDs(accountID: string): string[] {
+    return (this.db.query("SELECT id FROM devices WHERE account_id = ? AND revoked_at IS NULL ORDER BY id").all(accountID) as Array<{ id: string }>)
+      .map((row) => row.id);
+  }
+
+  /** Revoke one device and end its sessions; callers run this inside their transaction. */
+  revokeDevice(deviceID: string, at: number): void {
+    this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?", [at, deviceID]);
+    this.endSessions(deviceID);
+  }
+
+  /** Placement accounts with at least one unexpired session, and their home hosts. */
+  placementAccountsWithSessions(now: number): Array<{ id: string; homeHost: string }> {
+    return (this.db.query(`
+      SELECT DISTINCT a.id, a.home_host FROM accounts a
+      JOIN devices d ON d.account_id = a.id JOIN device_sessions s ON s.device_id = d.id
+      WHERE a.home_host IS NOT NULL AND d.revoked_at IS NULL AND s.expires_at > ?
+      ORDER BY a.id
+    `).all(now) as Array<{ id: string; home_host: string }>).map((row) => ({ id: row.id, homeHost: row.home_host }));
   }
 
   /** End every session of one device; callers run this inside their transaction. */

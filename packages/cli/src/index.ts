@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
@@ -7,7 +7,7 @@ import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { listLocalAccounts } from "@overstory/arborsync/state";
-import { addLocalPlacement, backupIsEncrypted, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
+import { addLocalPlacement, backupIsEncrypted, claimPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
@@ -90,6 +90,8 @@ function usage(): never {
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
   arbor device [--account <ConfigurationTreeID>]
+  arbor account
+  arbor account place [--invite <code>] <placement-host-url>
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor status [<locator>] [--json]
   arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
@@ -110,6 +112,8 @@ function usage(): never {
 
 Notes:
   arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  arbor account place  claims a placement account for your profile at another host, with the profile key; your devices
+    sign in there with the keys your home host lists.
   arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
   arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   arbor pending  shows exactly what Arbor Sync would send next for a placed folder.
@@ -1492,6 +1496,40 @@ async function statusCommand(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * `arbor account` lists the profile's connections: its home account and its
+ * placement accounts (accounts §1.3). `arbor account place` claims a
+ * placement account at another host and opens a session there.
+ */
+async function accountCommand(args: string[]): Promise<void> {
+  const [action, ...operands] = args;
+  if (action === undefined) {
+    const [homes, placements] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list()]);
+    if (!homes.length) console.log("No connected account");
+    for (const home of homes) {
+      console.log(`Home: ${home.account} (device ${home.deviceID})`);
+      for (const placement of placements.filter((candidate) => candidate.configurationTree === home.configurationTree)) {
+        console.log(`  Placement: ${placement.account} (root ${placement.placementRoot})`);
+      }
+    }
+    return;
+  }
+  if (action !== "place") usage();
+  let inviteCode: string | undefined;
+  let host: string | undefined;
+  for (let index = 0; index < operands.length; index += 1) {
+    const operand = operands[index]!;
+    if (operand === "--invite" && operands[index + 1]) inviteCode = operands[++index];
+    else if (!operand.startsWith("-") && !host) host = operand;
+    else usage();
+  }
+  if (!host) usage();
+  const result = await claimPlacementAccount(host, inviteCode ? { inviteCode } : {});
+  console.log(`${result.claimed ? "Claimed" : "Connected"} placement account ${result.record.account}`);
+  console.log(`Home host: ${result.record.homeHost}`);
+  console.log(`Placement root: ${result.record.placementRoot}${result.account.placementRoot.tree ? "" : " (not yet activated)"}`);
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (command === "__cloud-arborsync") {
@@ -1631,6 +1669,10 @@ async function main(): Promise<void> {
     console.log(`Account: ${record.account}`);
     console.log(`Device: ${record.deviceID}`);
     console.log(`Signs in with key: ${record.deviceKey}`);
+    return;
+  }
+  if (command === "account") {
+    await accountCommand(args);
     return;
   }
   if (command === "daemon") {

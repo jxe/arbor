@@ -38,7 +38,7 @@ export interface HostAccountRecord {
 
 /** A session within this long of expiring is replaced before it is handed out. */
 const SESSION_MARGIN_MS = 5 * 60_000;
-/** Keyed by the account's private directory: one data home, one account. */
+/** Keyed by a connection's private directory: one data home, one account or placement. */
 const sessions = new Map<string, { token: string; expiresAt: number }>();
 /** Session opens in flight, so concurrent callers share one challenge and one session. */
 const sessionOpens = new Map<string, Promise<{ token: string; expiresAt: number }>>();
@@ -49,6 +49,40 @@ const sessionOpens = new Map<string, Promise<{ token: string; expiresAt: number 
  */
 const CREDENTIAL_READ_TTL_MS = 60_000;
 const credentialReads = new Map<string, { record: HostAccountRecord; secret: string | null; readAt: number }>();
+
+/**
+ * A session the device key opens at `origin`, cached in memory under `key`
+ * and on disk at `sessionPath`, and reused until close to expiry. Concurrent
+ * callers share one challenge and one session.
+ */
+async function openCachedSession(key: string, sessionPath: string, origin: string, profileTree: string, deviceID: string, seed: string): Promise<string> {
+  const usable = (value?: { token: string; expiresAt: number }) => value && value.expiresAt - SESSION_MARGIN_MS > Date.now() ? value : undefined;
+  let cached = usable(sessions.get(key));
+  if (!cached) {
+    try {
+      const saved = JSON.parse(await readFile(sessionPath, "utf8")) as { device?: string; token?: string; expiresAt?: number };
+      if (saved.device === deviceID && typeof saved.token === "string" && typeof saved.expiresAt === "number") cached = usable({ token: saved.token, expiresAt: saved.expiresAt });
+    } catch {}
+  }
+  if (cached) {
+    sessions.set(key, cached);
+    return cached.token;
+  }
+  let opening = sessionOpens.get(key);
+  if (!opening) {
+    opening = (async () => {
+      const opened = await openDeviceSession(origin, profileTree, deviceID, seed);
+      const value = { token: opened.token, expiresAt: opened.expiresAt };
+      sessions.set(key, value);
+      const temporary = `${sessionPath}.${crypto.randomUUID()}.tmp`;
+      await writeFile(temporary, JSON.stringify({ device: deviceID, ...value }), { mode: 0o600 });
+      await rename(temporary, sessionPath);
+      return value;
+    })().finally(() => sessionOpens.delete(key));
+    sessionOpens.set(key, opening);
+  }
+  return (await opening).token;
+}
 
 /** Private connection metadata and credential lookup for one configuration TreeID. */
 export class HostAccountStore {
@@ -148,6 +182,14 @@ export class HostAccountStore {
    * opens, reused until close to expiry.
    */
   async get(): Promise<{ record: HostAccountRecord; accountToken: string } | null> {
+    const credential = await this.credential();
+    if (!credential) return null;
+    const { record, secret } = credential;
+    return { record, accountToken: await openCachedSession(this.directory, this.sessionPath, record.origin, record.profileTree, record.deviceID, secret) };
+  }
+
+  /** The connection and its device key's seed, when the slot still holds this device's key. */
+  private async credential(): Promise<{ record: HostAccountRecord; secret: string } | null> {
     let read = credentialReads.get(this.directory);
     if (!read || Date.now() - read.readAt > CREDENTIAL_READ_TTL_MS) {
       const record = await this.safe();
@@ -157,7 +199,17 @@ export class HostAccountStore {
     }
     const { record, secret } = read;
     if (!record.deviceKey || !secret || sha256(secret) !== record.tokenDigest) return null;
-    return { record, accountToken: await this.session(record, secret) };
+    return { record, secret };
+  }
+
+  /**
+   * This device's key seed and DeviceID, which its placement connections
+   * (`HostPlacementStore`) sign in with: one installation has one DeviceID
+   * per profile (accounts §5), valid at every host that reads its home's list.
+   */
+  async deviceKeySeed(): Promise<{ deviceID: string; seed: string } | null> {
+    const credential = await this.credential();
+    return credential ? { deviceID: credential.record.deviceID, seed: credential.secret } : null;
   }
 
   /** After the host refused this device: forget its session so the next `get` opens another. */
@@ -165,35 +217,6 @@ export class HostAccountStore {
     sessions.delete(this.directory);
     credentialReads.delete(this.directory);
     await rm(this.sessionPath, { force: true });
-  }
-
-  private async session(record: HostAccountRecord, seed: string): Promise<string> {
-    const usable = (value?: { token: string; expiresAt: number }) => value && value.expiresAt - SESSION_MARGIN_MS > Date.now() ? value : undefined;
-    let cached = usable(sessions.get(this.directory));
-    if (!cached) {
-      try {
-        const saved = JSON.parse(await readFile(this.sessionPath, "utf8")) as { device?: string; token?: string; expiresAt?: number };
-        if (saved.device === record.deviceID && typeof saved.token === "string" && typeof saved.expiresAt === "number") cached = usable({ token: saved.token, expiresAt: saved.expiresAt });
-      } catch {}
-    }
-    if (cached) {
-      sessions.set(this.directory, cached);
-      return cached.token;
-    }
-    let opening = sessionOpens.get(this.directory);
-    if (!opening) {
-      opening = (async () => {
-        const opened = await openDeviceSession(record.origin, record.profileTree, record.deviceID, seed);
-        const value = { token: opened.token, expiresAt: opened.expiresAt };
-        sessions.set(this.directory, value);
-        const temporary = `${this.sessionPath}.${crypto.randomUUID()}.tmp`;
-        await writeFile(temporary, JSON.stringify({ device: record.deviceID, ...value }), { mode: 0o600 });
-        await rename(temporary, this.sessionPath);
-        return value;
-      })().finally(() => sessionOpens.delete(this.directory));
-      sessionOpens.set(this.directory, opening);
-    }
-    return (await opening).token;
   }
 
   private async readSecret(reference: string): Promise<string | null> {
@@ -244,5 +267,135 @@ export class HostAccountStore {
     catch { return []; }
     const records = await Promise.all(names.filter((name) => /^tr_[a-z2-7]+$/.test(name)).map((name) => new HostAccountStore(name).safe()));
     return records.filter((record): record is HostAccountRecord => record !== null).sort((a, b) => a.configurationTree.localeCompare(b.configurationTree));
+  }
+}
+
+/**
+ * A placement account's connection (accounts §1.3): the profile's account at
+ * a host other than its home. The device signs in there with the same
+ * DeviceID and key as at its home host, whose connection holds the key.
+ */
+export interface HostPlacementRecord {
+  /** The profile's configuration TreeID; its home connection is `HostAccountStore(configurationTree)`. */
+  configurationTree: string;
+  /** The placement host's origin. */
+  origin: string;
+  account: string;
+  accountID: string;
+  /** Optional Canopy-specific presentation hint; never account identity. */
+  handle?: string;
+  profileTree: string;
+  /** The home host the placement host reads the profile's device keys from. */
+  homeHost: string;
+  /** The ordinary tree the claim declared at the account's address there. */
+  placementRoot: string;
+  placed: true;
+}
+
+/** The directory name of a placement connection: one per placement host origin. */
+function placementDirectoryName(origin: string): string {
+  return `host-${sha256(origin).slice(0, 24)}`;
+}
+
+/**
+ * Private connection metadata for one placement account, keyed by the
+ * profile's configuration TreeID and the placement host's origin, beside the
+ * home connection whose device key it uses. `HostAccountStore.list()` lists
+ * home connections only, so every reader that treats a connection as an
+ * account with a configuration checkout keeps doing so.
+ */
+export class HostPlacementStore {
+  readonly origin: string;
+  constructor(readonly configurationTree: string, origin: string) {
+    if (!/^tr_[a-z2-7]+$/.test(configurationTree)) throw new Error("Placement store requires a configuration TreeID");
+    this.origin = new URL(origin).origin;
+    if (this.origin !== origin) throw new Error("Placement store requires a canonical origin");
+  }
+
+  private static root(configurationTree: string): string {
+    return join(arborPrivateRoot(), "accounts", configurationTree, "placements");
+  }
+
+  private get directory(): string {
+    return join(HostPlacementStore.root(this.configurationTree), placementDirectoryName(this.origin));
+  }
+
+  private get path(): string {
+    return join(this.directory, "connection.json");
+  }
+
+  private get sessionPath(): string {
+    return join(this.directory, "session.json");
+  }
+
+  async safe(): Promise<HostPlacementRecord | null> {
+    try {
+      const record = JSON.parse(await readFile(this.path, "utf8")) as HostPlacementRecord;
+      if (
+        record.configurationTree !== this.configurationTree || record.origin !== this.origin
+        || typeof record.account !== "string" || new URL(record.account).origin !== record.origin
+        || typeof record.homeHost !== "string" || new URL(record.homeHost).origin !== record.homeHost || record.homeHost === record.origin
+        || !record.accountID || !record.profileTree || !record.placementRoot || record.placed !== true
+      ) return null;
+      return record;
+    } catch { return null; }
+  }
+
+  async set(record: Omit<HostPlacementRecord, "configurationTree" | "origin" | "placed">): Promise<HostPlacementRecord> {
+    await prepareArborDataRoot();
+    const complete: HostPlacementRecord = { ...record, configurationTree: this.configurationTree, origin: this.origin, placed: true };
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    const temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(complete, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporary, this.path);
+    return complete;
+  }
+
+  /**
+   * The placement connection and a session the home connection's device key
+   * opens at the placement host; null without either.
+   */
+  async get(): Promise<{ record: HostPlacementRecord; accountToken: string; deviceID: string } | null> {
+    const record = await this.safe();
+    if (!record) return null;
+    const key = await new HostAccountStore(this.configurationTree).deviceKeySeed();
+    if (!key) return null;
+    const accountToken = await openCachedSession(this.directory, this.sessionPath, record.origin, record.profileTree, key.deviceID, key.seed);
+    return { record, accountToken, deviceID: key.deviceID };
+  }
+
+  /** After the placement host refused this device: forget its session so the next `get` opens another. */
+  async forgetSession(): Promise<void> {
+    sessions.delete(this.directory);
+    await rm(this.sessionPath, { force: true });
+  }
+
+  async remove(): Promise<void> {
+    await this.forgetSession();
+    await rm(this.directory, { recursive: true, force: true });
+  }
+
+  /** A profile's placement connections, or every profile's. */
+  static async list(configurationTree?: string): Promise<HostPlacementRecord[]> {
+    let trees: string[];
+    if (configurationTree) trees = [configurationTree];
+    else {
+      try { trees = (await readdir(join(arborPrivateRoot(), "accounts"))).filter((name) => /^tr_[a-z2-7]+$/.test(name)); }
+      catch { return []; }
+    }
+    const records: HostPlacementRecord[] = [];
+    for (const tree of trees) {
+      let names: string[];
+      try { names = await readdir(HostPlacementStore.root(tree)); } catch { continue; }
+      for (const name of names) {
+        try {
+          const record = JSON.parse(await readFile(join(HostPlacementStore.root(tree), name, "connection.json"), "utf8")) as HostPlacementRecord;
+          if (typeof record.origin !== "string" || placementDirectoryName(record.origin) !== name) continue;
+          const checked = await new HostPlacementStore(tree, record.origin).safe();
+          if (checked) records.push(checked);
+        } catch {}
+      }
+    }
+    return records.sort((a, b) => a.configurationTree.localeCompare(b.configurationTree) || a.origin.localeCompare(b.origin));
   }
 }

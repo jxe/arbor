@@ -238,10 +238,12 @@ TreeIDs with valid local signatures.
 A placement account is claimed with the same two routes and the same
 profile-key proof as §1.2, with two differences:
 
-- The challenge request adds `homeHost`, the origin of the profile's home
-  host, and the returned challenge carries it, so the profile key signs which
-  host the placement host will trust for the profile's devices. The placement
-  host refuses a `homeHost` equal to its own origin.
+- The challenge request adds `homeHost`, the HTTPS origin of the profile's
+  home host, and the returned challenge carries it, so the profile key signs
+  which host the placement host will trust for the profile's devices. The
+  placement host refuses a `homeHost` equal to its own origin. A home claim's
+  challenge has no `homeHost`, and neither kind of claim accepts the other's
+  challenge.
 - The claim body carries no device and no configuration. The placement host
   fetches the home host's device keys (§5.4) and refuses the claim unless it
   can read them.
@@ -260,7 +262,26 @@ On a placement host the profile's devices may read, update and watch as
 the profile, edit tree configurations from administrator devices, and declare,
 activate and mount trees under the placement root. Code there has the
 authority [access control §1.1](05-access-control.md#11-execution-authority)
-gives code on a placement host.
+gives code on a placement host. Routes about the profile's own configuration,
+its devices and pairing, are the home host's: a placement host refuses them
+with `permission-denied`, naming the home host in `details.homeHost`.
+
+The claim's response, and the authenticated account descriptor
+(`GET /.arbor/account`) on a placement host, carry two fields a home host's
+descriptor omits, and no `configuration`:
+
+```json
+{
+  "id": "tr_…",
+  "profileTree": "tr_…",
+  "homeHost": "https://home.example",
+  "placementRoot": { "id": "tr_…", "path": "/~alice", "tree": null },
+  "…": "…"
+}
+```
+
+`placementRoot.tree` is the root's tree descriptor once its first snapshot
+has activated it, and `null` until then.
 
 The placement host trusts the home host, over HTTPS, for the device keys of
 the profiles whose profile key named that home host, and for nothing else. A
@@ -619,13 +640,17 @@ other.
 
 A placement host opens a session (§5.1) for a device listed in its copy of
 the home host's device keys, treating the caller as that profile and device,
-an administrator device if listed as one. It keeps a copy for at most about a
-minute and refuses to open a session from an older copy it cannot refresh. A
-challenge request naming a DeviceID missing from its copy makes it refetch
-early, at most once every few seconds per profile. It refreshes the copy of
-every profile with open sessions and ends the sessions and watches of any
-device no longer listed, so a deletion at the home host reaches it within the
-copy's lifetime.
+an administrator device if listed as one. It serves a copy for at most a
+minute (canopyd: 60 seconds) before refetching it. It refuses to open a
+session from a copy older than its staleness limit that it cannot refresh
+(canopyd: 60 seconds, the copy's lifetime), with a retryable error naming the
+home host in `details.homeHost`. A challenge request naming a DeviceID
+missing from its copy makes it refetch early, and a failed fetch is retried,
+at most once every five seconds per profile, so that nobody can use a
+placement host to flood a home host. It refreshes the copy of every profile
+with open sessions at least once per lifetime, and ends the sessions and
+watches of any device no longer listed, or listed with another key, so a
+deletion at the home host reaches it within the copy's lifetime.
 
 ## 6. Declaring, activating and mounting a tree
 
