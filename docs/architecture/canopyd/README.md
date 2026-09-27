@@ -115,12 +115,51 @@ configurations have their shape, and the tests for each refused case, are in
   `GET /.arbor/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
-  The placement role that reads it is [Security 007](../../../plans/soon/007-placement-hosts.md).
+- **Placement role.** canopyd is also a placement host
+  ([accounts §1.3, §5.4](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+  A placement account is an `accounts` row whose `home_host` names the
+  profile's home origin (NULL for a home account, [schema 27](../../../packages/canopyd/migrations/next/README.md)).
+  The claim (`claimPlacementAccount`) takes the same reservation and
+  profile-key proof as a home claim, with `homeHost` in the signed challenge
+  and no device or configuration; it refuses this host's own origin, a plain
+  `http:` home unless this host is itself served over `http:` (local hosts
+  only), and a home whose device keys it cannot read now. One transaction
+  records the account and declares its **placement root**: an ordinary tree
+  with a fresh TreeID, mounted as the member mount at `/~handle`, whose
+  configuration grants the profile `admin` and mounts nothing; the person's
+  first snapshot activates it. The device-key copies are memory only
+  (`PlacementDeviceKeys` in `placement.ts`): a copy serves for
+  `deviceKeyLifetimeMs` (60 s); a challenge naming a DeviceID the copy lacks,
+  or a fetch that failed, refetches at most once per `deviceKeyRefetchMs`
+  (5 s) per profile; and a copy the host cannot refresh opens no session once
+  it is `deviceKeyStaleMs` old (60 s, the staleness limit, which Security 009
+  will lengthen while a home is unreachable). Each is a `HostDaemonOptions`
+  field, as `sessionLifetimeMs` is, and `serveHost` takes them as
+  `lifetimes`. A device's first session there inserts its `devices` row with
+  the listed key and an empty label (labels are the home host's), which keeps
+  `device_sessions`' foreign key. Every half lifetime, and so within a
+  lifetime of a session opening, canopyd refetches the keys of each placement
+  account with an open session (`refreshDeviceKeys`); a device no longer
+  listed, or listed with another key, gets `revoked_at` and loses its
+  sessions, and its watches close at their next authorization check. A listed
+  `administrator: true` gates configuration edits, declaring and activating
+  trees as `devices.yaml`'s flag does at a home host. The account's
+  configuration tree, pairing and recovery are refused with 403
+  `permission-denied` and `details.homeHost` (`PlacementAccountError`); the
+  account descriptor carries `homeHost` and `placementRoot` and no
+  `configuration`. canopyd never republishes the keys it read, and code
+  acting for a placement account's caller gets only `everyone` grants and its
+  trees' `app` rules: the caller lends nothing, since its `apps.yaml` is at
+  its home (`executionAllows` in `access.ts`).
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, the database, or a
   system call is a logged 500 whose detail stays in the log
   (`ServerFaultError`, `isServerFault` in `errors.ts`); a full bounded
-  resource is a retryable 503 (`ServerBusyError`).
+  resource is a retryable 503 (`ServerBusyError`). A placement account's
+  profile-configuration route is a 403 naming its home host
+  (`PlacementAccountError`), and a session a placement host cannot open from
+  a fresh enough copy of the home host's device keys is a retryable 503
+  naming it (`HomeHostUnavailableError`).
 
 ## Durability and observation
 
