@@ -104,3 +104,17 @@ rename.
 ## Rehearsal log
 
 - 2026-09-27: synthetic schema-23 host only (`migrate.test.ts`).
+- 2026-09-27: live backup `.backups/railway/20260927T175419Z/volume.tar`
+  (sha256 `8008cdba…`, 165 MB; live and vacuumed row counts equal), taken
+  after `dv_ry4dqmh32o5ovzccizd2xfhhje` left `devices.yaml`. `survey-host.ts`
+  on `before`: schema 23, 0 unrevoked devices without a key, 0 bare-string
+  members, 0 `profile_resets`. `survey.ts --iphone … --live`: every gate
+  passes; the three failures are expected (update control before schema 4,
+  whose removal was reverted, in the Mac app and on the iPhone; and 1,655
+  test-made `self-`/`home-` Keychain records beside the indexed
+  `primary-v2`, which the removed guard never read for this data home).
+  `test:migration` 12/12. `run.ts migrated`: 23 → 26 through 024–026; a
+  rerun reports `migrated: false`. `compare-canopy-roots`: all 7 roots
+  unchanged. Served with this build: `verify.ts` ok (7 trees, `--sync`),
+  `/.arbor/integrity` ok (called once). Migrated `devices`: 2 key devices,
+  2 revoked without a key (`dv_ry4d…`, `dv_7y6b…`).
