@@ -57,8 +57,9 @@ public protocol AccountCredentialStore: Sendable {
     func forgetAccount(configurationTree: String) async throws
 }
 
-/// Each account's device key and metadata, and pending claims, in the Keychain.
-public actor KeychainDeviceCredentialStore: AccountCredentialStore {
+/// Each account's device key and metadata, pending claims, and placement
+/// connections, in the Keychain.
+public actor KeychainDeviceCredentialStore: AccountCredentialStore, PlacementConnectionStore {
     nonisolated let service: String
 
     public init(service: String = "org.nxhx.Arbor.device") { self.service = service }
@@ -132,6 +133,40 @@ public actor KeychainDeviceCredentialStore: AccountCredentialStore {
 
     public func forgetAccount(configurationTree: String) throws {
         try forgetValue(account: configurationTree, service: service + ".accounts")
+    }
+
+    /// Placement connections hold no secret; they live beside the accounts,
+    /// one item per `<ConfigurationTreeID>/host-<digest>` as a data home
+    /// keys them (accounts §1.3).
+    public func placements(configurationTree: String?) throws -> [NativePlacementAccount] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".placements",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess else { throw OSStatusError(status) }
+        let values = (result as? [Data]) ?? (result as? Data).map { [$0] } ?? []
+        return values.compactMap { try? JSONDecoder().decode(NativePlacementAccount.self, from: $0) }
+            .filter { $0.isWellFormed && (configurationTree == nil || $0.configurationTree == configurationTree) }
+            .sorted { ($0.configurationTree, $0.origin) < ($1.configurationTree, $1.origin) }
+    }
+
+    public func savePlacement(_ placement: NativePlacementAccount) throws {
+        guard placement.isWellFormed else { throw ProtocolValidationError.invalidValue("Malformed placement connection") }
+        try saveValue(
+            String(decoding: try JSONEncoder().encode(placement), as: UTF8.self),
+            account: placement.id,
+            service: service + ".placements"
+        )
+    }
+
+    public func forgetPlacement(configurationTree: String, origin: String) throws {
+        try forgetValue(account: NativePlacementAccount.key(configurationTree: configurationTree, origin: origin), service: service + ".placements")
+        AccountStoredCredentialProvider.discardShared(service: service, configurationTree: configurationTree, origin: origin)
     }
 
     private func accountKey(_ configurationTree: String) -> String { "account:\(configurationTree)" }
@@ -349,34 +384,50 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
 
     /// The provider for an account: shared when the account lives in the
     /// keychain and requests use the shared URL session, otherwise a new one.
-    public static func shared(configurationTree: String, store: any AccountCredentialStore, session: URLSession = .shared) -> AccountStoredCredentialProvider {
+    /// With `origin`, it opens sessions at that placement host instead of the
+    /// account's home host, with the same device key (accounts §1.3, §5.4).
+    public static func shared(configurationTree: String, origin: String? = nil, store: any AccountCredentialStore, session: URLSession = .shared) -> AccountStoredCredentialProvider {
         guard let keychain = store as? KeychainDeviceCredentialStore, session === URLSession.shared else {
-            return AccountStoredCredentialProvider(configurationTree: configurationTree, store: store, session: session)
+            return AccountStoredCredentialProvider(configurationTree: configurationTree, origin: origin, store: store, session: session)
         }
-        let key = keychainKey(service: keychain.service, configurationTree: configurationTree)
+        let key = keychainKey(service: keychain.service, configurationTree: configurationTree, origin: origin)
         return keychainProviders.withLock { providers in
             if let provider = providers[key] { return provider }
-            let provider = AccountStoredCredentialProvider(configurationTree: configurationTree, store: store, session: session)
+            let provider = AccountStoredCredentialProvider(configurationTree: configurationTree, origin: origin, store: store, session: session)
             providers[key] = provider
             return provider
         }
     }
 
-    /// Drop a shared provider whose keychain entry changed; the next client reads it afresh.
+    /// Drop the shared providers whose keychain entry changed, the account's
+    /// and its placements' (they sign with its key); the next client reads it afresh.
     static func discardShared(service: String, configurationTree: String) {
-        _ = keychainProviders.withLock { $0.removeValue(forKey: keychainKey(service: service, configurationTree: configurationTree)) }
+        let home = keychainKey(service: service, configurationTree: configurationTree, origin: nil)
+        keychainProviders.withLock { providers in
+            for key in Array(providers.keys) where key == home || key.hasPrefix(home + "\u{0}") { providers[key] = nil }
+        }
     }
 
-    private static func keychainKey(service: String, configurationTree: String) -> String { "\(service)\u{0}\(configurationTree)" }
+    /// Drop one placement's shared provider.
+    static func discardShared(service: String, configurationTree: String, origin: String) {
+        _ = keychainProviders.withLock { $0.removeValue(forKey: keychainKey(service: service, configurationTree: configurationTree, origin: origin)) }
+    }
+
+    private static func keychainKey(service: String, configurationTree: String, origin: String?) -> String {
+        "\(service)\u{0}\(configurationTree)" + (origin.map { "\u{0}\($0)" } ?? "")
+    }
 
     private let configurationTree: String
+    /// A placement host to open sessions at; nil for the account's home host.
+    private let origin: String?
     private let store: any AccountCredentialStore
     private let session: URLSession
     private var sessions: DeviceSessionCredentialProvider?
     private var generation = 0
 
-    public init(configurationTree: String, store: any AccountCredentialStore, session: URLSession = .shared) {
+    public init(configurationTree: String, origin: String? = nil, store: any AccountCredentialStore, session: URLSession = .shared) {
         self.configurationTree = configurationTree
+        self.origin = origin
         self.store = store
         self.session = session
     }
@@ -390,7 +441,12 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
               let profileTree = account.profileTree else {
             throw ProtocolValidationError.invalidValue("The account's device key has no profile to sign in to")
         }
-        let provider = DeviceSessionCredentialProvider(origin: account.origin, profileTree: profileTree, device: account.deviceID, key: key, session: session)
+        var host = account.origin
+        if let origin {
+            guard let url = URL(string: origin) else { throw ProtocolValidationError.invalidValue("Malformed placement host") }
+            host = url
+        }
+        let provider = DeviceSessionCredentialProvider(origin: host, profileTree: profileTree, device: account.deviceID, key: key, session: session)
         // A rejection while the store was being read makes this key suspect.
         if generation == loadedGeneration { sessions = provider }
         return try await provider.credential()
@@ -440,20 +496,25 @@ public struct PairingPayload: Codable, Equatable, Sendable {
 public actor NativeAccountService {
     private let origin: URL
     private let credentials: any AccountCredentialStore
+    private let placementStore: any PlacementConnectionStore
     private let session: URLSession
     private let retryDelay: ProtocolClient.RetryDelay
     private var configurationTree: String?
 
+    /// `placements` defaults to `credentials` when that store also keeps
+    /// placement connections, as the Keychain store does.
     public init(
         origin: URL,
         configurationTree: String? = nil,
         credentials: any AccountCredentialStore = KeychainDeviceCredentialStore(),
+        placements: (any PlacementConnectionStore)? = nil,
         session: URLSession = .shared,
         retryDelay: @escaping ProtocolClient.RetryDelay = ProtocolClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.configurationTree = configurationTree
         self.credentials = credentials
+        self.placementStore = placements ?? (credentials as? any PlacementConnectionStore) ?? KeychainDeviceCredentialStore()
         self.session = session
         self.retryDelay = retryDelay
     }
@@ -669,10 +730,168 @@ public actor NativeAccountService {
     }
 
     public func configurationID() -> String? { configurationTree }
+    /// Remove the account's device key and metadata, and its placement
+    /// connections, which sign in with that key.
     public func forget() async throws {
         guard let configurationTree else { return }
+        for placement in try await placementStore.placements(configurationTree: configurationTree) {
+            try await placementStore.forgetPlacement(configurationTree: configurationTree, origin: placement.origin)
+        }
         try await credentials.forget(configurationTree: configurationTree)
         try await credentials.forgetAccount(configurationTree: configurationTree)
+    }
+
+    // MARK: Placement accounts (accounts §1.3)
+
+    /// This account's placement connections.
+    public func placements() async throws -> [NativePlacementAccount] {
+        guard let configurationTree else { return [] }
+        return try await placementStore.placements(configurationTree: configurationTree)
+    }
+
+    /// A protocol client for a placement host this account is placed on,
+    /// signing in there with this device's key.
+    public func placementClient(origin placementOrigin: String) async throws -> ProtocolClient {
+        guard let configurationTree,
+              let placement = try await placementStore.placements(configurationTree: configurationTree).first(where: { $0.origin == placementOrigin }),
+              let url = URL(string: placement.origin) else {
+            throw ProtocolValidationError.invalidValue("This account is not placed on \(placementOrigin)")
+        }
+        return ProtocolClient(
+            origin: url,
+            credentialProvider: AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: placement.origin, store: credentials, session: session),
+            session: session,
+            retryDelay: retryDelay
+        )
+    }
+
+    /// Remove a placement connection from this device. The account stays
+    /// claimed at the placement host; placing it again reconnects.
+    public func forgetPlacement(origin placementOrigin: String) async throws {
+        guard let configurationTree else { return }
+        try await placementStore.forgetPlacement(configurationTree: configurationTree, origin: placementOrigin)
+    }
+
+    /// Place this home account on another host (accounts §1.3), mirroring
+    /// `claimPlacementAccount` in `@overstory/client`.
+    ///
+    /// A device that holds the profile key claims the placement account: the
+    /// key signs a challenge naming this account's home host. Every device
+    /// then signs in at the placement host with its own home device key,
+    /// because the placement host accepts every device the home host lists.
+    /// So a device without the profile key (a paired iPhone) connects to a
+    /// placement account already claimed from another device, and fails with
+    /// `NativePlacementError.profileKeyUnavailable` when there is none.
+    /// Running it again after a claim that landed reconnects rather than
+    /// claiming twice.
+    public func placeAccount(
+        on host: String,
+        inviteCode: String? = nil,
+        identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
+    ) async throws -> NativePlacementResult {
+        let target = try placementTarget(host)
+        guard let configurationTree,
+              let home = try await credentials.accounts().first(where: { $0.configurationTree == configurationTree }),
+              let profileTree = home.profileTree,
+              let homeHost = originString(home.origin),
+              let stored = try await credentials.load(configurationTree: configurationTree),
+              let key = DeviceKeySecret(stored: stored) else {
+            throw NativePlacementError.noHomeAccount
+        }
+        guard target.origin != homeHost else { throw NativePlacementError.homeHost(target.origin) }
+        guard let targetURL = URL(string: target.origin) else { throw NativePlacementError.invalidHost }
+        let existing = try await placementStore.placements(configurationTree: configurationTree).first { $0.origin == target.origin }
+
+        /// Record the connection, then open a session with the device key and check the account it names.
+        func connect(_ account: ProtocolPlacementAccountDescriptor, accountURL: String) async throws -> NativePlacementAccount {
+            guard account.profileTree == profileTree, account.homeHost == homeHost else {
+                throw NativePlacementError.mismatch("The account at \(target.origin) names another profile or home host")
+            }
+            let placement = NativePlacementAccount(
+                configurationTree: configurationTree,
+                origin: target.origin,
+                account: accountURL,
+                accountID: account.id,
+                handle: account.handle,
+                profileTree: profileTree,
+                homeHost: homeHost,
+                placementRoot: account.placementRoot.id
+            )
+            try await placementStore.savePlacement(placement)
+            let opened = try await placementClient(origin: target.origin).placementAccount().account
+            guard opened.profileTree == profileTree, opened.placementRoot.id == account.placementRoot.id else {
+                throw NativePlacementError.mismatch("The account at \(target.origin) changed while it was being connected")
+            }
+            return placement
+        }
+
+        /// The placement account the host already holds for the profile, read
+        /// with a session this device's key opens; nil when the host opens no
+        /// session for it. A home host that cannot be reached is reported.
+        func adopt() async throws -> NativePlacementResult? {
+            let token: String
+            do {
+                token = try await ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
+                    .openDeviceSession(profileTree: profileTree, device: home.deviceID, key: key).token
+            } catch let error as ProtocolHTTPError where (400..<500).contains(error.status) {
+                return nil
+            }
+            let account = try await ProtocolClient(origin: targetURL, credential: token, session: session, retryDelay: retryDelay)
+                .placementAccount().account
+            let accountURL = existing?.account ?? target.account ?? target.origin + account.placementRoot.path
+            return NativePlacementResult(placement: try await connect(account, accountURL: accountURL), account: account, claimed: false)
+        }
+
+        if existing != nil, let adopted = try await adopt() { return adopted }
+        guard let identity = try await identityStore.identity(), identity.profileTree == profileTree else {
+            // No profile key here: only a placement claimed elsewhere can be used.
+            if existing == nil, let adopted = try await adopt() { return adopted }
+            throw NativePlacementError.profileKeyUnavailable(host: target.origin)
+        }
+
+        let wire = ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
+        func submit() async throws -> (ProtocolPlacementClaimResult, String) {
+            let challenge = try await wire.createAccountChallenge(
+                account: target.account,
+                profileTree: profileTree,
+                configurationTree: configurationTree,
+                inviteCode: inviteCode,
+                homeHost: homeHost
+            )
+            // What the profile key signs: this host, this profile, and this home host.
+            guard challenge.origin == target.origin, challenge.profileTree == profileTree,
+                  challenge.configurationTree == configurationTree, challenge.homeHost == homeHost,
+                  target.account.map({ $0 == challenge.account }) != false else {
+                throw NativePlacementError.mismatch("The placement host's challenge disagrees with the requested claim")
+            }
+            let signed = try await identityStore.sign(challenge)
+            let result = try await wire.claimPlacementAccount(ProtocolPlacementClaimRequest(
+                account: challenge.account,
+                profileTree: profileTree,
+                configurationTree: configurationTree,
+                challenge: challenge,
+                publicKey: signed.identity.publicKey,
+                signature: signed.signature,
+                inviteCode: inviteCode
+            ))
+            return (result, challenge.account)
+        }
+        let claimed: (ProtocolPlacementClaimResult, String)
+        do {
+            do {
+                claimed = try await submit()
+            } catch let error as ProtocolHTTPError
+                where error.code == "invalid-request" && error.message?.localizedCaseInsensitiveContains("challenge is expired") == true {
+                claimed = try await submit()
+            }
+        } catch let error as ProtocolHTTPError
+            where error.code == "already-claimed" || error.message?.localizedCaseInsensitiveContains("already claimed") == true {
+            // A claim that landed before its answer was lost: the host already knows the profile.
+            if let adopted = try await adopt() { return adopted }
+            throw error
+        }
+        let (result, accountURL) = claimed
+        return NativePlacementResult(placement: try await connect(result.account, accountURL: accountURL), account: result.account, claimed: true)
     }
 
     private func client() async throws -> ProtocolClient {
