@@ -3,7 +3,7 @@
 ## Status
 
 - **Priority:** P2
-- **Effort:** S of Joe's attention (about an hour on the Mac), the code is written.
+- **Effort:** S of Joe's attention (about an hour on the Mac); the code is written.
 - **Risk:** MEDIUM. A live schema migration, a host deploy whose clients must
   follow in the same sitting, and a one-time data-home rename.
 - **State:** READY 2026-09-27 on branch `claude/happy-davinci-pftumh`. The live
@@ -30,46 +30,63 @@ in the same sitting.
 
 ## The survey
 
-Before anything live, `packages/canopyd/migrations/next/survey.ts` checks, read
-only, that the state each removal assumes gone is gone on the Mac, the iPhone
-copy and the host. Each failing line names the commit to revert (or the
-live step to take first). See the [batch README](../../packages/canopyd/migrations/next/README.md#before-cutover-the-survey).
+`packages/canopyd/migrations/next/survey.ts` checks, read only, that the state
+each removal assumes gone is gone on the Mac, the iPhone copy and the host.
+Each failing line names the commit to revert or the live step to take first.
+See the [batch README](../../packages/canopyd/migrations/next/README.md#before-cutover-the-survey).
 
 ## Cutover
 
-The [batch runbook](../../packages/canopyd/migrations/next/README.md#cutover)
-and the [common procedure](../../packages/canopyd/migrations/README.md#the-procedure),
-with these additions in order:
+The [common procedure](../../packages/canopyd/migrations/README.md#the-procedure)
+applies, with these additions, in order. Every live step needs Joe's go-ahead.
 
-1. **On the Mac, before anything live:** check out the branch, `bun install`,
-   build and test the Swift packages and `CanopyAppTests`
-   (the branch's Swift was compiled only on Linux), run `bun run test:protocol`.
-2. **Survey.** Copy the iPhone's app container, run `survey-host.ts` against
-   the host (it is not in the deployed image: run it over `railway ssh` with
-   the script piped in, or against the backup from step 4), then `survey.ts`.
-   Revert what fails, or fix the live state it names.
-3. **Deauthorize the last digest device**, with Joe's go-ahead: from the Mac
-   app's device list, or by deleting its entry from the checkout's
-   `devices.yaml` while Arbor Sync runs. Either is an accepted update to the
-   profile's configuration; see it leave `GET /.arbor/account`.
-4. **Back up, download, rehearse** per the procedure: `bun run test:migration
-   packages/canopyd/migrations/next`, restore twice, `run.ts`,
-   `compare-canopy-roots` (every root unchanged), serve the copy and call
-   `/.arbor/integrity` once. Record the rehearsal in the batch README.
-5. **Quiesce, snapshot the Mac, rename the data home:** stop Arbor Sync,
-   `cp -a ~/.arbor` as the procedure says, then
-   `mv ~/.arbor/accounts ~/.arbor/configurations`.
-6. **The cutover commit:** rename `migrations/next/` to
-   `026-key-devices-only/` and start a fresh `next/`; merge to `main`, push, and
-   wait for the build (it starts in maintenance mode on schema 23).
-7. **Migrate in place** over `railway ssh`, redeploy, verify with `verify.ts`.
-8. **Clients:** start Arbor Sync from the new checkout; rebuild and launch the
-   Mac app; round-trip one edit; install the iPhone build and round-trip one
-   edit from it.
-9. **Close out:** record the result in `status.md`, the batch README and the
-   schema history; delete this plan. Migration directories 018–023 go when
-   their backups age out (018–021 after 2026-10-09, 022 after 2026-10-10, 023
-   two weeks after this cutover).
+1. **Build and test on the Mac.** Check out the branch and `bun install`. Run
+   the Swift package suites, `swift/scripts/test-canopy-app.sh`
+   (`CanopyAppTests`), and `bun run test:protocol`: the branch's Swift was
+   compiled only on Linux against stand-ins, and the app target not at all.
+   Replace the cloud-bundle fixture in `tests/unit/cloud-bundle.test.ts` with
+   a string `CanopyCloudBundle.encode` really produces if the Swift test
+   disagrees with it.
+2. **Survey the Mac and the iPhone** (no `--live` yet): copy the iPhone's app
+   container, run `survey.ts --iphone <copy>`, and check on the phone that
+   Settings → Accounts shows only the current account and no claim is
+   pending. Revert what fails, or fix the state it names.
+3. **Deauthorize the last digest device**, `dv_ry4dqmh32o5ovzccizd2xfhhje`
+   ("iPhone", unused since 2026-09-05), from the Mac app's device list or by
+   deleting its entry from the checkout's `devices.yaml` while the current
+   Arbor Sync runs. See it leave `GET /.arbor/account`. Step 026 refuses
+   otherwise.
+4. **Back up and download** (procedure steps 1–2), then **survey the host** on
+   the restored copy: `restore-canopy.ts volume.tar before`,
+   `survey-host.ts before > survey-host.json`, `survey.ts --iphone <copy>
+   --live survey-host.json`. All must pass.
+5. **Rehearse** (procedure step 3): `bun run test:migration
+   packages/canopyd/migrations/next`, restore `migrated`, `run.ts migrated`,
+   `compare-canopy-roots before migrated` (every root unchanged), serve the
+   copy with this build and call `/.arbor/integrity` once. Record it in the
+   batch README's rehearsal log.
+6. **Snapshot and quiesce the Mac** (procedure steps 4–5), then rename the
+   data home: `mv ~/.arbor/accounts ~/.arbor/configurations`.
+7. **The cutover commit:** rename `migrations/next/` to
+   `026-key-devices-only/` (fixing its links), start a fresh `next/` README
+   with no steps, add schema rows 24–26 to the schema history, merge the
+   branch to `main` and push. The new build starts in maintenance mode on
+   schema 23.
+8. **Migrate in place** over `railway ssh` (`026-key-devices-only/run.ts
+   /data`), redeploy, verify (procedure steps 6–7).
+9. **Clients:** start Arbor Sync from the new checkout and see every
+   placement `idle`, the configuration checkout included; rebuild and launch
+   the Mac app; round-trip one edit; install the iPhone build and round-trip
+   one edit from it (procedure steps 8–10).
+10. **Close out:** record the result in `status.md` and the batch README, and
+    delete this plan. Migration directories go when their backups age out:
+    018–021 after 2026-10-09, 022 after 2026-10-10 (with it the last reader
+    of `account.yaml`), 026 two weeks after this cutover.
 
-**Gate:** the survey, the rehearsal, the Mac's Swift suites, and a round-trip
-edit from the Mac and the iPhone after cutover.
+**Rollback** before step 9 is the procedure's: restore the archive and
+redeploy the previous build, and `mv ~/.arbor/configurations ~/.arbor/accounts`
+back with the old checkout.
+
+**Gate:** the survey, the rehearsal, the Mac's Swift suites and
+`CanopyAppTests`, and a round-trip edit from the Mac and the iPhone after
+cutover.

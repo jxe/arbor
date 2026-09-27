@@ -30,7 +30,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | One access store (schema 20): a tree an account activated or hosts is that account's, and its owner's resource rules alone govern it; `access` keeps only unowned trees' entries; `trees.updated_at`, the reservation status, `account_challenges.claim_digest` and `meta.community_name` are gone | deployed 2026-09-24 at schema 20 by [migration 019](packages/canopyd/migrations/019-one-access-store/README.md) (build `016f878a`); superseded at schema 22 by tree configurations | [host](docs/architecture/canopyd/README.md#accounts-and-canonical-paths) |
 | Profile facts per tree (canopyd 018, schema 21): one `profile_facts` row per tree whose head declares `type: person` or `type: group`, keyed by TreeID with the head's `_index.md` object and declared avatar path; an accepted update recomputes it only when its entry changes touch `_index.md` or that avatar, parsing `_index.md` once per accept, and reconciles community accounts only when the members change; readers and the directory's group scan key by tree; the `meta` `profile:<root>` rows are gone. Tested by `tests/integration/canopyd/profile-facts.test.ts` and the migration suite | deployed and verified 2026-09-25 at schema 21 by [migration 020](packages/canopyd/migrations/020-profile-facts-per-tree/README.md) (build `fe0fccdb`) | [host](docs/architecture/canopyd/README.md#accounts-and-canonical-paths), [schema history](packages/canopyd/migrations/README.md#schema-history) |
 | Tree configurations (canopyd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Arbor Sync speak it | deployed and verified 2026-09-26 at schema 22 by [migration 022](packages/canopyd/migrations/022-tree-configurations/README.md) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/canopyd/tree-configurations.md) |
-| Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`canopyd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and canopyd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Arbor Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `arbor device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host canopyd also publishes each profile's key devices at `GET /.arbor/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by [migration 023](packages/canopyd/migrations/023-device-keys/README.md) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Not yet tried by hand: pairing, revoking and recovering with keys; one unused digest "iPhone" remains | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing), [Security 006](plans/soon/006-device-keys.md) |
+| Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`canopyd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and canopyd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Arbor Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `arbor device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host canopyd also publishes each profile's key devices at `GET /.arbor/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by [migration 023](packages/canopyd/migrations/023-device-keys/README.md) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
 | Saved sidecar states: with `--cache` (canopyd passes `/data/merge-cache`) the sidecar saves a tree's head state every 32 replayed entries, keeps two per tree, and after a restart loads the nearest save instead of replaying from the chain's start; a save holds the exact replayed state (key order and bucket shape kept), checked by state identity and object hash on load. On the production copy a restarted sidecar answered in 37 ms instead of replaying 282 entries in 1 s | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#cache-and-replay) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@overstory/tree-merge`, which Arbor Sync tree recovery now declares. Log entries and the question and answer are unchanged | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Transfer merge extensions (canopyd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/canopyd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | implemented, not deployed; gate in [release and soak](plans/release-and-soak.md#server-refinements) | [transfers](docs/architecture/canopyd/merge-tool.md#transfers) |
@@ -89,7 +89,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward. Live on 2026-09-24 (255 update requests after the canopyd 016 deploy, all accepted, no 503s): median 48 ms, p90 302 ms, max 1.4 s; single fast-forwards 39 ms median; requests that asked the sidecar 201 ms median, the slowest being batched catch-up uploads of 5–12 updates (0.4–0.9 s in the sidecar) and slow client uploads. Locally, from the client, a plain traced edit on the head takes 2 ms with 1 file, 8 ms with 110 and 41 ms with 1,000 files in one directory, so the 20 ms target at 1,000 files is not met; no live directory exceeds 63 entries. The first merge after a restart replays history (the production main tree's 282 entries in about 1.2 s locally, an estimated 3.5–4.5 s live) and answers retryably past 10 s; saved sidecar states (below, not deployed) make it replay only from the nearest save.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of canopyd 016 hold that history as a hash chain, which a listing can walk. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
-- **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`. Workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
+- **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`, deleted with its directory after 2026-10-10. Workspace registries require complete object records and keep path-derived `rt_` root IDs as valid identities (106 on the Mac at the 2026-09-21 cutoff). From the schema-26 cutover, scalar group members are ignored, not read.
 - **Moves made outside Canopy are not link-healed.** A Rename or Move in the Canopy app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Arbor Sync heal those; Joe dropped it on 2026-09-25 as not needed.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
@@ -99,6 +99,77 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## Schema-26 cutover — 2026-09-27
+
+Implemented on branch `claude/happy-davinci-pftumh`, not installed or
+deployed; the live host is at schema 23. [canopyd 019](plans/soon/019-cutover-026.md)
+is the runbook. The branch is one cutover: its host serves only schema 26, and
+the Mac app, Arbor Sync and the iPhone follow in the same sitting.
+
+- **Batch 024–026.** `migrations/next/` carries schema 23 to 26 in one
+  transaction: 024 drops `profile_resets` (refusing a pending row), 025 makes
+  `account_challenges` and `device_challenges` one `challenges` table apart by
+  `purpose` (copying only redeemable rows; a challenge of one purpose is never
+  found or consumed as the other), and 026 drops `devices.token_digest`, with
+  `public_key` required unless the device is revoked, refusing while any
+  unrevoked device has no key. The batch finishes with the product's schema
+  and row checks. Tested from a synthetic schema-23 root (`migrate.test.ts`).
+- **Key devices only (Security 006 close-out).** The spec (accounts §1.2, §5,
+  access control §2) and canopyd have one kind of device: every `devices.yaml`
+  entry has a `key`, fixed at enrollment, and a device authenticates only by a
+  session it opens by signing a challenge. canopyd refuses an entry without a
+  key or a changed key; historical configurations still parse. Gone: digest
+  enrollment in pairing, claims and bootstrap accounts, move-to-key (the CLI,
+  `POST /v1/device-key`, the apps' buttons), `StoredDeviceCredentialProvider`,
+  `legacyCredentials`, the iPhone's `rekeyStoredAccounts`, and a placement
+  without a configuration tree in the Mac app. `GET /v1/credential` serves
+  sessions only; cloud bundles are `arbor-cloud-v2` with a device key seed.
+  Tests sign in as named key devices through `tests/helpers/devices.ts`.
+- **CBOR object transport (canopyd 020).** Update requests and results and the
+  account claim travel as JSON or as canonical CBOR of the same value
+  ([tree operations §4.4](docs/overstory-spec/01-tree-operations.md#44-request-and-response-encodings)),
+  negotiated by `Content-Type` and `Accept`, with JSON error envelopes and
+  unchanged digests; clients default to CBOR. The claim carries its
+  configuration as an activation element whose `change` is the DeviceID; the
+  `{ root, objects }` reader is gone. Durable attempts record `contentType`
+  (absent is JSON, so earlier attempts replay as JSON). `/v1/bootstrap`
+  answers CBOR only. `protocol-cbor-transport.json` runs every request,
+  response and claim vector through both encodings in both languages;
+  canopyd's update-host tests run once per encoding.
+- **Legacy readers removed (Cleanup 007).** Scalar `/~handle` group members
+  (now ignored, as the spec says), the pre-plural `account.yaml` refusal,
+  placements without a configuration tree, Keychain identities without
+  metadata and Canopy's second-identity reconciliation, `HostAccountStore`'s
+  early connection records, `retireEarlierSyncState`, update control before
+  schema 4 (both runners refuse any other schema without rewriting it), and
+  bare node `modifiedAt`. Kept: `NativePlacementStore` dropping unreadable
+  records; `FolderSync.loadKnown`'s fallback to the placement's accepted base,
+  which a configuration checkout needs before its first write; `rt_`
+  workspace root IDs, which are live identities, not legacy.
+- **The data home names what it holds.** `~/.arbor/accounts/<ConfigurationTreeID>/`
+  is `~/.arbor/configurations/`, and the code says profile configuration
+  (`ProfileConfigurationYAML`, `loadProfileConfigurations`,
+  `editProfileConfigurationFile`, `profile-config.ts`). Per-tree sync state is
+  keyed by TreeID, so the one install renames the directory by hand with Arbor
+  Sync stopped; `.state/accounts/` keeps its name.
+- **Survey.** `migrations/next/survey.ts` and `survey-host.ts` check read-only
+  that the state each removal assumes gone is gone on the Mac, the iPhone copy
+  and the host, including no pending account claim; each failure names the
+  commit to revert or the live step to take.
+
+Evidence: `bun run typecheck`; `bun run test` with `ARBOR_CREDENTIAL_STORE=file`
+(the container lacks libsecret) matches the base commit apart from two
+environment failures (a saved-state timing test under load, and an
+unreadable-folder test that passes as root); `bun run test:migration
+packages/canopyd/migrations/next`; the TypeScript half of `bun run
+test:protocol` (338); `bun run check:links`. The Swift packages (CanopyAppKit,
+Overstory, OverstoryObjectStore, CanopyWorkingTree, OverstoryClient) were
+built and tested on Linux with Swift 6.2 against stand-ins for CryptoKit,
+Security, OSLog and UniformTypeIdentifiers: all pass except
+`profileConfigurationFileEdit`, which fails on Linux Foundation's
+`replaceItemAt` at the base commit too. The app target, `CanopyAppTests` and
+the Swift half of `test:protocol` still need the Mac.
 
 ## Host–client communication review — 2026-09-27
 
@@ -145,7 +216,7 @@ clients talk, and the fixes it led to:
   Railway's readiness probe stays `/`, since `/.arbor/health` runs
   `PRAGMA quick_check` over the whole database.
 
-Client-side legacy readers are in [Cleanup 007](plans/soon/007-remove-legacy-compatibility.md).
+Client-side legacy readers went in the [schema-26 cutover](#schema-26-cutover--2026-09-27).
 Evidence: `bun run typecheck`, `bun run test`,
 `bun run test:protocol` (TypeScript half), `bun run build`, `bun run check:links`,
 new tests in `tests/unit/transport-errors.test.ts`, `reconnecting-stream.test.ts`,

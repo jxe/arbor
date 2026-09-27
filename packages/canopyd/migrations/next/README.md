@@ -6,7 +6,7 @@ Nothing under `packages/` imports this directory, so `main` stays deployable
 while steps accumulate: the product keeps serving the live schema until the
 cutover commit.
 
-The batch is planned in [canopyd 019](../../../../plans/soon/019-migration-batch-024.md).
+The batch cuts over by [canopyd 019](../../../../plans/soon/019-cutover-026.md).
 
 ## Steps
 
