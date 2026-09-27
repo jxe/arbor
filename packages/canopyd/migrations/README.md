@@ -6,13 +6,19 @@ passes, runs once against real data, and is then deleted. Nothing under
 `packages/` imports from this directory, and the `arbor` command never grows
 a migration subcommand.
 
-Two things live here:
+Three things live here:
 
 - `tools/`: the small reusable scripts every migration uses: backup, restore,
-  compare two data roots, snapshot authored files, and verify a cutover.
-- one directory per migration, `NNN-<name>/`, holding its runbook, its
-  migration script, its test, and its rehearsal report. Delete the directory
-  when the cutover is verified on every host and its backups have aged out.
+  compare two data roots, snapshot authored files, verify a cutover, and run a
+  batch of schema steps (`batch.ts`).
+- [`next/`](next/README.md): the pending batch. Schema changes wait there as
+  steps and cut over together, so the live host is backed up, migrated and
+  verified once per batch. `main` stays deployable meanwhile: the product
+  serves the live schema until the cutover commit.
+- one directory per completed migration, `NNN-<name>/`, holding its runbook,
+  its migration script, its test, and its rehearsal report; a batch becomes
+  one of these at cutover. Delete the directory when the cutover is verified
+  on every host and its backups have aged out.
 
 Migration tests are lifecycle checks, not part of the product test suite.
 `bunfig.toml` therefore excludes all of `packages/canopyd/migrations/` from default `bun test`
@@ -185,7 +191,12 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent schema migration directory (today `023-device-keys/`) as the template: a `README.md` with the
+Add a step to [`next/`](next/README.md) rather than a new directory: a
+`steps/NNN-<name>.ts` for the schema change, its row in the batch README with
+the product change it brings at cutover, and a test case. A migration that is
+more than schema steps (a data rewrite such as 022's) is still a step, with its
+report in `run.ts`'s output. Earlier migrations, one directory each, predate
+batching; for their shape see `023-device-keys/`: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice)
 and ends by checking the result with both `assertCurrentHostSchema` and
