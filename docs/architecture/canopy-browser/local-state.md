@@ -83,6 +83,22 @@ iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
 as a tagged value in the account's Keychain slot, and
 `AccountStoredCredentialProvider` opens hour-long sessions with it. A slot
 holding anything else is not used.
+A placement account ([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account))
+is a connection per (profile, placement host) that holds no key: every device
+signs in there with its own home device key, because the placement host
+accepts the devices the home host lists. The account panel lists an account's
+placements, places it on another host, and removes a connection from the
+device. On the Mac the connections are the data home's
+(`accounts/<cfg>/placements/host-<hash>/`, see [the data home](../arborsync/data-home.md)),
+which the app reads and removes on disk (`DataHomePlacementStore`); claiming
+needs the data home's profile key, so the app asks the daemon
+(`POST /v1/bootstrap/placements`), and until the daemon has that route it
+points to `arbor account place <url>`. On iOS, `NativeAccountService.placeAccount`
+keeps each connection as a Keychain item named
+`<cfg>/host-<hash>`, the same key. A paired iPhone holds no profile key (it is
+kept only on the device that created it), so it cannot claim: it connects
+with its own device key to a placement already claimed from the Mac, and says
+so when there is none.
 The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree

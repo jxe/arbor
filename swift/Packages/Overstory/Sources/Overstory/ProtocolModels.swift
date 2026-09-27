@@ -1294,6 +1294,14 @@ public struct ProtocolHTTPError: Error, Sendable, Equatable {
     /// it (503, retryable) (accounts §1.3, §5.4).
     public var homeHost: String? = nil
 
+    public init(status: Int, code: String, message: String?, retryable: Bool, homeHost: String? = nil) {
+        self.status = status
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.homeHost = homeHost
+    }
+
     /// What to tell the person when a placement host refused because of its
     /// home host; nil for every other error.
     public var placementDescription: String? {

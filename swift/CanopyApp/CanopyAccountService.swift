@@ -18,6 +18,41 @@ struct CanopyAccount: Identifiable, Hashable, Sendable {
     var id: String { configurationTree }
 }
 
+/// A placement account connected on this device (accounts §1.3): the
+/// profile's account at a host other than its home, which this device signs
+/// in to with its home account's device key.
+struct CanopyPlacement: Identifiable, Hashable, Sendable {
+    /// The home account's configuration TreeID.
+    let configurationTree: String
+    /// The placement host's origin.
+    let origin: String
+    /// The placement account's URL there.
+    let account: String
+    let handle: String?
+    /// The home host whose device list the placement host trusts.
+    let homeHost: String
+    /// The tree the claim declared at the account's address there.
+    let placementRoot: String
+    var id: String { NativePlacementAccount.key(configurationTree: configurationTree, origin: origin) }
+
+    /// The placement host's name, as a person reads it.
+    var hostName: String { URL(string: origin)?.host() ?? origin }
+    var homeHostName: String { URL(string: homeHost)?.host() ?? homeHost }
+}
+
+extension CanopyPlacement {
+    init(_ placement: NativePlacementAccount) {
+        self.init(
+            configurationTree: placement.configurationTree,
+            origin: placement.origin,
+            account: placement.account,
+            handle: placement.handle,
+            homeHost: placement.homeHost,
+            placementRoot: placement.placementRoot
+        )
+    }
+}
+
 /// This device's profile identity: the key that signs account claims.
 struct CanopyProfileIdentityState: Sendable, Equatable {
     let profileTree: String
@@ -63,6 +98,8 @@ enum CanopyAccountCapability: Sendable, Hashable {
     case resumePairing
     /// Remove an account's credential from this device.
     case forget
+    /// Place an account on another host from the app (accounts §1.3).
+    case placeAccount
 }
 
 enum CanopyAccountServiceError: Error, LocalizedError, Equatable {
@@ -76,6 +113,7 @@ enum CanopyAccountServiceError: Error, LocalizedError, Equatable {
         case .unsupported(.cancelPendingClaim): "This device keeps no cancellable account claim"
         case .unsupported(.resumePairing): "Scan the pairing code again to finish pairing"
         case .unsupported(.forget): "This device cannot forget an account here"
+        case .unsupported(.placeAccount): "This device cannot place an account on another host"
         case .invalidAccount(let message): message
         }
     }
@@ -119,6 +157,16 @@ protocol CanopyAccountService: Sendable {
     /// Remove the device key this device holds for an account; a nil
     /// configuration tree names no account, and nothing is removed.
     func forget(origin: URL, configurationTree: String?) async throws
+
+    /// The account's placement connections on this device (accounts §1.3).
+    func placements(configurationTree: String) async throws -> [CanopyPlacement]
+    /// Place the account on `host`, a Canopy URL: claim a placement account
+    /// there with the profile key, or, on a device without it, connect to
+    /// one claimed from another device.
+    func placeAccount(configurationTree: String, host: String, inviteCode: String?) async throws
+    /// Remove a placement connection from this device. The account stays
+    /// claimed at its host; placing it again reconnects.
+    func forgetPlacement(_ placement: CanopyPlacement) async throws
 }
 
 extension CanopyAccountService {
@@ -142,7 +190,7 @@ extension CanopyAccountService {
 /// The iPhone's accounts: the app's keychain, exactly as `NativeAccountService`
 /// keeps it. Compiles on both platforms; the Mac chooses the data home instead.
 struct KeychainAccountService: CanopyAccountService {
-    var capabilities: Set<CanopyAccountCapability> { [.forget] }
+    var capabilities: Set<CanopyAccountCapability> { [.forget, .placeAccount] }
 
     func state() async throws -> CanopyAccountState {
         let identity = try await KeychainProfileIdentityStore().identity()
@@ -204,6 +252,25 @@ struct KeychainAccountService: CanopyAccountService {
 
     func forget(origin: URL, configurationTree: String?) async throws {
         try await NativeAccountService(origin: origin, configurationTree: configurationTree).forget()
+    }
+
+    func placements(configurationTree: String) async throws -> [CanopyPlacement] {
+        try await KeychainDeviceCredentialStore().placements(configurationTree: configurationTree).map { CanopyPlacement($0) }
+    }
+
+    /// The profile key claims where this iPhone holds it; otherwise the
+    /// iPhone's own device key connects to a placement claimed from the Mac,
+    /// which the placement host accepts because the home host lists it.
+    func placeAccount(configurationTree: String, host: String, inviteCode: String?) async throws {
+        guard let account = try await KeychainDeviceCredentialStore().accounts().first(where: { $0.configurationTree == configurationTree }) else {
+            throw CanopyAccountServiceError.invalidAccount("This account is not on this device")
+        }
+        _ = try await NativeAccountService(origin: account.origin, configurationTree: configurationTree)
+            .placeAccount(on: host, inviteCode: inviteCode)
+    }
+
+    func forgetPlacement(_ placement: CanopyPlacement) async throws {
+        try await KeychainDeviceCredentialStore().forgetPlacement(configurationTree: placement.configurationTree, origin: placement.origin)
     }
 
     private static func origin(of url: URL) -> URL? {

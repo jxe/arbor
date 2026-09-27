@@ -15,6 +15,15 @@ struct ArborSyncServerError: Error, LocalizedError, Sendable {
     var errorDescription: String? { value.message }
 }
 
+/// The running Arbor Sync has no placement route yet; the `arbor` command
+/// places the data home's account instead.
+struct ArborSyncPlacementUnavailable: Error, LocalizedError, Equatable, Sendable {
+    var host: String
+    var errorDescription: String? {
+        "This version of Arbor Sync can't place accounts yet. Run `arbor account place \(host)` in Terminal; the placement then appears here."
+    }
+}
+
 /// One claimed Canopy account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@arbor/core`).
 struct LocalHostAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
     var configurationTree: String
@@ -126,6 +135,22 @@ actor ArborSyncRESTClient {
         var body = ["account": account, "path": path]
         if let inviteCode { body["inviteCode"] = inviteCode }
         try await onboardingPost("/v1/bootstrap/accounts", body: body)
+    }
+
+    /// `POST /v1/bootstrap/placements`: claim a placement account for the
+    /// data home's profile at `host` (accounts §1.3), as
+    /// `arbor account place <host>` does (`claimPlacementAccount` in
+    /// `@overstory/client`). The profile key and the device key are the data
+    /// home's, so only the daemon can do this for the Mac. A daemon without
+    /// the route sends the POST to its browser surface, which answers 405.
+    func placeAccount(host: String, inviteCode: String? = nil) async throws {
+        var body = ["host": host]
+        if let inviteCode { body["inviteCode"] = inviteCode }
+        do {
+            try await onboardingPost("/v1/bootstrap/placements", body: body)
+        } catch let error as ArborSyncServerError where error.status == 405 {
+            throw ArborSyncPlacementUnavailable(host: host)
+        }
     }
 
     private func onboardingPost(_ path: String, body: [String: Any]) async throws {
