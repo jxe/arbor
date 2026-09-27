@@ -10,7 +10,9 @@ its [tree configuration](04-accounts-and-devices.md#2-tree-configuration-graph),
 a list of rules of this shape:
 
 ```ts
-type AccessWho = "everyone" | { profile: TreeID } | { link: Hash };
+type AccessWho = "everyone"
+  | { profile: TreeID; homeHost?: Origin }
+  | { link: Hash };
 type AccessOperation = "read" | "write" | "create-child" | "update-content"
   | "update-properties" | "delete" | "admin";
 type AccessRule = {
@@ -34,7 +36,11 @@ type AccessRule = {
 ```
 
 A profile subject matches that profile, or the current membership of a group
-profile; person-profile fields never create a group. A link subject matches a
+profile; person-profile fields never create a group. A group profile whose
+tree another host holds names that host's origin as `homeHost`, where its
+membership is read (§3.3); `homeHost` says where to look, not who, so the
+TreeID alone is the subject and its merge key, and every rule of one file
+naming a profile gives it the same `homeHost` or none. A link subject matches a
 valid presented secret's digest. `me` and `members` name the profile whose
 `apps.yaml` holds a rule (§1.1) and are invalid in `access.yaml`.
 
@@ -279,6 +285,36 @@ changes affecting active execution. A disconnected invalidation channel blocks
 new disclosures/effects until authority is refreshed. Direct backing providers
 must participate in this enforcement; a token checked once at SQLite connection
 creation is insufficient. Cached public bytes cannot be recalled.
+
+### 3.3 Groups another host holds
+
+A rule's group profile may live on another host H, named by the subject's
+`homeHost` (§1): a group's TreeID says who it is, not where, and nothing else
+in a rule locates it. A host B that holds no tree with that TreeID decides the
+group's membership from H:
+
+- B reads the group's root `_index.md` from H without authentication,
+  through the ordinary tree routes, and only while H lets anyone read the
+  group's tree. The members are the Profile TreeIDs of its structured
+  `members` entries, as for a group B holds; scalar entries name nobody, and a
+  root that does not declare `type: group` has no members. B trusts H, over
+  HTTPS, for that group and nothing else, as a placement host trusts a home
+  host for device keys; a compromised H can add members to its own group.
+- B keeps a copy of each such group its rules name, refetched at least once a
+  minute, so a member removed at H loses what the group gave on B within that
+  minute while H is reachable, and B's watches and executions are
+  reauthorized (§3.2) when a copy's members change.
+- When H cannot be reached, B keeps using its last copy until it is older
+  than a grace of one hour, then treats the group as having no members. A
+  failed fetch is retried at most once every five seconds per group.
+- A group B cannot read matches nobody: a group H refuses to disclose, one
+  that is not a group, one whose copy is past the grace, and one named without
+  a `homeHost` that B does not hold. Failing closed never grants access.
+
+A group B holds is decided from B's own tree, whatever `homeHost` a rule
+names for it. Only a profile holding an account on B can be a caller there,
+so a remote group widens nothing beyond B's accounts. Everything else about
+the rule, including `admin` granted to a group, is as for a group B holds.
 
 ## 4. Reading access
 
