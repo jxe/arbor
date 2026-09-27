@@ -70,8 +70,9 @@ closed. Groups hosted on B are unchanged.
   root `members`, read anonymously and hash-checked, refreshed every 30 s
   with the same one-hour grace; unreadable groups match nobody. `access.yaml`
   and `apps.yaml` each give a profile one home host.
-- The Swift models read and keep `homeHost` (in progress when this was
-  written; see status).
+- Swift reads and keeps `homeHost` (the models, the sharing and app-rule
+  editors, and the file checks), with shared vectors in
+  `resource-policy.json`.
 - No schema change.
 - **Gate passed:** canopyd suite and the two-host test extended: sessions continue
   through an outage shorter than the grace and stop after it; a deletion at A
