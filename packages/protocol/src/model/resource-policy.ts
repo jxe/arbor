@@ -16,12 +16,17 @@ export const TREE_OPERATIONS: readonly TreeOperation[] = [...ACCESS_OPERATIONS, 
  * `me` and `members` name the profile whose `apps.yaml` holds the rule: `me`
  * in a person's, `members` (the group's current members) in a group's. Neither
  * is valid in `access.yaml`.
+ *
+ * A profile subject may carry `homeHost`, the origin of the host that holds a
+ * group profile's tree, so that another host can read the group's members
+ * there (access control §3.3). It says where to look, not who: the profile
+ * TreeID alone names the subject.
  */
 export type AccessWho =
   | "everyone"
   | "me"
   | "members"
-  | { profile: string }
+  | { profile: string; homeHost?: string }
   | { link: string };
 export interface ResourceAccessRule {
   who: AccessWho;
@@ -41,12 +46,22 @@ export interface ResourcePolicyContext {
   callerProfile: string | null;
   app?: string;
   linkDigest?: string;
-  isGroupMember?: (group: string, profile: string) => boolean;
+  /** `homeHost` is the rule subject's, when it names one. */
+  isGroupMember?: (group: string, profile: string, homeHost?: string) => boolean;
 }
 const treeID = /^tr_[a-z2-7]+$/;
 const hash = /^sha256:[a-f0-9]{64}$/;
 export function isTreeID(value: unknown): value is string {
   return typeof value === "string" && treeID.test(value);
+}
+/** Whether `value` is an origin one host may read another's published facts
+ * from (a profile's device keys, a group's members): HTTPS, or plain HTTP on
+ * a loopback address for local hosts. */
+export function isHomeHostOrigin(value: string): boolean {
+  let url: URL;
+  try { url = new URL(value); } catch { return false; }
+  if (url.origin !== value) return false;
+  return url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname));
 }
 export function resourcePath(value: unknown): string {
   if (
@@ -78,7 +93,13 @@ function parseWho(value: unknown, file: RuleFile): AccessWho {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid rule subject");
   const w = value as Record<string, unknown>;
-  if (Object.keys(w).length !== 1) throw new Error("Invalid rule subject");
+  const keys = Object.keys(w);
+  if (keys.length === 2 && keys.includes("profile") && keys.includes("homeHost")) {
+    if (typeof w.profile === "string" && treeID.test(w.profile) && typeof w.homeHost === "string" && isHomeHostOrigin(w.homeHost))
+      return { profile: w.profile, homeHost: w.homeHost };
+    throw new Error("Invalid rule subject");
+  }
+  if (keys.length !== 1) throw new Error("Invalid rule subject");
   if (typeof w.profile === "string" && treeID.test(w.profile))
     return { profile: w.profile };
   if (typeof w.link === "string" && hash.test(w.link))
@@ -138,6 +159,7 @@ export function parseAppRule(value: Record<string, unknown>, file: "person-apps"
   };
 }
 
+/** A subject's merge key: `homeHost` says where to look, so it is no part of it. */
 function whoKey(who: AccessWho): string {
   return typeof who === "string"
     ? who
@@ -155,7 +177,29 @@ export function parseResourceRules(value: unknown): ResourceAccessRule[] {
   const rules = value.map(parseResourceRule);
   if (new Set(rules.map(resourceRuleKey)).size !== rules.length)
     throw new Error("Duplicate resource rule");
+  checkHomeHosts(rules);
   return rules;
+}
+
+/** Every rule of one file naming a profile gives it the same `homeHost`, or
+ * none does, so one host is asked for one group's members. */
+export function checkHomeHosts(rules: readonly Pick<ResourceAccessRule, "who">[]): void {
+  const hosts = new Map<string, string | null>();
+  for (const { who } of rules) {
+    if (typeof who !== "object" || !("profile" in who)) continue;
+    const host = who.homeHost ?? null;
+    if (hosts.has(who.profile) && hosts.get(who.profile) !== host)
+      throw new Error(`Rules naming ${who.profile} disagree about its home host`);
+    hosts.set(who.profile, host);
+  }
+}
+
+/** The `homeHost` rules give a profile subject, if any. */
+export function subjectHomeHost(rules: readonly Pick<ResourceAccessRule, "who">[], profile: string): string | undefined {
+  for (const { who } of rules) {
+    if (typeof who === "object" && "profile" in who && who.profile === profile && who.homeHost) return who.homeHost;
+  }
+  return undefined;
 }
 export function scopeContains(scope: string, path: string): boolean {
   resourcePath(scope);
@@ -192,7 +236,7 @@ export function ruleMatches(
   return (
     context.callerProfile !== null &&
     (rule.who.profile === context.callerProfile ||
-      context.isGroupMember?.(rule.who.profile, context.callerProfile) === true)
+      context.isGroupMember?.(rule.who.profile, context.callerProfile, rule.who.homeHost) === true)
   );
 }
 export function rulesAllow(

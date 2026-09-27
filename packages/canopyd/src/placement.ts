@@ -17,8 +17,8 @@ export interface DeviceKeyCopy {
  * A placement host's device-key lifetimes (accounts §5.4). `lifetimeMs` is
  * how long a copy serves before it is refetched; `refetchMs` how soon after
  * one fetch of a profile's keys another may begin early, for a DeviceID the
- * copy lacks or after a fetch that failed; `staleMs` the age past which a
- * copy the host cannot refresh opens no session.
+ * copy lacks or after a fetch that failed; `staleMs`, the grace, the age past
+ * which a copy the host cannot refresh opens no session.
  */
 export interface DeviceKeyLifetimes {
   lifetimeMs: number;
@@ -61,7 +61,8 @@ function validPublishedKeys(value: unknown, profileTree: string): Map<string, Li
  * A placement host's copies of the device keys home hosts publish (accounts
  * §5.4), in memory only, by profile. A copy serves for `lifetimeMs`; past
  * that it is refetched, and if the home host cannot be read the copy still
- * serves until it is `staleMs` old, then nothing is served from it. A
+ * serves until it is `staleMs` old (the grace), then nothing is served from
+ * it. A
  * DeviceID missing from a copy refetches it early, and a failed fetch is
  * retried, at most once every `refetchMs` per profile, so nobody can use
  * this host to flood a home host. Every successful fetch is handed to
@@ -128,6 +129,13 @@ export class PlacementDeviceKeys {
     const kept = this.copies.get(profileTree);
     if (kept && Date.now() - kept.fetchedAt < staleMs) return kept;
     throw new HomeHostUnavailableError(homeHost, `The profile's home host ${homeHost} cannot be read for its device keys, and this host's copy is too old to open a session: ${failure instanceof Error ? failure.message : String(failure)}`);
+  }
+
+  /** When the copy held of a profile's keys runs out of grace, or null
+   * without one. A session opened from it ends by then. */
+  servesUntil(profileTree: string): number | null {
+    const held = this.copies.get(profileTree);
+    return held ? held.fetchedAt + this.lifetimes().staleMs : null;
   }
 
   /**

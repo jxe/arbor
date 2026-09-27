@@ -131,11 +131,14 @@ configurations have their shape, and the tests for each refused case, are in
   (`PlacementDeviceKeys` in `placement.ts`): a copy serves for
   `deviceKeyLifetimeMs` (60 s); a challenge naming a DeviceID the copy lacks,
   or a fetch that failed, refetches at most once per `deviceKeyRefetchMs`
-  (5 s) per profile; and a copy the host cannot refresh opens no session once
-  it is `deviceKeyStaleMs` old (60 s, the staleness limit, which Security 009
-  will lengthen while a home is unreachable). Each is a `HostDaemonOptions`
-  field, as `sessionLifetimeMs` is, and `serveHost` takes them as
-  `lifetimes`. A device's first session there inserts its `devices` row with
+  (5 s) per profile; and a copy the host cannot refresh keeps opening
+  sessions until it is `deviceKeyStaleMs` old (the grace, one hour), then
+  opens none. A session opened there expires by the time the copy it was
+  opened from runs out of grace (`servesUntil`), so while a home is down
+  nothing authenticates from a list older than the grace, and while it is up
+  sessions end at most a lifetime short of an hour. Each is a
+  `HostDaemonOptions` field, as `sessionLifetimeMs` is, and `serveHost` takes
+  them as `lifetimes`. A device's first session there inserts its `devices` row with
   the listed key and an empty label (labels are the home host's), which keeps
   `device_sessions`' foreign key. Every half lifetime, and so within a
   lifetime of a session opening, canopyd refetches the keys of each placement
@@ -151,6 +154,33 @@ configurations have their shape, and the tests for each refused case, are in
   acting for a placement account's caller gets only `everyone` grants and its
   trees' `app` rules: the caller lends nothing, since its `apps.yaml` is at
   its home (`executionAllows` in `access.ts`).
+- **Remote groups.** A profile subject with a `homeHost`
+  ([access control §3.3](../../overstory-spec/05-access-control.md#33-groups-another-host-holds))
+  naming a group whose tree canopyd does not hold matches through an
+  in-memory copy of that group's members (`RemoteGroups` in
+  `remote-groups.ts`, `isGroupMember` in `access.ts`). As for a placement
+  claim's home, a plain `http:` loopback `homeHost` is read only when canopyd
+  is itself served over `http:` (`servedOverHTTP`); a public host never reads
+  its own loopback, and such a rule matches nobody there. canopyd reads the
+  group anonymously from its host: `GET /.arbor/trees/{TreeID}`, then the
+  root directory and root `_index.md` objects, each checked against its hash,
+  keeping the Profile TreeIDs of the structured `members` entries only if the
+  root declares `type: group`. A 4xx answer (the tree is private, unknown or
+  gone) or a root that is not a group leaves a copy that matches nobody; a
+  timeout, network error, 5xx or bad object is an outage. Copies are keyed by
+  host and group and kept for every such subject in any `access.yaml` or
+  `apps.yaml` canopyd holds (`namedRemoteGroups`): fetched at start, as soon
+  as an accepted configuration names one it has no copy of, and every half
+  `remoteGroupLifetimeMs` (60 s) by `refreshRemoteGroups`. A failed fetch is
+  retried at most once per `remoteGroupRefetchMs` (5 s) per group, and a copy
+  it cannot refresh serves until it is `remoteGroupStaleMs` old (the grace,
+  one hour), then matches nobody. Membership checks never wait on another
+  host: a missing copy matches nobody while its fetch runs. Any change in
+  what a copy matches, including running out, invalidates the execution
+  authority, which changes the authorization epoch, so watches and
+  executions check again. A group tree canopyd holds decides alone, whatever
+  `homeHost` a rule names for it, and a remote group counts only profiles
+  with an enabled account here, as a local one does.
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, the database, or a
   system call is a logged 500 whose detail stays in the log

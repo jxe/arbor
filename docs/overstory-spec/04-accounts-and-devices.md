@@ -357,6 +357,8 @@ are complete top-level shapes: there is no `version` or other wrapper key.
   allow: [admin]
 - who: {profile: tr_alice}
   allow: [read, create-child]
+- who: {profile: tr_bookclub, homeHost: "https://club.example"}  # a group another host holds
+  allow: [read]
 - who: everyone
   app: tr_supplies
   allow: [read]
@@ -641,16 +643,26 @@ other.
 A placement host opens a session (§5.1) for a device listed in its copy of
 the home host's device keys, treating the caller as that profile and device,
 an administrator device if listed as one. It serves a copy for at most a
-minute (canopyd: 60 seconds) before refetching it. It refuses to open a
-session from a copy older than its staleness limit that it cannot refresh
-(canopyd: 60 seconds, the copy's lifetime), with a retryable error naming the
-home host in `details.homeHost`. A challenge request naming a DeviceID
-missing from its copy makes it refetch early, and a failed fetch is retried,
-at most once every five seconds per profile, so that nobody can use a
-placement host to flood a home host. It refreshes the copy of every profile
-with open sessions at least once per lifetime, and ends the sessions and
-watches of any device no longer listed, or listed with another key, so a
-deletion at the home host reaches it within the copy's lifetime.
+minute (canopyd: 60 seconds) before refetching it. It refreshes the copy of
+every profile with open sessions at least once per lifetime, and ends the
+sessions and watches of any device no longer listed, or listed with another
+key, so while the home host is reachable a deletion there reaches the
+placement host within the copy's lifetime.
+
+When a refresh fails, the placement host keeps serving its last copy, for
+session challenges, opening sessions and administrator-device checks alike,
+until the copy is older than a **grace** of one hour, a session's longest
+lifetime. Past the grace it fails closed: it opens no session, and answers
+what needs the copy with a retryable error naming the home host in
+`details.homeHost`. A session it opens expires no later than the moment the
+copy it was opened from runs out of grace, so nothing authenticates there
+from a list older than the grace. The grace costs little: while the home host
+is down nobody can delete a device there, since only the home host accepts
+the change, so the only deletion it can miss is one made in the last minute
+before the outage. A challenge request naming a DeviceID missing from its
+copy makes it refetch early, and a failed fetch is retried, at most once
+every five seconds per profile, so that nobody can use a placement host to
+flood a home host.
 
 ## 6. Declaring, activating and mounting a tree
 

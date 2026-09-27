@@ -1,6 +1,7 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { AuthenticationRequiredError, ExpiredChallengeError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
+import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
+import { RemoteGroups } from "./remote-groups.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -19,6 +20,7 @@ import {
   isHomeHostOrigin,
   personProfileTreeID,
   stableJSONString,
+  subjectHomeHost,
   generateArborID,
   isGeneratedArborID,
   isPersonProfileTreeID,
@@ -106,14 +108,18 @@ export interface HostBootstrapAccount {
  * tests shorten them. The three device-key lifetimes are a placement host's
  * (accounts §5.4): how long it serves a fetched copy of a home host's device
  * keys, how soon a DeviceID missing from the copy (or a failed fetch) may
- * refetch it, and the age past which a copy it cannot refresh opens no
- * session.
+ * refetch it, and the grace: the age past which a copy it cannot refresh
+ * opens no session. The three remote-group lifetimes are the same for its
+ * copies of groups other hosts hold (access control §3.3).
  */
 export interface HostDaemonOptions {
   sessionLifetimeMs?: number;
   deviceKeyLifetimeMs?: number;
   deviceKeyRefetchMs?: number;
   deviceKeyStaleMs?: number;
+  remoteGroupLifetimeMs?: number;
+  remoteGroupRefetchMs?: number;
+  remoteGroupStaleMs?: number;
 }
 
 export interface HostBootstrap {
@@ -346,6 +352,9 @@ export class HostDaemon implements AsyncDisposable {
   /** Placement accounts' copies of their home hosts' device keys. */
   private readonly deviceKeys: PlacementDeviceKeys;
   private deviceKeyTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Copies of the groups other hosts hold that this host's rules name. */
+  private readonly remoteGroups: RemoteGroups;
+  private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
 
   private constructor(
@@ -369,11 +378,18 @@ export class HostDaemon implements AsyncDisposable {
       tree: (id) => this.get(id),
       isProfileMember: (group, profileTree) => this.isProfileMember(group.id, profileTree),
       rootProfileType: (tree) => this.rootProfileType(tree.id),
+      isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
     this.deviceKeys = new PlacementDeviceKeys(
       () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
       (profileTree, copy) => this.revokeUnlisted(profileTree, copy),
+    );
+    // A change in what a remote group matches is an authorization change:
+    // watches and executions check again.
+    this.remoteGroups = new RemoteGroups(
+      () => ({ lifetimeMs: this.remoteGroupLifetimeMs, refetchMs: this.remoteGroupRefetchMs, staleMs: this.remoteGroupStaleMs }),
+      () => { if (!this.disposed) this.execution.invalidate(); },
     );
   }
 
@@ -386,6 +402,9 @@ export class HostDaemon implements AsyncDisposable {
     if (options.deviceKeyLifetimeMs !== undefined) canopy.deviceKeyLifetimeMs = options.deviceKeyLifetimeMs;
     if (options.deviceKeyRefetchMs !== undefined) canopy.deviceKeyRefetchMs = options.deviceKeyRefetchMs;
     if (options.deviceKeyStaleMs !== undefined) canopy.deviceKeyStaleMs = options.deviceKeyStaleMs;
+    if (options.remoteGroupLifetimeMs !== undefined) canopy.remoteGroupLifetimeMs = options.remoteGroupLifetimeMs;
+    if (options.remoteGroupRefetchMs !== undefined) canopy.remoteGroupRefetchMs = options.remoteGroupRefetchMs;
+    if (options.remoteGroupStaleMs !== undefined) canopy.remoteGroupStaleMs = options.remoteGroupStaleMs;
     await canopy.mergeTool.clearStaleJobs();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -402,6 +421,8 @@ export class HostDaemon implements AsyncDisposable {
       }
     }
     canopy.scheduleDeviceKeyRefresh();
+    canopy.scheduleRemoteGroupRefresh();
+    void canopy.refreshRemoteGroups();
     return canopy;
   }
 
@@ -812,10 +833,33 @@ export class HostDaemon implements AsyncDisposable {
    * fetch that failed, may refetch it, per profile. */
   deviceKeyRefetchMs = 5 * 1000;
 
-  /** The staleness limit: the age past which a copy this host cannot
-   * refresh opens no session. Security 009 raises it to a grace period
-   * while the home host is unreachable. */
-  deviceKeyStaleMs = 60 * 1000;
+  /** The grace: the age past which a copy this host cannot refresh opens no
+   * session, one session lifetime. While the home host is up the copy is
+   * refreshed every lifetime, so the grace matters only while it is down,
+   * when nobody can delete a device there anyway (accounts §5.4). */
+  deviceKeyStaleMs = 60 * 60 * 1000;
+
+  /** How long this host serves a copy of a group another host holds before
+   * refetching it (access control §3.3). */
+  remoteGroupLifetimeMs = 60 * 1000;
+
+  /** How soon a remote group's fetch that failed may be tried again. */
+  remoteGroupRefetchMs = 5 * 1000;
+
+  /** The grace: the age past which a remote group's copy this host cannot
+   * refresh matches nobody. */
+  remoteGroupStaleMs = 60 * 60 * 1000;
+
+  /** Whether this host is itself served over plain HTTP, as only a local
+   * host is; `serveHost` sets it. Only such a host reads loopback peers. */
+  servedOverHTTP = false;
+
+  /** Whether a rule's `homeHost` is one this host reads groups from: HTTPS,
+   * or a loopback origin when this host is local too. A public host never
+   * reads its own loopback. */
+  private readsGroupsAt(homeHost: string): boolean {
+    return homeHost.startsWith("https:") || this.servedOverHTTP;
+  }
 
   /**
    * A listed, active key device of an enabled account: at its home host as
@@ -880,6 +924,48 @@ export class HostDaemon implements AsyncDisposable {
     this.deviceKeyTimer.unref?.();
   }
 
+  /**
+   * Refresh every remote group this host's rules name, every half lifetime,
+   * so a member removed at the group's host loses what the group gave here
+   * within one lifetime, and a copy past the grace stops matching anyone.
+   */
+  private scheduleRemoteGroupRefresh(): void {
+    if (this.disposed) return;
+    this.remoteGroupTimer = setTimeout(async () => {
+      await this.refreshRemoteGroups();
+      this.scheduleRemoteGroupRefresh();
+    }, Math.max(10, Math.floor(this.remoteGroupLifetimeMs / 2)));
+    this.remoteGroupTimer.unref?.();
+  }
+
+  /** One refresh pass over the remote groups this host's rules name. */
+  async refreshRemoteGroups(): Promise<void> {
+    if (this.disposed) return;
+    await this.remoteGroups.refresh(this.namedRemoteGroups());
+  }
+
+  /**
+   * The groups other hosts hold that a rule here names: each profile subject
+   * of an `access.yaml` or `apps.yaml` with a `homeHost`, whose tree this
+   * host does not hold.
+   */
+  private namedRemoteGroups(): Array<{ group: string; homeHost: string }> {
+    const rows = this.db.query(`
+      SELECT rules_json FROM tree_policy WHERE instr(rules_json, '"homeHost"') > 0
+      UNION ALL SELECT rules_json FROM app_policy WHERE instr(rules_json, '"homeHost"') > 0
+    `).all() as Array<{ rules_json: string }>;
+    const named = new Map<string, { group: string; homeHost: string }>();
+    for (const row of rows) {
+      for (const rule of JSON.parse(row.rules_json) as Array<{ who?: unknown }>) {
+        const who = rule.who as { profile?: unknown; homeHost?: unknown } | undefined;
+        if (!who || typeof who !== "object" || typeof who.profile !== "string" || typeof who.homeHost !== "string") continue;
+        if (this.get(who.profile) || !this.readsGroupsAt(who.homeHost)) continue;
+        named.set(`${who.homeHost} ${who.profile}`, { group: who.profile, homeHost: who.homeHost });
+      }
+    }
+    return [...named.values()];
+  }
+
   /** One refresh pass over the placement accounts with open sessions. */
   async refreshDeviceKeys(): Promise<void> {
     if (this.disposed) return;
@@ -939,7 +1025,12 @@ export class HostDaemon implements AsyncDisposable {
     }
     const now = Date.now();
     const token = `ars_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
-    const expiresAt = now + this.sessionLifetimeMs;
+    // At a placement host a session ends by the time the copy it was opened
+    // from runs out of grace, so nothing authenticates from a list older
+    // than the grace (accounts §5.4).
+    const expiresAt = Math.min(now + this.sessionLifetimeMs,
+      account.homeHost ? this.deviceKeys.servesUntil(account.id) ?? now : Infinity);
+    if (expiresAt <= now) throw new HomeHostUnavailableError(account.homeHost!, `The profile's home host ${account.homeHost} cannot be read for its device keys, and this host's copy is too old to open a session`);
     this.db.transaction(() => {
       if (!this.accounts.consumeChallenge("device-session", challenge.id, stableJSONString(challenge), now)) {
         throw new Error("Device session challenge is invalid, expired, or already used");
@@ -1232,7 +1323,7 @@ export class HostDaemon implements AsyncDisposable {
     const snapshot: TreeSnapshot = { root: update.candidate, objects: new Map(update.objects.map(({ hash, bytes }) => [hash, bytes])) };
     const prepared = await this.prepareConfig(tree, "tree", snapshot);
     const admins = adminProfiles(prepared.values.access);
-    if (!admins.some((admin) => admin === account.id || this.access.isGroupMember(admin, account.id))) {
+    if (!admins.some((admin) => admin === account.id || this.access.isGroupMember(admin, account.id, subjectHomeHost(prepared.values.access, admin)))) {
       throw new PermissionDeniedError("A declared tree's configuration must make the submitter an administrator");
     }
     this.checkMountAdditions(tree, account, {}, prepared.values.mounts);
@@ -2325,6 +2416,8 @@ export class HostDaemon implements AsyncDisposable {
     this.execution.invalidate();
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
+    // A configuration may name a remote group this host has no copy of yet.
+    if (isTreeConfigPolicy(this.get(update.tree)?.policy ?? "ordinary")) void this.remoteGroups.prefetch(this.namedRemoteGroups());
   }
 
   async object(hash: ObjectHash): Promise<Uint8Array> {
@@ -2776,6 +2869,7 @@ export class HostDaemon implements AsyncDisposable {
   async [Symbol.asyncDispose](): Promise<void> {
     this.disposed = true;
     clearTimeout(this.deviceKeyTimer);
+    clearTimeout(this.remoteGroupTimer);
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.db.close();
