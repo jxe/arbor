@@ -156,7 +156,7 @@ test("journal references platform objects and compacts only dependency-free sett
   const note = Buffer.from(fixture.source), noteHash = hashObject(note), asset = Buffer.alloc(1_000_000, 0x5a), assetHash = hashObject(asset);
   const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash }] }), nestedHash = hashObject(nested);
   const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash }, { name: "nested", directory: nestedHash }] });
-  const initialGraph: TreeSnapshot = { root: hashObject(rootBytes), objects: new Map([[assetHash, asset], [noteHash, note], [nestedHash, nested], [hashObject(rootBytes), rootBytes]]) };
+  const initialGraph: TreeSnapshot = { root: hashObject(rootBytes), objects: new Map<string, Uint8Array>([[assetHash, asset], [noteHash, note], [nestedHash, nested], [hashObject(rootBytes), rootBytes]]) };
   const platform = { bytes: async (hash: string) => initialGraph.objects.get(hash) };
   const q = new ChangeLog(fixture.tree, root, platform);
   let graph = initialGraph;
@@ -186,7 +186,7 @@ test("source preservation fixtures retain verified lineage across queue restart"
   const data=JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-preservation.json",import.meta.url),"utf8"));
   for(const value of data.cases) await withQueue(async (queue,root) => {
     const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
-    const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
+    const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,graph,basis:{kind:"accepted",root:graph.root,update:"basis"},sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"revision",source:value.source},source:value.replacement,edits:[{offset:0,length:bytes.length,replacement:value.replacement,lineage:value.lineage}]}});
     if(!value.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);
@@ -273,7 +273,7 @@ test("explicit source copies validate, survive recovery, and execute through the
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/source-copy.json",import.meta.url)).json();
   for(const c of fixtures.cases)await withQueue(async(queue,root)=>{
     const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
-    const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
+    const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"r",source:c.source},edits:[{offset:0,length:bytes.length,replacement:c.replacement,copies:c.copies,...(c.lineage?{lineage:c.lineage}:{})}],source:c.replacement}});
     if(!c.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
@@ -347,7 +347,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/cross-document-copy.json",import.meta.url)).json();
   const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
   const directory=encodeProtocolDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
-  const graph={root:hashObject(directory),objects:new Map([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
+  const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
   const record=prepareSourceChange({tree:f.tree,change:"shared-cross-copy",graph,sourcePath:f.destinationPath,basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:f.tree,path:"/destination",source:f.destination,revision:"r1"},source:f.destination+f.edit.replacement,edits:[f.edit]}});
   expect(authored(record.update)[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
 });
@@ -358,7 +358,7 @@ test("page creation records reproduce their original graph without an undo trans
   const source=Buffer.from(f.source),fileSource=hashObject(source);
   const nested=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
   const rootBytes=encodeProtocolDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
-  const graph={root:hashObject(rootBytes),objects:new Map([[fileSource,source],[nestedHash,nested],[hashObject(rootBytes),rootBytes]])};
+  const graph={root:hashObject(rootBytes),objects:new Map<string, Uint8Array>([[fileSource,source],[nestedHash,nested],[hashObject(rootBytes),rootBytes]])};
   const bytes=Buffer.from(f.createdSource),file=hashObject(bytes);
   const directory=encodeProtocolDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
   const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
