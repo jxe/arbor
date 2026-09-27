@@ -62,6 +62,48 @@ Each is dead for this install only if the check finds nothing.
   `swift/CanopyApp/CanopyOnboarding.swift`). Check: the Keychain holds only the
   indexed identity for `tr_tkgfsm…`, on the Mac and the iPhone.
 
+## Phase 2, continued: client readers found in the 2026-09-27 communication review
+
+Each reads state an earlier client wrote. As above, remove one only after
+its check finds nothing on the Mac and the iPhone.
+
+- **Early Interface 005 connection records.** `HostAccountStore.safe()`
+  (`packages/protocol/src/config/server-config.ts`) turns a record with
+  `handle` but no `account` into one. Check: every
+  `~/.arbor/.state/accounts/*/connection.json` has `account`.
+- **Devices from before device keys.** The digest-credential path through
+  account bootstrap and pairing (`credentialDigest` enrollment in
+  `packages/client/src/account-bootstrap.ts` and `account-pairing.ts`,
+  `connectDevice`), `adoptIfListed` in `server-config.ts`, and Swift's
+  enrollment by `credentialDigest` (`OverstoryClient/Credentials.swift`).
+  Check: every device entry in the live profile's `devices.yaml` has a `key`,
+  and no connection record names `file:credential` or a credential secret
+  rather than `device-key`.
+- **The earlier folder synchronizer's state.** `retireEarlierSyncState` and
+  `EarlierSyncStateError` (`packages/client/src/sync-state.ts`), which Arbor
+  Sync runs on every `folderFor`, and the "earlier synchronizer" branch in
+  `packages/arborsync/src/folder-sync.ts`. Check: no
+  `~/.arbor/.state/sync/<base64url>.json` files remain.
+- **Update control before schema 4.** The schema-3 readers in
+  `packages/working-tree/src/control.ts` (`sourceAttemptChange`,
+  `sourceAcceptedChanges`, the `requestDigests ?? [digest]` fallback) and in
+  Swift's `UpdateControl` decoding
+  (`CanopyWorkingTree/Sources/CanopyWorkingTree/UpdateModels.swift`). Check:
+  every `update-control.json` under `~/.arbor/.state/trees/*/sync/` and the
+  app's `WorkingTrees/*/sync/` on both devices has `"schema": 4`.
+- **Node dates stored bare.** `legacyModifiedAt` in
+  `CanopyWorkingTree/Sources/CanopyWorkingTree/WorkingTreeModels.swift` reads
+  a node's `modifiedAt` written before `metadata`. Check: no working-tree
+  state on the iPhone holds a top-level `modifiedAt` in a node record.
+- **The singleton device credential.** `NativeAccountService.legacyCredentials`
+  and `StoredDeviceCredentialProvider`
+  (`OverstoryClient/Credentials.swift`, marked "Remove this branch with the
+  layout migration"), still reached by `CanopyAppModel.place` for a placement
+  with no configuration tree. Check: every placement in the app's
+  `Native Placement.json` names its configuration tree. Also stop running
+  `rekeyStoredAccounts` on every `KeychainAccountService.accounts()` call
+  (phase 1 removes it outright).
+
 ## Phase 3: Name what the data home holds
 
 `~/.arbor/accounts/<ConfigurationTreeID>/` is the checkout of the profile's
