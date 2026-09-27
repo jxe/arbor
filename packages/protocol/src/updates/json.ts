@@ -233,10 +233,7 @@ export type UpdateResultJSON = Omit<UpdateResult, "reconciliation"> & { reconcil
 export type UpdateResponseJSON = Omit<UpdateResponse, "results"> & { results: UpdateResultJSON[] };
 
 export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
-  details: Omit<UpdateConflictResult["details"], "draft" | "completed"> & {
-    completed: UpdateResultJSON[];
-    draft: TransitionPayloadJSON & { root: ObjectHash };
-  };
+  details: Omit<UpdateConflictResult["details"], "completed"> & { completed: UpdateResultJSON[] };
 };
 
 /** Decode a transition payload, verifying every complete object's hash. */
@@ -304,23 +301,8 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete"
   return snapshot;
 }
 
-function decodeDraft(value: unknown): UpdateConflictResult["details"]["draft"] {
-  if (!value || typeof value !== "object") throw new Error("Conflict draft must be an object");
-  const record = value as { root?: unknown };
-  if (typeof record.root !== "string" || !HASH.test(record.root)) throw new Error("Conflict draft root hash is invalid");
-  return { root: record.root as ObjectHash, ...decodeVerifiedTransitionPayload(value) };
-}
-
 export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): UpdateConflictJSON {
-  const { draft, completed, ...details } = conflict.details;
-  return {
-    ...conflict,
-    details: {
-      ...details,
-      completed: completed.map(encodeUpdateResultJSON),
-      draft: { root: draft.root, ...encodeTransitionPayloadJSON(draft) },
-    },
-  };
+  return { ...conflict, details: { ...conflict.details, completed: conflict.details.completed.map(encodeUpdateResultJSON) } };
 }
 
 const CONFLICT_KINDS = new Set(["server-update", "tree-configuration"]);
@@ -336,8 +318,6 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
   const details = record.details as Record<string, unknown>;
   const { completed, failedIndex } = details;
   if (typeof details.kind !== "string" || !CONFLICT_KINDS.has(details.kind)
-    || typeof details.base !== "string" || !HASH.test(details.base)
-    || typeof details.candidate !== "string" || !HASH.test(details.candidate)
     || !Array.isArray(completed)
     || !Number.isSafeInteger(failedIndex) || (failedIndex as number) < 0
     || (failedIndex as number) !== completed.length
@@ -354,9 +334,6 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
       completed: completed.map(decodeUpdateResultJSON),
       failedIndex: failedIndex as number,
       current: decodeAcceptedUpdateJSON(details.current),
-      base: details.base as ObjectHash,
-      candidate: details.candidate as ObjectHash,
-      draft: decodeDraft(details.draft),
       conflicts: details.conflicts as UpdateConflict[],
     },
   };

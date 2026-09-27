@@ -945,9 +945,9 @@ metadata-only acceptance. Its accepted identity still must be applied.
 A rejected reconciliation uses the shared `OverstoryError` envelope with
 `details.kind: "server-update" | "tree-configuration"`. Its details include
 `completed`, the ordered successful prefix results; `failedIndex`; the current
-`AcceptedUpdate`; the logical base and candidate roots; structured conflict
-reasons naming each conflicting node; and `draft`, the transition from the
-candidate root to the draft root the client keeps.
+`AcceptedUpdate`; and `conflicts`, structured reasons naming each conflicting
+node. The client already holds the rejected candidate and its logical base, so
+the rejection does not repeat them; the candidate stays the client's draft.
 
 A direct client treats `failedIndex` as a sequencing boundary. It reviews only
 that failed element; later elements have not conflicted because the host

@@ -144,8 +144,7 @@ private actor VectorHost: UpdateTransport {
             throw URLError(.networkConnectionLost)
         case "reject":
             let head = ProtocolAcceptedUpdate(id: currentUpdate, tree: tree, root: current.root, previous: nil, acceptedAt: 1_800_000_000_000)
-            throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(message: "refused", current: head, base: current.root,
-                candidate: request.updates.last?.candidate ?? "", draft: ProtocolConflictDraft(root: current.root), conflicts: []))
+            throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(message: "refused", current: head, conflicts: []))
         case "unsupported":
             throw ProtocolHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
         default:

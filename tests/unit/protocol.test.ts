@@ -5,7 +5,7 @@ import type {
   OverstoryError,
   WorkspaceEvent,
 } from "@overstory/protocol";
-import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
+import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
 import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
@@ -204,6 +204,7 @@ describe("REST v1 protocol fixtures", () => {
       }>;
     }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<OverstoryError[]>("errors.json");
+    expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.current.id).toBe("up_current");
     const merges = JSON.parse(await readFile(join(canopyFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;

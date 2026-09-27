@@ -645,14 +645,10 @@ struct UpdateProtocolTests {
     @Test("A conflict decodes completely and is not retried")
     func typedConflict() async throws {
         let local = try protocolTestSnapshot("local")
-        let draft = try protocolTestSnapshot("draft")
         let base = "sha256:" + String(repeating: "0", count: 64)
         let remote = "sha256:" + String(repeating: "1", count: 64)
-        let draftObjects = draft.objects.map {
-            "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}"
-        }.joined(separator: ",")
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previous":{"id":"prior","root":"\(base)"},"conflicted":false,"acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previous":{"id":"prior","root":"\(base)"},"conflicted":false,"acceptedAt":1787529600001,"subject":"dev_remote"},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ProtocolClient(
@@ -671,7 +667,6 @@ struct UpdateProtocolTests {
             Issue.record("Expected a typed conflict")
         } catch let error as ProtocolUpdateConflictError {
             #expect(error.conflict.current.id == "up_remote")
-            #expect(error.conflict.draft.root == draft.root)
             #expect(error.conflict.conflicts.first?.reason == "binary-conflict")
         }
         #expect(await HostURLProtocolStub.state.snapshot().count == 1)

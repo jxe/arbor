@@ -911,11 +911,9 @@ struct UpdateCoordinatorTests {
                 transport: ClosureTransport(initial: initial) { _, _ in throw InjectedSyncCrash() }
             )
             let current = accepted(id: "up_remote", tree: tree, root: remote.root, base: initial.root, candidate: remote.root)
-            let rejecting = ClosureTransport(initial: initial, current: remote, currentUpdate: "up_remote") { prepared, _ in
-                let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+            let rejecting = ClosureTransport(initial: initial, current: remote, currentUpdate: "up_remote") { _, _ in
                 throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(
-                    message: "stale guard", current: current, base: initial.root,
-                    candidate: try #require(request.updates.last?.candidate), draft: ProtocolConflictDraft(root: initial.root), conflicts: []))
+                    message: "stale guard", current: current, conflicts: []))
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: rejecting, stateRoot: root)
             let session = try await noteSession(workingTree, coordinator, tree: tree)

@@ -1655,29 +1655,18 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** A 409 that leaves accepted state unchanged: an exact-state or resolution
-   * guard no longer matches, or governed policy refuses the merge. The draft is
-   * what the client keeps: its own candidate unless a merge proposes another. */
-  private async rejectedCandidate(
+   * guard no longer matches, or governed policy refuses the merge. The client
+   * keeps its own candidate as its draft. */
+  private rejectedCandidate(
     treeID: string,
     current: AcceptedUpdate,
-    baseRoot: ObjectHash,
-    request: CandidateUpdate,
-    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
     message: string,
     kind: UpdateConflictResult["details"]["kind"] = "server-update",
-    root: ObjectHash = request.candidate,
     conflicts: UpdateConflictResult["details"]["conflicts"] = [{ path: "/", reason: "node-conflict" }],
-  ): Promise<{ status: number; result: UpdateConflictResult }> {
-    const draft = { root, ...(await transitionPayload(request.candidate, root, (hash) => this.objects.load(hash, proposed))) };
+  ): { status: number; result: UpdateConflictResult } {
     return {
       status: 409,
-      result: {
-        error: "conflict",
-        message,
-        retryable: false,
-        tree: treeID,
-        details: { kind, completed: [], failedIndex: 0, current, base: baseRoot, candidate: request.candidate, draft, conflicts },
-      },
+      result: { error: "conflict", message, retryable: false, tree: treeID, details: { kind, completed: [], failedIndex: 0, current, conflicts } },
     };
   }
 
@@ -1705,7 +1694,7 @@ export class HostDaemon implements AsyncDisposable {
         throw new ServerFaultError(`Invariant violated: tree ${tree.id} ref does not match its current accepted update`);
       }
       if (request.ifCurrent !== undefined && request.ifCurrent !== current.id)
-        return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, "Accepted state no longer matches ifCurrent", policy.rejection?.kind);
+        return this.rejectedCandidate(tree.id, current, "Accepted state no longer matches ifCurrent", policy.rejection?.kind);
       const head = await this.history.entryFor(current);
       const open = head.entry.decisions;
       if (governed && (open.length || request.resolves.length)) {
@@ -1720,7 +1709,7 @@ export class HostDaemon implements AsyncDisposable {
       }
       const guards = await this.history.guards(current, request);
       if (guards === null)
-        return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, "Resolution guards no longer match the accepted decisions");
+        return this.rejectedCandidate(tree.id, current, "Resolution guards no longer match the accepted decisions");
       markPhase("current-state");
       // Authored directly on the head: nothing concurrent to merge.
       const direct = basis.entry === head.hash && !basis.prefix.length;
@@ -1761,7 +1750,7 @@ export class HostDaemon implements AsyncDisposable {
             // Only an access narrowing may stay open as a policy choice; any other
             // governed conflict is refused, not accepted.
             if (conflicts.some((c) => c.reason !== TREE_CONFIG_POLICY_CONFLICT))
-              return this.rejectedCandidate(tree.id, current, baseRoot, request, proposed, policy.rejection!.message, policy.rejection!.kind, mergedRoot, conflicts);
+              return this.rejectedCandidate(tree.id, current, policy.rejection!.message, policy.rejection!.kind, conflicts);
             // A governed access conflict keeps the merge's restrictive
             // projection, as one whole-configuration choice.
             if (conflicts.length)

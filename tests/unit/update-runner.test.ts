@@ -46,7 +46,7 @@ class VectorHost implements UpdateTransport {
     if (action === "reject") {
       const current = this.head(this.update, this.root, null);
       throw new ProtocolUpdateConflict({ error: "conflict", message: "refused", retryable: false, details: { kind: "server-update", completed: [], failedIndex: 0,
-        current, base: this.root as never, candidate: request.updates.at(-1)!.candidate as never, draft: { root: this.root as never, objects: [], deltas: [] }, conflicts: [] } });
+        current, conflicts: [] } });
     }
     if (action === "unsupported") throw new ProtocolUnsupportedOperation({ error: "unsupported-operation" as never, message: "moveSource", retryable: false });
     const results: UpdateResult[] = [];

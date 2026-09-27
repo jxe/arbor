@@ -674,49 +674,15 @@ public struct ProtocolTransitionPayload: Codable, Sendable, Equatable {
     }
 }
 
-/// The transition from the candidate root to the draft root a conflict leaves the client with.
-public struct ProtocolConflictDraft: Codable, Sendable, Equatable {
-    public var root: String
-    public var objects: [ProtocolObjectEnvelope]
-    public var deltas: [ProtocolObjectDelta]
-
-    public init(root: String, objects: [ProtocolObjectEnvelope] = [], deltas: [ProtocolObjectDelta] = []) {
-        self.root = root
-        self.objects = objects
-        self.deltas = deltas
-    }
-
-    private enum CodingKeys: String, CodingKey { case root, objects, deltas }
-
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        root = try values.decode(String.self, forKey: .root)
-        objects = try values.decode([ProtocolObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decode([ProtocolObjectDelta].self, forKey: .deltas)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(root, forKey: .root)
-        try values.encode(objects, forKey: .objects)
-        try values.encode(deltas, forKey: .deltas)
-    }
-
-    public var payload: ProtocolTransitionPayload { ProtocolTransitionPayload(objects: objects, deltas: deltas) }
-}
-
 public struct ProtocolConflictDetails: Codable, Sendable, Equatable {
     public var kind: String
     public var completed: [ProtocolUpdateElementResult]
     public var failedIndex: Int
     public var current: ProtocolAcceptedUpdate
-    public var base: String
-    public var candidate: String
-    public var draft: ProtocolConflictDraft
     public var conflicts: [ProtocolConflictReason]
 
     private enum CodingKeys: String, CodingKey {
-        case kind, completed, failedIndex, current, base, candidate, draft, conflicts
+        case kind, completed, failedIndex, current, conflicts
     }
 
     public init(
@@ -724,18 +690,12 @@ public struct ProtocolConflictDetails: Codable, Sendable, Equatable {
         completed: [ProtocolUpdateElementResult],
         failedIndex: Int,
         current: ProtocolAcceptedUpdate,
-        base: String,
-        candidate: String,
-        draft: ProtocolConflictDraft,
         conflicts: [ProtocolConflictReason]
     ) {
         self.kind = kind
         self.completed = completed
         self.failedIndex = failedIndex
         self.current = current
-        self.base = base
-        self.candidate = candidate
-        self.draft = draft
         self.conflicts = conflicts
     }
 
@@ -749,9 +709,6 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
     public var details: ProtocolConflictDetails
 
     public var current: ProtocolAcceptedUpdate { details.current }
-    public var base: String { details.base }
-    public var candidate: String { details.candidate }
-    public var draft: ProtocolConflictDraft { details.draft }
     public var conflicts: [ProtocolConflictReason] { details.conflicts }
 
     public init(
@@ -763,9 +720,6 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
         completed: [ProtocolUpdateElementResult] = [],
         failedIndex: Int = 0,
         current: ProtocolAcceptedUpdate,
-        base: String,
-        candidate: String,
-        draft: ProtocolConflictDraft,
         conflicts: [ProtocolConflictReason]
     ) {
         self.error = error
@@ -777,9 +731,6 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
             completed: completed,
             failedIndex: failedIndex,
             current: current,
-            base: base,
-            candidate: candidate,
-            draft: draft,
             conflicts: conflicts
         )
     }
@@ -790,10 +741,6 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
             throw ProtocolValidationError.invalidValue("Unknown conflict detail kind")
         }
         _ = try details.current.validated()
-        try validateObjectHash(details.base)
-        try validateObjectHash(details.candidate)
-        try validateObjectHash(details.draft.root)
-        _ = try details.draft.payload.validated()
         guard details.failedIndex == details.completed.count else {
             throw ProtocolValidationError.invalidValue("Conflict prefix does not match its failed index")
         }

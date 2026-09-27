@@ -119,10 +119,6 @@ export interface UpdateConflictResult {
     completed: UpdateResult[];
     failedIndex: number;
     current: AcceptedUpdate;
-    base: ObjectHash;
-    candidate: ObjectHash;
-    /** The transition from the candidate root to the draft root the client keeps. */
-    draft: TransitionPayload & { root: ObjectHash };
     conflicts: UpdateConflict[];
   };
 }

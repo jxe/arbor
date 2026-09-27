@@ -658,12 +658,13 @@ describe("governed tree-configuration Canopy server", () => {
     const reconciled = applyTransitionPayload(mergedCandidate.objects, merged.reconciliation!);
     expect(reconciled.has(merged.update.root)).toBe(true);
 
-    // A bytesHash match refuses any concurrent change and answers with the candidate as the draft.
+    // A bytesHash match refuses any concurrent change; the client keeps its candidate.
     await writeFile(renamedPath, `${mergeBaseSource}\nExact line\n`);
     const exact = await snapshotWithCollectionFiles(treePath);
+    const latestBeforeExact = await client.descriptor(treeID);
     const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifCurrent: mergeBase.tree.update }).catch((error) => error);
     expect(rejected).toBeInstanceOf(ProtocolUpdateConflict);
-    expect((rejected as ProtocolUpdateConflict).result.details.draft.root).toBe(exact.root);
+    expect((rejected as ProtocolUpdateConflict).result.details.current.id).toBe(latestBeforeExact.tree.update);
     expect((rejected as ProtocolUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
     // Resubmitted against the current update it is a plain acceptance.
     const latest = await client.descriptor(treeID);
