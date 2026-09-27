@@ -522,6 +522,20 @@ struct UpdateProtocolTests {
         #expect(try parser.finish().isEmpty)
     }
 
+    @Test("Bytes fed one at a time are framed per line, across LF, CRLF and comments")
+    func byteSSE() throws {
+        var parser = ProtocolSSEParser()
+        var frames: [ProtocolSSEFrame] = []
+        for byte in ": ready\n\nid: a\r\nevent: ref\r\ndata: one\r\n\r\nid: b\nevent: ref\ndata: two\n\n: keepalive".utf8 {
+            frames.append(contentsOf: try parser.append(byte: byte))
+        }
+        #expect(frames == [.init(id: "a", event: "ref", data: "one"), .init(id: "b", event: "ref", data: "two")])
+        #expect(try parser.finish().isEmpty)
+        var unterminated = ProtocolSSEParser()
+        for byte in "data: value".utf8 { _ = try unterminated.append(byte: byte) }
+        #expect(throws: ProtocolValidationError.self) { _ = try unterminated.finish() }
+    }
+
     @Test("Unterminated and invalid UTF-8 frames fail")
     func malformedSSE() throws {
         var unterminated = ProtocolSSEParser()

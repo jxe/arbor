@@ -36,8 +36,7 @@ public struct HostWatchRunner: Sendable {
     /// Run the loop until the surrounding task is cancelled.
     public func run() async {
         var lastEventID = try? await coordinator.watchCursor()
-        var reconnectAttempt = 0
-        while !Task.isCancelled {
+        await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             do {
                 if lastEventID == nil {
                     _ = try await coordinator.recoverWatchGap()
@@ -45,8 +44,7 @@ public struct HostWatchRunner: Sendable {
                 }
                 let events = try await client.watch(tree: tree, lastEventID: lastEventID)
                 for try await event in events {
-                    // The stream exists before the host answers; only an event proves the connection.
-                    reconnectAttempt = 0
+                    connected()
                     try Task.checkCancellation()
                     guard event.tree.id == tree else { continue }
                     _ = try await coordinator.observe(event)
@@ -57,25 +55,13 @@ public struct HostWatchRunner: Sendable {
                     }
                     await onChange()
                 }
-            } catch is CancellationError {
-                return
             } catch let error as ProtocolHTTPError where error.code == "resync-required" {
-                do {
-                    _ = try await coordinator.recoverWatchGap()
-                    lastEventID = try await coordinator.watchCursor()
-                    reconnectAttempt = 0
-                    await onChange()
-                } catch {
-                    reconnectAttempt += 1
-                }
-            } catch {
-                reconnectAttempt += 1
+                _ = try await coordinator.recoverWatchGap()
+                lastEventID = try await coordinator.watchCursor()
+                connected()
+                await onChange()
             }
-            do {
-                try await Task.sleep(for: observationReconnectDelay(afterFailures: reconnectAttempt, maximum: maximumReconnectDelay))
-            } catch {
-                return
-            }
+            return .reconnect
         }
     }
 }

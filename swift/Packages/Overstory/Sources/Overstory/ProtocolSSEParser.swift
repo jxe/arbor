@@ -9,8 +9,19 @@ public struct ProtocolSSEFrame: Equatable, Sendable {
 public struct ProtocolSSEParser: Sendable {
     private var buffer = Data()
     private var scanned = 0
+    private var line = Data()
 
     public init() {}
+
+    /// Feed one byte of a stream. Bytes wait until their line ends, so a
+    /// frame boundary is looked for once per line rather than once per byte.
+    public mutating func append(byte: UInt8) throws -> [ProtocolSSEFrame] {
+        line.append(byte)
+        guard byte == 10 || byte == 13 else { return [] }
+        let complete = line
+        line.removeAll(keepingCapacity: true)
+        return try append(complete)
+    }
 
     public mutating func append(_ data: Data) throws -> [ProtocolSSEFrame] {
         buffer.append(data)
@@ -24,6 +35,8 @@ public struct ProtocolSSEParser: Sendable {
     }
 
     public mutating func finish() throws -> [ProtocolSSEFrame] {
+        buffer.append(line)
+        line.removeAll()
         guard !buffer.isEmpty else { return [] }
         defer { buffer.removeAll(); scanned = 0 }
         // A trailing comment carries no event; an unterminated event is malformed.
@@ -33,8 +46,8 @@ public struct ProtocolSSEParser: Sendable {
     }
 
     private mutating func nextBoundary() -> (start: Int, end: Int)? {
-        // URLSession delivers individual bytes. Scan only the unexamined suffix,
-        // retaining three bytes for a CRLF boundary split across appends.
+        // Scan only the unexamined suffix, retaining three bytes for a CRLF
+        // boundary split across appends.
         let bytes = buffer
         let start = bytes.startIndex
         for index in scanned..<bytes.count {
@@ -89,6 +102,37 @@ public struct ProtocolSSEParser: Sendable {
 /// A cleanly closed stream (no failures) still waits the base delay.
 public func observationReconnectDelay(afterFailures failures: Int, maximum: Duration = .seconds(5)) -> Duration {
     min(.milliseconds(250 * (1 << min(max(failures, 0), 5))), maximum)
+}
+
+/// What an observation attempt asks of its loop.
+public enum ObservationStep: Sendable {
+    /// Wait out the backoff and connect again.
+    case reconnect
+    /// End the loop.
+    case stop
+}
+
+/// The reconnect loop every observation stream shares. Runs `attempt` until
+/// the task is cancelled or an attempt returns `.stop`, waiting
+/// `observationReconnectDelay` between attempts. A thrown error counts as a
+/// failure and lengthens the wait; `connected` resets it. Call `connected`
+/// only once the stream has proved itself (an event, or a recovery that
+/// reached the host): a streaming request returns before the host answers.
+public func runObservationLoop(
+    maximumDelay: Duration = .seconds(5),
+    _ attempt: (_ connected: () -> Void) async throws -> ObservationStep
+) async {
+    var failures = 0
+    while !Task.isCancelled {
+        do {
+            if try await attempt({ failures = 0 }) == .stop { return }
+        } catch is CancellationError {
+            return
+        } catch {
+            failures += 1
+        }
+        do { try await Task.sleep(for: observationReconnectDelay(afterFailures: failures, maximum: maximumDelay)) } catch { return }
+    }
 }
 
 public struct ProtocolWatchEvent: Equatable, Sendable {

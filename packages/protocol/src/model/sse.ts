@@ -76,3 +76,55 @@ export async function* parseSSEStream(stream: ReadableStream<Uint8Array>): Async
     try { await reader.cancel(); } catch {}
   }
 }
+
+/**
+ * How long an observation stream waits before reconnecting after `failures`
+ * consecutive failed attempts: 250 ms doubling to `maximumMs`. A cleanly
+ * closed stream (no failures) still waits the base delay. Swift's
+ * `observationReconnectDelay` is the same schedule.
+ */
+export function observationReconnectDelay(failures: number, maximumMs = 5_000): number {
+  return Math.min(maximumMs, 250 * 2 ** Math.min(Math.max(failures, 0), 5));
+}
+
+/**
+ * The reconnect loop every observation stream shares: yield what each
+ * `connect()` stream yields, and when one ends or fails, wait
+ * `observationReconnectDelay` and connect again. Only an item proves a
+ * connection and resets the backoff, since a streaming request can return
+ * before the host has answered anything. Ends when `signal` aborts; an error
+ * `fatal` accepts is rethrown instead of retried.
+ */
+export async function* reconnectingStream<T>(
+  connect: () => AsyncIterable<T>,
+  options: { signal?: AbortSignal; maximumDelayMs?: number; fatal?: (error: unknown) => boolean } = {},
+): AsyncGenerator<T> {
+  let failures = 0;
+  while (!options.signal?.aborted) {
+    try {
+      for await (const item of connect()) {
+        failures = 0;
+        yield item;
+      }
+    } catch (error) {
+      if (options.signal?.aborted) return;
+      if (options.fatal?.(error)) throw error;
+      failures += 1;
+    }
+    await abortableDelay(observationReconnectDelay(failures, options.maximumDelayMs), options.signal);
+  }
+}
+
+/** Resolve after `ms`, or at once when `signal` aborts. */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}

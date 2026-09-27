@@ -195,9 +195,10 @@ enum CanopyVisitSnapshot {
     }
 }
 
-/// Follows a visited tree's protocol watch and re-pulls the current snapshot on
-/// every accepted update and on a watch gap. There is no coordinator: a visit
-/// never submits, so the tree is simply replaced from the server each time.
+/// Follows a visited tree's protocol watch. An accepted update that chains
+/// from what the visit holds is replayed from the event's own transitions; a
+/// gap, or a batch that does not chain, re-pulls the current snapshot. There is
+/// no coordinator: a visit never submits.
 struct CanopyVisitFollower: Sendable {
     var client: ProtocolClient
     var tree: String
@@ -211,12 +212,11 @@ struct CanopyVisitFollower: Sendable {
 
     func run(after cursor: String?) async {
         var lastEventID = cursor
-        var reconnectAttempt = 0
-        while !Task.isCancelled {
+        await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             do {
                 let events = try await client.watch(tree: tree, lastEventID: lastEventID)
-                reconnectAttempt = 0
                 for try await event in events {
+                    connected()
                     try Task.checkCancellation()
                     lastEventID = event.id
                     guard event.tree.id == tree else { continue }
@@ -225,24 +225,17 @@ struct CanopyVisitFollower: Sendable {
                         try await workingTree.recordAccepted(root: event.tree.root, update: event.tree.update, cursor: event.id)
                         continue
                     }
-                    try await pull(root: event.tree.root, update: event.tree.update, cursor: event.id)
+                    if (try? await workingTree.applyAcceptedTransitions(event)) == nil {
+                        try await pull(root: event.tree.root, update: event.tree.update, cursor: event.id)
+                    }
                     await onChange()
                 }
-            } catch is CancellationError {
-                return
             } catch let error as ProtocolHTTPError where error.code == "resync-required" {
-                do {
-                    lastEventID = try await pullCurrent()
-                    reconnectAttempt = 0
-                    await onChange()
-                } catch {
-                    reconnectAttempt += 1
-                }
-            } catch {
-                reconnectAttempt += 1
+                lastEventID = try await pullCurrent()
+                connected()
+                await onChange()
             }
-            let backoff = observationReconnectDelay(afterFailures: reconnectAttempt, maximum: maximumReconnectDelay)
-            do { try await Task.sleep(for: backoff) } catch { return }
+            return .reconnect
         }
     }
 

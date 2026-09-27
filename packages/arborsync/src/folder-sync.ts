@@ -15,6 +15,7 @@ import {
   protocolEntryObject,
   ProtocolClient,
   ProtocolHTTPError,
+  reconnectingStream,
   type LazyTreeSnapshot,
   type ObjectHash,
   type ProtocolDirectoryEntry,
@@ -22,6 +23,7 @@ import {
   type SharedTreePlacement,
   type TreeSnapshot,
   type LocalTreeDescriptor,
+  type WatchEvent,
 } from "@overstory/protocol";
 import {
   ignoreFilesIn,
@@ -120,22 +122,9 @@ const EMPTY_DIRECTORY = hashObject(EMPTY_DIRECTORY_BYTES);
 /** Directory objects kept for tracked lookups; content-addressed, so never stale. */
 const TRACKED_OBJECT_LIMIT = 4_096;
 
-const INITIAL_WATCH_BACKOFF_MS = 1_000;
+/** Many trees watch one host; back off further than the apps do. */
 const MAX_WATCH_BACKOFF_MS = 30_000;
 const SCAN_DELAY_MS = 250;
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const timer = setTimeout(finish, ms);
-    function finish() {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", finish);
-      resolve();
-    }
-    signal.addEventListener("abort", finish, { once: true });
-  });
-}
 
 async function writeFileAtomic(path: string, bytes: Uint8Array | string, mode = 0o600): Promise<void> {
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
@@ -666,39 +655,34 @@ export class FolderSync implements AcceptedTree {
   }
 
   private async runWatch(key: string, signal: AbortSignal): Promise<void> {
-    let backoff = INITIAL_WATCH_BACKOFF_MS;
-    let refreshed = false;
-    while (!signal.aborted) {
+    const moved = new Error("The placement moved");
+    const connect = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
       const placement = this.host.placement();
-      if (!placement?.update || `${placement.configurationTree ?? "legacy"}:${placement.endpoint}` !== key) return;
-      const connection = new AbortController();
-      const stop = () => connection.abort();
-      signal.addEventListener("abort", stop, { once: true });
-      try {
+      if (!placement?.update || `${placement.configurationTree ?? "legacy"}:${placement.endpoint}` !== key) throw moved;
+      const watch = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
         const client = await this.host.client(placement);
         const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
-        for await (const event of client.watch(this.tree, cursor, { signal: connection.signal })) {
-          backoff = INITIAL_WATCH_BACKOFF_MS;
-          refreshed = false;
+        for await (const event of client.watch(this.tree, cursor, { signal })) {
+          // Observed inside the attempt, so a failure here reconnects like a lost stream.
           await this.coordinator.observe(event);
-          if (event.kind === "resync-required") break;
+          yield event;
         }
+      };
+      try {
+        yield* watch.call(this);
       } catch (error) {
-        // An ended session is replaced at once, once; a second 401 is a real
-        // revocation and waits like any other failure below.
-        if (!refreshed && error instanceof ProtocolHTTPError && error.status === 401
-          && await this.host.forgetSession?.(placement).catch(() => false)) {
-          refreshed = true;
-          continue;
-        }
-      } finally {
-        signal.removeEventListener("abort", stop);
-        connection.abort();
+        // An ended session is replaced at once; a second 401 is a real
+        // revocation and waits out the backoff like any other failure.
+        if (!(error instanceof ProtocolHTTPError) || error.status !== 401
+          || !await this.host.forgetSession?.(placement).catch(() => false)) throw error;
+        yield* watch.call(this);
       }
-      if (signal.aborted) return;
-      await sleep(backoff, signal);
-      backoff = Math.min(backoff * 2, MAX_WATCH_BACKOFF_MS);
-    }
+    };
+    // Each event is observed inside its attempt; this loop only drives them.
+    const events = reconnectingStream(() => connect.call(this), {
+      signal, maximumDelayMs: MAX_WATCH_BACKOFF_MS, fatal: (error) => error === moved,
+    });
+    while (!(await events.next()).done);
   }
 
   // MARK: Pausing

@@ -9,7 +9,7 @@ import type {
   UpdateRequestJSON,
   WorkspaceEvent,
 } from "@overstory/protocol";
-import { parseSSEStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
+import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
 
 export type {
   OverstoryErrorCode,
@@ -117,10 +117,6 @@ export interface DeclinedChanges {
   points: string[];
   since: string;
   request: { digest: string; base: { root: string; update: string }; candidate: string };
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export class ArborSyncRESTClient {
@@ -234,30 +230,26 @@ export class ArborSyncRESTClient {
 
   async *observe(after: string, signal?: AbortSignal): AsyncGenerator<WorkspaceEvent> {
     let cursor = after;
-    let reconnectAttempt = 0;
-    while (!signal?.aborted) {
-      try {
-        const response = await this.fetcher(`${this.baseURL}/v1/events?after=${encodeURIComponent(cursor)}`, {
-          headers: { accept: "text/event-stream" },
-          signal,
-        });
-        if (!response.ok) await this.throwResponse(response);
-        if (!response.body) throw new Error("SSE response has no body");
-        reconnectAttempt = 0;
-        for await (const frame of parseSSEStream(response.body)) {
-          const event = this.parseEvent(frame);
-          if (event) {
-            cursor = event.cursor;
-            yield event;
-          }
+    const client = this;
+    async function* connect(): AsyncGenerator<WorkspaceEvent> {
+      const response = await client.fetcher(`${client.baseURL}/v1/events?after=${encodeURIComponent(cursor)}`, {
+        headers: { accept: "text/event-stream" },
+        ...(signal ? { signal } : {}),
+      });
+      if (!response.ok) await client.throwResponse(response);
+      if (!response.body) throw new Error("SSE response has no body");
+      for await (const frame of parseSSEStream(response.body)) {
+        const event = client.parseEvent(frame);
+        if (event) {
+          cursor = event.cursor;
+          yield event;
         }
-      } catch (error) {
-        if (signal?.aborted) return;
-        if (error instanceof ArborSyncError) throw error;
-        reconnectAttempt += 1;
-        await delay(Math.min(5_000, 250 * (2 ** Math.min(reconnectAttempt - 1, 5))));
       }
     }
+    yield* reconnectingStream(connect, {
+      ...(signal ? { signal } : {}),
+      fatal: (error) => error instanceof ArborSyncError,
+    });
   }
 
   private parseEvent(frame: ParsedSSEFrame): WorkspaceEvent | null {

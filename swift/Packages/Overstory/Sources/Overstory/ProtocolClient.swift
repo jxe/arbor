@@ -354,7 +354,7 @@ public actor ProtocolClient {
                     }
                     var parser = ProtocolSSEParser()
                     for try await byte in bytes {
-                        for frame in try parser.append(Data([byte])) {
+                        for frame in try parser.append(byte: byte) {
                             guard let id = frame.id, !id.isEmpty, let kind = frame.event, !kind.isEmpty else {
                                 throw ProtocolValidationError.malformedSSE("Observation event has no ID or kind")
                             }

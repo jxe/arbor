@@ -219,8 +219,8 @@ actor ArborSyncRESTClient {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 var cursor = initialCursor
-                var reconnectAttempt = 0
-                while !Task.isCancelled {
+                // A cleanly closed stream reconnects too, but never without a delay.
+                await runObservationLoop { connected in
                     do {
                         var components = URLComponents(url: baseURL.appending(path: "/v1/events"), resolvingAgainstBaseURL: false)!
                         components.queryItems = [URLQueryItem(name: "after", value: cursor)]
@@ -233,10 +233,10 @@ actor ArborSyncRESTClient {
                             for try await byte in bytes { data.append(byte) }
                             throw ArborSyncServerError(status: status, value: try decoder.decode(ArborSyncErrorValue.self, from: data))
                         }
-                        reconnectAttempt = 0
+                        connected()
                         var parser = ProtocolSSEParser()
                         for try await byte in bytes {
-                            for frame in try parser.append(Data([byte])) {
+                            for frame in try parser.append(byte: byte) {
                                 let data = Data(frame.data.utf8)
                                 if frame.event == "resync-required" {
                                     let event = try decoder.decode(LocalResyncObservation.self, from: data)
@@ -264,20 +264,10 @@ actor ArborSyncRESTClient {
                             }
                         }
                         _ = try parser.finish()
+                        return .reconnect
                     } catch let error as ArborSyncServerError {
                         continuation.finish(throwing: error)
-                        return
-                    } catch is CancellationError {
-                        continuation.finish()
-                        return
-                    } catch {
-                        reconnectAttempt += 1
-                    }
-                    // A cleanly closed stream reconnects too, but never without a delay.
-                    do {
-                        try await Task.sleep(for: observationReconnectDelay(afterFailures: reconnectAttempt))
-                    } catch {
-                        break
+                        return .stop
                     }
                 }
                 continuation.finish()

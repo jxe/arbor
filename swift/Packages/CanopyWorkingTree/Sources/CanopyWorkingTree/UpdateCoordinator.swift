@@ -462,27 +462,8 @@ public actor UpdateCoordinator {
     }
 
     private func applyAcceptedTransitions(_ event: ProtocolWatchEvent) async throws -> UpdateMachine.AcceptedBase {
-        let heads = try await workingTree.heads()
-        guard let final = event.transitions.last,
-              final.update.id.utf8.elementsEqual(event.tree.update.utf8),
-              final.update.root == event.tree.root else {
-            throw ProtocolValidationError.invalidValue("Watch transition batch does not match its descriptor")
-        }
-        guard let first = event.transitions.first,
-              first.transportBasis?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
-              first.transportBasis?.root == heads.acceptedRoot else {
-            throw ProtocolValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
-        }
-        let basis = try await sparseBasis(deltaBases: Set(event.transitions.flatMap { $0.deltas.map(\.base) }))
-        let accepted = try ProtocolTransitionReplay.applying(event.transitions, to: basis, mode: .sparseFiles)
-        if accepted.root == heads.materializedRoot {
-            try await workingTree.recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
-        } else {
-            try await workingTree.replaceFromSystem(SnapshotBridge.replacement(
-                snapshot: accepted, tree: await workingTree.treeID(), update: final.update.id, cursor: event.id,
-                mode: .sparseFiles, acceptedAt: Date(timeIntervalSince1970: final.update.acceptedAt / 1_000)))
-        }
-        return .init(root: final.update.root, update: final.update.id, cursor: event.id, conflicted: final.update.conflicted)
+        let update = try await workingTree.applyAcceptedTransitions(event)
+        return .init(root: update.root, update: update.id, cursor: event.id, conflicted: update.conflicted)
     }
 
     /// The chain through `tip` reproduces the accepted root: settle it without a request.
@@ -702,10 +683,15 @@ public actor UpdateCoordinator {
         var pending: [(hash: String, kind: ProtocolEntryKind)] = [(root, .directory)], seen = Set<String>()
         while let next = pending.popLast() {
             guard seen.insert(next.hash).inserted else { continue }
+            // The working tree reads its overlay, then its platform store, and
+            // verifies the bytes. Only an object the store lacks is asked of the
+            // host directly; a failed read is not repeated.
             let bytes: Data
-            if let local = try? await workingTree.objectBytes(hash: next.hash) { bytes = local }
-            else { bytes = try await transport.object(tree: treeID, hash: next.hash) }
-            guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
+            do { bytes = try await workingTree.objectBytes(hash: next.hash) }
+            catch ObjectStoreError.missing {
+                bytes = try await transport.object(tree: treeID, hash: next.hash)
+                guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
+            }
             objects.append(ProtocolObjectEnvelope(hash: next.hash, bytes: bytes))
             guard next.kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { continue }
             for entry in entries {
@@ -716,17 +702,5 @@ public actor UpdateCoordinator {
         let graph = ProtocolSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
         return graph
-    }
-
-    /// The tree's own sparse graph plus the bytes every delta in a transition
-    /// needs, fetched through the object store once each. Files the transition
-    /// does not touch stay absent; the replay and the bridge both run sparse.
-    private func sparseBasis(deltaBases: Set<String>) async throws -> ProtocolSnapshot {
-        var basis = try await workingTree.localSnapshot()
-        let present = Set(basis.objects.map(\.hash))
-        for hash in deltaBases.sorted() where !present.contains(hash) {
-            basis.objects.append(ProtocolObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
-        }
-        return basis
     }
 }
