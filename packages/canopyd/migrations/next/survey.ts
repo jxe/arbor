@@ -25,7 +25,6 @@ export const REVERT = {
   scalarMembers: "Remove scalar /~handle group members",
   prePluralFiles: "Remove the pre-plural account files refusal from account bootstrap",
   placementConfiguration: "Require a configuration tree on every placement",
-  rtRootIDs: "Remove path-derived rt_ workspace root IDs",
   keychainIdentities: "Remove Keychain identities without metadata",
   earlyConnections: "Remove early Interface 005 connection records from HostAccountStore.safe",
   earlierSyncState: "Remove the earlier folder synchronizer's state",
@@ -126,33 +125,6 @@ async function placementsUnderConfigurations(dataHome: string): Promise<CheckRes
     count += Object.keys(value).length;
   }
   return result(!problems.length, name, attribution, `${count} placements under ${Object.keys(root).length} configurations`, list(problems));
-}
-
-async function noRTRootIDs(dataHome: string): Promise<CheckResult> {
-  const name = "data home: no rt_ root IDs in .state registries";
-  const attribution = { revert: REVERT.rtRootIDs };
-  const state = join(dataHome, ".state");
-  const found: string[] = [];
-  let records = 0;
-  const registry = join(state, "workspaces.json");
-  if (await exists(registry)) {
-    let value: unknown;
-    try { value = await readJSON(registry); }
-    catch (error) { return result(false, name, attribution, "", `workspaces.json does not parse: ${(error as Error).message}`); }
-    for (const record of Object.values((value ?? {}) as Record<string, { rootID?: unknown }>)) {
-      records += 1;
-      if (typeof record?.rootID !== "string" || !TREE_ID.test(record.rootID)) found.push(`workspaces.json rootID ${String(record?.rootID)}`);
-    }
-  }
-  // Any other registry at the top of .state: an rt_ identity anywhere in it.
-  for (const file of await entries(state)) {
-    if (!file.endsWith(".json") || file === "workspaces.json") continue;
-    const source = await readFile(join(state, file), "utf8").catch(() => "");
-    const matches = source.match(/"rt_[A-Za-z0-9_-]*"/g);
-    if (matches) found.push(`${file}: ${matches.length} rt_ value(s)`);
-  }
-  return result(!found.length, name, attribution, `${records} workspace records, all TreeIDs`,
-    `${found.length} rt_ identities (${list(found)}); these records would stop Arbor Sync until rekeyed`);
 }
 
 async function connectionsHaveAccount(dataHome: string): Promise<CheckResult> {
@@ -399,7 +371,6 @@ export async function survey(options: SurveyOptions): Promise<CheckResult[]> {
     results.push(
       await prePluralFiles(dataHome),
       await placementsUnderConfigurations(dataHome),
-      await noRTRootIDs(dataHome),
       await connectionsHaveAccount(dataHome),
       await connectionsUseDeviceKeys(dataHome),
       await devicesHaveKeys(dataHome),

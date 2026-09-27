@@ -75,7 +75,7 @@ test("a clean home passes every check and nothing is written", async () => {
   const before = await snapshot(dirname(home));
   const results = await survey({ home, iphone, live, platform: "darwin", security: keychain(["primary-v2"]) });
   expect(results.filter((check) => check.status !== "PASS").map((check) => `${check.status} ${check.name}: ${check.details}`)).toEqual([]);
-  expect(results).toHaveLength(18);
+  expect(results).toHaveLength(17);
   expect(await snapshot(dirname(home))).toEqual(before);
 });
 
@@ -94,7 +94,6 @@ test("each legacy state fails its check and names the commit to revert", async (
   const phone = join(iphone, "Library", "Application Support", "Arbor");
   await put(join(arbor, "account.yaml"), "handle: joe\n");
   await put(join(arbor, "placements.yaml"), `${CONFIG}:\n  /Users/joe/notes: ${TREE}\ntr_unknown:\n  /Users/joe/other: tr_otherabc\n`);
-  await put(join(state, "workspaces.json"), { "/Users/joe/old": { stateID: "s", rootID: "rt_0123456789", path: "/Users/joe/old" } });
   await put(join(state, "accounts", "tr_earlyabc", "connection.json"), { handle: "joe", credential: "file:credential" });
   await put(join(state, "sync", `${Buffer.from(TREE).toString("base64url")}.json`), { accepted: {} });
   await put(join(state, "trees", "dHJvbGQ", "sync", "update-control.json"), { schema: 3, sourceAcceptedChanges: [] });
@@ -113,7 +112,6 @@ test("each legacy state fails its check and names the commit to revert", async (
   };
   expect(failed("pre-plural").revert).toBe(REVERT.prePluralFiles);
   expect(failed("placements.yaml").details).toContain("tr_unknown");
-  expect(failed("rt_ root IDs").revert).toBe(REVERT.rtRootIDs);
   expect(failed("has account").details).toContain("tr_earlyabc");
   expect(failed("names device-key").details).toContain("file:credential");
   expect(failed("devices.yaml").details).toContain("dv_ipad");
