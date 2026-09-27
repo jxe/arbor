@@ -43,8 +43,8 @@ export interface TreeBootstrap {
   tree: BootstrapTreeDescriptor;
   /** The daemon's accepted base; `cursor` is the protocol watch cursor, which is independent of the accepted update id. */
   accepted: { root: Hash; update: string; cursor: string | null };
-  /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
-  spine: string;
+  /** A sparse CBOR snapshot bundle's bytes: every directory object and every Markdown file object. The route answers canonical CBOR, so this is a byte string. */
+  spine: Uint8Array;
   observedThrough: string;
 }
 
@@ -72,7 +72,7 @@ const WIRE_SYNC_TIMEOUT_MS = 60_000;
 async function sparseSpine(
   snapshotRoot: ObjectHash,
   readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
-): Promise<string> {
+): Promise<Uint8Array> {
   const spine = new Map<ObjectHash, Uint8Array>();
   const visit = async (hash: ObjectHash): Promise<void> => {
     const bytes = spine.get(hash) ?? await readObject(hash);
@@ -91,7 +91,7 @@ async function sparseSpine(
   };
   await visit(snapshotRoot);
   verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
-  return Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64");
+  return encodeSparseSnapshotBundle(spine);
 }
 
 /**

@@ -71,8 +71,9 @@ struct LoopbackServicesTests {
 
     @Test("A clean bootstrap decodes its sparse spine and lists the lazy file")
     func cleanBootstrapDecodes() async throws {
-        let body = try fixture("bootstrap.json")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
+        // The route answers canonical CBOR with the spine as a byte string.
+        let body = try fixture("bootstrap.cbor")
+        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
         let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
 
         #expect(bootstrap.tree.id == "tr_notes7f3q2ab7c")
@@ -98,12 +99,13 @@ struct LoopbackServicesTests {
         let requests = await LoopbackStub.state.requests()
         #expect(requests.map(\.path) == ["/v1/bootstrap"])
         #expect(requests.first?.query == "tree=tr_notes7f3q2ab7c")
+        #expect(requests.first?.accept == "application/cbor")
     }
 
     @Test("A newer client ignores daemon-local state from an older bootstrap response")
     func legacyPendingBootstrapDecodesAcceptedState() async throws {
-        let body = try fixture("bootstrap-pending.json")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
+        let body = try fixture("bootstrap-pending.cbor")
+        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
         let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
 
         #expect(bootstrap.spine.root == bootstrap.accepted.root)
@@ -111,19 +113,17 @@ struct LoopbackServicesTests {
 
     @Test("A sparse bootstrap classifies omitted files using directory entries")
     func omittedFileAccepted() async throws {
-        let body = try fixture("bootstrap.json")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
+        let body = try fixture("bootstrap.cbor")
+        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
         _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
     }
 
-    @Test("Daemon-local block metadata is ignored but bootstrap errors remain typed")
-    func legacyBlockIsIgnoredAndErrorsRemainTyped() async throws {
-        var json = try JSONSerialization.jsonObject(with: try fixture("bootstrap.json")) as! [String: Any]
-        json["blocked"] = "editor-pending"
-        let body = try JSONSerialization.data(withJSONObject: json)
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
-        let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-        #expect(bootstrap.spine.root == bootstrap.accepted.root)
+    @Test("The retired JSON form is refused and bootstrap errors remain typed")
+    func jsonFormIsRefusedAndErrorsRemainTyped() async throws {
+        // A daemon from before CBOR answered JSON with a base64 spine; the client no longer reads it.
+        let json = try fixture("bootstrap.json")
+        await LoopbackStub.state.install { _, _ in (200, json, "application/json") }
+        await #expect(throws: (any Error).self) { _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c") }
 
         let unsynchronized = Data(#"{"error":"conflict","message":"unsynchronized","retryable":false,"details":{"kind":"unsynchronized"}}"#.utf8)
         await LoopbackStub.state.install { _, _ in (409, unsynchronized, "application/json") }

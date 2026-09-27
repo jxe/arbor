@@ -43,6 +43,8 @@ for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/a
   const value = JSON.parse(await readFile(path, "utf8"));
   if (value.pending) value.pending.requestDigests = updateRequestDigests(value.tree.id, value.pending);
   await writeFile(path, JSON.stringify(value, null, 2) + "\n");
+  // `GET /v1/bootstrap` answers canonical CBOR with the spine as bytes; the JSON file is its readable spelling.
+  await writeFile(path.replace(/\.json$/, ".cbor"), encodeCanonicalCBOR({ ...value, spine: new Uint8Array(Buffer.from(value.spine, "base64")) }));
 }
 
 // Object models are the symbolic source of truth; payloads are raw for files.

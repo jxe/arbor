@@ -1,4 +1,4 @@
-import { encodeSSEFrame, ProtocolError } from "@overstory/protocol";
+import { encodeCanonicalCBOR, encodeSSEFrame, ProtocolError } from "@overstory/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
@@ -64,7 +64,11 @@ export function syncHandler(service: SyncHTTPService, options: {
       const tree = url.searchParams.get("tree");
       if (!tree) throw new ProtocolError("invalid-request", "bootstrap requires explicit tree scope", 400);
       try {
-        return json(await service.bootstrapTree(tree));
+        // Canonical CBOR only, with `spine` as the bundle's bytes; the daemon and
+        // its clients are one install, so there is no JSON form. Errors stay JSON.
+        return new Response(encodeCanonicalCBOR(await service.bootstrapTree(tree)) as Uint8Array<ArrayBuffer>, {
+          headers: { "content-type": "application/cbor", "cache-control": "no-store" },
+        });
       } catch (error) {
         if (isCloudPlaceholderError(error)) {
           throw new ProtocolError(

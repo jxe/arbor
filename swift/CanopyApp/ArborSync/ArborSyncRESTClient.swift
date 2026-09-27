@@ -162,14 +162,20 @@ actor ArborSyncRESTClient {
     /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
     /// daemon-local pending and conflict state never enters another client's bootstrap.
     func bootstrap(tree: String) async throws -> TreeBootstrap {
-        let envelope: TreeBootstrapEnvelope = try await get(
-            path: "/v1/bootstrap",
-            items: [URLQueryItem(name: "tree", value: tree)]
-        )
-        guard let bundle = Data(base64Encoded: envelope.spine) else {
-            throw TreeBootstrapError.invalidSpine("spine is not base64")
+        // The route answers canonical CBOR only, with `spine` as the bundle's bytes.
+        var components = URLComponents(url: url("/v1/bootstrap"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, status: try statusCode(response))
+        let envelope = try CanonicalCBORDecoder().decode(TreeBootstrapEnvelope.self, from: data)
+        let spine: ProtocolSnapshot
+        do {
+            spine = try ProtocolSnapshotBundleCodec.decode(envelope.spine, root: envelope.accepted.root, mode: .sparseFiles)
+        } catch {
+            throw TreeBootstrapError.invalidSpine(String(describing: error))
         }
-        let spine = try ProtocolSnapshotBundleCodec.decode(bundle, root: envelope.accepted.root, mode: .sparseFiles)
         return TreeBootstrap(
             tree: envelope.tree,
             accepted: envelope.accepted,
@@ -320,7 +326,8 @@ private struct LocalResyncObservation: Decodable { var cursor: String; var tree:
 private struct TreeBootstrapEnvelope: Decodable {
     var tree: TreeBootstrapDescriptor
     var accepted: TreeBootstrapAccepted
-    var spine: String
+    /// The sparse snapshot bundle's bytes: a CBOR byte string.
+    var spine: Data
     var observedThrough: String
 }
 #endif
