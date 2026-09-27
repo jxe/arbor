@@ -8,11 +8,11 @@
 - **State:** PHASE 1 DONE 2026-09-26: the spec is written
   ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
-  The decisions are recorded below. Phase 2's home role, the published device-keys route, is
-  implemented and deployed 2026-09-26 (`8448a63f`), and lists Joe's Mac and
-  iPhone keys; the placement role is not started. Its host state (placement
-  accounts, cached device keys) joins the next migration batch, begun after
-  the schema-26 cutover (live 2026-09-27).
+  The decisions are recorded below. PHASE 2 DONE 2026-09-27, not deployed:
+  the home role (published device keys) is live since 2026-09-26
+  (`8448a63f`); the placement role is implemented, with its schema as batch
+  step 027 (see [status](../../status.md#in-progress)). PHASE 3 PARTLY DONE:
+  the protocol client and `arbor account place`.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   key devices and sessions opened by signing a host challenge
@@ -135,24 +135,37 @@ the profile key, so that B need not trust A at all, is Security 010.
 - Home role: the device-keys route. Done: `publishedDeviceKeys` and the
   protocol client's `publishedDeviceKeys`, tested in
   `tests/integration/canopyd/device-keys.test.ts`.
-- Placement role: placement-account claims, fetching, caching and refreshing
-  device keys, sessions from them, the ordinary tree at `/~handle`. Its
-  schema is a step in `packages/canopyd/migrations/next/`.
-- **Gate:** canopyd suite and a two-host test with two local canopyd
+- Placement role. Done: claims (`homeHost` signed, placement root declared
+  in one transaction), the in-memory device-key copy with its lifetime,
+  early-refetch and staleness options, sessions and revocation, the placement
+  descriptor, and batch step 027. Gate passed:
+  `tests/integration/canopyd/placement-hosts.test.ts` with two local canopyd
   instances.
 
 ### Phase 3: clients
 
-- The protocol client, CLI, Arbor Sync, Mac and iPhone: record each profile's
-  home host and placement accounts, claim a placement account, open sessions
-  on it.
+- Done: the protocol client, and the CLI's `arbor account place <url>` and
+  `arbor account` listing. A placement connection is stored per origin under
+  the home connection (`.state/accounts/<cfg>/placements/host-<digest>/`) and
+  uses the home device's key.
+- Arbor Sync: placing folders under a placement root. `placements.yaml` and
+  the tree registry take a tree's endpoint from the home account, so they need
+  a per-placement origin (which the Swift reader parses too); `arbor place`
+  and account selection follow it, and a 401 from B forgets B's session.
+- The Mac and iPhone: decode the placement descriptor (`homeHost`,
+  `placementRoot`, no `configuration`) and `homeHost` in `AccountChallenge`;
+  the claim flow; the 403 and 503 carrying `details.homeHost`; placement
+  connections keyed as above.
+- A placement challenge in `protocol-account-challenges.json`, which Swift
+  also runs.
 - **Gate:** client suites and a local two-host end-to-end: claim on B, place a
   tree, edit it from two devices, revoke one at A and see B end its watch
   within the cache lifetime.
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- The home role is live. Cut over the batch holding the placement role's
-  schema; a live placement host needs a second canopyd, which is its own
-  decision.
+- The home role is live. Cut over batch step 027 before deploying anything
+  from this code: a schema-27 build serves maintenance mode on the live
+  schema-26 root. A live placement host needs a second canopyd, which is its
+  own decision.
 - Record the result in `status.md` and delete this plan.
