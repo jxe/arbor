@@ -239,6 +239,12 @@ function keychainItems(dump: string): Array<{ service: string; account: string }
   });
 }
 
+/** `/usr/bin/security`, read-only. A full login Keychain lists megabytes, past spawnSync's 1 MB default. */
+function runSecurity(args: string[]): { status: number | null; stdout: string } {
+  const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
+  return { status: run.status, stdout: run.stdout ?? "" };
+}
+
 /** The login Keychain is the running user's, so it answers only for their own home (or an injected one). */
 function ownKeychain(options: SurveyOptions): boolean {
   return options.security !== undefined || resolve(options.home) === resolve(homedir());
@@ -249,10 +255,7 @@ async function keychainIdentity(dataHome: string, options: SurveyOptions): Promi
   const attribution = { revert: REVERT.keychainIdentities };
   if ((options.platform ?? process.platform) !== "darwin") return skip(name, attribution, "not macOS; check the iPhone by hand (Settings → Accounts)");
   if (!ownKeychain(options)) return skip(name, attribution, "the login Keychain belongs to this user, not to --home");
-  const security = options.security ?? ((args: string[]) => {
-    const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return { status: run.status, stdout: run.stdout ?? "" };
-  });
+  const security = options.security ?? runSecurity;
   let metadata: { profileTree?: unknown; credential?: unknown };
   try { metadata = await readJSON(join(dataHome, ".state", "self.json")) as typeof metadata; }
   catch { return result(false, name, attribution, "", "no readable ~/.arbor/.state/self.json: the data home has no indexed identity"); }
@@ -281,10 +284,7 @@ async function noPendingClaims(dataHome: string, options: SurveyOptions): Promis
   const found: string[] = [];
   if (await exists(join(dataHome, ".state", "bootstrap-account-claim.json"))) found.push(".state/bootstrap-account-claim.json");
   if ((options.platform ?? process.platform) === "darwin" && ownKeychain(options)) {
-    const security = options.security ?? ((args: string[]) => {
-      const run = spawnSync("/usr/bin/security", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      return { status: run.status, stdout: run.stdout ?? "" };
-    });
+    const security = options.security ?? runSecurity;
     const dump = security(["dump-keychain"]);
     if (dump.status !== 0) return result(false, name, attribution, "", "security dump-keychain failed; unlock the login keychain and rerun");
     for (const item of keychainItems(dump.stdout)) {
