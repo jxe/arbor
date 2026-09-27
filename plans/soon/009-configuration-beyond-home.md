@@ -6,8 +6,9 @@
 - **Effort:** S–M
 - **Risk:** MEDIUM. A placement host keeps honouring a device list it cannot
   refresh, and matches groups another host holds.
-- **State:** PLANNED 2026-09-27, split from the portable-profiles design
-  (Security 008). The grace is decided.
+- **State:** PHASES 1–2 DONE 2026-09-27, not deployed; split from the
+  portable-profiles design (Security 008). Deployment rides with Security
+  007's batch step 027.
 - **Builds on:** [Security 007](007-placement-hosts.md) (placement hosts that
   read the home host's published device keys).
 - **Trust:** other hosts, over HTTPS, as Security 007 already trusts the home
@@ -50,19 +51,29 @@ closed. Groups hosted on B are unchanged.
 
 ## Work
 
-### Phase 1: spec
+### Phase 1: spec (done)
 
-- Accounts §5.4: the grace. Access control §3: membership of a group hosted
-  elsewhere, its refresh and grace, and failing closed.
+- Accounts §5.4: the grace, and a session on a placement host ending when
+  the grace of the copy it opened from does. Access control §1 and §3.3: a
+  profile subject's optional `homeHost` (where to read a group, not who it
+  is), membership of a group hosted elsewhere, its refresh and grace, and
+  failing closed.
 
-### Phase 2: canopyd
+### Phase 2: canopyd (done)
 
-- The grace in the placement role's device-key cache (a constructor option,
-  like the lifetimes).
-- Remote group membership: fetch, cache and refresh a remote group's root
-  document; rules match its members; unreadable groups match nobody.
+- The grace (`deviceKeyStaleMs`, one hour); a session opened from a copy ends
+  by the copy's grace (`servesUntil`), so nothing authenticates from a list
+  older than an hour. Clients in both languages reuse a session until a
+  quarter of its length or five minutes remain, whichever is shorter.
+- Remote group membership (`remote-groups.ts`): a `{profile, homeHost}`
+  subject for a group this host does not hold matches that group's public
+  root `members`, read anonymously and hash-checked, refreshed every 30 s
+  with the same one-hour grace; unreadable groups match nobody. `access.yaml`
+  and `apps.yaml` each give a profile one home host.
+- The Swift models read and keep `homeHost` (in progress when this was
+  written; see status).
 - No schema change.
-- **Gate:** canopyd suite and the two-host test extended: sessions continue
+- **Gate passed:** canopyd suite and the two-host test extended: sessions continue
   through an outage shorter than the grace and stop after it; a deletion at A
   still reaches B within 60 s while A is up; a public remote group's member
   gains its access on B and loses it within the refresh after removal; a

@@ -11,8 +11,9 @@
   The decisions are recorded below. PHASE 2 DONE 2026-09-27, not deployed:
   the home role (published device keys) is live since 2026-09-26
   (`8448a63f`); the placement role is implemented, with its schema as batch
-  step 027 (see [status](../../status.md#in-progress)). PHASE 3 PARTLY DONE:
-  the protocol client and `arbor account place`.
+  step 027 (see [status](../../status.md#in-progress)). PHASE 3 DONE on
+  Linux 2026-09-27 (CLI, Arbor Sync, Swift); the Mac build and two app flows
+  remain.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   key devices and sessions opened by signing a host challenge
@@ -144,23 +145,40 @@ the profile key, so that B need not trust A at all, is Security 010.
 
 ### Phase 3: clients
 
-- Done: the protocol client, and the CLI's `arbor account place <url>` and
-  `arbor account` listing. A placement connection is stored per origin under
-  the home connection (`.state/accounts/<cfg>/placements/host-<digest>/`) and
-  uses the home device's key.
-- Arbor Sync: placing folders under a placement root. `placements.yaml` and
-  the tree registry take a tree's endpoint from the home account, so they need
-  a per-placement origin (which the Swift reader parses too); `arbor place`
-  and account selection follow it, and a 401 from B forgets B's session.
-- The Mac and iPhone: decode the placement descriptor (`homeHost`,
-  `placementRoot`, no `configuration`) and `homeHost` in `AccountChallenge`;
-  the claim flow; the 403 and 503 carrying `details.homeHost`; placement
-  connections keyed as above.
-- A placement challenge in `protocol-account-challenges.json`, which Swift
-  also runs.
-- **Gate:** client suites and a local two-host end-to-end: claim on B, place a
-  tree, edit it from two devices, revoke one at A and see B end its watch
-  within the cache lifetime.
+Done 2026-09-27, not installed:
+
+- The protocol client; the CLI's `arbor account place <url>`, `arbor account`
+  and `arbor place` onto a placement host (create a tree under the placement
+  root, activate the root, or place an existing tree). A placement connection
+  is stored per origin under the home connection
+  (`.state/accounts/<cfg>/placements/host-<digest>/`) and uses the home
+  device's key.
+- Arbor Sync: `placements.yaml` names a placement host per folder
+  (`{tree, host}`; a bare TreeID stays the home), each placement syncs with
+  its host's session, a 401 forgets only that host's session,
+  `GET /v1/credential` takes `origin`, and `POST /v1/bootstrap/placements`
+  claims for the data home.
+- Swift: the placement descriptor and challenge (`homeHost` signed), the
+  claim, placement connections, the Other Hosts section on the Mac and
+  iPhone, and on the Mac placing, opening and editing folders on a placement
+  host. The iPhone holds no profile key, so it connects to placements claimed
+  from the Mac with its own device key.
+- Vectors: a placement challenge, and home and placement signing bytes that
+  cannot stand in for each other.
+- **Gate passed on Linux:** `tests/integration/arborsync-placement-host.test.ts`
+  (two canopyd, two Arbor Sync data homes: claim on B, place, edit from two
+  devices, revoke one at A and see B end its session and watch within the
+  lifetime), `arborsync-placement-route.test.ts`, and the Swift packages
+  under the Linux harness.
+
+Remaining:
+
+- The Mac build: the app target and `CanopyAppTests` have not been compiled,
+  and the hand checks (claim, place the root and a new folder, edit, 401
+  recovery, visits) are in the cutover prompt.
+- Placing an existing tree on a placement host from the app's "Available
+  trees" list, and the iPhone opening trees on a placement host (its
+  `place(tree:from:)` uses the home host).
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
