@@ -31,7 +31,8 @@ depends on it except tests and the deployment tooling.
   accounts, governed configuration (including its three-way merge), and
   resource policy; `errors.ts`: the errors whose HTTP status the host maps
   by type; `attempt-limiter.ts`: the bounded rate limit on unauthenticated
-  challenges and pairing claims.
+  challenges and pairing claims; `recent.ts`: the small least-recently-used
+  cache for immutable values.
 - `public-page.ts`, `projection.ts`: public HTML and Markdown projection and
   collection-file projection.
 

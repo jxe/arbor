@@ -4,6 +4,7 @@ import { validateGraphChange, type ValidatedGraph } from "./updates/graph-valida
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
+import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@overstory/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
@@ -326,7 +327,7 @@ export class HostDaemon implements AsyncDisposable {
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
   /** Recently replayed transitions by update id (`acceptedTransition`). */
-  private readonly transitions = new Map<string, AcceptedTransitionPayload>();
+  private readonly transitions = new Recent<AcceptedTransitionPayload>(TRANSITION_CACHE_ENTRIES);
 
   private constructor(
     readonly dataRoot: string,
@@ -504,10 +505,10 @@ export class HostDaemon implements AsyncDisposable {
     const update = this.update(updateID);
     if (!update?.previous) return null;
     let payload = this.transitions.get(update.id);
-    if (payload) this.transitions.delete(update.id);
-    else payload = await this.acceptedTransitionPayload(update.previous.root, update.root);
-    this.transitions.set(update.id, payload);
-    while (this.transitions.size > TRANSITION_CACHE_ENTRIES) this.transitions.delete(this.transitions.keys().next().value!);
+    if (!payload) {
+      payload = await this.acceptedTransitionPayload(update.previous.root, update.root);
+      this.transitions.set(update.id, payload);
+    }
     const requestDigest = credentialSubject && update.subject === credentialSubject
       ? this.matchingRequestDigest(updateID, credentialSubject)
       : null;

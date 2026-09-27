@@ -75,7 +75,7 @@ const CLIENT_CHANGE = /^[A-Za-z0-9_-]{1,128}$/;
  */
 /** How long one question may replay history before it answers retryably
  * (`ARBOR_MERGE_REPLAY_MS` overrides it). With canopyd's evaluation budget
- * it stays inside canopyd's 30-second timeout. */
+ * it stays inside canopyd's 45-second worker timeout. */
 export const REPLAY_MILLIS = 10_000;
 
 export class Sidecar {

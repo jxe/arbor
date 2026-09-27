@@ -16,6 +16,7 @@ import {
 import { decodeLogEntry, validatedLogEntry, type AlternativeBinding, type LogDecision, type LogEntry } from "@overstory/merge-protocol";
 import type { ObjectStore } from "@overstory/object-store";
 import type { AcceptedUpdateStore } from "./store.ts";
+import { Recent } from "../recent.ts";
 
 const encoder = new TextEncoder();
 const id = (value: unknown) => hashObject(encoder.encode(stableJSONString(value))).slice(7);
@@ -34,24 +35,6 @@ function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "moveEntry" || op.kind === "copyEntry") refs.push(op.destination.parent);
   if (op.kind === "replaceEntry" && "material" in op.value) refs.push(op.value);
   return refs;
-}
-
-/** A small bounded cache of immutable values by hash. */
-class Recent<T> {
-  private readonly values = new Map<string, T>();
-  constructor(private readonly limit: number) {}
-  get(key: string): T | undefined {
-    const value = this.values.get(key);
-    if (value !== undefined) { this.values.delete(key); this.values.set(key, value); }
-    return value;
-  }
-  set(key: string, value: T): void {
-    this.values.set(key, value);
-    for (const oldest of this.values.keys()) {
-      if (this.values.size <= this.limit) break;
-      this.values.delete(oldest);
-    }
-  }
 }
 
 /**
