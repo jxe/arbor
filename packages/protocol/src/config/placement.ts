@@ -1,10 +1,11 @@
 import type { TreeID } from "../model/identifiers.ts";
 import type { TreeKind } from "../model/protocol.ts";
 
-/** One row of `trees.yaml`: where a shared tree is placed and how this device may synchronize it. */
+/** One placement: where a shared tree is placed, under which configuration
+ * tree's account, and how this device may synchronize it. */
 export interface SharedTreePlacement {
   conflicted?: boolean;
-  configurationTree?: TreeID;
+  configurationTree: TreeID;
   path: string;
   tree: TreeID;
   canonical?: string;

@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Diagnostic, TreeID, SharedTreePlacement, TreePlacement } from "@overstory/protocol";
 import { revisionOf, HostAccountStore, arborPrivateRoot } from "@overstory/protocol";
 import {
@@ -33,13 +33,11 @@ interface PlacementSyncMetadata {
   access?: "read" | "write";
 }
 
-function syncMetadataPath(tree: string, configurationTree?: string): string {
-  return configurationTree
-    ? join(arborPrivateRoot(), "accounts", configurationTree, "refs", `${tree}.json`)
-    : join(arborPrivateRoot(), "refs", `${tree}.json`);
+function syncMetadataPath(tree: string, configurationTree: string): string {
+  return join(arborPrivateRoot(), "accounts", configurationTree, "refs", `${tree}.json`);
 }
 
-async function loadPlacementSyncMetadata(tree: string, configurationTree?: string): Promise<PlacementSyncMetadata> {
+async function loadPlacementSyncMetadata(tree: string, configurationTree: string): Promise<PlacementSyncMetadata> {
   try { return JSON.parse(await readFile(syncMetadataPath(tree, configurationTree), "utf8")) as PlacementSyncMetadata; }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
@@ -47,12 +45,9 @@ async function loadPlacementSyncMetadata(tree: string, configurationTree?: strin
   }
 }
 
-export async function savePlacementSyncMetadata(tree: string, metadata: PlacementSyncMetadata, configurationTree?: string): Promise<void> {
-  const directory = configurationTree
-    ? join(arborPrivateRoot(), "accounts", configurationTree, "refs")
-    : join(arborPrivateRoot(), "refs");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+export async function savePlacementSyncMetadata(tree: string, metadata: PlacementSyncMetadata, configurationTree: string): Promise<void> {
   const destination = syncMetadataPath(tree, configurationTree);
+  await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
   const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(metadata)}\n`, { mode: 0o600 });
   await rename(temporary, destination);

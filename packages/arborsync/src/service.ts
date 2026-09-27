@@ -514,7 +514,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     // Pending work or conflict material from the earlier synchronizer is refused, never rewritten.
     await retireEarlierSyncState(placement.tree);
     const tree = placement.tree;
-    const accountKey = placement.configurationTree ?? `legacy:${placement.endpoint}`;
+    const accountKey = placement.configurationTree;
     const sync = new FolderSync(tree, folderStateRoot(tree), {
       placement: () => this.trees.placementFor(tree),
       client: (current) => this.accountClient(current),
@@ -528,7 +528,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
       forgetSession: async (current) => {
-        if (!current.configurationTree) return false;
         const store = new HostAccountStore(current.configurationTree);
         if (!await store.hasDeviceKey()) return false;
         await store.forgetSession();
@@ -612,7 +611,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
             const client = await this.accountClient(placement);
             const workspace = await this.trees.workspaceByTree(placement.tree);
             if (!workspace) continue;
-            const accountKey = placement.configurationTree ?? `legacy:${placement.endpoint}`;
+            const accountKey = placement.configurationTree;
             let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
               listed = client.list().then((value) => value.snapshot);

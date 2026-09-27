@@ -479,7 +479,7 @@ export class TreeManager implements AsyncDisposable {
     }));
     return [...this.known.entries()].filter(([, root]) => Boolean(root.placement)).map(([id, root]): LocalTreeDescriptor => ({
       id,
-      ...(root.placement!.configurationTree ? { configurationTree: root.placement!.configurationTree } : {}),
+      configurationTree: root.placement!.configurationTree,
       name: this.workspaces.get(id)?.descriptor().name ?? root.name,
       osPath: root.osPath,
       kind: root.placement!.kind ?? "ordinary",

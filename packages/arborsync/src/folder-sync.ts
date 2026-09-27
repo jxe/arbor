@@ -644,7 +644,7 @@ export class FolderSync implements AcceptedTree {
   ensureWatch(): void {
     const placement = this.host.placement();
     if (!placement || this.closed) return;
-    const key = `${placement.configurationTree ?? "legacy"}:${placement.endpoint}`;
+    const key = `${placement.configurationTree}:${placement.endpoint}`;
     if (this.watch?.key === key) return;
     this.watch?.abort.abort();
     const abort = new AbortController();
@@ -658,7 +658,7 @@ export class FolderSync implements AcceptedTree {
     const moved = new Error("The placement moved");
     const connect = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
       const placement = this.host.placement();
-      if (!placement?.update || `${placement.configurationTree ?? "legacy"}:${placement.endpoint}` !== key) throw moved;
+      if (!placement?.update || `${placement.configurationTree}:${placement.endpoint}` !== key) throw moved;
       const watch = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
         const client = await this.host.client(placement);
         const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
