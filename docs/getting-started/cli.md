@@ -252,17 +252,12 @@ new device with it as usual; that device becomes the profile's only one.
 
 ```text
 arbor device [--account <ConfigurationTreeID>]
-arbor device move-to-key [--account <ConfigurationTreeID>]
 ```
 
-`arbor device` prints this installation's device for an account and how it
-signs in: with a bearer credential, or with a device key. `move-to-key`
-generates an Ed25519 key in operating-system credential storage, adds it to
-this device's own `devices.yaml` entry (changing nothing else in the file) and
-from then on opens hour-long sessions with it; the host stops accepting the
-old credential in the same update. The DeviceID stays the same, and a device
-moves once. `--account` is needed only when several accounts are connected.
-A device that claims an account or pairs with this version already has a key.
+`arbor device` prints this installation's device for an account and the key
+it signs in with. Every device claims an account or pairs with an Ed25519 key
+kept in operating-system credential storage, and opens hour-long sessions with
+it. `--account` is needed only when several accounts are connected.
 
 ### `arbor daemon`
 

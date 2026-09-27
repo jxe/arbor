@@ -89,10 +89,15 @@ configurations have their shape, and the tests for each refused case, are in
   code. Claiming it replaces the person's `devices.yaml` with the claiming
   device, as an administrator, and revokes every other device in the same
   commit (accounts §5.3).
-- **Device keys and sessions.** A `devices` row holds a digest device's
-  credential digest or a key device's public key, never both; the key is
-  also in `devices.yaml`, which is authoritative, and accepting a device's
-  first `key` replaces its digest in the same transaction. Session challenges
+- **Device keys and sessions.** Every device is a key device, and a session
+  is the only way it authenticates. A `devices` row holds the public key the
+  device enrolled with, by claim or pairing (`insertDevice`); the key is also
+  in `devices.yaml`, which is authoritative, and accepting a configuration
+  refuses an entry without a key or with a key other than the row's. The key is
+  required unless the row is revoked: devices revoked while they still had
+  bearer credentials, before [schema 26](../../../packages/canopyd/migrations/next/README.md),
+  keep keyless rows so their DeviceIDs are never reused. `devices.yaml` history
+  from before then still parses, entries without `key` included. Session challenges
   are `challenges` rows of purpose `device-session` (account claims' are
   `account-claim`), consumed exactly as issued; a session is a
   random `ars_` token whose digest `device_sessions` holds for at most an hour
@@ -107,8 +112,8 @@ configurations have their shape, and the tests for each refused case, are in
   `host.ts`). As a
   home host canopyd publishes each profile's key devices at
   `GET /.arbor/profiles/{ProfileTreeID}/device-keys` without authentication
-  (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked key devices'
-  DeviceIDs, keys and administrator flags, never labels or digest devices.
+  (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
+  DeviceIDs, keys and administrator flags, never labels.
   The placement role that reads it is [Security 007](../../../plans/soon/007-placement-hosts.md).
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, the database, or a

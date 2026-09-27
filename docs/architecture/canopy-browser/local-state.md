@@ -61,9 +61,9 @@ stay under the data home; the app edits the profile configuration's files
 under `~/.arbor/accounts/<cfg>/` (`mounts.yaml`, `apps.yaml`, `devices.yaml`,
 and `access.yaml` for the profile tree itself) on disk exactly as the CLI does
 and asks the daemon to synchronize. Other trees' configurations are read and
-edited through the host (`TreeConfigurationClient`). The Mac's identity and account credentials are data-home state
+edited through the host (`TreeConfigurationClient`). The Mac's identity and device keys are data-home state
 shared with the CLI and the daemon (the profile identity, each account's
-connection record and credential in the operating-system store), not the
+connection record and device key in the operating-system store), not the
 iOS app's Keychain stores. The data home owns them (Native 011 chose it over
 moving them into the app), so the daemon and the `arbor` command see the same
 accounts as the app. The app reaches them through `CanopyAccountService`, the
@@ -72,22 +72,22 @@ one account interface both platforms implement: on the Mac,
 `GET /v1/credential` and creates, recovers or backs up the identity and claims
 or pairs an account through the daemon's onboarding routes, which write those
 stores; on iOS, `KeychainAccountService` keeps them in the app's Keychain.
-Pairing offers for another device go to the host directly with the account
-credential on both platforms. The Mac cannot forget an account from the app,
+Pairing offers for another device go to the host directly with a session on
+both platforms. The Mac cannot forget an account from the app,
 and iOS cannot restore or back up an identity file; the service declares both
 as missing capabilities.
-A device that pairs or claims now signs in with a device key
+Every device signs in with the device key it claimed or paired with
 ([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions)):
 on the Mac Arbor Sync holds it and `GET /v1/credential` returns sessions; on
 iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
-as a tagged value in the Keychain slot a credential used, and
-`AccountStoredCredentialProvider` opens hour-long sessions with it. A device
-with a credential moves to a key from the Devices section.
+as a tagged value in the account's Keychain slot, and
+`AccountStoredCredentialProvider` opens hour-long sessions with it. A slot
+holding anything else is not used.
 The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree
 following that tree's Overstory watch, anonymous unless an account at the same
-origin holds a credential, with file bytes served by `/v1/objects?origin=`
+origin holds a device key, with file bytes served by `/v1/objects?origin=`
 when the daemon is running and by canopyd's object route otherwise.
 
 ## Editor recovery
