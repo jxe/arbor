@@ -237,6 +237,34 @@ export function cloneState(state: IntentState): IntentState {
   return result;
 }
 
+/** A state to record beside `state` in which only decisions are edited: the
+ * decisions copied as `cloneState` copies them, the nodes and history
+ * records shared, in maps of its own (so recording it leaves `state`'s
+ * sources as they were). Nothing may edit a node or record of either state
+ * while the other is in use. */
+export function shareState(state: IntentState): IntentState {
+  const { outputs, effects, origins, alternatives, changes, nodes, decisions, ...rest } = state;
+  const shared = <T extends Record<string, unknown>>(map: T): T => {
+    const result = { ...map };
+    const source = sources.get(map);
+    if (source) sources.set(result, source);
+    return result;
+  };
+  const result: IntentState = {
+    ...rest,
+    nodes: shared(nodes),
+    decisions: copy(decisions),
+    outputs: shared(outputs),
+    effects: shared(effects),
+    origins: shared(origins),
+    alternatives: shared(alternatives),
+    changes: shared(changes),
+  };
+  const decisionSource = Object.isFrozen(decisions) ? decisions : sources.get(decisions);
+  if (decisionSource) sources.set(result.decisions, decisionSource);
+  return result;
+}
+
 /** Records of `map` that `base` lacks or holds differently. */
 export function since<M extends Record<string, unknown>>(map: M, base: M): M {
   const out: Record<string, unknown> = {};

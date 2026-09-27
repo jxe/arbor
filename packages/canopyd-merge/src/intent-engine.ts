@@ -1,4 +1,4 @@
-import { cloneState, copy, loadState, lookup, own, retainState, same, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
+import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
 import { stableJSONString } from "@overstory/protocol";
 import {
   decodeProtocolDirectory,
@@ -1778,7 +1778,9 @@ class Engine {
           const object = await this.project(authored, node.id);
           if (object !== alternative.object) {
             alternative.object = object;
-            const context = cloneState(authored);
+            // Recording the folder's state edits only its alternatives' nodes
+            // (retainDirectoryAlternatives); its nodes and records are read.
+            const context = shareState(authored);
             context.root = node.id;
             await this.retainDirectoryAlternatives(context);
             alternative.state = (await this.record(context)).state;
