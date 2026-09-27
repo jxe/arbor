@@ -112,11 +112,6 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/me/backup", body: ["destination": destination, "passphrase": passphrase])
     }
 
-    /// Move this installation's device for an account to a key (`arbor device move-to-key`).
-    func moveToDeviceKey(configurationTree: String) async throws {
-        try await onboardingPost("/v1/device-key", body: ["configurationTree": configurationTree])
-    }
-
     func claimPairing(payload: Data? = nil) async throws {
         var body: [String: Any] = [:]
         if let payload { body["payload"] = try JSONSerialization.jsonObject(with: payload) }

@@ -2,10 +2,9 @@ import CryptoKit
 import Foundation
 
 /// This device's private key for one account (accounts §5), as it is kept in
-/// the credential slot a digest device's bearer credential uses. A Secure
-/// Enclave key is stored as its opaque `dataRepresentation`, which only this
-/// device's enclave can use; a software key, where no enclave is available
-/// (the simulator), as its raw scalar.
+/// the account's Keychain slot. A Secure Enclave key is stored as its opaque
+/// `dataRepresentation`, which only this device's enclave can use; a software
+/// key, where no enclave is available (the simulator), as its raw scalar.
 public enum DeviceKeySecret: Sendable, Equatable {
     case secureEnclave(Data)
     case software(Data)
@@ -20,7 +19,7 @@ public enum DeviceKeySecret: Sendable, Equatable {
         return .software(P256.Signing.PrivateKey().rawRepresentation)
     }
 
-    /// A stored slot value, or nil when the slot holds a bearer credential.
+    /// A stored slot value, or nil when the slot holds anything else.
     public init?(stored: String) {
         guard stored.hasPrefix(Self.prefix) else { return nil }
         let rest = stored.dropFirst(Self.prefix.count)

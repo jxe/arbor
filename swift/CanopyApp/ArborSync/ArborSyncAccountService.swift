@@ -51,10 +51,6 @@ struct ArborSyncAccountService: CanopyAccountService {
         try await connect().backupIdentity(destination: destination.path, passphrase: passphrase)
     }
 
-    func moveToDeviceKey(for account: CanopyAccount) async throws {
-        try await connect().moveToDeviceKey(configurationTree: account.configurationTree)
-    }
-
     func claimAccount(_ account: String, deviceLabel _: String, inviteCode: String?) async throws {
         let client = try await connect()
         let envelope = try await client.onboardingState()

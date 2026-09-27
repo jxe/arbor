@@ -198,7 +198,7 @@ struct TreeBootstrap: Sendable, Equatable {
     }
 }
 
-/// `GET /v1/credential`: the account credential a same-installation client shares with the daemon.
+/// `GET /v1/credential`: a session of the account's device, which a same-installation client shares with the daemon.
 struct TreeCredential: Codable, Sendable, Equatable {
     var token: String
 

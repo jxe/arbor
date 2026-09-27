@@ -5,12 +5,6 @@ import Foundation
 import Synchronization
 import Security
 
-public protocol DeviceCredentialStore: Sendable {
-    func load(origin: URL) async throws -> String?
-    func save(_ credential: String, origin: URL) async throws
-    func forget(origin: URL) async throws
-}
-
 public struct PendingPairingClaim: Codable, Equatable, Sendable {
     public enum Stage: String, Codable, Sendable { case prepared, uncertain, claimed }
     public var origin: URL
@@ -18,8 +12,8 @@ public struct PendingPairingClaim: Codable, Equatable, Sendable {
     public var pairingSecret: String
     public var deviceID: String
     public var deviceLabel: String
+    /// The new device's key, as `DeviceKeySecret.stored` spells it.
     public var credential: String
-    public var credentialDigest: String
     public var stage: Stage
 }
 
@@ -29,8 +23,8 @@ public struct PendingAccountClaim: Codable, Equatable, Sendable {
     public var configurationTree: String
     public var deviceID: String
     public var deviceLabel: String
+    /// The claiming device's key, as `DeviceKeySecret.stored` spells it.
     public var credential: String
-    public var credentialDigest: String
     public var configuration: ProtocolSnapshot
     public var challenge: ProtocolAccountChallenge
     public var publicKey: String
@@ -48,32 +42,6 @@ public struct NativeHostAccount: Codable, Equatable, Sendable, Identifiable {
     public var id: String { configurationTree }
 }
 
-/// Rekey accounts saved before canopyd 005 under a random configuration TreeID
-/// to their profile configuration's derived TreeID. The device credential is
-/// unchanged; only the key it is stored under moves. Returns old → new keys.
-@discardableResult
-public func rekeyStoredAccounts(in store: any AccountCredentialStore) async throws -> [String: String] {
-    var moved: [String: String] = [:]
-    for account in try await store.accounts() {
-        guard let profileTree = account.profileTree else { continue }
-        let derived = treeConfigurationID(profileTree)
-        guard account.configurationTree != derived else { continue }
-        guard let credential = try await store.load(configurationTree: account.configurationTree) else { continue }
-        try await store.save(credential, configurationTree: derived)
-        guard try await store.load(configurationTree: derived) == credential else {
-            throw ProtocolValidationError.invalidValue("Account credential could not be verified after rekeying")
-        }
-        var rekeyed = account
-        rekeyed.configurationTree = derived
-        rekeyed.accountID = profileTree
-        try await store.saveAccount(rekeyed)
-        try await store.forgetAccount(configurationTree: account.configurationTree)
-        try await store.forget(configurationTree: account.configurationTree)
-        moved[account.configurationTree] = derived
-    }
-    return moved
-}
-
 public protocol AccountCredentialStore: Sendable {
     func load(configurationTree: String) async throws -> String?
     func save(_ credential: String, configurationTree: String) async throws
@@ -89,33 +57,11 @@ public protocol AccountCredentialStore: Sendable {
     func forgetAccount(configurationTree: String) async throws
 }
 
-public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCredentialStore {
+/// Each account's device key and metadata, and pending claims, in the Keychain.
+public actor KeychainDeviceCredentialStore: AccountCredentialStore {
     nonisolated let service: String
 
     public init(service: String = "org.nxhx.Arbor.device") { self.service = service }
-
-    public func load(origin: URL) throws -> String? {
-        var query = baseQuery(origin: origin)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else {
-            throw OSStatusError(status)
-        }
-        return value
-    }
-
-    public func save(_ credential: String, origin: URL) throws {
-        guard !credential.isEmpty else { throw ProtocolValidationError.invalidValue("Credential is empty") }
-        try store(Data(credential.utf8), query: baseQuery(origin: origin))
-    }
-
-    public func forget(origin: URL) throws {
-        let status = SecItemDelete(baseQuery(origin: origin) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw OSStatusError(status) }
-    }
 
     public func load(configurationTree: String) throws -> String? {
         try loadValue(account: accountKey(configurationTree))
@@ -246,15 +192,6 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
             kSecAttrService as String: selectedService ?? service,
             kSecAttrAccount as String: account,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
-    }
-
-    private func baseQuery(origin: URL) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: origin.absoluteString,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
     }
 }
@@ -401,23 +338,9 @@ private extension Data {
     }
 }
 
-public actor StoredDeviceCredentialProvider: ProtocolCredentialProvider {
-    private let origin: URL
-    private let store: any DeviceCredentialStore
-
-    public init(origin: URL, store: any DeviceCredentialStore) {
-        self.origin = origin
-        self.store = store
-    }
-
-    public func credential() async throws -> String? { try await store.load(origin: origin) }
-    public func invalidate() {}
-}
-
-/// Reads the account credential from the store once and reuses it until Canopy
-/// rejects it, rather than querying the Keychain for every request. For a key
-/// device the slot holds its key, and the provider hands out the sessions the
-/// key opens instead.
+/// Reads the account's device key from the store once and hands out the
+/// sessions it opens, rather than querying the Keychain for every request. A
+/// slot that holds anything but a device key gives no credential.
 public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
     /// The keychain accounts' providers, one per account for the process, so
     /// every client of an account shares its device session instead of each
@@ -449,7 +372,6 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
     private let configurationTree: String
     private let store: any AccountCredentialStore
     private let session: URLSession
-    private var cached: String?
     private var sessions: DeviceSessionCredentialProvider?
     private var generation = 0
 
@@ -461,25 +383,20 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
 
     public func credential() async throws -> String? {
         if let sessions { return try await sessions.credential() }
-        if let cached { return cached }
         let loadedGeneration = generation
-        let value = try await store.load(configurationTree: configurationTree)
-        if let value, let key = DeviceKeySecret(stored: value) {
-            guard let account = try await store.accounts().first(where: { $0.configurationTree == configurationTree }),
-                  let profileTree = account.profileTree else {
-                throw ProtocolValidationError.invalidValue("The account's device key has no profile to sign in to")
-            }
-            let provider = DeviceSessionCredentialProvider(origin: account.origin, profileTree: profileTree, device: account.deviceID, key: key, session: session)
-            if generation == loadedGeneration { sessions = provider }
-            return try await provider.credential()
+        guard let value = try await store.load(configurationTree: configurationTree),
+              let key = DeviceKeySecret(stored: value) else { return nil }
+        guard let account = try await store.accounts().first(where: { $0.configurationTree == configurationTree }),
+              let profileTree = account.profileTree else {
+            throw ProtocolValidationError.invalidValue("The account's device key has no profile to sign in to")
         }
-        // A rejection while the store was being read makes this value suspect.
-        if generation == loadedGeneration { cached = value }
-        return value
+        let provider = DeviceSessionCredentialProvider(origin: account.origin, profileTree: profileTree, device: account.deviceID, key: key, session: session)
+        // A rejection while the store was being read makes this key suspect.
+        if generation == loadedGeneration { sessions = provider }
+        return try await provider.credential()
     }
 
     public func invalidate() async {
-        cached = nil
         await sessions?.invalidate()
         sessions = nil
         generation += 1
@@ -523,7 +440,6 @@ public struct PairingPayload: Codable, Equatable, Sendable {
 public actor NativeAccountService {
     private let origin: URL
     private let credentials: any AccountCredentialStore
-    private let legacyCredentials: (any DeviceCredentialStore)?
     private let session: URLSession
     private let retryDelay: ProtocolClient.RetryDelay
     private var configurationTree: String?
@@ -532,14 +448,12 @@ public actor NativeAccountService {
         origin: URL,
         configurationTree: String? = nil,
         credentials: any AccountCredentialStore = KeychainDeviceCredentialStore(),
-        legacyCredentials: (any DeviceCredentialStore)? = KeychainDeviceCredentialStore(),
         session: URLSession = .shared,
         retryDelay: @escaping ProtocolClient.RetryDelay = ProtocolClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.configurationTree = configurationTree
         self.credentials = credentials
-        self.legacyCredentials = legacyCredentials
         self.session = session
         self.retryDelay = retryDelay
     }
@@ -556,7 +470,7 @@ public actor NativeAccountService {
             }
             pending = stored
         } else {
-            // A new device pairs with a key; its secret waits in the credential field.
+            // A new device pairs with a key, which waits in the credential field.
             let key = try DeviceKeySecret.generate()
             pending = PendingPairingClaim(
                 origin: origin,
@@ -565,7 +479,6 @@ public actor NativeAccountService {
                 deviceID: try generatedDeviceID(),
                 deviceLabel: cleanLabel,
                 credential: key.stored,
-                credentialDigest: "",
                 stage: .prepared
             )
             try await credentials.savePending(pending)
@@ -575,7 +488,7 @@ public actor NativeAccountService {
         let claim = try await ProtocolClient(origin: origin, session: session, retryDelay: retryDelay).claimPairing(
             id: pending.pairingID,
             secret: pending.pairingSecret,
-            device: try enrollment(id: pending.deviceID, label: pending.deviceLabel, secret: pending.credential, digest: pending.credentialDigest)
+            device: try enrollment(id: pending.deviceID, label: pending.deviceLabel, secret: pending.credential)
         )
         pending.stage = .claimed
         try await credentials.savePending(pending)
@@ -585,9 +498,9 @@ public actor NativeAccountService {
             session: session,
             retryDelay: retryDelay
         ).account()
-        // A key device asked for its session as `device.account`, the profile; the account must agree.
+        // The device asked for its session as `device.account`, the profile; the account must agree.
         guard snapshot.account.device?.id == pending.deviceID,
-              DeviceKeySecret(stored: pending.credential) == nil || snapshot.account.profileTree == claim.device.account else {
+              snapshot.account.profileTree == claim.device.account else {
             throw ProtocolValidationError.invalidValue("Claimed account returned a different device identity")
         }
         guard let endpoint = snapshot.account.community.canonical?.endpoint,
@@ -674,7 +587,6 @@ public actor NativeAccountService {
                 deviceID: deviceID,
                 deviceLabel: cleanLabel,
                 credential: key.stored,
-                credentialDigest: "",
                 configuration: configuration,
                 challenge: challenge,
                 publicKey: signed.identity.publicKey,
@@ -692,7 +604,7 @@ public actor NativeAccountService {
                 publicKey: claim.publicKey,
                 signature: claim.signature,
                 inviteCode: claim.inviteCode,
-                device: try enrollment(id: claim.deviceID, label: claim.deviceLabel, secret: claim.credential, digest: claim.credentialDigest),
+                device: try enrollment(id: claim.deviceID, label: claim.deviceLabel, secret: claim.credential),
                 configuration: claim.configuration
             )
         }
@@ -756,87 +668,40 @@ public actor NativeAccountService {
 
     public func configurationID() -> String? { configurationTree }
     public func forget() async throws {
-        if let configurationTree {
-            try await credentials.forget(configurationTree: configurationTree)
-            try await credentials.forgetAccount(configurationTree: configurationTree)
-        } else if let legacyCredentials {
-            try await legacyCredentials.forget(origin: origin)
-        }
+        guard let configurationTree else { return }
+        try await credentials.forget(configurationTree: configurationTree)
+        try await credentials.forgetAccount(configurationTree: configurationTree)
     }
 
     private func client() async throws -> ProtocolClient {
-        if let configurationTree {
-            return ProtocolClient(
-                origin: origin,
-                credentialProvider: AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: credentials, session: session),
-                session: session,
-                retryDelay: retryDelay
-            )
-        }
-        // Legacy singleton compatibility. Remove this branch with the layout migration.
-        if let legacyCredentials {
-            return ProtocolClient(
-                origin: origin,
-                credentialProvider: StoredDeviceCredentialProvider(origin: origin, store: legacyCredentials),
-                session: session,
-                retryDelay: retryDelay
-            )
-        }
-        throw ProtocolValidationError.invalidValue("Account configuration TreeID is required")
+        guard let configurationTree else { throw ProtocolValidationError.invalidValue("Account configuration TreeID is required") }
+        return ProtocolClient(
+            origin: origin,
+            credentialProvider: AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: credentials, session: session),
+            session: session,
+            retryDelay: retryDelay
+        )
     }
 
-    /// How a claiming device enrolls: its public key, or for a claim prepared
-    /// before keys, its credential's digest.
-    private func enrollment(id: String, label: String, secret: String, digest: String) throws -> ProtocolPairingDevice {
-        if let key = DeviceKeySecret(stored: secret) { return ProtocolPairingDevice(id: id, label: label, key: try key.publicKey()) }
-        return ProtocolPairingDevice(id: id, label: label, credentialDigest: digest)
+    /// The stored device key of a pending claim; anything else cannot enroll.
+    private func deviceKey(_ secret: String) throws -> DeviceKeySecret {
+        guard let key = DeviceKeySecret(stored: secret) else {
+            throw ProtocolValidationError.invalidValue("This pending claim holds no device key; cancel it and claim again")
+        }
+        return key
     }
 
-    /// The bearer token a stored secret gives: a credential as is, or a session its key opens.
+    /// How a claiming device enrolls: its public key (accounts §5).
+    private func enrollment(id: String, label: String, secret: String) throws -> ProtocolPairingDevice {
+        ProtocolPairingDevice(id: id, label: label, key: try deviceKey(secret).publicKey())
+    }
+
+    /// The session a pending claim's key opens.
     private func bearer(secret: String, profileTree: String?, device: String) async throws -> String {
-        guard let key = DeviceKeySecret(stored: secret) else { return secret }
+        let key = try deviceKey(secret)
         guard let profileTree else { throw ProtocolValidationError.invalidValue("The claimed account names no profile") }
         return try await ProtocolClient(origin: origin, session: session, retryDelay: retryDelay)
             .openDeviceSession(profileTree: profileTree, device: device, key: key).token
-    }
-
-    /// Move this device for the account to a key in the Secure Enclave
-    /// (accounts §5.2), keeping its DeviceID. Returns the key; a device that
-    /// already has one only returns it.
-    @discardableResult
-    public func moveToDeviceKey() async throws -> ProtocolDeviceKey {
-        guard let configurationTree else { throw ProtocolValidationError.invalidValue("Account configuration TreeID is required") }
-        guard let stored = try await credentials.load(configurationTree: configurationTree) else {
-            throw ProtocolValidationError.invalidValue("This device has no credential for the account")
-        }
-        if let existing = DeviceKeySecret(stored: stored) { return try existing.publicKey() }
-        guard let account = try await credentials.accounts().first(where: { $0.configurationTree == configurationTree }),
-              let profileTree = account.profileTree else {
-            throw ProtocolValidationError.invalidValue("The account names no profile")
-        }
-        let key = try DeviceKeySecret.generate()
-        let publicKey = try key.publicKey()
-        let wire = ProtocolClient(origin: origin, credential: stored, session: session, retryDelay: retryDelay)
-        do {
-            try await TreeConfigurationClient(wire: wire).addDeviceKey(device: account.deviceID, key: publicKey)
-        } catch {
-            // The host may have accepted the move before its answer was lost: the key then opens a session.
-            guard (try? await ProtocolClient(origin: origin, session: session, retryDelay: retryDelay)
-                .openDeviceSession(profileTree: profileTree, device: account.deviceID, key: key)) != nil else { throw error }
-        }
-        try await credentials.save(key.stored, configurationTree: configurationTree)
-        guard try await credentials.load(configurationTree: configurationTree) == key.stored else {
-            throw ProtocolValidationError.invalidValue("The device key could not be verified after saving")
-        }
-        return publicKey
-    }
-
-    private func randomSecret() throws -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw ProtocolValidationError.invalidValue("Could not generate device credential")
-        }
-        return Data(bytes).base64URLEncodedString()
     }
 
     private func generatedDeviceID() throws -> String { try generatedID(prefix: "dv") }

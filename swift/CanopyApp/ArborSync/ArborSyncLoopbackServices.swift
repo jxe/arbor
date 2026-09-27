@@ -4,11 +4,11 @@ import Overstory
 import Foundation
 import Synchronization
 
-/// The daemon's stored Canopy credential as a `ProtocolCredentialProvider`.
+/// A Canopy session the daemon's device key opened, as a `ProtocolCredentialProvider`.
 ///
 /// Fetched from `GET /v1/credential` on first use and cached for the life of the
 /// provider. A caller that sees Canopy answer 401/403 calls `invalidate()` so the
-/// next request re-reads the daemon's (possibly rotated) token instead of retrying
+/// next request asks the daemon for a fresh session instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
 actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
     /// One provider per account for the connected daemon, so the app's clients

@@ -106,12 +106,16 @@ struct DeviceKeysTests {
         #expect(DeviceKeySecret(stored: "arbor-device-key:v1:xx:AAAA") == nil)
     }
 
-    @Test func pairingDeviceHoldsExactlyOneBinding() throws {
+    @Test func pairingDeviceEnrollsWithAKey() throws {
         let key = ProtocolDeviceKey(p256: P256.Signing.PrivateKey().publicKey)
         #expect(throws: Never.self) { try ProtocolPairingDevice(id: "dv_phone", label: "Phone", key: key).validated() }
-        var both = ProtocolPairingDevice(id: "dv_phone", label: "Phone", key: key)
-        both.credentialDigest = "sha256:" + String(repeating: "0", count: 64)
-        #expect(throws: (any Error).self) { try both.validated() }
+        var malformed = ProtocolPairingDevice(id: "dv_phone", label: "Phone", key: key)
+        malformed.key = "sha256:" + String(repeating: "0", count: 64)
+        #expect(throws: (any Error).self) { try malformed.validated() }
+        // A body without a key does not decode.
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(ProtocolPairingDevice.self, from: Data(#"{"id":"dv_phone","label":"Phone","credentialDigest":"sha256:00"}"#.utf8))
+        }
         let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProtocolPairingDevice(id: "dv_phone", label: "Phone", key: key))) as? [String: String]
         #expect(encoded == ["id": "dv_phone", "label": "Phone", "key": key.value])
     }

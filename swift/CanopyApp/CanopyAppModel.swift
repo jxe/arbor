@@ -83,8 +83,6 @@ struct LocalArborSyncDevicePresentation: Identifiable, Sendable, Equatable {
     let label: String
     let isAdministrator: Bool
     let isCurrent: Bool
-    /// Signs in with a device key rather than a credential (accounts §5).
-    var hasKey = false
 }
 
 struct LocalArborSyncOverview: Sendable, Equatable {
@@ -276,12 +274,14 @@ final class CanopyWorkspaceState {
 
     func place(tree: ProtocolTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
         _ = try tree.validated()
+        // Every placement names its account; its device key opens the sessions.
+        guard let configurationTree else {
+            throw ProtocolValidationError.invalidValue("This tree's placement names no account; pair this device again")
+        }
         try await conflictReview?.flushDraft()
         serverWatchTask?.cancel()
         serverWatchTask = nil
-        let credentialProvider: any ProtocolCredentialProvider = configurationTree.map {
-            AccountStoredCredentialProvider.shared(configurationTree: $0, store: KeychainDeviceCredentialStore())
-        } ?? StoredDeviceCredentialProvider(origin: origin, store: KeychainDeviceCredentialStore())
+        let credentialProvider = AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: KeychainDeviceCredentialStore())
         let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: client)
         let platform = HostObjectStore(client: client, tree: tree.id)
@@ -649,8 +649,7 @@ final class CanopyWorkspaceState {
                     id: id,
                     label: device.label,
                     isAdministrator: device.administrator == true,
-                    isCurrent: id == account.deviceID,
-                    hasKey: device.key != nil
+                    isCurrent: id == account.deviceID
                 )
             }
             .sorted { lhs, rhs in
@@ -769,7 +768,7 @@ final class CanopyWorkspaceState {
         let accountID = try await client.account().account.id
         let bundleID = CanopyCloudBundle.newBundleID()
         let deviceID = try generateArborID(prefix: "dv")
-        let credential = CanopyCloudBundle.newCredential()
+        let deviceKeySeed = CanopyCloudBundle.newDeviceKeySeed()
         let createdAt = ISO8601DateFormatter.cloudBundle.string(from: Date())
         // The CLI accepts only a normalized origin, which the stored spelling need not be.
         let canopy = "\(scheme)://\(host)" + (origin.port.map { ":\($0)" } ?? "")
@@ -784,7 +783,7 @@ final class CanopyWorkspaceState {
             configurationTree: configurationTree,
             profileTree: profileTree,
             deviceID: deviceID,
-            credential: credential,
+            deviceKeySeed: deviceKeySeed,
             placements: [.init(
                 treeID: tree,
                 canonicalURL: canonicalURL,
@@ -795,7 +794,7 @@ final class CanopyWorkspaceState {
         _ = try await ProtocolClient(origin: origin).claimPairing(
             id: offer.id,
             secret: offer.secret,
-            device: ProtocolPairingDevice(id: deviceID, label: label, credentialDigest: CanopyCloudBundle.credentialDigest(credential))
+            device: ProtocolPairingDevice(id: deviceID, label: label, key: try CanopyCloudBundle.deviceKey(seed: deviceKeySeed))
         )
         let record = CanopyCloudBundleRecord(
             bundleID: bundleID,

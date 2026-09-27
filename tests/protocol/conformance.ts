@@ -8,7 +8,7 @@ import { serveHost } from "@overstory/canopyd";
 import { decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
-import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
+import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -140,21 +140,23 @@ try {
       await control.service[Symbol.asyncDispose]();
     }
 
+    // The Swift suites present a session of the owner's device, as any client does.
+    const session = await deviceSession(canopy.url, authorityToken);
     const wire = {
       ARBOR_WIRE_TEST_URL: canopy.url,
-      ARBOR_WIRE_TEST_TOKEN: authorityToken,
+      ARBOR_WIRE_TEST_TOKEN: session,
       ARBOR_WIRE_TEST_TREE: tree,
     };
     await run(["swift", "test", "--package-path", "swift/Packages/Overstory"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "swift/Packages/OverstoryClient"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "swift/Packages/CanopyWorkingTree"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
-      ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
+      ARBOR_SOURCE_TEST_TOKEN: session, ARBOR_SOURCE_TEST_TREE: sourceTree,
       ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),
     });
     await run(["swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
-      ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
+      ARBOR_SOURCE_TEST_TOKEN: session, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });
   } finally {
     canopy.server.stop(true);
