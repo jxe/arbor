@@ -1,51 +1,36 @@
-import {
-  decodeAuthoredCandidateIntent,
-  decodeMaterialRef,
-} from "../../protocol/src/updates/authored-contract.ts";
-import type { MaterialRef } from "@overstory/protocol";
-import {
-  IntentError,
-  intentRequestSchema,
-  traceOperations,
-  type Frame,
-  type IntentResponse,
-  type IntentRequest,
-} from "./engine-contract.ts";
-export { IntentError, traceOperations, type Frame, type IntentRequest, type IntentResponse };
-/** Check a request's shape and decode every operation. Anything wrong with it
- * is the request's fault, so every failure here is a typed refusal. */
-export function parseIntentRequest(raw: unknown): IntentRequest {
+import { decodeAuthoredCandidateIntent, type MaterialRef } from "@overstory/protocol";
+import { MergeRefusal } from "@overstory/merge-protocol";
+import { traceOperations, type Frame, type IntentRequest } from "./engine-contract.ts";
+export { traceOperations, type Frame, type IntentRequest };
+/** Check what a question's shape cannot state: that the trace follows its
+ * basis and ends at the candidate, and every operation. The request's shape
+ * was checked where the sidecar parsed the question (`parseQuestion` and its
+ * rules), so it is trusted here. Anything wrong with the trace is the
+ * request's fault, so every failure here is a typed refusal. */
+export function checkTrace(request: IntentRequest): void {
   try {
-    return checkIntentRequest(raw);
+    checkFrames(request);
   } catch (error) {
-    if (error instanceof IntentError) throw error;
-    throw new IntentError("invalid", error instanceof Error ? error.message : "Invalid intent request");
+    if (error instanceof MergeRefusal) throw error;
+    throw new MergeRefusal("invalid", error instanceof Error ? error.message : "Invalid intent request");
   }
 }
-function checkIntentRequest(raw: unknown): IntentRequest {
-  if (
-    raw &&
-    typeof raw === "object" &&
-    "rules" in raw &&
-    (raw.rules as { revision?: number })?.revision !== 1
-  )
-    throw new IntentError("unsupported", "Unknown rule revision");
-  const value = intentRequestSchema.parse(raw);
-  const incoming = value.incoming,
+function checkFrames(request: IntentRequest): void {
+  const incoming = request.incoming,
     trace = incoming.trace;
   if (trace.reduce((sum, frame) => sum + frame.operations.length, 0) > 1024)
-    throw new IntentError("limit", "Trace exceeds the operation limit");
+    throw new MergeRefusal("limit", "Trace exceeds the operation limit");
   const keys = new Set<string>();
   for (const [index, frame] of trace.entries()) {
     const previous = trace[index - 1];
-    if ((previous ? previous.after : value.base.object) !== frame.before)
-      throw new IntentError("invalid", "Trace does not follow its basis");
+    if ((previous ? previous.after : request.base.object) !== frame.before)
+      throw new MergeRefusal("invalid", "Trace does not follow its basis");
     if (index === trace.length - 1 && frame.after !== incoming.object)
-      throw new IntentError("invalid", "Trace does not end at the candidate");
+      throw new MergeRefusal("invalid", "Trace does not end at the candidate");
     // A trace states its steps, so each of its frames contributes something.
     // A snapshot or a bare resolution carries no frames at all.
     if (!frame.operations.length)
-      throw new IntentError("invalid", "Frame carries no operations");
+      throw new MergeRefusal("invalid", "Frame carries no operations");
     for (const op of frame.operations)
       if (
         op &&
@@ -62,7 +47,7 @@ function checkIntentRequest(raw: unknown): IntentRequest {
           "addEntry",
         ].includes(String(op.kind))
       )
-        throw new IntentError("unsupported", "Unknown operation kind");
+        throw new MergeRefusal("unsupported", "Unknown operation kind");
     decodeAuthoredCandidateIntent({
       change: incoming.change,
       candidate: frame.after,
@@ -71,20 +56,12 @@ function checkIntentRequest(raw: unknown): IntentRequest {
     });
     // An operation key names one authored contribution of this change, so it
     // stays unique across the whole trace, not merely within a frame.
-    for (const op of frame.operations as Array<{ key: string }>) {
+    for (const op of frame.operations) {
       if (keys.has(op.key))
-        throw new IntentError("invalid", "Operation identity reused");
+        throw new MergeRefusal("invalid", "Operation identity reused");
       keys.add(op.key);
     }
   }
-  for (const alternative of value.alternatives ?? []) {
-    const ref = decodeMaterialRef(alternative.ref);
-    if (ref.material.kind !== "alternative" || ref.within || ref.range)
-      throw new Error(
-        "Alternative bindings require a complete alternative reference"
-      );
-  }
-  return value as IntentRequest;
 }
 /** The request's semantic identity, hashed into `changes[change]`. The frame
  * chain is the authored claim, so it is what the signature covers: the same

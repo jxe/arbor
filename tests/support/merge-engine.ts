@@ -33,6 +33,5 @@ export async function evaluateIntent(
       }
     },
   });
-  if (response.outcome !== "evaluated") throw new Error(`${response.outcome}: ${response.message}`);
   return { response, objects };
 }

@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { holdsObject, ObjectStore } from "@overstory/object-store";
 import { MergeRefusal } from "@overstory/merge-protocol";
 import { EvaluationFailure } from "./engine-contract.ts";
-import { IntentError } from "./intent-model.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
 import { savedStatesIn } from "./saved-states.ts";
 import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
@@ -71,7 +70,7 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
       // to answer it. A time budget (`limit`) or an unfinished rebuild
       // (`unavailable`) is such a failure, reported with its code so canopyd
       // offers a retry.
-      response = error instanceof MergeRefusal || error instanceof IntentError
+      response = error instanceof MergeRefusal
         ? { refusal: { code: error.code, message: error.message } }
         : { error: {
             message: error instanceof Error ? error.message : "Merge evaluation failed",

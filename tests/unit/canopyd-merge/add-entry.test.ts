@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
 import { engineDiagnostics } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { Fixture } from "./fixture.ts";
+import { Fixture, refusal } from "./fixture.ts";
 
 const add = (f: Fixture, root: string, name: string, value: { file: string } | { directory: string }, key = "add"): SourceOperation =>
   ({ key, kind: "addEntry", destination: { parent: f.root(root), name }, value });
@@ -41,8 +41,8 @@ test("addEntry imports a directory value with its children", async () => {
 
 test("addEntry refuses a name that already exists", async () => {
   const f = new Fixture(), base = f.tree({ "a.md": "A" });
-  const response = await f.evaluate(f.request(base, f.tree({ "a.md": "B" }), [add(f, base, "a.md", { file: f.put("B") })], "clash"));
-  expect(response.outcome).not.toBe("evaluated");
+  const response = f.run(f.request(base, f.tree({ "a.md": "B" }), [add(f, base, "a.md", { file: f.put("B") })], "clash"));
+  expect(await refusal(response)).toBeString();
 });
 
 test("concurrent additions of one name leave an explicit choice", async () => {

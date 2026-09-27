@@ -44,7 +44,7 @@ export interface LogDecision {
   selected: number;
   alternatives: Array<{ object: ObjectHash; contributions: Contribution[] }>;
 }
-export const logDecisionSchema = z
+const logDecisionSchema = z
   .object({
     key: token,
     path: z.array(name).min(1).optional(),
@@ -197,7 +197,7 @@ export interface MergeQuestion {
   candidate: Candidate;
   rules: MergeRules;
 }
-export const mergeQuestionSchema = z
+const mergeQuestionSchema = z
   .object({
     base: hash,
     head: hash,
@@ -235,15 +235,16 @@ const answerSchema = z
 
 // ---- Refusals and failures -------------------------------------------------
 
+const REFUSAL_CODES = ["invalid", "missing-context", "unsupported", "limit"] as const;
 /** A typed inability to answer: neither a conflict resolution nor an
- * accepted receipt. canopyd decides admission and fallback. */
+ * accepted receipt. canopyd decides admission and fallback. The reference
+ * sidecar's engine throws it too, and the sidecar answers it as it is. */
 export class MergeRefusal extends Error {
-  constructor(readonly code: "invalid" | "missing-context" | "unsupported" | "limit", message: string) {
+  constructor(readonly code: (typeof REFUSAL_CODES)[number], message: string) {
     super(message);
     this.name = "MergeRefusal";
   }
 }
-export const REFUSAL_CODES = ["invalid", "missing-context", "unsupported", "limit"] as const;
 
 /** Check an answer's shape. Throws `MergeRefusal` for a refusal line. It does
  * not look inside the sidecar's reasoning. */

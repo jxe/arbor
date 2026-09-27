@@ -8,19 +8,17 @@ import {
   type SourceOperation,
   type ProtocolDirectory,
 } from "@overstory/protocol";
-import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse, type MergeObjects } from "./engine-contract.ts";
+import { EvaluationFailure, type CheckpointRequest, type IntentEvaluation, type MergeObjects } from "./engine-contract.ts";
 import { MergeRefusal, OBJECT_HASH } from "@overstory/merge-protocol";
 import {
-  IntentError,
   alternativeKey,
   changeIdentity,
+  checkTrace,
   keyOf,
-  parseIntentRequest,
   traceOperations,
   type Effect,
   type IntentRequest,
   type IntentDecision,
-  type IntentResponse,
   type IntentState,
   type Material,
   type Node,
@@ -71,10 +69,10 @@ const folderDecision = (decision: IntentDecision): boolean =>
   decision.kind === "directory" && decision.subject?.material.kind === "basis" &&
   decision.subject.material.path !== "/";
 const fail = (message: string): never => {
-  throw new IntentError("invalid", message);
+  throw new MergeRefusal("invalid", message);
 };
 const missing = (message: string): never => {
-  throw new IntentError("missing-context", message);
+  throw new MergeRefusal("missing-context", message);
 };
 /** The guard of every "try this, else fall back" in the engine. Material that
  * no longer corresponds (an `invalid` or `unsupported` refusal, or the
@@ -84,7 +82,7 @@ const missing = (message: string): never => {
 const rethrowUnlessFallback = (error: unknown): void => {
   if (
     error instanceof EvaluationFailure ||
-    (error instanceof IntentError && (error.code === "limit" || error.code === "missing-context"))
+    (error instanceof MergeRefusal && (error.code === "limit" || error.code === "missing-context"))
   )
     throw error;
 };
@@ -110,7 +108,7 @@ const gapAt = (base: Piece[], current: Piece[], offset: number): { pieces: Piece
 /** Whether a store's read failure means the object is absent: the sidecar's
  * reader refuses with `missing-context`, a plain object store reports ENOENT. */
 const absent = (error: unknown): boolean =>
-  ((error instanceof MergeRefusal || error instanceof IntentError) && error.code === "missing-context") ||
+  (error instanceof MergeRefusal && error.code === "missing-context") ||
   (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 /** A directory object's contents. Bytes that are not one are invalid
  * material (a candidate can name any object), not an evaluator failure. */
@@ -191,7 +189,7 @@ class Engine {
       bytes = await this.store.read(hash);
     } catch (error) {
       if (absent(error)) return missing(`Missing object ${hash}`);
-      if (error instanceof IntentError || error instanceof EvaluationFailure) throw error;
+      if (error instanceof MergeRefusal || error instanceof EvaluationFailure) throw error;
       throw new EvaluationFailure(
         `Object store failed reading ${hash}: ${error instanceof Error ? error.message : String(error)}`,
         undefined, { cause: error });
@@ -200,7 +198,7 @@ class Engine {
     if (
       this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
     )
-      throw new IntentError("limit", "Evaluation object byte budget exceeded");
+      throw new MergeRefusal("limit", "Evaluation object byte budget exceeded");
     this.cache.set(hash, bytes);
     return bytes;
   }
@@ -213,7 +211,7 @@ class Engine {
         this.writtenBytes >
         (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
       )
-        throw new IntentError("limit", "Generated object byte budget exceeded");
+        throw new MergeRefusal("limit", "Generated object byte budget exceeded");
     }
     this.generated.set(hash, bytes);
     return hash;
@@ -263,9 +261,9 @@ class Engine {
     count = { nodes: Object.keys(view.nodes).length }
   ): Promise<string> {
     if (id.length > 16_384)
-      throw new IntentError("limit", "Material nesting budget exceeded");
+      throw new MergeRefusal("limit", "Material nesting budget exceeded");
     if (count.nodes >= (this.request.rules.config?.maxNodes ?? 20_000))
-      throw new IntentError("limit", "Evaluation node budget exceeded");
+      throw new MergeRefusal("limit", "Evaluation node budget exceeded");
     if (view.nodes[id]) return fail("Duplicate material identity");
     const node: Node = { id, parent, name, kind, object, active: true };
     view.nodes[id] = node;
@@ -336,7 +334,7 @@ class Engine {
     if (state.tree !== this.request.tree) return fail("Material state belongs to another tree");
     const nodes = Object.entries(state.nodes);
     if (nodes.length > (this.request.rules.config?.maxNodes ?? 20_000))
-      throw new IntentError("limit", "Evaluation node budget exceeded");
+      throw new MergeRefusal("limit", "Evaluation node budget exceeded");
     for (const [id, node] of nodes) {
       if (
         id !== node.id ||
@@ -432,7 +430,7 @@ class Engine {
     if (!node?.active) return fail("Projection root is absent");
     if (visiting.has(root)) return fail("Directory cycle");
     if (visiting.size > 256)
-      throw new IntentError("limit", "Directory depth budget exceeded");
+      throw new MergeRefusal("limit", "Directory depth budget exceeded");
     visiting.add(root);
     try {
       if (node.kind === "file") {
@@ -567,7 +565,7 @@ class Engine {
     range: [number, number]
   ): [number, number] {
     if (current.length * observed.length > 2_000_000)
-      throw new IntentError("limit", "Source lookup work budget exceeded");
+      throw new MergeRefusal("limit", "Source lookup work budget exceeded");
     const selected = slice(observed, ...range);
     if (!observed.length && current.length)
       return fail("Empty source anchor has concurrent content");
@@ -632,7 +630,7 @@ class Engine {
     selected: Piece[]
   ): Promise<[number, number]> {
     if (current.length * selected.length > 2_000_000)
-      throw new IntentError("limit", "Source transport work budget exceeded");
+      throw new MergeRefusal("limit", "Source transport work budget exceeded");
     const contained = (p: Piece) =>
       selected.some(
         (q) =>
@@ -821,7 +819,7 @@ class Engine {
       decision.alternatives = decision.alternatives.map(
         (alternative, index) => {
           if (!alternative.node)
-            throw new IntentError(
+            throw new MergeRefusal(
               "missing-context",
               "Copied choice material is unavailable"
             );
@@ -1314,7 +1312,7 @@ class Engine {
               (selected.node ? authored.nodes[selected.node] : undefined) ??
               (prior.node ? context.nodes[prior.node] : undefined);
             if (!material?.pieces)
-              throw new IntentError(
+              throw new MergeRefusal(
                 "missing-context",
                 "Hidden selected source material is unavailable"
               );
@@ -1340,7 +1338,7 @@ class Engine {
               )
                 alternative.node = retained.alternatives[index]!.node;
               else
-                throw new IntentError(
+                throw new MergeRefusal(
                   "missing-context",
                   "Hidden alternative material is unavailable"
                 );
@@ -1361,7 +1359,7 @@ class Engine {
             if ((await this.project(context)) !== selected.object) {
               const value = await this.contextView(selected.state);
               if ((await this.project(value)) !== selected.object)
-                throw new IntentError(
+                throw new MergeRefusal(
                   "missing-context",
                   "Selected structural branch is unavailable"
                 );
@@ -1382,7 +1380,7 @@ class Engine {
               )
                 delete alternative.node;
           } else
-            throw new IntentError(
+            throw new MergeRefusal(
               "missing-context",
               "Decision correspondence is unavailable"
             );
@@ -1422,7 +1420,7 @@ class Engine {
           ) {
             const fragment = authored.nodes[branch.node];
             if (!fragment?.pieces)
-              throw new IntentError(
+              throw new MergeRefusal(
                 "missing-context",
                 "Containing fragment is unavailable"
               );
@@ -1585,7 +1583,7 @@ class Engine {
         result.push({ change, operation: null });
     return result;
   }
-  async run(incremental = true): Promise<IntentResponse> {
+  async run(incremental = true): Promise<IntentEvaluation> {
     const startedFast = performance.now();
     const fastForward = incremental ? await this.editFastForward() : undefined;
     engineDiagnostics["fast-forward-ms"] = performance.now() - startedFast;
@@ -1633,7 +1631,7 @@ class Engine {
         const retained = context.decisions.find((d) => d.key === decision.key)
           ?.alternatives[binding.alternative];
         if (!retained?.node)
-          throw new IntentError(
+          throw new MergeRefusal(
             "missing-context",
             "Context alternative material is unavailable"
           );
@@ -2835,7 +2833,7 @@ class Engine {
    * historical material (an added entry brings only fresh objects). Apply them
    * to the current nodes, enforce only their own deletions, and add their
    * records to the retained history, which is shared rather than copied. */
-  private async editFastForward(): Promise<IntentResponse | undefined> {
+  private async editFastForward(): Promise<IntentEvaluation | undefined> {
     const request = this.request;
     // Decline reasons are diagnostics only (see engineDiagnostics.decline):
     // 1 divergent or stateless basis, 2 alternatives/resolutions, 3 no operations,
@@ -2904,12 +2902,10 @@ class Engine {
   response(
     result: { object: string; state: string },
     state: IntentState
-  ): IntentResponse {
+  ): IntentEvaluation {
     return {
-      outcome: "evaluated",
       result,
       authored: this.authoredResult ?? result,
-      objects: [...this.generated.keys()],
       decisions: state.decisions,
       evidence: {
         rule: { id: "tree-default", revision: 1 },
@@ -2932,27 +2928,23 @@ class Engine {
  * request content. */
 export const engineDiagnostics: Record<string, number> = {};
 
+/** Evaluate an authored request (see `IntentRequest`: its shape is trusted,
+ * its trace is checked). A typed inability to evaluate throws `MergeRefusal`;
+ * a failure to evaluate throws `EvaluationFailure`. */
 export async function mergeIntent(
-  raw: IntentRequest,
+  request: IntentRequest,
   objects: MergeObjects,
   options: {incremental?: boolean; eager?: boolean} = {}
-): Promise<IntentResponse> {
-  try {
-    const engine = new Engine(parseIntentRequest(raw), objects);
-    // Eager evaluation re-projects every state and re-enforces all history.
-    // It is the reference the differential suite compares the incremental
-    // path against.
-    engine.eager = options.eager ?? false;
-    const result = await engine.run(options.incremental);
-    await keep(engine, objects);
-    return result;
-  } catch (error) {
-    // A typed refusal is an outcome; anything else, including a failure to
-    // evaluate, is the caller's to report.
-    if (error instanceof IntentError)
-      return { outcome: error.code, message: error.message };
-    throw error;
-  }
+): Promise<IntentEvaluation> {
+  checkTrace(request);
+  const engine = new Engine(request, objects);
+  // Eager evaluation re-projects every state and re-enforces all history.
+  // It is the reference the differential suite compares the incremental
+  // path against.
+  engine.eager = options.eager ?? false;
+  const result = await engine.run(options.incremental);
+  await keep(engine, objects);
+  return result;
 }
 
 /** Keep what a completed evaluation generated: its objects and its states. */
@@ -2967,10 +2959,9 @@ async function keep(engine: Engine, objects: MergeObjects): Promise<void> {
 export async function checkpointIntent(
   request: CheckpointRequest,
   objects: MergeObjects
-): Promise<CheckpointResponse> {
+): Promise<{ object: string; state: string }> {
   const engine = new Engine(
     {
-      kind: "tree",
       tree: request.tree,
       base: request.current,
       current: request.current,
@@ -3454,5 +3445,5 @@ export async function checkpointIntent(
   // the complete scan an imported or transported state needs.
   const result = await engine.record(state, editable);
   await keep(engine, objects);
-  return { kind: "checkpoint", result, objects: [...engine.generated.keys()] };
+  return result;
 }

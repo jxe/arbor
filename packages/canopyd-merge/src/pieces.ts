@@ -1,4 +1,4 @@
-import { IntentError } from "./intent-model.ts";
+import { MergeRefusal } from "@overstory/merge-protocol";
 import type { Piece } from "./intent-model.ts";
 export const pieceLength = (pieces: Piece[]) =>
   pieces.reduce((n, p) => n + p.length, 0);
@@ -87,7 +87,7 @@ export interface PieceEdit {
 /** Exact shared-origin correspondence. Reorders remain a bounded atomic transformation. */
 export function pieceEdits(base: Piece[], changed: Piece[]): PieceEdit[] {
   if (base.length * changed.length > 2_000_000)
-    throw new IntentError(
+    throw new MergeRefusal(
       "limit",
       "Source correspondence work budget exceeded",
     );

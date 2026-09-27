@@ -4,10 +4,8 @@ import {
   checkpointIntent,
   mergeIntent,
 } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import type {
-  IntentRequest,
-  IntentResponse,
-} from "../../../packages/canopyd-merge/src/intent-model.ts";
+import type { IntentEvaluation } from "../../../packages/canopyd-merge/src/engine-contract.ts";
+import type { IntentRequest } from "../../../packages/canopyd-merge/src/intent-model.ts";
 import { Fixture } from "./fixture.ts";
 
 type State = { object: string; state: string };
@@ -27,19 +25,14 @@ async function differential(f: Fixture, request: IntentRequest) {
   const eager = await mergeIntent(request, objects, { incremental: false, eager: true });
   const full = await mergeIntent(request, objects, { incremental: false });
   const fast = await mergeIntent(request, objects);
-  const shape = (r: IntentResponse) =>
-    r.outcome === "evaluated"
-      ? {
-          outcome: r.outcome,
-          result: r.result,
-          authored: r.authored,
-          decisions: r.decisions,
-          operations: r.evidence.operations,
-        }
-      : r;
+  const shape = (r: IntentEvaluation) => ({
+    result: r.result,
+    authored: r.authored,
+    decisions: r.decisions,
+    operations: r.evidence.operations,
+  });
   expect(shape(full)).toEqual(shape(eager));
   expect(shape(fast)).toEqual(shape(eager));
-  if (eager.outcome !== "evaluated") throw Error(JSON.stringify(eager));
   return eager;
 }
 
@@ -71,11 +64,10 @@ async function history(f: Fixture, count = 60): Promise<Step[]> {
         },
       };
       const checkpoint = await checkpointIntent(
-        { kind: "checkpoint", tree: "tree", current, projection: f.tree({ "a.md": text }), change: `snapshot-${i}`, decisions: [] },
+        { tree: "tree", current, projection: f.tree({ "a.md": text }), change: `snapshot-${i}`, decisions: [] },
         objects,
       );
-      if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
-      current = checkpoint.result;
+      current = checkpoint;
     }
     let op: SourceOperation, next: string;
     if (i % 10 === 3) ({ op, next } = edit(f, text, [2, 5], ""));
@@ -215,7 +207,7 @@ test("a checkpoint reads the roots and the files it rebinds, not history", async
     const head = preparedSteps.slice(0, count).at(-1)!;
     let bytes = 0;
     const checkpoint = await checkpointIntent(
-      { kind: "checkpoint", tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: `page-${count}`, decisions: [] },
+      { tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: `page-${count}`, decisions: [] },
       {
         read: async (hash) => {
           const value = f.objects.get(hash)!;
@@ -226,9 +218,8 @@ test("a checkpoint reads the roots and the files it rebinds, not history", async
         store: async () => {},
       },
     );
-    if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
     reads.push(bytes);
-    results.push(checkpoint.result.object);
+    results.push(checkpoint.object);
   }
   // What grows is the file itself, read once to rebind it.
   expect(reads[1]!).toBeLessThan(60_000);
@@ -248,13 +239,12 @@ test("a checkpoint of an editable state is editable, so the next edit fast-forwa
   };
   expect(f.states.get(head.result.state)!.editable).toBe(true);
   const checkpoint = await checkpointIntent(
-    { kind: "checkpoint", tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: "page", decisions: [] },
+    { tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: "page", decisions: [] },
     objects,
   );
-  if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
-  expect(f.states.get(checkpoint.result.state)!.editable).toBe(true);
+  expect(f.states.get(checkpoint.state)!.editable).toBe(true);
   const { op, next } = edit(f, head.text, [0, 0], "AFTER ");
-  const evaluated = await differential(f, f.request(checkpoint.result, f.tree({ "a.md": next, "b.md": "new page\n" }), [op], "after-page"));
+  const evaluated = await differential(f, f.request(checkpoint, f.tree({ "a.md": next, "b.md": "new page\n" }), [op], "after-page"));
   expect(f.content(evaluated.result.object, "a.md")).toBe(next);
 });
 

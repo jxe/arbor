@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { engineDiagnostics, mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { retainState } from "../../../packages/canopyd-merge/src/retained-state.ts";
-import { Fixture } from "./fixture.ts";
+import { Fixture, refusal } from "./fixture.ts";
 import { keyOf } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
 test("exact-basis execution preserves complete state and does not read unrelated history", async () => {
@@ -56,13 +56,9 @@ test("exact-basis execution preserves complete state and does not read unrelated
       },
     };
     const fast = await mergeIntent(request, objects);
-    expect(fast.outcome).toBe("evaluated");
     readCounts.push(reads);
     expect(readBytes).toBeLessThan(50_000);
     const full = await mergeIntent(request, objects, { incremental: false });
-    expect(full.outcome).toBe("evaluated");
-    if (fast.outcome !== "evaluated" || full.outcome !== "evaluated")
-      throw Error("Evaluation failed");
     expect(fast.result).toEqual(full.result);
     expect(fast.authored).toEqual(full.authored);
     const retained = f.state(fast.result);
@@ -106,19 +102,16 @@ test("incremental replacements and deletions match full execution across snapsho
   for (let i = 0; i < 24; i++) {
     if (i % 6 === 0) {
       text = "snapshot " + text;
-      current = (
-        await checkpointIntent(
-          {
-            kind: "checkpoint",
-            tree: "tree",
-            current,
-            projection: f.tree({ "a.md": text }),
-            change: `snapshot-${i}`,
-            decisions: [],
-          },
-          objects,
-        )
-      ).result;
+      current = await checkpointIntent(
+        {
+          tree: "tree",
+          current,
+          projection: f.tree({ "a.md": text }),
+          change: `snapshot-${i}`,
+          decisions: [],
+        },
+        objects,
+      );
     }
     const range: [number, number] = i % 3 === 0 ? [0, 0] : [0, 1];
     const inserted = i % 3 === 1 ? "" : "XY";
@@ -138,10 +131,6 @@ test("incremental replacements and deletions match full execution across snapsho
     );
     const fast = await mergeIntent(request, objects);
     const full = await mergeIntent(request, objects, { incremental: false });
-    expect(fast.outcome).toBe("evaluated");
-    expect(full.outcome).toBe("evaluated");
-    if (fast.outcome !== "evaluated" || full.outcome !== "evaluated")
-      throw Error("Evaluation failed");
     expect(fast.result).toEqual(full.result);
     current = fast.result;
     text = next;
@@ -167,8 +156,8 @@ test("a stored state whose pieces do not project its files is refused", async ()
     states: f.states,
     store: async () => {},
   }, { eager: true });
-  expect((await next(initial.result)).outcome).toBe("evaluated");
-  expect((await next(malformed)).outcome).toBe("invalid");
+  await next(initial.result);
+  expect(await refusal(next(malformed))).toBe("invalid");
 });
 
 test("worker-local projection reuse and targeted effects match full evaluation for multiple edits", async () => {
@@ -230,10 +219,6 @@ test("worker-local projection reuse and targeted effects match full evaluation f
   };
   const fast = await mergeIntent(request, objects),
     full = await mergeIntent(request, objects, { incremental: false });
-  expect(fast.outcome).toBe("evaluated");
-  expect(full.outcome).toBe("evaluated");
-  if (fast.outcome !== "evaluated" || full.outcome !== "evaluated")
-    throw Error("Evaluation failed");
   expect(fast.result).toEqual(full.result);
   expect(fast.authored).toEqual(full.authored);
   const state = f.state(fast.result);
@@ -258,7 +243,6 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
     states: f.states,
     store: async values => { for (const value of values) f.objects.set(value.hash, value.bytes); },
   }, {incremental: false});
-  expect(full.outcome).toBe("evaluated");
   const untouched = f.put(unrelated);
   const reads: string[] = [];
   const objects = {
@@ -275,9 +259,7 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
     },
   };
   const fast = await mergeIntent(request, objects);
-  expect(fast.outcome).toBe("evaluated");
   expect(reads).not.toContain(untouched);
-  if (fast.outcome !== "evaluated" || full.outcome !== "evaluated") throw Error("Evaluation failed");
   expect(fast.result).toEqual(full.result);
   expect(fast.authored).toEqual(full.authored);
   // The fast path still reads the edited file. A store verifies what it
@@ -287,10 +269,10 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
     return objects.read(hash);
   }};
   await expect(mergeIntent(request, damaged)).rejects.toThrow("hash mismatch");
-  expect((await mergeIntent({...request, incoming: {...request.incoming, object: base}}, objects)).outcome).toBe("invalid");
-  expect((await mergeIntent({...request, incoming: {...request.incoming, trace: [{...request.incoming.trace[0]!, operations: [
+  expect(await refusal(mergeIntent({...request, incoming: {...request.incoming, object: base}}, objects))).toBe("invalid");
+  expect(await refusal(mergeIntent({...request, incoming: {...request.incoming, trace: [{...request.incoming.trace[0]!, operations: [
     {kind: "editSource", key: "bad", source: f.ref("/a.md", "wrong", [1, 2]), text: "B"},
-  ]}]}}, objects)).outcome).toBe("invalid");
+  ]}]}}, objects))).toBe("invalid");
 });
 
 test("a multi-frame trace of exact-basis edits takes the fast path", async () => {
@@ -341,7 +323,6 @@ test("a multi-frame trace of exact-basis edits takes the fast path", async () =>
       for (const value of values) f.objects.set(value.hash, value.bytes);
     },
   }, { incremental: false });
-  if (full.outcome !== "evaluated") throw new Error(JSON.stringify(full));
   expect(engineDiagnostics.path).toBe(0);
   expect(fast.result).toEqual(full.result);
   expect(fast.authored).toEqual(full.authored);
@@ -380,5 +361,5 @@ test("a multi-frame trace whose frame result is wrong is rejected on the fast pa
     ],
     "second",
   );
-  expect((await f.evaluate(wrong)).outcome).toBe("invalid");
+  expect(await refusal(f.run(wrong))).toBe("invalid");
 });

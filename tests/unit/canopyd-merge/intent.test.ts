@@ -1,9 +1,9 @@
 import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
-import { Fixture } from "./fixture.ts";
+import { Fixture, refusal } from "./fixture.ts";
 import { stableJSONString } from "@overstory/protocol";
-import { changeIdentity, parseIntentRequest } from "../../../packages/canopyd-merge/src/intent-model.ts";
+import { changeIdentity } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
 test("exact source edits retain CRLF, Unicode and operation-result coordinates", async () => {
   const f = new Fixture(),
@@ -137,34 +137,30 @@ test("invalid boundaries, false lineage, wrong candidate and undo are distinct",
     text: "x",
   };
   expect(
-    (
-      await f.evaluate(
-        f.request(base, base, [
-          { ...edit, source: f.ref("/a", "αbeta", [0, 1]) },
-        ]),
-      )
-    ).outcome,
+    await refusal(
+      f.run(f.request(base, base, [{ ...edit, source: f.ref("/a", "αbeta", [0, 1]) }])),
+    ),
   ).toBe("invalid");
-  expect((await f.evaluate(f.request(base, base, [edit]))).outcome).toBe(
+  expect(await refusal(f.run(f.request(base, base, [edit])))).toBe(
     "invalid",
   );
   expect(
-    (
-      await f.evaluate(
+    await refusal(
+      f.run(
         f.request(base, base, [
           {
             ...edit,
             lineage: [{ source: f.ref("/a", "αbeta", [2, 3]), range: [0, 1] }],
           },
         ]),
-      )
-    ).outcome,
+      ),
+    ),
   ).toBe("invalid");
   // Undo left the grammar with frames; an operation kind the grammar does not
   // name is refused outright rather than reported as missing causal context.
   expect(
-    (
-      await f.evaluate(
+    await refusal(
+      f.run(
         f.request(base, base, [
           {
             key: "op",
@@ -172,8 +168,8 @@ test("invalid boundaries, false lineage, wrong candidate and undo are distinct",
             target: { change: "missing", operation: "op" },
           } as unknown as SourceOperation,
         ]),
-      )
-    ).outcome,
+      ),
+    ),
   ).toBe("unsupported");
 });
 
@@ -839,12 +835,12 @@ test("malformed intent, unavailable objects, unsupported operations and resource
   ]);
   const bad = structuredClone(request);
   (bad.incoming.trace[0]!.operations[0] as { kind: string }).kind = "unknown";
-  expect((await f.evaluate(bad)).outcome).toBe("unsupported");
+  expect(await refusal(f.run(bad))).toBe("unsupported");
   const limited = structuredClone(request);
   limited.rules.config = { maxBytes: 1 };
-  expect((await f.evaluate(limited)).outcome).toBe("limit");
+  expect(await refusal(f.run(limited))).toBe("limit");
   f.objects.delete(base);
-  expect((await f.evaluate(request)).outcome).toBe("missing-context");
+  expect(await refusal(f.run(request))).toBe("missing-context");
 });
 
 test("nested TreeIDs stay opaque through directory copies and retained state reload", async () => {
@@ -915,7 +911,7 @@ test("nested TreeIDs stay opaque through directory copies and retained state rel
     ],
     "invalid",
   );
-  expect((await f.evaluate(invalid)).outcome).toBe("invalid");
+  expect(await refusal(f.run(invalid))).toBe("invalid");
 });
 test("a moved source choice remains inspectable and editable after state reload", async () => {
   const f = new Fixture(),
@@ -1267,7 +1263,7 @@ test("keeping an enclosing alternative retains its child choice; discarding requ
     child = removed.decisions[0]!;
   const bad = f.request(removed.result, removed.result.object, [], "discard");
   bad.incoming.resolves = [parent.key];
-  expect((await f.evaluate(bad)).outcome).toBe("invalid");
+  expect(await refusal(f.run(bad))).toBe("invalid");
   const ref: MaterialRef = {
     material: {
       kind: "alternative",
@@ -1856,8 +1852,7 @@ test("a frame that does not reproduce its result is invalid", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.md": "abc", "b.md": "xyz" });
   const candidate = f.tree({ "a.md": "abc", "b.md": "Xyz" });
-  const response = await f.evaluate({
-    kind: "tree",
+  const response = f.run({
     tree: "tree",
     base: { object: base },
     current: { object: base },
@@ -1894,8 +1889,8 @@ test("a frame that does not reproduce its result is invalid", async () => {
     },
     rules: { id: "tree-default", revision: 1 },
   });
-  expect(response.outcome).toBe("invalid");
-  expect((response as { message: string }).message).toContain("Frame does not reproduce its result");
+  expect(await refusal(response)).toBe("invalid");
+  await expect(response).rejects.toThrow("Frame does not reproduce its result");
 });
 
 test("a trace that leaves its basis or its candidate is rejected", async () => {
@@ -1908,17 +1903,17 @@ test("a trace that leaves its basis or its candidate is rejected", async () => {
   const request = f.trace(base, [{ after: candidate, operations }]);
   const detached = structuredClone(request);
   detached.incoming.trace![0]!.before = candidate;
-  expect((await f.evaluate(detached)).outcome).toBe("invalid");
+  expect(await refusal(f.run(detached))).toBe("invalid");
   const short = structuredClone(request);
   short.incoming.object = base;
-  expect((await f.evaluate(short)).outcome).toBe("invalid");
+  expect(await refusal(f.run(short))).toBe("invalid");
   const reused = structuredClone(request);
   reused.incoming.trace = [
     reused.incoming.trace![0]!,
     { before: candidate, after: candidate, operations },
   ];
   reused.incoming.object = candidate;
-  expect((await f.evaluate(reused)).outcome).toBe("invalid");
+  expect(await refusal(f.run(reused))).toBe("invalid");
 });
 
 test("a later frame refers to an earlier frame's operation result", async () => {
@@ -1962,20 +1957,17 @@ test("a change's identity is its frame chain", async () => {
     candidate = f.tree({ "a.md": "Abc" });
   const edit = { key: "a", kind: "editSource" as const, source: f.ref("/a.md", "abc", [0, 1]), text: "A" };
   // A one-step request is the single frame it states, so the two hash alike.
-  const flat = stableJSONString(changeIdentity(parseIntentRequest(f.request(base, candidate, [edit]))));
+  const flat = stableJSONString(changeIdentity(f.request(base, candidate, [edit])));
   const framed = f.trace(base, [{ after: candidate, operations: [edit] }]);
-  expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(flat);
+  expect(stableJSONString(changeIdentity(framed))).toBe(flat);
   expect(flat).toContain('"trace"');
-  // A flat operation list is not a request shape the engine accepts.
-  const { trace: _trace, ...rest } = f.request(base, candidate, [edit]).incoming;
-  expect(() => parseIntentRequest({ ...f.request(base, candidate, [edit]), incoming: { ...rest, operations: [edit] } })).toThrow();
   // The same operations divided into two frames are a different claim, so two
   // changes can never share an identity by regrouping their steps.
   const two = f.trace(base, [
     { after: candidate, operations: [edit] },
     { after: f.tree({ "a.md": "ABc" }), operations: [{ key: "b", kind: "editSource", source: f.ref("/a.md", "Abc", [1, 2]), text: "B" }] },
   ]);
-  expect(stableJSONString(changeIdentity(parseIntentRequest(two)))).not.toBe(flat);
+  expect(stableJSONString(changeIdentity(two))).not.toBe(flat);
 });
 
 test("a scoped hidden branch advances without widening or another decision", async () => {
@@ -2060,7 +2052,6 @@ test("nested enclosures retain readable alternatives as a source branch advances
       states: f.states,
       store: async (values) => { for (const v of values) f.objects.set(v.hash, v.bytes); },
     }, { eager: true });
-    if (response.outcome !== "evaluated") throw new Error(JSON.stringify(response));
     return response;
   };
   // Both enclosing decisions can alias the same root. Updating the nested

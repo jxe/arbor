@@ -10,9 +10,9 @@ import {
   type MergeQuestion,
   type MergeRules,
 } from "@overstory/merge-protocol";
-import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type IntentRequest, type MergeObjects } from "./engine-contract.ts";
+import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type MergeObjects, type TreeDefaultRules } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
-import { IntentError, type Node } from "./intent-model.ts";
+import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeProtocolTrees } from "@overstory/tree-merge";
 import { decodeRetainedState, encodeRetainedState, lookup, type RetainedState } from "./retained-state.ts";
@@ -196,7 +196,7 @@ export class Sidecar {
 
   /** Evaluate a question against the retained states of its entries: a traced
    * candidate by the engine, a snapshot by a tree merge and a checkpoint. */
-  private async solve(question: MergeQuestion, rules: IntentRequest["rules"]) {
+  private async solve(question: MergeQuestion, rules: TreeDefaultRules) {
     const head = await this.entry(question.head);
     const base = await this.entry(question.base);
     if (head.tree !== base.tree) throw new MergeRefusal("invalid", "Question entries belong to different trees");
@@ -206,11 +206,10 @@ export class Sidecar {
     const candidate = question.candidate;
     if (candidate.trace === null) return this.snapshot(question, head, basis.object, current);
     const evaluated = await this.evaluate(head.tree, basis, current, candidate, rules);
-    if (evaluated.outcome !== "evaluated") throw new MergeRefusal(evaluated.outcome, evaluated.message);
     return { result: evaluated.result, evidence: evaluated.evidence as unknown };
   }
 
-  private rules({ rules }: { rules: MergeRules }): IntentRequest["rules"] {
+  private rules({ rules }: { rules: MergeRules }): TreeDefaultRules {
     if (rules.id !== "tree-default" || rules.revision !== 1)
       throw new MergeRefusal("unsupported", `Unknown rules: ${rules.id} revision ${rules.revision}`);
     const parsed = treeDefaultConfig.safeParse(rules.config ?? {});
@@ -220,7 +219,7 @@ export class Sidecar {
 
   /** The retained state of an entry, replaying from the nearest cached entry
    * or the chain's start. */
-  private async stateOf(hash: string, rules: IntentRequest["rules"]): Promise<Cached> {
+  private async stateOf(hash: string, rules: TreeDefaultRules): Promise<Cached> {
     const chain: string[] = [];
     let at: string | null = hash;
     while (at && !this.states.has(at) && !(await this.restore(at))) {
@@ -250,11 +249,11 @@ export class Sidecar {
    * entry as the head, as the entry records it; then align to the recorded
    * root and decisions, which a replay under other rules or a canopyd
    * decision the sidecar did not make can differ from. */
-  private async replay(hash: string, previous: Cached | null, rules: IntentRequest["rules"]): Promise<Cached> {
+  private async replay(hash: string, previous: Cached | null, rules: TreeDefaultRules): Promise<Cached> {
     const entry = await this.entry(hash);
     if (!previous) {
       const imported = await this.checkpoint({
-        kind: "checkpoint", tree: entry.tree, current: { object: entry.root }, projection: entry.root,
+        tree: entry.tree, current: { object: entry.root }, projection: entry.root,
         change: entry.change, decisions: entry.decisions, align: true,
       });
       return this.align(entry, imported);
@@ -285,7 +284,7 @@ export class Sidecar {
       // evaluate is not: a time budget or a store failure could pass on a
       // retry, and aligning past it would make the cached state depend on
       // load. Those, and anything unexpected, fail this question instead.
-      if (!(error instanceof MergeRefusal || error instanceof IntentError)) throw error;
+      if (!(error instanceof MergeRefusal)) throw error;
     }
     return this.align(entry, state);
   }
@@ -386,7 +385,7 @@ export class Sidecar {
     let state = from;
     if (state.object !== entry.root)
       state = await this.checkpoint({
-        kind: "checkpoint", tree: entry.tree, current: state, projection: entry.root, change: entry.change,
+        tree: entry.tree, current: state, projection: entry.root, change: entry.change,
         continueSelected: entry.asked?.base === undefined, decisions: [], align: true,
       });
     const wanted = new Map(entry.decisions.map((d) => [d.key, d]));
@@ -399,7 +398,7 @@ export class Sidecar {
     }
     if (kept.size === state.decisions.length && kept.size === wanted.size) return state;
     return this.checkpoint({
-      kind: "checkpoint", tree: entry.tree, current: state, projection: entry.root, change: entry.change,
+      tree: entry.tree, current: state, projection: entry.root, change: entry.change,
       resolves: state.decisions.filter((d) => !kept.has(d.key)).map((d) => d.key),
       decisions: entry.decisions.filter((d) => !kept.has(d.key)),
       align: true,
@@ -416,8 +415,7 @@ export class Sidecar {
   }
 
   private async checkpoint(request: CheckpointRequest): Promise<Cached> {
-    const response = await checkpointIntent(request, this.objects);
-    return this.cached(response.result);
+    return this.cached(await checkpointIntent(request, this.objects));
   }
 
   private evaluate(
@@ -425,10 +423,10 @@ export class Sidecar {
     base: { object: string; state: string },
     current: { object: string; state: string },
     candidate: Candidate,
-    rules: IntentRequest["rules"],
+    rules: TreeDefaultRules,
   ) {
     return mergeIntent({
-      kind: "tree", tree,
+      tree,
       base: { object: base.object, state: base.state },
       current: { object: current.object, state: current.state },
       incoming: {
@@ -437,19 +435,14 @@ export class Sidecar {
       },
       rules,
       ...(candidate.alternatives?.length ? { alternatives: candidate.alternatives } : {}),
-    } as IntentRequest, this.objects);
+    }, this.objects);
   }
 
   /** The author's own state after an earlier batch element: its trace
    * evaluated on the basis, or its snapshot checkpointed onto it. */
-  private async authored(tree: string, basis: { object: string; state: string }, prior: Candidate, rules: IntentRequest["rules"]) {
-    if (prior.trace !== null) {
-      const evaluated = await this.evaluate(tree, basis, basis, prior, rules);
-      if (evaluated.outcome !== "evaluated") throw new MergeRefusal(evaluated.outcome, evaluated.message);
-      return evaluated.authored;
-    }
-    const response = await checkpointIntent({ kind: "checkpoint", tree, current: basis, projection: prior.root, change: prior.change, decisions: [] }, this.objects);
-    return response.result;
+  private async authored(tree: string, basis: { object: string; state: string }, prior: Candidate, rules: TreeDefaultRules) {
+    if (prior.trace !== null) return (await this.evaluate(tree, basis, basis, prior, rules)).authored;
+    return checkpointIntent({ tree, current: basis, projection: prior.root, change: prior.change, decisions: [] }, this.objects);
   }
 
   /** A snapshot: a tree merge against the head, then a checkpoint of the
@@ -477,12 +470,12 @@ export class Sidecar {
       ? { projection: merged.root, decisions: [], replaces: [] }
       : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders,
         await this.concurrentChanges(question.base, question.head));
-    const response = await checkpointIntent({
-      kind: "checkpoint", tree: head.tree, current: { object: current.object, state: current.state }, projection,
+    const result = await checkpointIntent({
+      tree: head.tree, current: { object: current.object, state: current.state }, projection,
       candidate: candidate.root, continueSelected: baseRoot === head.root, conflictProjection,
       change: candidate.change, resolves: [...candidate.resolves, ...replaces], decisions,
     }, this.objects);
-    return { result: response.result, evidence: { rule, ...(merged.summary ? { summary: merged.summary } : {}) } };
+    return { result, evidence: { rule, ...(merged.summary ? { summary: merged.summary } : {}) } };
   }
 
   /** Attribution for the current side of a snapshot choice: each change

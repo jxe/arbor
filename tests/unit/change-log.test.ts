@@ -207,7 +207,7 @@ test("explicit entry moves and copies retain different intent through restart", 
     expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
     expect(authored(decodeCandidateUpdateJSON(record.update))[0]?.kind).toBe(kind);
     const candidate=decodeTreeSnapshotJSON(record.candidate);
-    const evaluated=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,authored(decodeCandidateUpdateJSON(record.update)))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,authored(decodeCandidateUpdateJSON(record.update)))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
     expect(()=>prepareEntryChange({tree:fixture.tree,basis:record.basis,graph,entryTransfer:{kind,source:"/nested",parent:"/nested",name:"loop"}})).toThrow();
   });
@@ -225,7 +225,7 @@ test("copy metadata edits bind to operation output and survive recovery", async 
   await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
   const operations=authored(decodeCandidateUpdateJSON(record.update));
   expect(operations.map(op=>op.kind)).toEqual(["copyEntry","editSource"]);
-  const evaluated=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+  const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
   expect(evaluated.response.result.object).toBe(candidate.root);
 }));
 
@@ -239,7 +239,7 @@ test("compound entry fixtures retain one basis and execute atomically after rest
     expect(authored(decodeCandidateUpdateJSON(record.update))).toEqual(value.operations);
     await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
     const candidate=decodeTreeSnapshotJSON(record.candidate);
-    const evaluated=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,value.operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,value.operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
     expect(()=>prepareEntryChange({tree:fixture.tree,basis:record.basis,graph,entryActions:{transfers:[],removals:["/pair","/pair/child.md"]}})).toThrow();
   });
@@ -255,9 +255,9 @@ test("compound move transports a concurrent child edit without changing the sibl
   const move=prepareEntryChange({tree:fixture.tree,basis,graph,entryActions:fixtures.cases[0].actions});
   const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(move.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]);
-    const accepted=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules:{id:"tree-default",revision:1}},objects);
+    const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(move.update)))},rules:{id:"tree-default",revision:1}},objects);
+  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(move.update)))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   let hash=result.response.result.object;
   for(const part of ["archive","moved","child.md"]){const entry=decodeProtocolDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
@@ -279,7 +279,7 @@ test("explicit source copies validate, survive recovery, and execute through the
     const record=prepare();await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
     const candidate=decodeTreeSnapshotJSON(record.candidate),operations=authored(decodeCandidateUpdateJSON(record.update));
     expect(operations.filter(o=>o.kind==="copySource").length).toBe(c.copies.length);
-    const evaluated=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
   });
 });
@@ -292,9 +292,9 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   const peer=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:1,replacement:"X"}],source:"Xbc\n\n"}});
   const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(copy.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]),rules={id:"tree-default" as const,revision:1 as const};
-  const accepted=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules},objects);
+  const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await evaluateIntent({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(copy.update)))},rules},objects);
+  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(copy.update)))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   const {decodeProtocolDirectory}=await import("@overstory/protocol");
   const hash=decodeProtocolDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
@@ -415,7 +415,7 @@ test.each(fixture.traces as TraceVector[])("shared trace vector $name: generatio
     }
     // The merge process reaches the same decisions for the chain and its compaction.
     const rules = { id: "tree-default" as const, revision: 1 as const };
-    const evaluate = (record: typeof plain) => evaluateIntent({ kind: "tree", tree: fixture.tree, base: { object: graph.root }, current: { object: graph.root },
+    const evaluate = (record: typeof plain) => evaluateIntent({ tree: fixture.tree, base: { object: graph.root }, current: { object: graph.root },
       incoming: { change: record.change, object: record.candidate.root, trace: decodeCandidateUpdateJSON(record.update).trace ?? [] }, rules }, objects);
     const [first, second] = await Promise.all([evaluate(plain), evaluate(compact)]);
     expect(first.response.result.object).toBe(plain.candidate.root);

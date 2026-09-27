@@ -14,7 +14,7 @@ async function read(f: Fixture, ref: State) {
 async function snapshot(f: Fixture, current: State, files: Record<string, string>, change: string,
   decisions: Parameters<typeof checkpointIntent>[0]["decisions"] = []) {
   const response = await checkpointIntent(
-    { kind: "checkpoint", tree: "tree", current, projection: f.tree(files), candidate: f.tree(files),
+    { tree: "tree", current, projection: f.tree(files), candidate: f.tree(files),
       continueSelected: true, conflictProjection: "current", change, decisions },
     {
       read: async (hash) => f.objects.get(hash)!,
@@ -22,8 +22,7 @@ async function snapshot(f: Fixture, current: State, files: Record<string, string
       store: async (values) => { for (const value of values) f.objects.set(value.hash, value.bytes); },
     },
   );
-  if (!("result" in response)) throw new Error(JSON.stringify(response));
-  return read(f, response.result);
+  return read(f, response);
 }
 
 async function deleteVersusEdit(f: Fixture) {
@@ -95,7 +94,7 @@ test("a legacy delete-versus-edit becomes a choice about the file", async () => 
 async function checkpoint(f: Fixture, current: { object: string; state?: string }, projection: string, change: string,
   decisions: Parameters<typeof checkpointIntent>[0]["decisions"] = []) {
   const response = await checkpointIntent(
-    { kind: "checkpoint", tree: "tree", current, projection, candidate: projection,
+    { tree: "tree", current, projection, candidate: projection,
       continueSelected: true, conflictProjection: "current", change, decisions },
     {
       read: async (hash) => f.objects.get(hash)!,
@@ -103,7 +102,7 @@ async function checkpoint(f: Fixture, current: { object: string; state?: string 
       store: async (values) => { for (const value of values) f.objects.set(value.hash, value.bytes); },
     },
   );
-  return read(f, response.result);
+  return read(f, response);
 }
 
 async function folderChoice(f: Fixture) {

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { arrangeSources, checkPlainTrace, type SourceOperation } from "@overstory/protocol";
 import { engineDiagnostics, mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import type { IntentRequest, IntentResponse } from "../../../packages/canopyd-merge/src/intent-model.ts";
+import type { IntentEvaluation } from "../../../packages/canopyd-merge/src/engine-contract.ts";
+import type { IntentRequest } from "../../../packages/canopyd-merge/src/intent-model.ts";
 import { Fixture } from "./fixture.ts";
 
 // The byte executor (`arrangeSources`, which canopyd's own fast path runs) and
@@ -100,13 +101,12 @@ function operations(f: Fixture, shape: Shape): SourceOperation[] {
 
 async function differential(f: Fixture, request: IntentRequest) {
   const objects = { read: async (hash: string) => f.objects.get(hash)!, states: f.states, store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => { for (const v of values) f.objects.set(v.hash, v.bytes); } };
-  const shape = (r: IntentResponse) => r.outcome === "evaluated" ? { result: r.result, decisions: r.decisions, operations: r.evidence.operations } : r;
+  const shape = (r: IntentEvaluation) => ({ result: r.result, decisions: r.decisions, operations: r.evidence.operations });
   const eager = await mergeIntent(request, objects, { incremental: false, eager: true });
   const full = await mergeIntent(request, objects, { incremental: false });
   const fast = await mergeIntent(request, objects);
   expect(shape(full)).toEqual(shape(eager));
   expect(shape(fast)).toEqual(shape(eager));
-  if (fast.outcome !== "evaluated") throw Error(JSON.stringify(fast));
   return fast;
 }
 

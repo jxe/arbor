@@ -12,9 +12,22 @@ import { viewState, type RetainedState } from "../../../packages/canopyd-merge/s
 import type {
   Frame,
   IntentRequest,
-  IntentResponse,
   IntentState,
 } from "../../../packages/canopyd-merge/src/intent-model.ts";
+
+/** The code of the refusal an evaluation throws. A result, or any other
+ * error, fails the test. */
+export function refusal(evaluation: Promise<unknown>): Promise<MergeRefusal["code"]> {
+  return evaluation.then(
+    (result) => {
+      throw new Error(`Expected a refusal: ${JSON.stringify(result)}`);
+    },
+    (error: unknown) => {
+      if (error instanceof MergeRefusal) return error.code;
+      throw error;
+    },
+  );
+}
 
 /** The frame chain of a one-step change: a single frame from the basis to the
  * candidate, or no frame for a snapshot or a bare resolution, which carry no
@@ -89,7 +102,6 @@ export class Fixture {
     const ref = (r: string | { object: string; state: string }) =>
       typeof r === "string" ? { object: r } : r;
     return {
-      kind: "tree",
       tree: "tree",
       base: ref(base),
       current: ref(current ?? base),
@@ -118,7 +130,6 @@ export class Fixture {
       before = frame.after;
     }
     return {
-      kind: "tree",
       tree: "tree",
       base: ref(base),
       current: ref(current ?? base),
@@ -126,15 +137,7 @@ export class Fixture {
       rules: { id: "tree-default", revision: 1 },
     };
   }
-  async run(
-    r: IntentRequest,
-  ): Promise<Extract<IntentResponse, { outcome: "evaluated" }>> {
-    const response = await this.evaluate(r);
-    if (response.outcome !== "evaluated")
-      throw new Error(JSON.stringify(response));
-    return response;
-  }
-  evaluate(r: IntentRequest) {
+  run(r: IntentRequest) {
     return mergeIntent(r, {
       // Verifies as the sidecar's stores do: the engine does not hash again.
       read: async (hash) => {

@@ -28,7 +28,6 @@ async function history(f: Fixture, count: number) {
   const root = f.tree({ "a.md": text });
   const start: SourceOperation = { kind: "editSource", key: "edit", source: f.ref("/a.md", text, [0, 0]), text: "" };
   const first = await mergeIntent(f.request(root, root, [start], "start"), objects(f));
-  if (first.outcome !== "evaluated") throw Error(JSON.stringify(first));
   const steps: Array<{ state: State; effect: string }> = [];
   let current = first.result;
   for (let i = 1; i <= count; i++) {
@@ -38,7 +37,6 @@ async function history(f: Fixture, count: number) {
     const op: SourceOperation = { kind: "editSource", key: "edit", source: f.ref("/a.md", text, range), text: inserted };
     text = text.slice(0, range[0]) + inserted + text.slice(range[1]);
     const response = await mergeIntent(f.request(current, f.tree({ "a.md": text }), [op], `step-${i}`), objects(f));
-    if (response.outcome !== "evaluated") throw Error(JSON.stringify(response));
     current = response.result;
     steps.push({ state: current, effect: `step-${i}` });
   }

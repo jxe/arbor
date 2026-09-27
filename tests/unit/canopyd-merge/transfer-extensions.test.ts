@@ -96,7 +96,6 @@ async function bothOrders(files: Files, a: Change, b: Change) {
     };
     const eager = await mergeIntent(second, objects, { incremental: false, eager: true });
     const result = await f.run(second);
-    if (eager.outcome !== "evaluated") throw new Error(JSON.stringify(eager));
     expect([result.result, result.decisions]).toEqual([eager.result, eager.decisions]);
     const contents = Object.fromEntries(
       Object.keys({ ...files, ...a.files, ...b.files }).map((name) => [name, f.content(result.result.object, name)]),

@@ -251,13 +251,20 @@ The evaluator does not compact; it checks the trace it receives.
 `composeFrames` in `tests/support/source-edits.ts` implements the same rule by
 executing the composition, and serves as a test reference for it.
 
-**Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
-`authored: { object, state }` for the exact candidate before reconciliation, a
-generated-object manifest, decision proposals, and evidence naming the three
-input roots, the change and operation keys, the rule revision, configuration,
-and policy reasons. The rule is deterministic, so the three roots reproduce
-every object it read; the read set itself is not retained. Typed inabilities
-are `invalid`, `missing-context`, `unsupported`, and `limit`. Unsupported
+**Validation.** The sidecar checks a question once, where it parses it
+(`parseQuestion` in `@overstory/merge-protocol`, then the rules and their
+configuration); the engine trusts that shape and checks only what a question
+cannot state: that the trace follows the author's basis and ends at the
+candidate, and every operation (`checkTrace`).
+
+**Results.** Success returns `result: { object, state }`, `authored: { object,
+state }` for the exact candidate before reconciliation, decision proposals, and
+evidence naming the three input roots, the change and operation keys, the rule
+revision, configuration, and policy reasons; the objects and states it
+generated go to its object IO. The rule is deterministic, so the three roots
+reproduce every object it read; the read set itself is not retained. Typed
+inabilities are `invalid`, `missing-context`, `unsupported`, and `limit`,
+thrown by the engine as the protocol's `MergeRefusal` and answered as they are. Unsupported
 operation kinds are not successful no-ops, invalid candidates publish no staged
 output, and an inability to evaluate is neither a conflict resolution nor an
 accepted receipt; canopyd decides admission and fallback.

@@ -78,19 +78,24 @@ test("typed refusals match the engine in shared and fresh processes", async () =
   const unsupported = structuredClone(valid);
   (unsupported.incoming.trace[0]!.operations[0] as { kind: string }).kind = "futureOperation";
   const requests = [invalid, limited, unsupported, valid];
-  const expected = await Promise.all(requests.map((r) => f.evaluate(r)));
-  expect(expected.map((r) => r.outcome)).toEqual(["invalid", "limit", "unsupported", "evaluated"]);
+  // Each refusal as the sidecar answers it; the valid request's root.
+  const expected = await Promise.all(requests.map((r) => f.run(r).then(
+    (evaluated) => evaluated.result.object,
+    (error: unknown) => {
+      if (!(error instanceof MergeRefusal)) throw error;
+      return { refusal: { code: error.code, message: error.message } };
+    })));
+  expect(expected.map((r) => typeof r === "string" ? "evaluated" : r.refusal.code)).toEqual(["invalid", "limit", "unsupported", "evaluated"]);
   const directory = await mkdtemp(join(tmpdir(), "arbor-operation-refusals-"));
   try {
     const shared = join(directory, "objects"), store = new ObjectStore(shared);
     await store.store([...f.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const root = await entry(store, { previous: null, root: base, change: "base" });
     const questions = requests.map((r) => question(r, root, root));
-    const wanted = expected.map((r) => r.outcome === "evaluated" ? r.result.object : { refusal: { code: r.outcome, message: r.message } });
     // One process serving every question, then a fresh process per question.
     for (const [index, batch] of [questions, ...questions.map((q) => [q])].entries()) {
       const lines = await serve(shared, join(directory, `staging-${index}`), batch) as Array<{ root?: string }>;
-      expect(lines.map((line) => line.root ?? line) as unknown[]).toEqual(batch.map((q) => wanted[questions.indexOf(q)]));
+      expect(lines.map((line) => line.root ?? line) as unknown[]).toEqual(batch.map((q) => expected[questions.indexOf(q)]));
     }
     await using tool = new MergeTool(directory);
     const refusal = await tool.ask(questions[0]!, f.objects).then(() => null, (error: unknown) => error);

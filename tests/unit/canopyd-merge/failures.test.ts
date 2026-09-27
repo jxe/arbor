@@ -3,7 +3,7 @@ import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@overstory/merg
 import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { EvaluationFailure } from "../../../packages/canopyd-merge/src/engine-contract.ts";
 import { Sidecar } from "../../../packages/canopyd-merge/src/sidecar.ts";
-import { Fixture, singleStep } from "./fixture.ts";
+import { Fixture, refusal, singleStep } from "./fixture.ts";
 
 /** A refusal is a property of the question; a failure to evaluate is not. */
 
@@ -29,7 +29,7 @@ test("an absent object is missing context; any other store failure propagates", 
     store: async () => {},
   });
   const enoent = Object.assign(new Error("no such file"), { code: "ENOENT" });
-  expect((await mergeIntent(request, store((hash) => hash === base ? enoent : undefined))).outcome).toBe("missing-context");
+  expect(await refusal(mergeIntent(request, store((hash) => hash === base ? enoent : undefined)))).toBe("missing-context");
   const io = Object.assign(new Error("input/output error"), { code: "EIO" });
   const failed = mergeIntent(request, store((hash) => hash === base ? io : undefined));
   await expect(failed).rejects.toBeInstanceOf(EvaluationFailure);
@@ -39,9 +39,9 @@ test("an absent object is missing context; any other store failure propagates", 
 test("a malformed request or candidate is still an invalid request", async () => {
   const f = new Fixture(), { request } = edit(f);
   const notATree = f.put("not a directory");
-  expect((await f.evaluate({ ...request, incoming: { ...request.incoming, object: notATree,
-    trace: [{ ...request.incoming.trace[0]!, after: notATree }] } })).outcome).toBe("invalid");
-  expect((await f.evaluate({ ...request, base: { object: "not a hash" } } as never)).outcome).toBe("invalid");
+  expect(await refusal(f.run({ ...request, incoming: { ...request.incoming, object: notATree,
+    trace: [{ ...request.incoming.trace[0]!, after: notATree }] } }))).toBe("invalid");
+  expect(await refusal(f.run({ ...request, base: { object: "not a hash" } } as never))).toBe("invalid");
 });
 
 test("an engine bug is not reported as an invalid request", async () => {
@@ -68,7 +68,7 @@ test("running out of evaluation time is a failure with the limit code, not a ref
   expect((error as Error).message).toBe("Evaluation time budget exceeded");
   // A deterministic budget remains a refusal.
   request.rules.config = { maxBytes: 1 };
-  expect((await f.evaluate(request)).outcome).toBe("limit");
+  expect(await refusal(f.run(request))).toBe("limit");
 });
 
 /** A sidecar over the fixture's objects; `delay` slows every shared read. */
