@@ -130,8 +130,9 @@ pinned decision and alternative evidence; a submitted resolution is a change
 in the change log, and the journal names the draft it came from.
 
 Local update-control schema 4 holds the exact persisted request, the change it
-ends at, the held reason, and settled changes. A control of any other schema
-is refused without being rewritten.
+ends at, the held reason, and settled changes. A schema-3 control that still
+holds a snapshot head, a next base, or an attempt outside the change log is
+refused without being rewritten; a clean one converts.
 
 Local Trash is absent from protocol snapshots. Structural records retain
 private Trash nodes and their file objects so deletion survives another action

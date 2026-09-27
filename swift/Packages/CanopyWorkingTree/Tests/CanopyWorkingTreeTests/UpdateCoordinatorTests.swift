@@ -127,8 +127,8 @@ private final class FirstPreparationFault: UpdateFaultInjector, @unchecked Senda
 
 @Suite("Working-tree update coordinator")
 struct UpdateCoordinatorTests {
-    @Test("A control record before schema 4 is refused without being rewritten")
-    func earlierControlRefused() async throws {
+    @Test("Earlier unpublished work is refused without being rewritten; a clean earlier control converts")
+    func earlierControlUpgrade() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_oldrequest"
             let initial = try snapshot(markdown: "# Retained work\n")
@@ -140,17 +140,19 @@ struct UpdateCoordinatorTests {
             let earlier = #"{"attempt":null,"head":{"base":{"root":"r","update":"up_initial"},"generation":1,"objects":[],"root":"h"},"presentation":{"localAdditions":false,"remoteAdditions":false,"state":"locallyPending"},"schema":3,"sourceMode":true}"#
             try files.atomicWrite(Data(earlier.utf8), to: files.controlURL)
             let original = try Data(contentsOf:files.controlURL)
-            #expect(throws: UpdateError.unsupportedControlSchema(3)) {
+            #expect(throws: UpdateError.earlierPendingWork("update-control.json")) {
                 try UpdateCoordinator(workingTree:workingTree,transport:transport,stateRoot:state)
             }
             #expect(try Data(contentsOf:files.controlURL) == original)
             #expect(await transport.requests.isEmpty)
 
-            // A clean schema-3 control is refused too: nothing reads it any more.
+            // A clean schema-3 control keeps its settled changes and becomes schema 4.
             let clean = #"{"presentation":{"localAdditions":false,"remoteAdditions":false,"state":"current"},"schema":3,"sourceAcceptedChanges":["c1"],"sourceMode":true}"#
             try files.atomicWrite(Data(clean.utf8), to: files.controlURL)
-            #expect(throws: UpdateError.unsupportedControlSchema(3)) { try files.load() }
-            #expect(try Data(contentsOf:files.controlURL) == Data(clean.utf8))
+            let converted = try files.load()
+            #expect(converted.settled == ["c1"])
+            #expect(converted.schema == UpdateControl.currentSchema)
+            _ = try UpdateCoordinator(workingTree:workingTree,transport:transport,stateRoot:state)
         }
     }
 

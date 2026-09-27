@@ -60,27 +60,30 @@ export function emptyControl(): UpdateControl { return { schema: 4, settled: [] 
 
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === "string" && item.length > 0);
 
-/** Decode a control record. Any schema but 4 is refused and never rewritten. */
+/** Decode a control record. A newer schema, or earlier unpublished work in a form this client no longer runs, is refused. */
 export function decodeControl(value: unknown, file = "update-control.json"): UpdateControl {
   if (!value || typeof value !== "object") throw new UpdateStateError(`${file} is not a control record`);
   const record = value as Record<string, unknown>;
   const schema = record.schema;
   if (typeof schema !== "number" || !Number.isInteger(schema)) throw new UpdateStateError(`${file} has no schema`);
   if (schema > 4) throw new UpdateStateError(`${file} schema ${schema} is newer than this client`);
-  if (schema < 4) throw new UpdateStateError(`${file} schema ${schema} was written by an earlier client that this one no longer reads`);
+  if (schema < 4) {
+    const earlier = record.head != null || record.nextBase != null || (record.attempt != null && record.sourceAttemptChange == null);
+    if (earlier) throw new UpdateStateError(`${file} holds unpublished work from an earlier client. Finish publishing it with that version, then update.`);
+  }
   const control: UpdateControl = { schema: 4, settled: [] };
   if (record.attempt != null) control.attempt = decodeAttempt(record.attempt, file);
-  const tip = record.attemptTip;
+  const tip = schema < 4 ? record.sourceAttemptChange : record.attemptTip;
   if (tip != null) {
     if (typeof tip !== "string" || !tip) throw new UpdateStateError(`${file} has an invalid attempt tip`);
     control.attemptTip = tip;
   }
-  if (record.held != null) {
+  if (schema === 4 && record.held != null) {
     const held = record.held as Record<string, unknown>;
     if (held.reason !== "rejected" && held.reason !== "unsupported") throw new UpdateStateError(`${file} has an invalid held reason`);
     control.held = { reason: held.reason, ...(typeof held.detail === "string" ? { detail: held.detail } : {}) };
   }
-  const settled = record.settled;
+  const settled = schema < 4 ? record.sourceAcceptedChanges : record.settled;
   if (settled != null) {
     if (!strings(settled)) throw new UpdateStateError(`${file} has invalid settled changes`);
     control.settled = [...settled];
@@ -96,7 +99,7 @@ function decodeAttempt(value: unknown, file: string): UpdateAttempt {
       || typeof attempt.digest !== "string" || typeof attempt.base?.root !== "string" || typeof attempt.base?.update !== "string") {
     throw new UpdateStateError(`${file} has an invalid attempt`);
   }
-  const digests = attempt.requestDigests;
+  const digests = attempt.requestDigests ?? [attempt.digest];
   if (!strings(digests)) throw new UpdateStateError(`${file} has invalid request digests`);
   if (attempt.contentType !== undefined && attempt.contentType !== "application/cbor") throw new UpdateStateError(`${file} has an attempt in an unknown encoding`);
   return { tree: attempt.tree, base: { root: attempt.base.root, update: attempt.base.update }, candidate: attempt.candidate,

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
   type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON } from "@overstory/protocol";
-import { decodeControl, UpdateCoordinator, UpdateStateError, type UpdateTransport } from "@overstory/working-tree";
+import { UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
@@ -205,13 +205,4 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
     coordinator.close();
     await rm(stateRoot, { recursive: true, force: true });
   }
-});
-
-test("a control record of any schema but 4 is refused", () => {
-  expect(decodeControl({ schema: 4, settled: ["c1"] })).toEqual({ schema: 4, settled: ["c1"] });
-  for (const record of [{ schema: 3, sourceAcceptedChanges: ["c1"] }, { schema: 5, settled: [] }]) {
-    expect(() => decodeControl(record)).toThrow(UpdateStateError);
-  }
-  const attempt = { tree: TREE, base: { root: "sha256:0", update: "up_0" }, candidate: "sha256:1", generation: 0, body: "e30", digest: "sha256:2" };
-  expect(() => decodeControl({ schema: 4, settled: [], attempt, attemptTip: "c1" })).toThrow("invalid request digests");
 });

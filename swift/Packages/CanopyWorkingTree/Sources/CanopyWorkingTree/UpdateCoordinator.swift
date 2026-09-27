@@ -99,8 +99,8 @@ public actor UpdateCoordinator {
             guard request.base == attempt.base.update,
                   request.updates.last?.candidate == attempt.candidate,
                   request.updates.last?.change == control.attemptTip,
-                  attempt.digest == attempt.requestDigests.last,
-                  updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.requestDigests else {
+                  attempt.digest == attempt.allRequestDigests.last,
+                  updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
                 throw ProtocolValidationError.invalidValue("Durable update intent does not match its digests")
             }
         }
@@ -148,7 +148,7 @@ public actor UpdateCoordinator {
 
     private func preparedRequest(_ attempt: UpdateAttempt) -> UpdateMachine.PreparedRequest {
         .init(id: attempt.digest, base: attempt.base.update, candidate: attempt.candidate,
-              tip: control.attemptTip ?? "", digests: attempt.requestDigests)
+              tip: control.attemptTip ?? "", digests: attempt.allRequestDigests)
     }
 
     /// Tell the machine the change log's publishable tip: the newest change of
@@ -275,7 +275,7 @@ public actor UpdateCoordinator {
         do {
             let prepared = try await changeLog().request(through: tip.change, accepted: Set(control.settled))
             let attempt = try Self.attempt(tree: await workingTree.treeID().rawValue, base: prepared.base, request: prepared.request)
-            if let extends, !attempt.requestDigests.starts(with: extends.digests) {
+            if let extends, !attempt.allRequestDigests.starts(with: extends.digests) {
                 // The tip no longer descends from the transmitted request: retry it exactly.
                 dispatch(.requestPersisted(extends))
                 return
@@ -313,7 +313,7 @@ public actor UpdateCoordinator {
             dispatch(.submitStarted(id: attempt.digest))
             try faultInjector.reached(.duringUpload)
             let started = Date()
-            Self.publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.requestDigests.count) bytes=\(attempt.body.count)")
+            Self.publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.allRequestDigests.count) bytes=\(attempt.body.count)")
             let response = try await transport.submit(attempt.prepared)
             Self.publicationLog.notice("submit succeeded seconds=\(Date().timeIntervalSince(started)) results=\(response.results.count)")
             try faultInjector.reached(.afterServerAcceptance)
@@ -321,7 +321,7 @@ public actor UpdateCoordinator {
             submission = (attempt.digest, response, current)
             failure = nil
             dispatch(.accepted(id: attempt.digest, result: .init(kind: .accepted, root: current.root, update: current.update,
-                cursor: current.observedThrough, digests: attempt.requestDigests, conflicted: current.conflicted)))
+                cursor: current.observedThrough, digests: attempt.allRequestDigests, conflicted: current.conflicted)))
         } catch {
             Self.publicationLog.error("submit failed: \(String(describing: error), privacy: .public)")
             fail(error, id: attempt.digest)
@@ -332,7 +332,7 @@ public actor UpdateCoordinator {
     /// current head to install. Receipts prove acceptance, not the current
     /// observation boundary; a response that reports its head saves a read.
     private func validate(_ response: ProtocolUpdateResponse, for attempt: UpdateAttempt) async throws -> CurrentHead {
-        guard response.results.map(\.requestDigest) == attempt.requestDigests else { throw UpdateError.returnedRequestDigestMismatch }
+        guard response.results.map(\.requestDigest) == attempt.allRequestDigests else { throw UpdateError.returnedRequestDigestMismatch }
         for result in response.results {
             let update: ProtocolAcceptedUpdate
             switch result.result { case let .accepted(value), let .unchanged(value): update = try value.validated() }
