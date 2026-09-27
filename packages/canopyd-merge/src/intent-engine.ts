@@ -1311,6 +1311,12 @@ class Engine {
     authored: IntentState,
     base: IntentState
   ): Promise<void> {
+    // The history the authored change added, copied into each continued
+    // context. Only those contexts (copies) are written below, never
+    // `authored`'s or `base`'s maps, so it is computed once.
+    let added: Array<readonly [key: "origins" | "effects" | "outputs", records: Array<[string, unknown]>]> | undefined;
+    const addedHistory = () => (added ??= (["origins", "effects", "outputs"] as const)
+      .map((map) => [map, Object.entries(since(authored[map], base[map]))] as const));
     for (const decision of authored.decisions) {
       if (
         same(
@@ -1423,8 +1429,8 @@ class Engine {
             if (latest?.context && child.key !== updated.key)
               context.decisions[index] = clone(latest);
           }
-          for (const map of ["origins", "effects", "outputs"] as const)
-            for (const [key, value] of Object.entries(since(authored[map], base[map])))
+          for (const [map, records] of addedHistory())
+            for (const [key, value] of records)
               (context[map] as Record<string, unknown>)[key] = own(value);
           // Continuing one fragment can displace an overlapping sibling.
           // Keep that sibling in the prior valid context instead of storing a
