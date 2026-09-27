@@ -34,7 +34,9 @@ extension UpdateError: LocalizedError {
         case .returnedRequestDigestMismatch: "Canopy answered a different synchronization request."
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
-        case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
+        case let .unsupportedControlSchema(schema): schema > UpdateControl.currentSchema
+            ? "Update control schema \(schema) is newer than this client."
+            : "Update control schema \(schema) was written by an earlier version of Canopy that this one no longer reads."
         case let .earlierPendingWork(file): "\(file) holds unpublished work from an earlier version of Canopy. Open this tree with that version to finish publishing it, then update."
         }
     }
@@ -104,11 +106,9 @@ struct UpdateAttempt: Codable, Equatable, Sendable {
     var candidate: String
     var generation: Int
     var body: Data
-    /// All per-element digests in prefix order. Nil decodes a pre-plural durable one-element attempt.
-    var requestDigests: [String]?
+    /// All per-element digests in prefix order.
+    var requestDigests: [String]
     var digest: String
-
-    var allRequestDigests: [String] { requestDigests ?? [digest] }
 }
 
 /// Why a retained request is held, so a restart holds it again.
@@ -122,8 +122,8 @@ extension UpdateMachine.HeldReason: Codable {}
 /// What the update machine's runner retains beside the change log: the exact
 /// persisted request and the change it ends at, why it is held, and which
 /// changes have settled. The accepted `{ root, update, cursor }` is the
-/// working tree's own state. Schema 4 dropped the snapshot head and next base
-/// of the earlier snapshot publication path.
+/// working tree's own state. Only schema 4 is read; any other is refused and
+/// never rewritten.
 struct UpdateControl: Codable, Equatable, Sendable {
     static let currentSchema = 4
 
@@ -140,31 +140,17 @@ struct UpdateControl: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schema, attempt, attemptTip, held, settled, acceptedConflicted
-        // Schema 3.
-        case sourceAttemptChange, sourceAcceptedChanges, head, nextBase
     }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         schema = try values.decode(Int.self, forKey: .schema)
-        guard schema <= Self.currentSchema else { throw UpdateError.unsupportedControlSchema(schema) }
+        guard schema == Self.currentSchema else { throw UpdateError.unsupportedControlSchema(schema) }
         attempt = try values.decodeIfPresent(UpdateAttempt.self, forKey: .attempt)
         acceptedConflicted = try values.decodeIfPresent(Bool.self, forKey: .acceptedConflicted)
-        if schema < 4 {
-            // A snapshot head, a next base, or an attempt outside the change log
-            // is unpublished work this client cannot run: refuse, rewrite nothing.
-            let tip = try values.decodeIfPresent(String.self, forKey: .sourceAttemptChange)
-            if values.contains(.head) && (try? values.decodeNil(forKey: .head)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
-            if values.contains(.nextBase) && (try? values.decodeNil(forKey: .nextBase)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
-            if attempt != nil, tip == nil { throw UpdateError.earlierPendingWork("update-control.json") }
-            attemptTip = tip
-            settled = try values.decodeIfPresent([String].self, forKey: .sourceAcceptedChanges) ?? []
-        } else {
-            attemptTip = try values.decodeIfPresent(String.self, forKey: .attemptTip)
-            held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
-            settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
-        }
-        schema = Self.currentSchema
+        attemptTip = try values.decodeIfPresent(String.self, forKey: .attemptTip)
+        held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
+        settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
     }
 
     func encode(to encoder: any Encoder) throws {

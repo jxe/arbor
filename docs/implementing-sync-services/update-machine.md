@@ -113,11 +113,10 @@ Under a tree's state root:
 - **`sync/conflict-review.json`** (schema 3): review drafts, and the draft
   fingerprint each submitted resolution change carries.
 
-**Upgrading.** A schema-3 control that still holds a snapshot head, a next
-base, or an attempt outside the change log, and a review journal with its own
-pending attempt, are refused with `UpdateError.earlierPendingWork` and never
-rewritten; open the tree with the earlier build to finish publishing, then
-upgrade. A clean earlier control converts.
+**Upgrading.** A control record of any schema but 4 is refused
+(`UpdateError.unsupportedControlSchema`) and never rewritten. A review journal
+with its own pending attempt is refused with `UpdateError.earlierPendingWork`;
+open the tree with the earlier build to finish publishing, then upgrade.
 
 ## Behaviour worth knowing
 
