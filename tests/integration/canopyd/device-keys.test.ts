@@ -16,6 +16,7 @@ import {
 } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { editTreeConfig, readTreeConfig } from "../../helpers/tree-config.ts";
+import { deviceClient, signAsDevice, testAccount, testDevice } from "../../helpers/devices.ts";
 
 /** A device key pair as a client holds it: the `devices.yaml` key and a signer. */
 interface TestDeviceKey { key: string; sign(bytes: Uint8Array): string }
@@ -37,7 +38,7 @@ function p256Key(): TestDeviceKey {
   };
 }
 
-/** A person profile identity whose key the test holds, for claims and resets. */
+/** A person profile identity whose key the test holds, for claims and recovery. */
 function profileIdentity() {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const raw = Buffer.from(publicKey.export({ format: "der", type: "spki" })).subarray(12);
@@ -69,10 +70,10 @@ beforeAll(async () => {
     hostname: "127.0.0.1",
     port: 0,
     community: { handle: "garden", name: "Garden" },
-    accounts: [{ handle: "owner", token: ownerToken, communityWriter: true }],
+    accounts: [testAccount("owner", ownerToken, { communityWriter: true })],
   });
-  // Reserve ~carol for a self-certifying profile, so she can claim and reset.
-  const owner = new ProtocolClient(running.url, ownerToken);
+  // Reserve ~carol for a self-certifying profile, so she can claim and recover.
+  const owner = await deviceClient(running.url, ownerToken);
   const account = await owner.account();
   const community = await owner.descriptor(account.account.community.id);
   const source = join(sandbox, "community");
@@ -99,37 +100,36 @@ const ownerMac = () => ownerState!.macID;
 const ownerKey = () => ownerState!.mac;
 
 describe("key devices (accounts §5.1, §5.2)", () => {
-  let profileTree: string;
-  let macID: string;
-  const mac = ed25519Key();
+  const owner = testDevice(ownerToken);
+  const profileTree = owner.profileTree;
+  const macID = owner.device;
+  const mac: TestDeviceKey = { key: owner.key, sign: (bytes) => signAsDevice(ownerToken, bytes) };
   let macClient: ProtocolClient;
 
-  test("a digest device moves to a key once, and its credential stops working", async () => {
-    const owner = new ProtocolClient(running.url, ownerToken);
-    profileTree = (await owner.account()).account.profileTree!;
-    const { values } = await readTreeConfig(owner, profileTree, "person");
-    macID = Object.keys(values.devices!)[0]!;
-    // Before the move there is no key to open a session with.
-    await expect(new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree, device: macID })).rejects.toThrow("not-found");
-
-    await editTreeConfig(owner, profileTree, "person", (current) => ({
-      ...current, devices: { ...current.devices, [macID]: { ...current.devices![macID]!, key: mac.key } },
-    }));
-    await expect(owner.account()).rejects.toThrow("unauthenticated");
-
+  test("every device is a key device, whose key never changes", async () => {
     macClient = await openSession(profileTree, macID, mac);
     expect((await macClient.account()).account.profileTree).toBe(profileTree);
     ownerState = { profileTree, macID, mac };
     expect((await readTreeConfig(macClient, profileTree, "person")).values.devices![macID]!.key).toBe(mac.key);
+    // No bearer credential authenticates a device; only a session does.
+    await expect(new ProtocolClient(running.url, ownerToken).account()).rejects.toThrow("unauthenticated");
 
-    // A key never changes, and nothing removes it.
+    // A key never changes, nothing removes it, only pairing lists one, and no
+    // entry is listed without one.
     await expect(editTreeConfig(macClient, profileTree, "person", (current) => ({
       ...current, devices: { ...current.devices, [macID]: { ...current.devices![macID]!, key: ed25519Key().key } },
     }))).rejects.toThrow("never changes");
     await expect(editTreeConfig(macClient, profileTree, "person", (current) => {
-      const { key: _key, ...digest } = current.devices![macID]!;
-      return { ...current, devices: { ...current.devices, [macID]: digest } };
+      const { key: _key, ...keyless } = current.devices![macID]!;
+      return { ...current, devices: { ...current.devices, [macID]: keyless } };
     })).rejects.toThrow("never changes");
+    const stranger = generateArborID("dv");
+    await expect(editTreeConfig(macClient, profileTree, "person", (current) => ({
+      ...current, devices: { ...current.devices, [stranger]: { id: stranger, label: "Unpaired", administrator: false } },
+    }))).rejects.toThrow("has no key");
+    await expect(editTreeConfig(macClient, profileTree, "person", (current) => ({
+      ...current, devices: { ...current.devices, [stranger]: { id: stranger, label: "Unpaired", administrator: false, key: ed25519Key().key } },
+    }))).rejects.toThrow("only when it pairs");
   });
 
   test("a challenge is single use, bound to its host, and needs the device's own signature", async () => {
@@ -192,9 +192,9 @@ describe("key devices (accounts §5.1, §5.2)", () => {
 });
 
 describe("published device keys (accounts §5.4)", () => {
-  test("the home host publishes each listed key device, without labels, digest or deleted devices", async () => {
+  test("the home host publishes each listed key device, without labels or deleted devices", async () => {
     const owner = new ProtocolClient(running.url, (await (async () => {
-      // The owner profile's Mac moved to a key above; its phone was paired and deleted.
+      // The owner profile's phone was paired and deleted above.
       const challenge = await new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: ownerProfile(), device: ownerMac() });
       return (await new ProtocolClient(running.url).openDeviceSession(challenge, ownerKey().sign(deviceSessionChallengeBytes(challenge)))).token;
     })()));

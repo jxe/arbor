@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { ProtocolClient, ProtocolHTTPError, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { writeFile } from "node:fs/promises";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 async function scenario(run: (context: {
   start: (mergeTool?: { command: string[]; timeoutMs: number }) => Promise<void>;
-  client: () => ProtocolClient;
+  client: () => Promise<ProtocolClient>;
   host: () => Awaited<ReturnType<typeof serveHost>>;
   dir: string;
 }) => Promise<void>) {
@@ -21,9 +22,9 @@ async function scenario(run: (context: {
       start: async (mergeTool) => {
         await stop();
         host = await serveHost({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-          accounts: [{ handle: "owner", token: "owner-token", communityWriter: true }], ...(mergeTool ? { mergeTool } : {}) });
+          accounts: [testAccount("owner", "owner-token", { communityWriter: true })], ...(mergeTool ? { mergeTool } : {}) });
       },
-      client: () => new ProtocolClient(host!.url, "owner-token"),
+      client: () => deviceClient(host!.url, "owner-token"),
       host: () => host!,
     });
   } finally {
@@ -50,11 +51,11 @@ test("a failed tree merge accepts preserved alternatives, survives restart and p
     await writeFile(script, `import {run} from ${JSON.stringify(cli)};
       await run(process.argv.slice(2), { treeMerge: async () => { throw new Error("injected merge failure"); } });`);
     await start({ command: [process.execPath, script], timeoutMs: 30_000 });
-    const tree = (await client().account()).account.community.id;
-    const head = (await client().descriptor(tree)).tree;
-    const objects = new Map((await client().snapshot(tree, head.root)).objects);
+    const tree = (await (await client()).account()).account.community.id;
+    const head = (await (await client()).descriptor(tree)).tree;
+    const objects = new Map((await (await client()).snapshot(tree, head.root)).objects);
     const edit = editor(objects);
-    const submit = async (base: string, update: CandidateUpdate) => (await client().submitUpdates(tree, { base, updates: [update] })).results[0]!;
+    const submit = async (base: string, update: CandidateUpdate) => (await (await client()).submitUpdates(tree, { base, updates: [update] })).results[0]!;
     const base = await submit(head.update, edit(head.root, "Base\n"));
     const first = await submit(base.update.id, edit(base.update.root, "Left\n"));
     const incoming = edit(base.update.root, "Right\n");
@@ -62,20 +63,20 @@ test("a failed tree merge accepts preserved alternatives, survives restart and p
     expect(accepted.outcome).toBe("accepted");
     expect(accepted.update.conflicted).toBe(true);
     expect(accepted.update.root).toBe(first.update.root);
-    const inspection = await client().conflicts(tree, accepted.update.id, accepted.update.root);
+    const inspection = await (await client()).conflicts(tree, accepted.update.id, accepted.update.root);
     expect(inspection.decisions).toHaveLength(1);
     expect(inspection.decisions[0]!.kind).toBe("directory");
     const values = inspection.decisions[0]!.alternatives.map(a => a.value);
     expect(values).toContainEqual({ directory: first.update.root });
     expect(values).toContainEqual({ directory: incoming.candidate });
     expect((await submit(base.update.id, incoming)).update.id).toBe(accepted.update.id);
-    for (const [hash, bytes] of (await client().snapshot(tree, accepted.update.root)).objects) objects.set(hash, bytes);
+    for (const [hash, bytes] of (await (await client()).snapshot(tree, accepted.update.root)).objects) objects.set(hash, bytes);
     const later = await submit(accepted.update.id, edit(accepted.update.root, "Continue syncing\n", "later.md"));
     expect(later.outcome).toBe("accepted");
     expect(later.update.conflicted).toBe(true);
     await start();
-    expect((await client().descriptor(tree)).tree.update).toBe(later.update.id);
-    expect(await client().conflicts(tree, accepted.update.id, accepted.update.root)).toEqual(inspection);
+    expect((await (await client()).descriptor(tree)).tree.update).toBe(later.update.id);
+    expect(await (await client()).conflicts(tree, accepted.update.id, accepted.update.root)).toEqual(inspection);
     await host().canopy.verifyIntegrity();
   });
 });
@@ -83,17 +84,17 @@ test("a failed tree merge accepts preserved alternatives, survives restart and p
 test("an unavailable worker accepts nothing, retryably, and the retry succeeds once it returns", async () => {
   await scenario(async ({ start, client, dir }) => {
     await start();
-    const tree = (await client().account()).account.community.id;
-    const head = (await client().descriptor(tree)).tree;
-    const objects = new Map((await client().snapshot(tree, head.root)).objects);
+    const tree = (await (await client()).account()).account.community.id;
+    const head = (await (await client()).descriptor(tree)).tree;
+    const objects = new Map((await (await client()).snapshot(tree, head.root)).objects);
     const request = { base: head.update, updates: [editor(objects)(head.root, "Offline\n")] };
     await start({ command: [join(dir, "missing-merge-executable")], timeoutMs: 100 });
-    const failure = await client().submitUpdates(tree, request).then(() => null, (error: unknown) => error);
+    const failure = await (await client()).submitUpdates(tree, request).then(() => null, (error: unknown) => error);
     expect(failure).toBeInstanceOf(ProtocolHTTPError);
     expect((failure as ProtocolHTTPError).status).toBe(503);
-    expect((await client().descriptor(tree)).tree.update).toBe(head.update);
+    expect((await (await client()).descriptor(tree)).tree.update).toBe(head.update);
     await start();
-    const accepted = (await client().submitUpdates(tree, request)).results[0]!;
+    const accepted = (await (await client()).submitUpdates(tree, request)).results[0]!;
     expect(accepted.outcome).toBe("accepted");
     expect(accepted.update.root).toBe(request.updates[0]!.candidate);
   });
@@ -106,8 +107,8 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
   // so the next traced edit must not have it enforced on the kept tree.
   await scenario(async ({ start, client, host }) => {
     await start();
-    const tree = (await client().account()).account.community.id;
-    const objects = new Map((await client().snapshot(tree, (await client().descriptor(tree)).tree.root)).objects);
+    const tree = (await (await client()).account()).account.community.id;
+    const objects = new Map((await (await client()).snapshot(tree, (await (await client()).descriptor(tree)).tree.root)).objects);
     const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
     const text = (hash: string) => new TextDecoder().decode(objects.get(hash)!);
     const directory = (entries: ProtocolDirectoryEntry[]) =>
@@ -126,13 +127,13 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
         source: { material: { kind: "basis", path: `/${name}`, object }, range: [at, at + Buffer.byteLength(find)] }, text: replacement }] }]);
     };
     const submit = async (base: string, candidate: CandidateUpdate) => {
-      const result = (await client().submitUpdates(tree, { base, updates: [candidate] })).results[0]!;
+      const result = (await (await client()).submitUpdates(tree, { base, updates: [candidate] })).results[0]!;
       expect(result.outcome).toBe("accepted");
-      for (const [hash, bytes] of (await client().snapshot(tree, result.update.root)).objects) objects.set(hash, bytes);
+      for (const [hash, bytes] of (await (await client()).snapshot(tree, result.update.root)).objects) objects.set(hash, bytes);
       return result.update;
     };
     const block = "- Once Rebecca is here\n  - Run\n  - Tips for each of the cleaners €40\n  - Groceries\n\n";
-    const head = (await client().descriptor(tree)).tree;
+    const head = (await (await client()).descriptor(tree)).tree;
     const kindBase = await submit(head.update, update(directory([...entries(head.root),
       { name: "Assets", file: put(new TextEncoder().encode("Assets is a file for now.\n")) },
       { name: "Errands.md", file: put(new TextEncoder().encode(`# Errands\n\n${block}Call the landlord.\n`)) },
@@ -146,7 +147,7 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
     const edited = await submit(kind.id, traced(kind.root, "Errands.md", "€40", "€50"));
     const kept = await submit(kind.id, traced(kind.root, "Errands.md", block, ""));
     expect(kept.root).toBe(edited.root);
-    const choices = await client().conflicts(tree, kept.id, kept.root);
+    const choices = await (await client()).conflicts(tree, kept.id, kept.root);
     expect(choices.decisions.filter(decision => decision.kind === "directory").length).toBeGreaterThan(1);
     const later = await submit(kept.id, traced(kept.root, "List.md", "Eggs from the farm stand", "Eggs (a dozen)"));
     expect(text(file(later.root, "Errands.md"))).toContain("cleaners €50\n  - Groceries");

@@ -160,11 +160,11 @@ In Canopy for the web:
 
 The local profile and its self-certifying Profile TreeID already exist before
 the claim. Arbor Sync derives the profile's configuration TreeID, generates the
-DeviceID and device credential locally, signs canopyd's challenge with the
-profile key, and submits the profile's first tree configuration. canopyd
-verifies the exact reserved profile, declares the profile tree, stores only the
-credential digest, and never receives the profile private key or returns the
-raw credential. Arbor Sync then activates the profile tree, which canopyd
+DeviceID and device key locally, signs canopyd's challenge with the profile
+key, and submits the profile's first tree configuration, which lists the
+device's public key. canopyd verifies the exact reserved profile, declares the
+profile tree, and never receives either private key or returns a secret; the
+device opens sessions with its key. Arbor Sync then activates the profile tree, which canopyd
 mounts at `/~joe`. The resulting `access.yaml`, `mounts.yaml`, `apps.yaml` and
 `devices.yaml` checkout is installed beneath
 `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded

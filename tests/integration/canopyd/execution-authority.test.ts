@@ -10,6 +10,7 @@ import {
   hashObject,
   type TreeSnapshot,
 } from "@overstory/protocol";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 function add(snapshot: TreeSnapshot, name: string, text: string): TreeSnapshot {
   const bytes = new TextEncoder().encode(text),
@@ -36,10 +37,10 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
     publicOrigin: "http://127.0.0.1:0",
     port: 0,
     hostname: "127.0.0.1",
-    accounts: [{ handle: "owner", token: "owner", communityWriter: true }],
+    accounts: [testAccount("owner", "owner", { communityWriter: true })],
   });
   try {
-    const owner = new ProtocolClient(running.url, "owner");
+    const owner = await deviceClient(running.url, "owner");
     const account = running.canopy.accountByHandle("owner")!;
     const tree = account.id;
     const current = await owner.descriptor(tree);
@@ -134,7 +135,7 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
     publicOrigin: "http://127.0.0.1:0",
     port: 0,
     hostname: "127.0.0.1",
-    accounts: [{ handle: "owner", token: "owner", communityWriter: true }],
+    accounts: [testAccount("owner", "owner", { communityWriter: true })],
   });
   const abort = new AbortController();
   try {

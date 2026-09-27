@@ -81,7 +81,7 @@ enum CanopyAccountServiceError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Where this device keeps its Canopy identity and account credentials, and
+/// Where this device keeps its Canopy identity and device keys, and
 /// the account operations the app performs on them. `CanopyWorkspaceState`
 /// chooses one implementation per platform (`accountService`):
 ///
@@ -99,16 +99,13 @@ protocol CanopyAccountService: Sendable {
 
     func state() async throws -> CanopyAccountState
     func accounts() async throws -> [CanopyAccount]
-    /// The credential for requests to the account's Canopy.
+    /// The sessions this device's key opens for requests to the account's Canopy.
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider
 
     func createIdentity() async throws
     /// A version-2 backup is encrypted and needs its passphrase.
     func restoreIdentity(backup: Data, passphrase: String?) async throws
     func backupIdentity(to destination: URL, passphrase: String) async throws
-
-    /// Move this device for the account to a key, keeping its DeviceID (accounts §5.2).
-    func moveToDeviceKey(for account: CanopyAccount) async throws
 
     /// Claim `account` (an account URL on a Canopy) with this device's profile
     /// identity, resuming a pending claim for it. The data home names its own
@@ -119,8 +116,8 @@ protocol CanopyAccountService: Sendable {
     /// its own device and ignores `deviceLabel`.
     func claimPairing(_ payload: Data, deviceLabel: String) async throws -> CanopyPairingClaim
     func resumePairing() async throws
-    /// Remove the credential this device holds for an account; a nil
-    /// configuration tree names the origin's pre-account singleton credential.
+    /// Remove the device key this device holds for an account; a nil
+    /// configuration tree names no account, and nothing is removed.
     func forget(origin: URL, configurationTree: String?) async throws
 }
 
@@ -160,11 +157,7 @@ struct KeychainAccountService: CanopyAccountService {
     }
 
     func accounts() async throws -> [CanopyAccount] {
-        let store = KeychainDeviceCredentialStore()
-        // Accounts saved before tree configurations are keyed by their old
-        // random configuration TreeID; move them to the derived one first.
-        try await rekeyStoredAccounts(in: store)
-        return try await store.accounts().map { CanopyAccount($0) }
+        try await KeychainDeviceCredentialStore().accounts().map { CanopyAccount($0) }
     }
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {
@@ -181,11 +174,6 @@ struct KeychainAccountService: CanopyAccountService {
 
     func backupIdentity(to _: URL, passphrase _: String) async throws {
         throw CanopyAccountServiceError.unsupported(.backupIdentity)
-    }
-
-    func moveToDeviceKey(for account: CanopyAccount) async throws {
-        guard let origin = account.origin else { throw CanopyAccountServiceError.invalidAccount("The Canopy account names no Canopy") }
-        try await NativeAccountService(origin: origin, configurationTree: account.configurationTree).moveToDeviceKey()
     }
 
     func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws {

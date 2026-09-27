@@ -27,7 +27,7 @@ ${ARBOR_DATA_HOME:-~/.arbor}/
 Each directory under `accounts/` is the source-preserving checkout of a
 person profile's tree configuration, named by its derived configuration
 TreeID; the account's host origin and profile TreeID are kept with its
-credential record, not in the checkout. A profile has one home host, so one
+connection record, not in the checkout. A profile has one home host, so one
 profile has one checkout. `placements.yaml` is local-only and groups absolute
 filesystem paths by configuration TreeID. Other trees' configurations are
 never checked out; clients read and edit them through the host.
@@ -60,10 +60,11 @@ by hash are always verified against their hash before leaving the daemon; the
 fetch-through cache for objects that live only on canopyd is in memory and
 bounded.
 
-Raw credentials use the platform credential facility where available and are
-scoped by the selected data home and configuration TreeID. Other
-implementations may use an equivalent secret facility, but no raw credential
-or access-link secret belongs in synchronized configuration or authored trees.
+Device keys use the platform credential facility where available and are
+scoped by the selected data home and configuration TreeID; a device holds no
+other long-lived account secret. Other implementations may use an equivalent
+secret facility, but no private key, session token or access-link secret
+belongs in synchronized configuration or authored trees.
 
 ## Daemon supervision
 
@@ -138,26 +139,26 @@ Restore accepts N from 2^15 to 2^20 and still reads version 1, the key in the
 clear. scrypt rather than Argon2 because Bun's `node:crypto` provides it
 natively; nothing else reads the file.
 
-## Loopback credential exposure
+## Loopback session exposure
 
-The daemon serves the stored canopyd account credential to any local process
-over `GET /v1/credential` on its loopback socket. This is deliberate: a local
-process running as the user can already read the credential store and write
-the placed folders the daemon synchronizes under that credential, so handing
-it the token grants nothing further. The
-point is one device identity per installation: the Mac app and the daemon are
-one device to canopyd, sharing authentication and a request-digest scope while
-remaining independent working-tree clients. The socket binds to
-loopback only and rejects non-loopback `Host` headers; the credential itself
-still lives in the platform credential store (or the file store when
-`ARBOR_CREDENTIAL_STORE=file`) and is never written to the tree.
-
-A key device ([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions))
-keeps its Ed25519 private key in that store instead, and `GET /v1/credential`
-returns a session the key opened, reused until five minutes before it expires
-and cached for other local processes in the account's owner-only
-`session.json`. Local clients therefore never hold the key, and treat the token
-as they always have: on a 401 they fetch it again.
+Every device is a key device
+([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions)).
+The daemon keeps the account's Ed25519 private key in the platform credential
+store (or the file store when `ARBOR_CREDENTIAL_STORE=file`), where the
+connection record names it (`file:device-key` or its store slot), and never
+writes it to the tree. It serves a session the key opened, never the key, to
+any local process over `GET /v1/credential` on its loopback socket; the session
+is reused until five minutes before it expires and cached for other local
+processes in the account's owner-only `session.json`. This is deliberate: a
+local process running as the user can already read the credential store and
+write the placed folders the daemon synchronizes, so handing it an hour-long
+session grants nothing further. The point is one device identity per
+installation: the Mac app and the daemon are one device to canopyd, sharing
+authentication and a request-digest scope while remaining independent
+working-tree clients. The socket binds to loopback only and rejects
+non-loopback `Host` headers. Local clients never hold the key, and on a 401
+they fetch a session again. A connection record without a device key, as a
+bearer credential was once stored, is ignored.
 
 ## Migration
 

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serveHost } from "@overstory/canopyd";
-import { ProtocolClient } from "@overstory/protocol";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 let root: string;
 let running: Awaited<ReturnType<typeof serveHost>>;
@@ -17,8 +17,8 @@ beforeAll(async () => {
     port: 0,
     community: { handle: "garden", name: "Garden" },
     accounts: [
-      { handle: "alice", token: "alice-directory-token", name: "Alice Arbor", communityWriter: true },
-      { handle: "bob", token: "bob-directory-token", name: "Bob Builder" },
+      testAccount("alice", "alice-directory-token", { name: "Alice Arbor", communityWriter: true }),
+      testAccount("bob", "bob-directory-token", { name: "Bob Builder" }),
     ],
   });
 });
@@ -31,7 +31,7 @@ afterAll(async () => {
 
 describe("authenticated user directory", () => {
   test("lists the signed-in profile and another readable community member with card and identity fields", async () => {
-    const client = new ProtocolClient(running.url, "alice-directory-token");
+    const client = await deviceClient(running.url, "alice-directory-token");
     const own = (await client.account()).account.profileTree;
     const directory = await client.directory();
     expect(directory.observedThrough).toBeTruthy();

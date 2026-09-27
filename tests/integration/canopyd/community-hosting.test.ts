@@ -12,6 +12,7 @@ import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-con
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
+import { deviceClient, newTestDevice, testAccount, testDevice } from "../../helpers/devices.ts";
 
 const ownerToken = "owner-device-credential";
 const aliceProfileTree = generateArborID("tr");
@@ -48,9 +49,9 @@ beforeAll(async () => {
     hostname: "127.0.0.1",
     port: 0,
     community: { handle: "garden", name: "Garden" },
-    accounts: [{ handle: "owner", token: ownerToken, communityWriter: true }],
+    accounts: [testAccount("owner", ownerToken, { communityWriter: true })],
   });
-  owner = new ProtocolClient(running.url, ownerToken);
+  owner = await deviceClient(running.url, ownerToken);
 
   const account = await owner.account();
   const community = await owner.descriptor(account.account.community.id);
@@ -98,8 +99,8 @@ describe("client-generated profile and account bootstrap", () => {
 
     const identity = testProfileIdentity();
     const configurationTree = treeConfigurationID(identity.profileTree);
-    const deviceID = generateArborID("dv");
-    const credential = "invited-person-device-credential";
+    const invited = newTestDevice("invited");
+    const deviceID = invited.device;
     const client = new ProtocolClient(running.url);
     const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, configurationTree, inviteCode });
     expect(challenge.account).toBe(`${origin}/~${handle}`);
@@ -110,8 +111,8 @@ describe("client-generated profile and account bootstrap", () => {
       challenge,
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
-      device: { id: deviceID, label: "Invited Mac", credentialDigest: `sha256:${sha256(credential)}` as const },
-      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac" })),
+      device: { id: deviceID, label: "Invited Mac", key: invited.key },
+      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac", key: invited.key })),
     };
     await expect(client.joinAccount({ ...request, inviteCode: "wrong-code" })).rejects.toThrow("Invitation code is invalid");
     expect(running.canopy.accountByHandle(handle)).toBeNull();
@@ -150,19 +151,15 @@ describe("client-generated profile and account bootstrap", () => {
     const origin = new URL(running.url).origin;
     const profileTree = bobProfileTree;
     const configurationTree = treeConfigurationID(profileTree);
-    const administratorID = generateArborID("dv");
-    const administratorCredential = "locally-generated-bob-credential";
+    const administratorDevice = testDevice(bobCredential);
+    const administratorID = administratorDevice.device;
     const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
-    const initial = initialPersonConfig(profileTree, { id: administratorID, label: "Bob's Mac" });
+    const initial = initialPersonConfig(profileTree, { id: administratorID, label: "Bob's Mac", key: administratorDevice.key });
     const configuration = snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
     const request = {
       profileTree,
       configurationTree,
-      device: {
-        id: administratorID,
-        label: "Bob's Mac",
-        credentialDigest: `sha256:${sha256(administratorCredential)}` as const,
-      },
+      device: { id: administratorID, label: "Bob's Mac", key: administratorDevice.key },
       configuration,
     };
     const client = new ProtocolClient(running.url);
@@ -180,28 +177,24 @@ describe("client-generated profile and account bootstrap", () => {
     expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration", canonical: null });
     expect(running.canopy.get(profileTree)).toBeNull();
     expect(running.canopy.boundary("/~bob")).toBeNull();
-    const administrator = new ProtocolClient(running.url, administratorCredential);
+    const administrator = await deviceClient(running.url, bobCredential, { profileTree });
 
     const hostedProfile = await administrator.submitUpdate(profileTree, null, profile);
     expect(hostedProfile.outcome).toBe("accepted");
     expect((await administrator.descriptor(profileTree)).tree.canonical?.path).toBe("/~bob");
 
     const offer = await administrator.createPairing();
-    const phoneID = generateArborID("dv");
-    const phoneCredential = "locally-generated-bob-phone-credential";
-    const phone = {
-      id: phoneID,
-      label: "Bob's iPhone",
-      credentialDigest: `sha256:${sha256(phoneCredential)}` as const,
-    };
+    const phoneDevice = newTestDevice("bob-phone");
+    const phoneID = phoneDevice.device;
+    const phone = { id: phoneID, label: "Bob's iPhone", key: phoneDevice.key };
     const firstClaim = await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone);
     expect(firstClaim.device.id).toBe(phoneID);
     expect(await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
     const { values } = await readTreeConfig(administrator, profileTree, "person");
-    expect(values.devices![phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false });
+    expect(values.devices![phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false, key: phoneDevice.key });
 
     // An ordinary device may not declare or activate trees.
-    const phoneClient = new ProtocolClient(running.url, phoneCredential);
+    const phoneClient = await deviceClient(running.url, phoneDevice.name, { profileTree });
     await expect(phoneClient.declareTree(generateArborID("tr"), snapshotTreeConfig({ access: [{ who: { profile: profileTree }, allow: ["admin"] }], mounts: {} })))
       .rejects.toThrow("administrator device");
 
@@ -424,11 +417,11 @@ describe("self-certifying profile account proof", () => {
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
-      accounts: [{ handle: "target-admin", token: "target-admin-token" }],
+      accounts: [testAccount("target-admin", "target-admin-token")],
       community: { handle: "target", name: "Target", firstWriter: { handle: "guest", profileTree: identity.profileTree } },
     });
     try {
-      const targetAdmin = new ProtocolClient(target.url, "target-admin-token");
+      const targetAdmin = await deviceClient(target.url, "target-admin-token");
       const targetAdminAccount = await targetAdmin.account();
       const targetCommunity = await targetAdmin.descriptor(targetAdminAccount.account.community.id);
       const targetAccountLocator = `${new URL(target.url).origin}/~guest`;
@@ -443,9 +436,9 @@ describe("self-certifying profile account proof", () => {
 
       const profileTree = identity.profileTree;
       const configurationTree = treeConfigurationID(profileTree);
-      const deviceID = generateArborID("dv");
-      const credential = "guest-target-credential";
-      const configuration = snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac" }));
+      const guest = newTestDevice("guest");
+      const deviceID = guest.device;
+      const configuration = snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac", key: guest.key }));
       const anonymous = new ProtocolClient(target.url);
       const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 
@@ -456,11 +449,7 @@ describe("self-certifying profile account proof", () => {
         challenge,
         publicKey: identity.publicKey,
         signature: identity.sign(challenge),
-        device: {
-          id: deviceID,
-          label: "Guest's Mac",
-          credentialDigest: `sha256:${sha256(credential)}` as const,
-        },
+        device: { id: deviceID, label: "Guest's Mac", key: guest.key },
         configuration,
       };
       const joined = await new ProtocolClient(target.url).joinAccount(request);
@@ -469,7 +458,7 @@ describe("self-certifying profile account proof", () => {
       expect(target.canopy.get(profileTree)).toBeNull();
       expect(target.canopy.boundary("/~guest")).toBeNull();
       expect(await new ProtocolClient(target.url).joinAccount(request)).toEqual(joined);
-      expect((await new ProtocolClient(target.url, credential).account()).account.configuration.id).toBe(configurationTree);
+      expect((await (await deviceClient(target.url, guest.name, { profileTree })).account()).account.configuration.id).toBe(configurationTree);
       // The founder is a member, so administers the community.
       expect(target.canopy.canAdminister(target.canopy.account(profileTree)!, target.canopy.community())).toBe(true);
 
@@ -489,7 +478,7 @@ const bobPerson = (client: ProtocolClient) => readTreeConfig(client, bobProfileT
 const editBob = (client: ProtocolClient, change: (values: TreeConfigValues) => TreeConfigValues) => editTreeConfig(client, bobProfileTree, "person", change);
 
 test("an administrator's rule through an app enables and revokes anonymous executable authority", async () => {
-  const client = new ProtocolClient(running.url, bobCredential);
+  const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   await editBob(client, (values) => ({ ...values, access: [...values.access, { who: "everyone", app: "tr_supplies", allow: ["create-child"] }] }));
   const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
     grants: [{ lender: null, tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
@@ -500,7 +489,7 @@ test("an administrator's rule through an app enables and revokes anonymous execu
 });
 
 test("ordinary anonymous create permission works without app and does not grant overwrite", async () => {
-  const bob = new ProtocolClient(running.url, bobCredential);
+  const bob = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   // Replace the existing unrestricted public rule rather than creating a duplicate key.
   await editBob(bob, (values) => ({ ...values, access: [...values.access.filter((rule) => rule.who !== "everyone"), { who: "everyone", allow: ["create-child"] }] }));
   const current = await bob.descriptor(bobProfileTree);
@@ -520,7 +509,7 @@ test("ordinary anonymous create permission works without app and does not grant 
 });
 
 test("concurrent policy narrowing is accepted restrictively until exact administrator resolution", async () => {
-  const client = new ProtocolClient(running.url, bobCredential);
+  const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const config = treeConfigurationID(bobProfileTree);
   const { values } = await bobPerson(client);
   const policy = (allow: any[]) => snapshotTreeConfig({ ...values, access: [...values.access.filter((rule) => !rule.app), { who: "everyone", app: "tr_supplies", allow }] });
@@ -555,7 +544,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
 });
 
 test("access metadata exposes a tree's redacted rules to its administrators only", async () => {
-  const client = new ProtocolClient(running.url, bobCredential);
+  const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const digest = `sha256:${"a".repeat(64)}`;
   await editBob(client, (values) => ({ ...values, access: [...values.access, { who: { link: digest }, app: "tr_supplies", allow: ["read"] }] }));
   const visible = await client.access(bobProfileTree);
@@ -569,7 +558,7 @@ test("access metadata exposes a tree's redacted rules to its administrators only
 });
 
 test("removing an app approval wins a concurrent expansion and re-adding needs resolution", async () => {
-  const client = new ProtocolClient(running.url, bobCredential);
+  const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const config = treeConfigurationID(bobProfileTree);
   const { values } = await bobPerson(client);
   const foreign = generateArborID("tr");
@@ -595,7 +584,7 @@ test("removing an app approval wins a concurrent expansion and re-adding needs r
 });
 
 test("the old account files are not a valid tree configuration, and an edit cannot remove the last administrator", async () => {
-  const client = new ProtocolClient(running.url, bobCredential);
+  const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const config = treeConfigurationID(bobProfileTree);
   const head = await client.descriptor(config);
   const { values } = await bobPerson(client);

@@ -13,11 +13,12 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import {
   accountChallengeBytes,
   canonicalHTTPURL,
+  deviceKeyFromSeed,
   generateArborID,
+  generateDeviceKeySeed,
   initialPersonConfig,
   personProfileTreeID,
   ProtocolClient,
-  sha256,
   snapshotTreeConfig,
   treeConfigurationID,
   type AccountChallenge,
@@ -28,8 +29,10 @@ import {
   filesSnapshot,
   hostTree,
   input,
+  labClient,
   LOCAL_COMMUNITY,
   output,
+  type LabDevice,
   readAccepted,
   rootText,
   withRootFile,
@@ -43,7 +46,7 @@ interface Identity {
   /** The profile's canonical HTTP URL. */
   locator: string;
   profile: string;
-  token: string;
+  device: LabDevice;
 }
 
 const TIMEOUT = { timeoutMs: 30_000 };
@@ -63,11 +66,11 @@ function profileIdentity() {
 /**
  * On the community: reserve one handle per role for a fresh person identity
  * in the community's `members`, claim each account with its profile key and a
- * digest device, and host each profile at `/~handle`.
+ * key device, and host each profile at `/~handle`.
  */
 async function setup(): Promise<void> {
-  const value = await input<{ ownerToken: string; handles: Record<Role, string> }>();
-  const owner = new ProtocolClient(LOCAL_COMMUNITY, value.ownerToken, TIMEOUT);
+  const value = await input<{ owner: LabDevice; handles: Record<Role, string> }>();
+  const owner = await labClient(LOCAL_COMMUNITY, value.owner, TIMEOUT);
   const identities = Object.fromEntries(ROLES.map((role) => [role, profileIdentity()])) as Record<Role, ReturnType<typeof profileIdentity>>;
 
   const { account } = await owner.account();
@@ -93,7 +96,8 @@ async function setup(): Promise<void> {
     const configurationTree = treeConfigurationID(identity.profileTree);
     const device = generateArborID("dv");
     const label = `${role} authorization device`;
-    const token = `arb_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
+    const seed = generateDeviceKeySeed();
+    const key = deviceKeyFromSeed(seed);
     const anonymous = new ProtocolClient(LOCAL_COMMUNITY, undefined, TIMEOUT);
     const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree, configurationTree });
     await anonymous.joinAccount({
@@ -103,10 +107,11 @@ async function setup(): Promise<void> {
       challenge,
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
-      device: { id: device, label, credentialDigest: `sha256:${sha256(token)}` },
-      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label })),
+      device: { id: device, label, key },
+      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key })),
     });
-    const client = new ProtocolClient(LOCAL_COMMUNITY, token, TIMEOUT);
+    const held: LabDevice = { profileTree: identity.profileTree, device, seed };
+    const client = await labClient(LOCAL_COMMUNITY, held, TIMEOUT);
     const profile = await client.submitUpdate(
       identity.profileTree,
       null,
@@ -119,7 +124,7 @@ async function setup(): Promise<void> {
       handle: value.handles[role],
       locator: canonicalHTTPURL(hosted.tree.canonical),
       profile: identity.profileTree,
-      token,
+      device: held,
     };
   }
   output(result);
@@ -127,8 +132,8 @@ async function setup(): Promise<void> {
 
 /** Alice hosts the private tree below her profile, granting Bob read and Carol write. */
 async function create(): Promise<void> {
-  const value = await input<{ token: string; bob: string; carol: string; scenario: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; bob: string; carol: string; scenario: string; endpoint?: string }>();
+  const client = await labClient(value.endpoint ?? COMMUNITY, value.device, TIMEOUT);
   const { account } = await client.account();
   if (!account.profileTree) throw new Error("Alice's account has no profile");
   const tree = await hostTree(client, filesSnapshot({ "note.md": `# ${value.scenario}\n\nalice initial\n` }), {
@@ -150,8 +155,8 @@ async function create(): Promise<void> {
 
 /** Bob reads the exact current bytes; his write is refused with the existence-hiding 404 and changes nothing. */
 async function denyWrite(): Promise<void> {
-  const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; tree: string; scenario: string; endpoint?: string }>();
+  const client = await labClient(value.endpoint ?? COMMUNITY, value.device, TIMEOUT);
   const { descriptor, snapshot } = await readAccepted(client, value.tree);
   if (descriptor.access !== "read") throw new Error("Bob did not receive read-only access");
   if (!rootText(snapshot, "note.md").includes("alice initial")) throw new Error("Bob could not read Alice content");
@@ -169,8 +174,8 @@ async function denyWrite(): Promise<void> {
 
 /** Carol's write is accepted as the new head. */
 async function write(): Promise<void> {
-  const value = await input<{ token: string; tree: string; scenario: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; tree: string; scenario: string; endpoint?: string }>();
+  const client = await labClient(value.endpoint ?? COMMUNITY, value.device, TIMEOUT);
   const { descriptor, snapshot } = await readAccepted(client, value.tree);
   if (descriptor.access !== "write") throw new Error("Carol did not receive write access");
   const source = rootText(snapshot, "note.md");
@@ -184,8 +189,8 @@ async function write(): Promise<void> {
 }
 
 async function verifyReader(): Promise<void> {
-  const value = await input<{ token: string; tree: string; root: string; update: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; tree: string; root: string; update: string; endpoint?: string }>();
+  const client = await labClient(value.endpoint ?? COMMUNITY, value.device, TIMEOUT);
   const { descriptor, snapshot } = await readAccepted(client, value.tree);
   if (descriptor.access !== "read" || descriptor.root !== value.root || descriptor.update !== value.update) {
     throw new Error("Bob did not observe Carol current head");
@@ -198,8 +203,8 @@ async function verifyReader(): Promise<void> {
 }
 
 async function verifyWriter(): Promise<void> {
-  const value = await input<{ token: string; tree: string; root: string; update: string; rejected: string; endpoint?: string }>();
-  const client = new ProtocolClient(value.endpoint ?? COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; tree: string; root: string; update: string; rejected: string; endpoint?: string }>();
+  const client = await labClient(value.endpoint ?? COMMUNITY, value.device, TIMEOUT);
   const { descriptor, snapshot } = await readAccepted(client, value.tree);
   if (descriptor.root !== value.root || descriptor.update !== value.update) throw new Error("Alice did not observe Carol current head");
   if (!rootText(snapshot, "note.md").includes("carol permitted write")) throw new Error("Alice did not receive Carol bytes");
@@ -209,8 +214,8 @@ async function verifyWriter(): Promise<void> {
 
 /** The community owner holds no rule on Alice's tree; neither they nor an anonymous reader can see it. */
 async function verifyOwner(): Promise<void> {
-  const value = await input<{ token: string; tree: string; root: string; canonical: string }>();
-  const owner = new ProtocolClient(LOCAL_COMMUNITY, value.token, TIMEOUT);
+  const value = await input<{ device: LabDevice; tree: string; root: string; canonical: string }>();
+  const owner = await labClient(LOCAL_COMMUNITY, value.device, TIMEOUT);
   if ((await owner.list()).snapshot.some((tree) => tree.id === value.tree)) {
     throw new Error("No-access owner could list Alice private tree");
   }

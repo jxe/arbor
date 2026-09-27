@@ -9,14 +9,15 @@ import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { collectionChildSetHash } from "@overstory/collection-schema";
+import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
 const token = "snapshot-owner";
 async function start() {
-  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
+  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new ProtocolClient(running.url, token);
+  client = await deviceClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 function file(text: string) { const bytes = new TextEncoder().encode(text), hash = hashObject(bytes); objects.set(hash, bytes); return hash; }
@@ -145,7 +146,7 @@ test("root directory metadata has an inspectable whole-directory choice, continu
   // Hidden alternative material is accepted-state material: it reads through the ordinary object route.
   expect(hashObject(await client.object(tree, right.candidate))).toBe(right.candidate);
   const unrelated = hashObject(new TextEncoder().encode(`never accepted ${crypto.randomUUID()}`));
-  const unreachable = await fetch(`${running.url}/.arbor/trees/${tree}/objects/${unrelated}`, { headers: { authorization: `Bearer ${token}` } });
+  const unreachable = await fetch(`${running.url}/.arbor/trees/${tree}/objects/${unrelated}`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` } });
   expect(unreachable.status).toBe(404);
   const body = new TextDecoder().decode(objects.get(at(accepted.root, "_index.md")!.file!)) + "Continued\n";
   const continued = await submit(snapshot(change(accepted.root, { "_index.md": { file: file(body) } })), accepted.id);
@@ -424,7 +425,7 @@ test("the host validates declarative collections itself and preserves undeclared
   const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1, note: { kept: [true] } }]) } })));
   expect(accepted.root).not.toBe(root);
   const readPage = async () => {
-    const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${token}`, accept: "text/html" } });
+    const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, accept: "text/html" } });
     expect(page.status).toBe(200);
     return page.text();
   };

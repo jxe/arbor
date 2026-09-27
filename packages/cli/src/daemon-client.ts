@@ -84,7 +84,7 @@ export interface TreeBootstrap {
   observedThrough: string;
 }
 
-/** `GET /v1/credential`: the account credential a same-installation client shares with the daemon. */
+/** `GET /v1/credential`: a session of the account's device, which a same-installation client shares with the daemon. */
 export interface TreeCredential {
   token: string;
 }
@@ -145,7 +145,7 @@ export class ArborSyncRESTClient {
     return this.request(`/v1/bootstrap?tree=${encodeURIComponent(tree)}`);
   }
 
-  /** The account credential for a configuration tree (or the only connected account when omitted). */
+  /** A session of the device for a configuration tree's account (or the only connected account when omitted). */
   credential(configurationTree?: string): Promise<TreeCredential> {
     const query = configurationTree ? `?configurationTree=${encodeURIComponent(configurationTree)}` : "";
     return this.request(`/v1/credential${query}`);

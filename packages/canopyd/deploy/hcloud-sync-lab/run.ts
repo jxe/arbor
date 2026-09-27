@@ -2,8 +2,13 @@
 import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { LabDevice } from "./lab-node.ts";
 
 const ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
+/** Where `configure-node.sh` keeps the owner's first device on the community machine, root-only. */
+const OWNER_DEVICE_PATH = "/etc/arbor-canopy-owner.json";
+/** A shell line on the community machine that sets `$session` to an owner session token. */
+const OWNER_SESSION = `session=$(/usr/local/bin/bun /opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/lab-node.ts owner-session < ${OWNER_DEVICE_PATH})`;
 const STATE_ROOT = join(ROOT, ".arbor-lab");
 const TAILSCALE_AUTH_KEY_ENV = "TAILSCALE_AUTH_KEY";
 const ROLES = ["community", "alice", "bob", "carol"] as const;
@@ -538,14 +543,14 @@ async function configure(state: LabState): Promise<void> {
     if (attempt === 29) throw new Error("Canopy health did not become ready");
     await Bun.sleep(1_000);
   }
-  const ownerToken = await authorityToken(state);
+  const owner = await ownerDevice(state);
   for (const role of ["alice", "bob", "carol"] as const) {
     // Each client pairs as its own administrator device of the owner account;
-    // the owner credential only offers the pairing and is not kept there.
+    // the owner's device only offers the pairing and is not kept there.
     await ssh(state, role, [
       "bash", "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/configure-node.sh", role, CLIENT_PATHS[role],
     ], {
-      stdin: `${JSON.stringify({ ownerToken, label: `Hetzner lab ${role}`, administrator: true })}\n`,
+      stdin: `${JSON.stringify({ owner, label: `Hetzner lab ${role}`, administrator: true })}\n`,
       timeoutMs: 120_000,
     });
   }
@@ -557,13 +562,12 @@ function clientCommand(body: string): string {
   return `sudo -u arbor -H env ARBOR_DATA_HOME=/home/arbor/.arbor ${body}`;
 }
 
-async function authorityToken(state: LabState): Promise<string> {
-  const result = await ssh(state, "community", [
-    "sed", "-n", "s/^ARBOR_ACCOUNT_TOKEN=//p", "/etc/arbor-canopy.env",
-  ], { quiet: true });
-  const token = result.stdout.trim();
-  if (!token) throw new Error("Canopy account token is unavailable");
-  return token;
+/** The owner account's first key device, which `configure-node.sh` made on the community machine. */
+async function ownerDevice(state: LabState): Promise<LabDevice> {
+  const result = await ssh(state, "community", ["cat", OWNER_DEVICE_PATH], { quiet: true });
+  const device = JSON.parse(result.stdout) as LabDevice;
+  if (!device?.profileTree || !device.device || !device.seed) throw new Error("The owner's device is unavailable");
+  return device;
 }
 
 /** Run one mode of a checked-in lab script on a node, passing its input on standard input. */
@@ -766,9 +770,9 @@ async function acceptance(state: LabState): Promise<void> {
   }
 
   const replayScenario = `accepted-replay-${suffix}`;
-  const ownerToken = await authorityToken(state);
+  const owner = await ownerDevice(state);
   const replayResult = await nodeScript<{ tree: string; historical: string; current: string }>(
-    state, "community", "lab-node.ts", "replay", { ownerToken },
+    state, "community", "lab-node.ts", "replay", { owner },
   );
   const replayTree = replayResult.tree;
   if (!/^tr_[a-z2-7]+$/.test(replayTree)) throw new Error("Exact replay scenario did not return a TreeID");
@@ -776,10 +780,10 @@ async function acceptance(state: LabState): Promise<void> {
     throw new Error("Semantic replay duplicated internal accepted history");
   }
   const privateSurface = await sshBash(state, "community", [
-    ". /etc/arbor-canopy.env",
-    `history_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/updates')`,
-    `object_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/objects/${replayResult.historical}')`,
-    `snapshot_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/snapshots/${replayResult.historical}')`,
+    OWNER_SESSION,
+    `history_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $session\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/updates')`,
+    `object_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $session\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/objects/${replayResult.historical}')`,
+    `snapshot_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $session\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/snapshots/${replayResult.historical}')`,
     "printf '%s %s %s' \"$history_status\" \"$object_status\" \"$snapshot_status\"",
   ].join("\n"), { quiet: true });
   // No route lists accepted history; an earlier accepted root stays readable
@@ -807,7 +811,7 @@ async function acceptance(state: LabState): Promise<void> {
   if (selected.stdout !== "binary-from-alice") throw new Error(`Bob does not hold the accepted selection: ${selected.stdout}`);
   // Resolve explicitly through Canopy: a new update keeps Bob's alternative.
   await nodeScript(state, "community", "lab-node.ts", "resolve-binary", {
-    ownerToken, tree: conflictTree, path: "sample.bin", keep: "binary-from-bob",
+    owner, tree: conflictTree, path: "sample.bin", keep: "binary-from-bob",
   });
   if (await authorityHistoryCount(state, conflictTree) !== before + 3) {
     throw new Error("The explicit resolution did not add exactly one accepted update");
@@ -821,11 +825,11 @@ async function acceptance(state: LabState): Promise<void> {
   }
 
   await sshBash(state, "community", [
-    ". /etc/arbor-canopy.env",
-    "test \"$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" http://127.0.0.1:4318/.arbor/trees/ignored/push)\" = 404",
+    OWNER_SESSION,
+    "test \"$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $session\" http://127.0.0.1:4318/.arbor/trees/ignored/push)\" = 404",
   ].join("\n"), { quiet: true });
   // Revocation is an administrator's edit of devices.yaml in the profile's configuration.
-  await nodeScript(state, "community", "lab-node.ts", "device-revocation", { ownerToken, tree: conflictTree });
+  await nodeScript(state, "community", "lab-node.ts", "device-revocation", { owner, tree: conflictTree });
 
   state.steps.acceptance = new Date().toISOString();
   state.acceptance = {
@@ -841,7 +845,7 @@ interface AuthorizationIdentity {
   handle: string;
   locator: string;
   profile: string;
-  token: string;
+  device: LabDevice;
 }
 
 async function authorization(state: LabState): Promise<void> {
@@ -858,16 +862,16 @@ async function authorization(state: LabState): Promise<void> {
     bob: `bob-${suffix}`,
     carol: `carol-${suffix}`,
   };
-  const ownerToken = await authorityToken(state);
+  const owner = await ownerDevice(state);
   const identities = await authorizationNode<Record<"alice" | "bob" | "carol", AuthorizationIdentity>>(
     state,
     "community",
     "setup",
-    { ownerToken, handles },
+    { owner, handles },
   );
   for (const role of ["alice", "bob", "carol"] as const) {
     const identity = identities[role];
-    if (!identity?.token || !/^tr_[a-z2-7]+$/.test(identity.profile) || identity.handle !== handles[role]) {
+    if (!identity?.device?.seed || !/^tr_[a-z2-7]+$/.test(identity.profile) || identity.handle !== handles[role]) {
       throw new Error(`Invalid ${role} authorization identity`);
     }
   }
@@ -878,7 +882,7 @@ async function authorization(state: LabState): Promise<void> {
     update: string;
     canonical: string;
   }>(state, "alice", "create", {
-    token: identities.alice.token,
+    device: identities.alice.device,
     bob: identities.bob.profile,
     carol: identities.carol.profile,
     scenario,
@@ -890,7 +894,7 @@ async function authorization(state: LabState): Promise<void> {
   const historyBefore = await authorityHistoryCount(state, aliceCreate.tree);
   if (historyBefore !== 1) throw new Error(`Authorization tree began with ${historyBefore} accepted updates`);
   const bobDenied = await authorizationNode<{ candidate: string }>(state, "bob", "deny-write", {
-    token: identities.bob.token,
+    device: identities.bob.device,
     tree: aliceCreate.tree,
     scenario,
   });
@@ -899,7 +903,7 @@ async function authorization(state: LabState): Promise<void> {
   }
 
   const carolWrite = await authorizationNode<{ root: string; update: string }>(state, "carol", "write", {
-    token: identities.carol.token,
+    device: identities.carol.device,
     tree: aliceCreate.tree,
     scenario,
   });
@@ -908,14 +912,14 @@ async function authorization(state: LabState): Promise<void> {
   }
 
   await authorizationNode<{ ok: true }>(state, "bob", "verify-reader", {
-    token: identities.bob.token,
+    device: identities.bob.device,
     tree: aliceCreate.tree,
     scenario,
     ...carolWrite,
   });
 
   await authorizationNode<{ ok: true }>(state, "alice", "verify-writer", {
-    token: identities.alice.token,
+    device: identities.alice.device,
     tree: aliceCreate.tree,
     scenario,
     rejected: bobDenied.candidate,
@@ -923,7 +927,7 @@ async function authorization(state: LabState): Promise<void> {
   });
 
   await authorizationNode<{ ok: true }>(state, "community", "verify-owner", {
-    token: ownerToken,
+    device: owner,
     tree: aliceCreate.tree,
     root: carolWrite.root,
     canonical: aliceCreate.canonical,

@@ -68,7 +68,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
-import { AccountDirectory, isRecoveryPairing, type DeviceBinding } from "./accounts.ts";
+import { AccountDirectory, isRecoveryPairing } from "./accounts.ts";
 import {
   HANDLE, handleOfPath, memberReservations, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
@@ -86,9 +86,15 @@ export interface StoredUpdateResponse {
   result: UpdateResponse | UpdateConflictResult;
 }
 
+/**
+ * An account an unattended bootstrap creates with its first device, a key
+ * device whose DeviceID and key the device chose (accounts §5). Without
+ * `profileTree` the host generates one.
+ */
 export interface HostBootstrapAccount {
   handle: string;
-  token: string;
+  profileTree?: string;
+  device: { id: string; key: string };
   name?: string;
   communityWriter?: boolean;
 }
@@ -377,7 +383,13 @@ export class HostDaemon implements AsyncDisposable {
     if (config.firstWriter && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
       throw new Error("First-writer profile must be a self-certifying person Profile TreeID");
     }
-    const preparedAccounts = config.accounts.map((account) => ({ account, profileTree: generateArborID("tr"), deviceID: generateArborID("dv") }));
+    const preparedAccounts = config.accounts.map((account) => {
+      const profileTree = account.profileTree ?? generateArborID("tr");
+      if (!isGeneratedArborID(profileTree, "tr") && !isPersonProfileTreeID(profileTree)) throw new Error(`Invalid profile TreeID for ~${account.handle}`);
+      if (!isGeneratedArborID(account.device?.id ?? "", "dv")) throw new Error(`~${account.handle} needs a generated 128-bit DeviceID`);
+      parseDeviceKey(account.device.key);
+      return { account, profileTree, deviceID: account.device.id };
+    });
     const members: Array<{ profile?: string; handle: string }> = [
       ...preparedAccounts.map(({ account, profileTree }) => ({
         profile: `arbor://${profileTree}/`,
@@ -386,7 +398,7 @@ export class HostDaemon implements AsyncDisposable {
       ...(config.firstWriter ? [{ profile: `arbor://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
     ];
     const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
-    // The community's members administer it. Bootstrap token accounts that
+    // The community's members administer it. Bootstrap accounts that
     // opted out of writing the community leave it to the others, named one by one.
     const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
     const everyMemberWrites = writers.length === preparedAccounts.length;
@@ -408,7 +420,7 @@ export class HostDaemon implements AsyncDisposable {
       if (!HANDLE.test(account.handle)) throw new Error(`Invalid account handle: ${account.handle}`);
       const label = "Initial device";
       const profileConfig = await this.prepareConfig(profileTree, "person", snapshotTreeConfig({
-        ...initialPersonConfig(profileTree, { id: deviceID, label }),
+        ...initialPersonConfig(profileTree, { id: deviceID, label, key: account.device.key }),
         access: [{ who: { profile: profileTree }, allow: ["admin"] }, { who: "everyone", allow: ["read"] }],
       }));
       this.insertMemberMount(community.id, account.handle, profileTree);
@@ -416,7 +428,7 @@ export class HostDaemon implements AsyncDisposable {
         id: profileTree,
         withinTransaction: () => {
           this.db.run("INSERT INTO accounts (id, handle, enabled) VALUES (?, ?, 1)", [profileTree, account.handle]);
-          this.accounts.insertDevice(deviceID, profileTree, label, { tokenDigest: sha256(account.token) }, Date.now());
+          this.accounts.insertDevice(deviceID, profileTree, label, account.device.key, Date.now());
           this.insertConfig(profileConfig, Date.now(), null);
         },
       });
@@ -661,20 +673,19 @@ export class HostDaemon implements AsyncDisposable {
     id: string;
     secret: string;
     deviceID: string;
-    credentialDigest?: string;
-    key?: string;
+    key: string;
     label: string;
   }): Promise<{ device: ServerDevice; confirmationCode: string }> {
     const { id, secret, label } = input;
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
-    const binding = deviceBinding(input);
+    parseDeviceKey(input.key);
     const pairing = this.accounts.pairing(id);
     const secretMatches = pairing?.secretMatches(secret) ?? false;
     if (pairing?.claimedAt && pairing.claimedDevice === input.deviceID) {
       const replay = this.accounts.deviceBinding(input.deviceID, pairing.accountID);
-      if (replay && stableJSONString(replay.binding) === stableJSONString(binding) && replay.label === safeLabel && secretMatches) {
+      if (replay && replay.publicKey === input.key && replay.label === safeLabel && secretMatches) {
         return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
       }
     }
@@ -690,12 +701,12 @@ export class HostDaemon implements AsyncDisposable {
     const recovery = isRecoveryPairing(id);
     const accepted = await this.advanceConfig(account.id, `pairing:${id}`, (values) => {
       if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");
-      const device = { id: input.deviceID, label: safeLabel, administrator: recovery, ...(input.key !== undefined ? { key: input.key } : {}) };
+      const device = { id: input.deviceID, label: safeLabel, administrator: recovery, key: input.key };
       return { ...values, devices: recovery ? { [input.deviceID]: device } : { ...values.devices, [input.deviceID]: device } };
     }, () => {
       if (!this.accounts.claimPairing(id, input.deviceID, now)) throw new Error("Pairing is invalid, expired, or already used");
       if (recovery) this.accounts.revokeAllDevices(pairing.accountID, now);
-      this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, binding, now);
+      this.accounts.insertDevice(input.deviceID, pairing.accountID, safeLabel, input.key, now);
     });
     this.notifyAccepted(accepted);
     return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
@@ -722,17 +733,14 @@ export class HostDaemon implements AsyncDisposable {
     const account = this.accounts.enabledAccount(profileTree);
     const entry = account ? (await this.treeConfig(profileTree))?.devices?.[device] : undefined;
     const row = account ? this.accounts.deviceBinding(device, account.id) : null;
-    if (
-      !account || !entry?.key || !row || row.revokedAt !== null || !("publicKey" in row.binding)
-      || row.binding.publicKey !== entry.key
-    ) throw new NotFoundError("No such key device");
+    if (!account || !entry?.key || !row || row.revokedAt !== null || row.publicKey !== entry.key) throw new NotFoundError("No such key device");
     return { account, key: entry.key };
   }
 
   /**
    * A profile's key devices as a placement host needs them (accounts §5.4):
    * each listed, unrevoked key device's DeviceID, key and administrator
-   * flag, as of the accepted configuration. Never labels or digest devices.
+   * flag, as of the accepted configuration. Never labels.
    */
   async publishedDeviceKeys(profileTree: string): Promise<PublishedDeviceKeys> {
     const account = this.accounts.enabledAccount(profileTree);
@@ -741,7 +749,7 @@ export class HostDaemon implements AsyncDisposable {
     const devices = Object.values(listed).filter((entry) => {
       if (!entry.key) return false;
       const row = this.accounts.deviceBinding(entry.id, account.id);
-      return !!row && row.revokedAt === null && "publicKey" in row.binding && row.binding.publicKey === entry.key;
+      return !!row && row.revokedAt === null && row.publicKey === entry.key;
     }).map((entry) => ({ id: entry.id, key: entry.key!, administrator: entry.administrator }))
       .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     return { profileTree, devices };
@@ -818,7 +826,7 @@ export class HostDaemon implements AsyncDisposable {
     return reservation ? { handle, ...reservation } : null;
   }
 
-  /** The founder account's handle while it is still reserved for its profile and unclaimed; null once claimed or when the community was bootstrapped with token accounts. */
+  /** The founder account's handle while it is still reserved for its profile and unclaimed; null once claimed or when the community was bootstrapped with accounts. */
   unclaimedFounderHandle(): string | null {
     const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
     return row?.value ?? null;
@@ -939,7 +947,7 @@ export class HostDaemon implements AsyncDisposable {
   /**
    * Rewrite the derived index of one tree's configuration: its rules and
    * administrators, a profile's app entries, the tree's mounts, and for a
-   * person the credential bindings `devices.yaml` names. Callers run this
+   * person the device keys `devices.yaml` names. Callers run this
    * inside the transaction that accepts the configuration.
    */
   private indexTreeConfig(tree: string, kind: TreeConfigKind, previous: TreeConfigValues | null, next: TreeConfigValues): void {
@@ -967,17 +975,13 @@ export class HostDaemon implements AsyncDisposable {
         }
       }
       for (const [id, device] of Object.entries(next.devices ?? {})) {
+        // Every device is a key device (accounts §5); history from before
+        // that stays readable, but no new configuration lists one without.
+        if (!device.key) throw new Error(`Device ${id} has no key`);
         const row = this.accounts.deviceBinding(id, tree);
-        if (!row) throw new Error(`Device ${id} has no credential binding`);
+        if (!row) throw new Error(`Device ${id} was never enrolled`);
         if (row.revokedAt !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
-        if ("publicKey" in row.binding) {
-          if (row.binding.publicKey !== device.key) throw new Error(`A device's key never changes: ${id}`);
-        } else if (device.key) {
-          // A digest device moves to a key: its credential stops working in
-          // the commit that accepts the key (accounts §5.2).
-          if (!previous?.devices?.[id] || previous.devices[id]!.key) throw new Error(`Device ${id} cannot move to a key`);
-          this.accounts.bindDeviceKey(id, device.key);
-        }
+        if (row.publicKey !== device.key) throw new Error(`A device's key never changes: ${id}`);
       }
     }
     this.recomputeBoundaries();
@@ -1191,8 +1195,7 @@ export class HostDaemon implements AsyncDisposable {
     inviteCode?: string;
     deviceID: string;
     deviceLabel: string;
-    credentialDigest?: string;
-    key?: string;
+    key: string;
     configurationSnapshot: TreeSnapshot;
   }): Promise<{ account: HostAccount; configuration: HostTree }> {
     const proof = this.verifyAccountIdentityProof(input);
@@ -1204,7 +1207,7 @@ export class HostDaemon implements AsyncDisposable {
       configurationTree: input.configurationTree,
       deviceID: input.deviceID,
       deviceLabel: input.deviceLabel,
-      ...(input.key !== undefined ? { key: input.key } : { credentialDigest: input.credentialDigest }),
+      key: input.key,
       configurationRoot: input.configurationSnapshot.root,
     }));
     if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
@@ -1214,7 +1217,7 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account join requires a person Profile TreeID and its configuration TreeID");
     }
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Account join requires a client-generated 128-bit DeviceID");
-    const binding = deviceBinding(input);
+    parseDeviceKey(input.key);
     const prior = this.accountByHandle(input.handle);
     if (prior) {
       const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
@@ -1263,7 +1266,7 @@ export class HostDaemon implements AsyncDisposable {
         "INSERT INTO accounts (id, handle, claim_digest, enabled) VALUES (?, ?, ?, 1)",
         [input.profileTree, input.handle, claimDigest],
       );
-      this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, binding, now);
+      this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, input.key, now);
       this.insertConfig(prepared, now, `device:${input.deviceID}`);
       this.insertMemberMount(community.id, input.handle, input.profileTree);
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
@@ -2526,25 +2529,6 @@ function profileKeySigned(label: string, publicKey: string, profileTree: string,
 function inviteCodeDigest(code: string): string {
   if (!/^[A-Za-z0-9_-]{22}$/.test(code)) throw new Error("Invitation code is invalid");
   return `sha256:${sha256(code)}`;
-}
-
-/** A new device's binding from a claim or pairing body: exactly one of a
- * credential digest and a device key. */
-function deviceBinding(input: { credentialDigest?: string; key?: string }): DeviceBinding {
-  if ((input.credentialDigest === undefined) === (input.key === undefined)) {
-    throw new Error("A device enrolls with exactly one of a credential digest and a key");
-  }
-  if (input.key !== undefined) {
-    parseDeviceKey(input.key);
-    return { publicKey: input.key };
-  }
-  return { tokenDigest: deviceTokenDigest(input.credentialDigest!) };
-}
-
-/** The stored token digest of a `sha256:<hex>` device credential digest. */
-function deviceTokenDigest(credentialDigest: string): string {
-  if (!/^sha256:[a-f0-9]{64}$/.test(credentialDigest)) throw new Error("Device credential digest is invalid");
-  return credentialDigest.slice("sha256:".length);
 }
 
 /** A group that administers a tree keeps at least one member. */

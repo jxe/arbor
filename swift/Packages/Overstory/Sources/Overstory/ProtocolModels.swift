@@ -954,19 +954,12 @@ public struct ProtocolPairingClaim: Codable, Sendable, Equatable {
     }
 }
 
-/// A device a claim or pairing adds: a key device sends its public `key`
-/// (accounts §5), a digest device only its credential's digest.
+/// A device a claim or pairing adds: its DeviceID, label and public `key`
+/// (accounts §5).
 public struct ProtocolPairingDevice: Codable, Sendable, Equatable {
     public var id: String
     public var label: String
-    public var credentialDigest: String?
-    public var key: String?
-
-    public init(id: String, label: String, credentialDigest: String) {
-        self.id = id
-        self.label = label
-        self.credentialDigest = credentialDigest
-    }
+    public var key: String
 
     public init(id: String, label: String, key: ProtocolDeviceKey) {
         self.id = id
@@ -974,13 +967,9 @@ public struct ProtocolPairingDevice: Codable, Sendable, Equatable {
         self.key = key.value
     }
 
-    /// Exactly one of a well-formed credential digest and a device key.
+    /// A well-formed device key.
     public func validated() throws -> Self {
-        switch (credentialDigest, key) {
-        case let (digest?, nil): try validateObjectHash(digest)
-        case let (nil, key?): _ = try ProtocolDeviceKey(key)
-        default: throw ProtocolValidationError.invalidValue("A device enrolls with exactly one of a credential digest and a key")
-        }
+        _ = try ProtocolDeviceKey(key)
         return self
     }
 }

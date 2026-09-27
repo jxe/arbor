@@ -3673,14 +3673,6 @@ private struct MacArborSyncAccountPanel: View {
         }
     }
 
-    private func moveToDeviceKey(configurationTree: String) async {
-        do {
-            guard let account = try await workspace.accountService.accounts().first(where: { $0.configurationTree == configurationTree }) else { return }
-            try await workspace.accountService.moveToDeviceKey(for: account)
-            await refresh()
-        } catch { message = error.localizedDescription }
-    }
-
     private func hostDeviceRow(
         _ device: LocalArborSyncDevicePresentation,
         configurationTree: String,
@@ -3703,13 +3695,6 @@ private struct MacArborSyncAccountPanel: View {
                 }
             }
             Menu {
-                if device.isCurrent, !device.hasKey {
-                    Button("Sign In with a Device Key") {
-                        Task { await moveToDeviceKey(configurationTree: configurationTree) }
-                    }
-                    .help("Replace this Mac's stored credential with a key that never leaves it")
-                    Divider()
-                }
                 if !device.isCurrent, currentIsAdministrator {
                     Button(device.isAdministrator ? "Remove Administrator" : "Make Administrator") {
                         Task {
@@ -4338,8 +4323,6 @@ private struct IOSAccountPanel: View {
     @State private var disconnectConfirmation = false
     @State private var loading = true
     @State private var addingAccount = false
-    /// Whether this device signs in with a key, by configuration TreeID.
-    @State private var keyed: [String: Bool] = [:]
 
     var body: some View {
         NavigationStack {
@@ -4362,9 +4345,6 @@ private struct IOSAccountPanel: View {
                     Section {
                         if let device = snapshots[account.configurationTree]?.device {
                             LabeledContent("This device", value: device.label)
-                        }
-                        if keyed[account.configurationTree] == false {
-                            Button("Sign In with a Device Key") { Task { await moveToDeviceKey(account) } }
                         }
                         if placement?.configurationTree == account.configurationTree {
                             Button("Disconnect and Pair Again…", role: .destructive) {
@@ -4408,7 +4388,7 @@ private struct IOSAccountPanel: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes this account’s credential and local trees from this iPhone. The server trees and their data are not deleted.")
+            Text("This removes this account’s device key and local trees from this iPhone. The server trees and their data are not deleted.")
         }
     }
 
@@ -4422,20 +4402,10 @@ private struct IOSAccountPanel: View {
                 do {
                     snapshots[account.configurationTree] = try await workspace.accountService
                         .client(for: account).account().account
-                    let stored = try? await KeychainDeviceCredentialStore().load(configurationTree: account.configurationTree)
-                    keyed[account.configurationTree] = stored.flatMap { $0 }.map { DeviceKeySecret(stored: $0) != nil }
                     accountErrors[account.configurationTree] = nil
                 } catch { accountErrors[account.configurationTree] = error.localizedDescription }
             }
             message = nil
-        } catch { message = error.localizedDescription }
-    }
-
-    /// Replace this iPhone's stored credential with a Secure Enclave key, keeping its DeviceID.
-    private func moveToDeviceKey(_ account: CanopyAccount) async {
-        do {
-            try await workspace.accountService.moveToDeviceKey(for: account)
-            await load()
         } catch { message = error.localizedDescription }
     }
 

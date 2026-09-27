@@ -173,17 +173,6 @@ function clientAddress(request: Request): string {
   return request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
 
-/** Exactly one of a credential digest and a device key, as strings. */
-function enrollmentIsWellFormed(device: { credentialDigest?: unknown; key?: unknown }): boolean {
-  return (typeof device.credentialDigest === "string") !== (typeof device.key === "string")
-    && (device.credentialDigest === undefined || typeof device.credentialDigest === "string")
-    && (device.key === undefined || typeof device.key === "string");
-}
-
-function enrollment(device: { credentialDigest?: unknown; key?: unknown }): { credentialDigest: string } | { key: string } {
-  return typeof device.key === "string" ? { key: device.key } : { credentialDigest: device.credentialDigest as string };
-}
-
 const CONFIGURATION_SUFFIX = ";arbor-config";
 
 /** The configuration of the tree whose canonical root is `path`, or null when no tree's root is there. */
@@ -319,7 +308,7 @@ export async function serveHost(options: {
       // A presented token that authenticates nothing (an expired session, a
       // deleted device) is refused, never read as anonymous: a 404 for a
       // private tree would hide the reason and clients refresh only on 401.
-      if (token && !execution && !authentication) return protocolError("unauthenticated", "The credential or session is not valid", 401);
+      if (token && !execution && !authentication) return protocolError("unauthenticated", "The session is not valid", 401);
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       const link = linkDigest(request);
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
@@ -454,17 +443,17 @@ export async function serveHost(options: {
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await request.json() as {
             secret?: unknown;
-            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
+            device?: { id?: unknown; label?: unknown; key?: unknown };
           };
           if (
             typeof body.secret !== "string" || typeof body.device?.id !== "string"
-            || typeof body.device.label !== "string" || !enrollmentIsWellFormed(body.device)
-          ) throw new Error("Pairing claim requires secret, generated device identity, a credential digest or key, and label");
+            || typeof body.device.label !== "string" || typeof body.device.key !== "string"
+          ) throw new Error("Pairing claim requires secret, generated device identity, a device key, and label");
           const claimed = await canopy.claimPairing({
             id: pairingID,
             secret: body.secret,
             deviceID: body.device.id,
-            ...enrollment(body.device),
+            key: body.device.key,
             label: body.device.label,
           });
           return json({ device: claimed.device, confirmationCode: claimed.confirmationCode }, 201);
@@ -504,7 +493,7 @@ export async function serveHost(options: {
             publicKey?: unknown;
             signature?: unknown;
             inviteCode?: unknown;
-            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown; key?: unknown };
+            device?: { id?: unknown; label?: unknown; key?: unknown };
             configuration?: { root?: unknown; objects?: unknown };
           };
           let accountURL: URL | undefined;
@@ -515,8 +504,8 @@ export async function serveHost(options: {
             || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
             || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
-            || !enrollmentIsWellFormed(body.device) || !body.configuration
-          ) throw new Error("Account join requires an exact community reservation, generated identities, a credential digest or key, and initial configuration");
+            || typeof body.device.key !== "string" || !body.configuration
+          ) throw new Error("Account join requires an exact community reservation, generated identities, a device key, and initial configuration");
           if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
             throw new Error("Account reservation names a different profile TreeID");
           }
@@ -532,7 +521,7 @@ export async function serveHost(options: {
             inviteCode: body.inviteCode as string | undefined,
             deviceID: body.device.id,
             deviceLabel: body.device.label,
-            ...enrollment(body.device),
+            key: body.device.key,
             configurationSnapshot: decodeTreeSnapshotJSON(body.configuration),
           });
           return json({

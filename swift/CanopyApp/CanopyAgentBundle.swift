@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 import Overstory
 
-/// What an agent's cloud machine starts from: the `arbor-cloud-v1` bundle that
+/// What an agent's cloud machine starts from: the `arbor-cloud-v2` bundle that
 /// `arbor cloud start` accepts. The Share panel makes the same bundle that
 /// `arbor cloud bundle create` does; `packages/cli/src/cloud.ts` owns the
 /// format, and this encoding must stay decodable by it.
@@ -14,7 +14,7 @@ struct CanopyCloudBundlePayload: Codable, Equatable, Sendable {
         var relativePath: String
     }
 
-    var version = 1
+    var version = 2
     var bundleID: String
     var label: String
     var createdAt: String
@@ -24,12 +24,13 @@ struct CanopyCloudBundlePayload: Codable, Equatable, Sendable {
     var configurationTree: String
     var profileTree: String
     var deviceID: String
-    var credential: String
+    /// The Ed25519 seed of the agent device's key, in unpadded base64url.
+    var deviceKeySeed: String
     var placements: [Placement]
 }
 
 enum CanopyCloudBundle {
-    static let prefix = "arbor-cloud-v1"
+    static let prefix = "arbor-cloud-v2"
     static let maximumLength = 32 * 1024
 
     /// `arbor-cloud-v1.<bundle ID>.<base64url of raw-DEFLATE sorted-key JSON>`.
@@ -49,14 +50,19 @@ enum CanopyCloudBundle {
         "cb_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
-    /// A device credential in the CLI's form, `arb_` and 64 hex digits.
-    static func newCredential() -> String {
-        "arb_" + hex(SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) })
+    /// A new Ed25519 seed for the agent's own key device, as the CLI reads it.
+    static func newDeviceKeySeed() -> String {
+        base64URL(Curve25519.Signing.PrivateKey().rawRepresentation)
     }
 
-    /// The digest canopyd stores for a device credential: SHA-256 of its UTF-8.
-    static func credentialDigest(_ credential: String) -> String {
-        "sha256:" + hex(Data(SHA256.hash(data: Data(credential.utf8))))
+    /// The `devices.yaml` key of a seed: its Ed25519 public key.
+    static func deviceKey(seed: String) throws -> ProtocolDeviceKey {
+        var base64 = seed.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        guard let bytes = Data(base64Encoded: base64), bytes.count == 32 else {
+            throw ProtocolValidationError.invalidValue("The agent's device key seed is malformed")
+        }
+        return ProtocolDeviceKey(ed25519: try Curve25519.Signing.PrivateKey(rawRepresentation: bytes).publicKey)
     }
 
     /// The folder a placed tree gets beneath the agent's cloud root: the last
@@ -75,13 +81,9 @@ enum CanopyCloudBundle {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
-
-    private static func hex(_ data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined()
-    }
 }
 
-/// One entry of the CLI's safe bundle registry: never the credential.
+/// One entry of the CLI's safe bundle registry: never the device key.
 struct CanopyCloudBundleRecord: Codable, Equatable, Sendable, Identifiable {
     var bundleID: String
     var label: String

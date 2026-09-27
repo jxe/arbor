@@ -281,24 +281,21 @@ Every successful response is a
 clean installation boundary. Concurrent folder work is reconciled later by
 canopyd and the ordinary watch/update protocol, like work from any other client.
 
-**Credential.** `GET /v1/credential` returns `{ token }`, the canopyd account
-credential stored for `configurationTree`, so that several local clients on one
-installation share the daemon's device identity and request-digest scope.
-Without the parameter it answers for the only connected account (or the
-legacy community configuration); with several accounts connected the parameter
-is required (`400 invalid-request`). A missing credential is `404 not-found`.
+**Credential.** `GET /v1/credential` returns `{ token }`, a canopyd session
+token the device key stored for `configurationTree` opened, so that several
+local clients on one installation share the daemon's device identity and
+request-digest scope without ever holding the key. Without the parameter it
+answers for the only connected account; with several accounts connected the
+parameter is required (`400 invalid-request`). An account with no usable key
+is `404 not-found`.
 Serving the token over loopback is deliberate and adds no authority: any
 local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
-For a key device the token is a session its key opened, not a long-lived
-credential: it is valid for at most an hour, so a client refetches it after a
-401 rather than caching it indefinitely.
-
-`POST /v1/device-key` accepts `{ configurationTree }` and moves this
-installation's device for that account to a key (`arbor device move-to-key`),
-answering `{ deviceKey }`; for a device that already has one it only answers.
+The token is never a long-lived credential: a session is valid for at most an
+hour, so a client refetches it after a 401 rather than caching it
+indefinitely.
 
 ## 4. Identity, account bootstrap, and declined changes
 

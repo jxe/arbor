@@ -703,7 +703,7 @@ struct UpdateProtocolTests {
     @Test("Pairing claims never send an existing credential")
     func unauthenticatedPairingClaim() async throws {
         let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-        let digest = "sha256:" + String(repeating: "0", count: 64)
+        let key = ProtocolDeviceKey(p256: P256.Signing.PrivateKey().publicKey)
         let response = Data("""
         {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
         """.utf8)
@@ -721,7 +721,7 @@ struct UpdateProtocolTests {
         let claimed = try await client.claimPairing(
             id: "pair_1",
             secret: "secret",
-            device: ProtocolPairingDevice(id: deviceID, label: "iPad", credentialDigest: digest)
+            device: ProtocolPairingDevice(id: deviceID, label: "iPad", key: key)
         )
         #expect(claimed.device.id == deviceID)
         #expect(claimed.confirmationCode == "123456")
@@ -804,20 +804,18 @@ struct LiveProtocolTests {
         #expect(snapshot == snapshot.sorted())
 
         let offer = try await client.createPairing()
-        let pairedToken = "swift-paired-device-token"
-        let digest = SHA256.hash(data: Data(pairedToken.utf8)).map { String(format: "%02x", $0) }.joined()
+        let pairedKey = DeviceKeySecret.software(P256.Signing.PrivateKey().rawRepresentation)
         let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
         let claim = try await client.claimPairing(
             id: offer.id,
             secret: offer.secret,
-            device: ProtocolPairingDevice(
-                id: deviceID,
-                label: "Swift test device",
-                credentialDigest: "sha256:\(digest)"
-            )
+            device: ProtocolPairingDevice(id: deviceID, label: "Swift test device", key: try pairedKey.publicKey())
         )
         #expect(claim.device.id == deviceID)
-        let paired = ProtocolClient(origin: origin, credential: pairedToken, retryDelay: { _ in })
+        // The paired device signs in only with a session its key opens.
+        let pairedSession = try await ProtocolClient(origin: origin, retryDelay: { _ in })
+            .openDeviceSession(profileTree: try #require(account.account.profileTree), device: deviceID, key: pairedKey)
+        let paired = ProtocolClient(origin: origin, credential: pairedSession.token, retryDelay: { _ in })
         #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
 
         let historyURL = origin.appending(path: ".arbor/trees/\(configuration.id)/updates")

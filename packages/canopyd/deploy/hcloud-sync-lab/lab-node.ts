@@ -4,21 +4,24 @@
  * one JSON object from standard input and writes one JSON object to standard
  * output, so credentials travel only over SSH standard input.
  */
+import { createPrivateKey, sign } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   accountCheckoutPath,
   arborDataRoot,
   decodeProtocolDirectory,
+  deviceKeyFromSeed,
+  deviceSessionChallengeBytes,
   encodeProtocolDirectory,
   generateArborID,
+  generateDeviceKeySeed,
   hashObject,
   HostAccountStore,
   ProtocolClient,
   ProtocolHTTPError,
   readTreeConfigGraph,
   saveCurrentAccountDeviceID,
-  sha256,
   snapshotTreeConfig,
   type TreeConfigKind,
   type TreeConfigValues,
@@ -36,6 +39,32 @@ export async function input<T>(): Promise<T> {
 
 export function output(value: unknown): void {
   process.stdout.write(JSON.stringify(value));
+}
+
+/** A key device the lab holds: its profile, DeviceID and Ed25519 seed. */
+export interface LabDevice {
+  profileTree: string;
+  device: string;
+  seed: string;
+}
+
+const PKCS8_ED25519 = Buffer.from("302e020100300506032b657004220420", "hex");
+
+/**
+ * A client for `device` at `endpoint`, through a session it opens by signing
+ * the host's challenge. The challenge names the host's canonical origin even
+ * when the lab reaches it at 127.0.0.1, so the lab trusts the host it asked.
+ */
+export async function labClient(endpoint: string, device: LabDevice, options: { timeoutMs?: number } = {}): Promise<ProtocolClient> {
+  return new ProtocolClient(endpoint, await labSession(endpoint, device, options), options);
+}
+
+/** The session token `labClient` sends. */
+export async function labSession(endpoint: string, device: LabDevice, options: { timeoutMs?: number } = {}): Promise<string> {
+  const host = new ProtocolClient(endpoint, undefined, options);
+  const challenge = await host.createDeviceSessionChallenge({ profileTree: device.profileTree, device: device.device });
+  const key = createPrivateKey({ key: Buffer.concat([PKCS8_ED25519, Buffer.from(device.seed, "base64url")]), format: "der", type: "pkcs8" });
+  return (await host.openDeviceSession(challenge, sign(null, deviceSessionChallengeBytes(challenge), key).toString("base64url"))).token;
 }
 
 /** Resolve when `read` fails with the existence-hiding 404; fail otherwise. */
@@ -141,47 +170,44 @@ export async function hostTree(
 }
 
 /**
- * Pair a new digest device into the owner's account: the owner offers a
- * pairing, the new device claims it with a credential only it holds, and the
- * owner optionally makes it an administrator in its profile's `devices.yaml`.
+ * Pair a new key device into the owner's account: the owner offers a
+ * pairing, the new device claims it with a key only it holds, and the owner
+ * optionally makes it an administrator in its profile's `devices.yaml`.
  */
 export async function pairDevice(
   owner: ProtocolClient,
   origin: string,
   label: string,
   administrator: boolean,
-): Promise<{ device: string; credential: string }> {
+): Promise<LabDevice> {
   const offer = await owner.createPairing();
+  const { account } = await owner.account();
   const device = generateArborID("dv");
-  const credential = `arb_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
-  const claimed = await new ProtocolClient(origin).claimPairing(offer.id, offer.secret, {
-    id: device,
-    label,
-    credentialDigest: `sha256:${sha256(credential)}`,
-  });
+  const seed = generateDeviceKeySeed();
+  const claimed = await new ProtocolClient(origin).claimPairing(offer.id, offer.secret, { id: device, label, key: deviceKeyFromSeed(seed) });
   if (claimed.device.id !== device) throw new Error("Pairing claimed a different DeviceID");
   if (administrator) {
-    const { account } = await owner.account();
     await editTreeConfig(owner, account.profileTree!, "person", (values) => ({
       ...values,
       devices: { ...values.devices, [device]: { ...values.devices![device]!, administrator: true } },
     }));
   }
-  return { device, credential };
+  return { profileTree: account.profileTree!, device, seed };
 }
 
 /**
  * Pair this client machine into the owner's account and install the account
  * the way a connected Arbor Sync holds it: the account checkout (the profile's
- * configuration), an empty placement list, the current device, and the
- * credential in the credential store. The owner credential is used only to
- * offer the pairing and is never stored here.
+ * configuration), an empty placement list, the current device, and its key
+ * in the credential store. The owner's device is used only to offer the
+ * pairing and is never stored here.
  */
 async function connect(): Promise<void> {
-  const value = await input<{ ownerToken: string; label: string; administrator?: boolean }>();
-  const owner = new ProtocolClient(COMMUNITY, value.ownerToken, { timeoutMs: 30_000 });
-  const { device, credential } = await pairDevice(owner, COMMUNITY, value.label, value.administrator === true);
-  const client = new ProtocolClient(COMMUNITY, credential, { timeoutMs: 30_000 });
+  const value = await input<{ owner: LabDevice; label: string; administrator?: boolean }>();
+  const owner = await labClient(COMMUNITY, value.owner, { timeoutMs: 30_000 });
+  const paired = await pairDevice(owner, COMMUNITY, value.label, value.administrator === true);
+  const { device } = paired;
+  const client = await labClient(COMMUNITY, paired, { timeoutMs: 30_000 });
   const { account } = await client.account();
   if (!account.profileTree || !account.handle) throw new Error("The paired account has no profile");
   const configurationTree = account.configuration.id;
@@ -194,7 +220,7 @@ async function connect(): Promise<void> {
   await writeFile(join(arborDataRoot(), "placements.yaml"), `${JSON.stringify({ [configurationTree]: {} })}\n`, { mode: 0o600 });
   await saveCurrentAccountDeviceID(configurationTree, device);
   const origin = new URL(COMMUNITY).origin;
-  await new HostAccountStore(configurationTree).set(credential, {
+  await new HostAccountStore(configurationTree).setDeviceKey(paired.seed, {
     origin,
     account: `${origin}/~${account.handle}`,
     accountID: account.id,
@@ -212,8 +238,8 @@ async function connect(): Promise<void> {
  * base is one accepted update with one receipt.
  */
 async function replay(): Promise<void> {
-  const value = await input<{ ownerToken: string }>();
-  const client = new ProtocolClient(LOCAL_COMMUNITY, value.ownerToken, { timeoutMs: 30_000 });
+  const value = await input<{ owner: LabDevice }>();
+  const client = await labClient(LOCAL_COMMUNITY, value.owner, { timeoutMs: 30_000 });
   const initial = filesSnapshot({ "note.md": "one\n" });
   const tree = await hostTree(client, initial);
   const { descriptor } = await readAccepted(client, tree);
@@ -233,8 +259,8 @@ async function replay(): Promise<void> {
  * `keep`, as a new update that declares the decision resolved.
  */
 async function resolveBinary(): Promise<void> {
-  const value = await input<{ ownerToken: string; tree: string; path: string; keep: string }>();
-  const client = new ProtocolClient(LOCAL_COMMUNITY, value.ownerToken, { timeoutMs: 30_000 });
+  const value = await input<{ owner: LabDevice; tree: string; path: string; keep: string }>();
+  const client = await labClient(LOCAL_COMMUNITY, value.owner, { timeoutMs: 30_000 });
   const { descriptor, snapshot } = await readAccepted(client, value.tree);
   if (!descriptor.conflicted) throw new Error(`${value.tree} has no unresolved alternative`);
   const page = await client.conflicts(value.tree, descriptor.update, snapshot.root);
@@ -256,13 +282,14 @@ async function resolveBinary(): Promise<void> {
 
 /**
  * Pair a short-lived device, prove it reads `tree`, revoke it by deleting its
- * `devices.yaml` entry, and prove the same credential is then refused.
+ * `devices.yaml` entry, and prove its session is then refused.
  */
 async function deviceRevocation(): Promise<void> {
-  const value = await input<{ ownerToken: string; tree: string }>();
-  const owner = new ProtocolClient(LOCAL_COMMUNITY, value.ownerToken, { timeoutMs: 30_000 });
-  const { device, credential } = await pairDevice(owner, LOCAL_COMMUNITY, "Hetzner acceptance device", false);
-  const paired = new ProtocolClient(LOCAL_COMMUNITY, credential, { timeoutMs: 30_000 });
+  const value = await input<{ owner: LabDevice; tree: string }>();
+  const owner = await labClient(LOCAL_COMMUNITY, value.owner, { timeoutMs: 30_000 });
+  const pairedDevice = await pairDevice(owner, LOCAL_COMMUNITY, "Hetzner acceptance device", false);
+  const { device } = pairedDevice;
+  const paired = await labClient(LOCAL_COMMUNITY, pairedDevice, { timeoutMs: 30_000 });
   await paired.descriptor(value.tree);
   const { account } = await owner.account();
   await editTreeConfig(owner, account.profileTree!, "person", (values) => {
@@ -280,7 +307,24 @@ async function deviceRevocation(): Promise<void> {
     }
     throw error;
   }
-  throw new Error("A revoked device credential still authenticates");
+  throw new Error("A revoked device's session still authenticates");
+}
+
+/** The community owner's first device, made once before the community's
+ * first start and kept root-only on the community machine. */
+function ownerDevice(): void {
+  output({ profileTree: generateArborID("tr"), device: generateArborID("dv"), seed: generateDeviceKeySeed() } satisfies LabDevice);
+}
+
+/** The `ARBOR_ACCOUNTS_JSON` that bootstraps the owner account with that device. */
+async function ownerAccounts(): Promise<void> {
+  const owner = await input<LabDevice>();
+  output([{ handle: "owner", name: "Owner", communityWriter: true, profileTree: owner.profileTree, device: { id: owner.device, key: deviceKeyFromSeed(owner.seed) } }]);
+}
+
+/** A session token for the owner's device, for the lab's raw HTTP checks on the community. */
+async function ownerSession(): Promise<void> {
+  process.stdout.write(await labSession(LOCAL_COMMUNITY, await input<LabDevice>(), { timeoutMs: 30_000 }));
 }
 
 if (import.meta.main) {
@@ -289,5 +333,8 @@ if (import.meta.main) {
   else if (mode === "replay") await replay();
   else if (mode === "resolve-binary") await resolveBinary();
   else if (mode === "device-revocation") await deviceRevocation();
+  else if (mode === "owner-device") ownerDevice();
+  else if (mode === "owner-accounts") await ownerAccounts();
+  else if (mode === "owner-session") await ownerSession();
   else throw new Error(`Unknown lab-node mode: ${mode ?? "(missing)"}`);
 }

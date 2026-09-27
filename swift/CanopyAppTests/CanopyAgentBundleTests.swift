@@ -17,7 +17,7 @@ struct CanopyAgentBundleTests {
             configurationTree: "tr_abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst",
             profileTree: "tr_bcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstu",
             deviceID: "dv_abcdefghijklmnopqrstuvwxyz",
-            credential: CanopyCloudBundle.newCredential(),
+            deviceKeySeed: CanopyCloudBundle.newDeviceKeySeed(),
             placements: [.init(
                 treeID: "tr_cdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv",
                 canonicalURL: "https://garden.example/~joe/code",
@@ -32,7 +32,7 @@ struct CanopyAgentBundleTests {
         let encoded = try CanopyCloudBundle.encode(original)
         let parts = encoded.split(separator: ".", omittingEmptySubsequences: false)
         #expect(parts.count == 3)
-        #expect(parts[0] == "arbor-cloud-v1")
+        #expect(parts[0] == "arbor-cloud-v2")
         #expect(parts[1] == "cb_0123456789abcdefghij")
         var base64 = parts[2].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
@@ -42,12 +42,14 @@ struct CanopyAgentBundleTests {
         #expect(!String(decoding: json, as: UTF8.self).contains("\\/"))
     }
 
-    @Test("Credentials and their digests match the CLI's forms")
-    func credentials() {
-        #expect(CanopyCloudBundle.newCredential().wholeMatch(of: /arb_[0-9a-f]{64}/) != nil)
+    @Test("Device key seeds and their keys match the CLI's forms")
+    func deviceKeys() throws {
+        #expect(CanopyCloudBundle.newDeviceKeySeed().wholeMatch(of: /[A-Za-z0-9_-]{43}/) != nil)
         #expect(CanopyCloudBundle.newBundleID().wholeMatch(of: /cb_[0-9a-f]{32}/) != nil)
-        #expect(CanopyCloudBundle.credentialDigest("abc")
-            == "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        // The ed25519 session vector of docs/overstory-spec/conformance/device-keys.json.
+        #expect(try CanopyCloudBundle.deviceKey(seed: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE").value
+            == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
+        #expect(throws: (any Error).self) { try CanopyCloudBundle.deviceKey(seed: "short") }
     }
 
     @Test("A tree is placed under its canonical name when that is portable")
@@ -78,7 +80,7 @@ struct CanopyAgentBundleTests {
         )
         try registry.save(record)
         let source = try String(contentsOf: home.appending(path: "bundles.json"), encoding: .utf8)
-        #expect(!source.contains("credential"))
+        #expect(!source.contains("deviceKeySeed"))
         #expect(!source.contains("revokedAt"))
         #expect(try registry.load() == [record])
         let attributes = try FileManager.default.attributesOfItem(atPath: home.appending(path: "bundles.json").path)

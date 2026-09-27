@@ -21,6 +21,7 @@ import {
 } from "@overstory/protocol";
 import { editTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { deviceClient, deviceSession, newTestDevice, testAccount, testDevice } from "../../helpers/devices.ts";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 const token = "owner-test-credential";
@@ -32,12 +33,12 @@ beforeAll(async () => {
   dataRoot = await mkdtemp(join(tmpdir(), "arbor-canopy-"));
   running = await serveHost({
     dataRoot,
-    accounts: [{ handle: "owner", token, communityWriter: true }],
+    accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
   });
-  client = new ProtocolClient(running.url, token);
+  client = await deviceClient(running.url, token);
 });
 
 afterAll(async () => {
@@ -74,7 +75,7 @@ function eventFrames(source: string): string[] {
 
 async function readWatchFrames(url: string, count: number) {
   const abort = new AbortController();
-  const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
+  const response = await fetch(url, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` }, signal: abort.signal });
   expect(response.status).toBe(200);
   const reader = response.body!.getReader();
   let source = "";
@@ -112,7 +113,7 @@ describe("governed tree-configuration Canopy server", () => {
     const submit = spyOn(running.canopy, "submitUpdate").mockRejectedValue(new MergeWorkerError("Evaluation time budget exceeded", "limit"));
     try {
       const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
-        method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+        method: "POST", headers: {authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json"},
         body: JSON.stringify({base: baseline.current.tree.update, updates: [{change: crypto.randomUUID(), candidate: baseline.current.tree.root, trace: null, resolves: [], objects: [], deltas: []}]}),
       });
       expect(response.status).toBe(503);
@@ -248,7 +249,7 @@ describe("governed tree-configuration Canopy server", () => {
     ] }] };
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
     const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
-      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      method: "POST", headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json" },
       body: JSON.stringify({ base: baseline.current.tree.update, updates: [first, second] }),
     });
     await expect(client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [decodeCandidateUpdateJSON(first), decodeCandidateUpdateJSON(second)] })).rejects.toBeInstanceOf(ProtocolUnsupportedOperation);
@@ -262,7 +263,7 @@ describe("governed tree-configuration Canopy server", () => {
     const baseline = await currentConfig();
     const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json" },
       body: JSON.stringify({ change: crypto.randomUUID(), trace: null,
         base: baseline.current.tree.update,
         candidate: baseline.current.tree.root,
@@ -330,7 +331,7 @@ describe("governed tree-configuration Canopy server", () => {
     const baseline = await currentConfig();
     const treeID = baseline.current.tree.id;
     const snapshotURL = (root: string, tree = treeID) => `${running.url}/.arbor/trees/${tree}/snapshots/${root}`;
-    const authenticated = { authorization: `Bearer ${token}` };
+    const authenticated = { authorization: `Bearer ${await deviceSession(running.url, token)}` };
 
     const first = await fetch(snapshotURL(baseline.snapshot.root), { headers: authenticated });
     const firstBody = new Uint8Array(await first.arrayBuffer());
@@ -450,7 +451,7 @@ describe("governed tree-configuration Canopy server", () => {
     const abort = new AbortController();
     const response = await fetch(
       `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
-      { headers: { authorization: `Bearer ${token}` }, signal: abort.signal },
+      { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` }, signal: abort.signal },
     );
     expect(response.status).toBe(200);
     const reader = response.body!.getReader();
@@ -511,7 +512,7 @@ describe("governed tree-configuration Canopy server", () => {
     await writeFile(join(treePath, "note.md"), "---\nid: x7f3q2\n---\n\n# Activated\n");
     const initial = await resolveSnapshot(await snapshotDirectory(treePath));
     const unsupported = await fetch(`${running.url}/.arbor/trees/${treeID}/updates`, {
-      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      method: "POST", headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json" },
       // An activation carries exact bytes only; any authored evidence, however
       // well formed, is unsupported.
       body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), trace: [{ before: initial.root, after: initial.root, operations: [
@@ -714,17 +715,14 @@ describe("governed tree-configuration Canopy server", () => {
     expect(frames[0]!.id).toBe(third.update.id);
   });
 
-  test("pairing adds a devices.yaml entry and deleting it atomically revokes its credential", async () => {
+  test("pairing adds a devices.yaml entry and deleting it atomically revokes its sessions", async () => {
     const offer = await client.createPairing();
-    const peerID = generateArborID("dv");
-    const peerCredential = "peer-device-secret-kept-by-the-client";
-    const claimed = await client.claimPairing(offer.id, offer.secret, {
-      id: peerID,
-      label: "Peer laptop",
-      credentialDigest: `sha256:${sha256(peerCredential)}`,
-    });
+    const peerDevice = newTestDevice("peer");
+    const peerID = peerDevice.device;
+    const claimed = await client.claimPairing(offer.id, offer.secret, { id: peerID, label: "Peer laptop", key: peerDevice.key });
     expect(claimed.device).toMatchObject({ id: peerID, label: "Peer laptop", revokedAt: null });
-    expect(JSON.stringify(claimed)).not.toContain(peerCredential);
+    expect(JSON.stringify(claimed)).not.toContain(peerDevice.seed);
+    const peerCredential = await deviceSession(running.url, peerDevice.name, testDevice(token).profileTree);
     const peer = new ProtocolClient(running.url, peerCredential);
     const peerAccount = await peer.account();
     expect(peerAccount.account.handle).toBe("owner");
@@ -761,7 +759,7 @@ describe("governed tree-configuration Canopy server", () => {
     await expect(client.claimPairing(retired.id, retired.secret, {
       id: peerID,
       label: "Peer again",
-      credentialDigest: `sha256:${sha256("new-secret")}`,
+      key: newTestDevice("peer-again").key,
     })).rejects.toThrow("Retired");
     const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
     try {
@@ -777,7 +775,7 @@ describe("governed tree-configuration Canopy server", () => {
     const account = await client.account();
     const response = await fetch(
       `${running.url}/.arbor/trees/${account.account.configuration.id}/watch?after=one`,
-      { headers: { authorization: `Bearer ${token}`, "last-event-id": "two" } },
+      { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "last-event-id": "two" } },
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: "invalid-request", retryable: false });
@@ -883,8 +881,8 @@ describe("governed tree-configuration Canopy server", () => {
 });
 
 describe("canopyd request failure classification", () => {
-  const post = (tree: string, update: string, root: string) => fetch(`${running.url}/.arbor/trees/${tree}/updates`, {
-    method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+  const post = async (tree: string, update: string, root: string) => fetch(`${running.url}/.arbor/trees/${tree}/updates`, {
+    method: "POST", headers: {authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json"},
     body: JSON.stringify({base: update, updates: [{change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], objects: [], deltas: []}]}),
   });
 

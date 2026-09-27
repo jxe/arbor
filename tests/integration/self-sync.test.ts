@@ -8,9 +8,10 @@ import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveHost } from "@overstory/canopyd";
-import { HostAccountStore, generateArborID, sha256, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
+import { HostAccountStore, generateArborID, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -71,28 +72,25 @@ beforeAll(async () => {
   await writeFile(join(treeA, "note.md"), `# Common\n${"shared text\n".repeat(1_024)}`);
   host = await serveHost({
     dataRoot: hostState,
-    accounts: [{ handle: "owner", token, communityWriter: true }],
+    accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
   });
   hostPort = host.server.port!;
 
-  const owner = new ProtocolClient(host.url, token);
+  const owner = await deviceClient(host.url, token);
   const initialAccount = await owner.account();
   const profile = initialAccount.account.profileTree!;
   deviceA = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
   tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(treeA)), { parent: { tree: profile, name: "self-sync", kind: "person" } });
 
-  deviceB = generateArborID("dv");
+  const peer = testDevice(tokenB);
+  deviceB = peer.device;
   const pairing = await owner.createPairing();
-  await owner.claimPairing(pairing.id, pairing.secret, {
-    id: deviceB,
-    label: "Self-sync peer",
-    credentialDigest: `sha256:${sha256(tokenB)}`,
-  });
-  await installAccountHome(stateA, owner, deviceA, token, { [treeA]: tree });
-  await installAccountHome(stateB, new ProtocolClient(host.url, tokenB), deviceB, tokenB, { [treeB]: tree });
+  await owner.claimPairing(pairing.id, pairing.secret, { id: deviceB, label: "Self-sync peer", key: peer.key });
+  await installAccountHome(stateA, owner, deviceA, testDevice(token).seed, { [treeA]: tree });
+  await installAccountHome(stateB, await deviceClient(host.url, tokenB, { profileTree: profile }), deviceB, peer.seed, { [treeB]: tree });
 });
 
 afterAll(async () => {
@@ -175,7 +173,7 @@ describe("private self-sync", () => {
 
     host = await serveHost({
       dataRoot: hostState,
-      accounts: [{ handle: "owner", token, communityWriter: true }],
+      accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
       hostname: "127.0.0.1",
       port: hostPort,
@@ -221,7 +219,7 @@ describe("private self-sync", () => {
     await writeFile(join(treeB, "sample.bin"), "binary-from-b");
     host = await serveHost({
       dataRoot: hostState,
-      accounts: [{ handle: "owner", token, communityWriter: true }],
+      accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
       hostname: "127.0.0.1",
       port: hostPort,
@@ -249,11 +247,11 @@ describe("private self-sync", () => {
       await writeFile(join(treeB, "during-review.txt"), "Editing continues\n");
       await restarted.running.service.synchronizeNow();
       await waitFor(async () => {
-        const current = await new ProtocolClient(host.url, token).descriptor(tree);
-        const snapshot = await new ProtocolClient(host.url, token).snapshot(tree, current.tree.root);
+        const current = await (await deviceClient(host.url, token)).descriptor(tree);
+        const snapshot = await (await deviceClient(host.url, token)).snapshot(tree, current.tree.root);
         return decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.some(e => e.name === "during-review.txt");
       });
-      const owner = new ProtocolClient(host.url, token), current = await readAccepted(owner, tree);
+      const owner = await deviceClient(host.url, token), current = await readAccepted(owner, tree);
       const page = await owner.conflicts(tree, current.descriptor.tree.update, current.snapshot.root);
       expect(page.decisions).toHaveLength(1);
       const decision = page.decisions[0]!;
@@ -299,7 +297,7 @@ describe("private self-sync", () => {
 
     // Another writer advances the tree directly on Canopy; the reader's only
     // way to learn about it within the timeout is its live watch.
-    const owner = new ProtocolClient(host.url, token);
+    const owner = await deviceClient(host.url, token);
     const current = await readAccepted(owner, tree);
     const rootObject = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory root");
@@ -391,7 +389,7 @@ describe("private self-sync", () => {
         candidate: hashObject(successorRoot), resolves: [], deltas: [],
         objects: [{ hash: hashObject(extraFile), bytes: extraFile }, { hash: hashObject(successorRoot), bytes: successorRoot }],
       };
-      const peer = new ProtocolClient(host.url, token);
+      const peer = await deviceClient(host.url, token);
       const peerResponse = await peer.submitUpdates(tree, { base: chain.base, updates: [...chain.updates, successor] });
       expect(peerResponse.results).toHaveLength(chain.updates.length + 1);
       const successorAccepted = peerResponse.results.at(-1)!;
@@ -427,7 +425,7 @@ describe("private self-sync", () => {
     const store = new AcceptedUpdateStore(db);
     try {
       await daemon.synchronizeNow();
-      const owner = new ProtocolClient(host.url, token), initial = await readAccepted(owner, tree);
+      const owner = await deviceClient(host.url, token), initial = await readAccepted(owner, tree);
       const candidate = (text: string) => {
         const directory = decodeProtocolDirectory(initial.snapshot.objects.get(initial.snapshot.root)!);
         const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
@@ -461,7 +459,7 @@ describe("private self-sync", () => {
 
   test("a declined folder change is kept on disk across restart while the account folder keeps syncing, until restored", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
-    const owner = new ProtocolClient(host.url, token);
+    const owner = await deviceClient(host.url, token);
     const configurationTree = (await owner.account()).account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
     const checkout = join(stateA, "accounts", configurationTree);
@@ -511,7 +509,7 @@ describe("private self-sync", () => {
       }
       return systemFetch(input, init);
     }) as typeof fetch;
-    const owner = new ProtocolClient(host.url, token);
+    const owner = await deviceClient(host.url, token);
     const hasEntry = async (name: string) => {
       const current = await readAccepted(owner, tree);
       return decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!).entries.some((entry) => entry.name === name);
@@ -591,12 +589,12 @@ describe("private self-sync", () => {
 });
 
 describe("ignore rules in a placed folder", () => {
-  const owner = () => new ProtocolClient(host.url, token);
+  const owner = () => deviceClient(host.url, token);
   const syncState = async (service: ArborSyncDaemon) => (await service.trees.descriptors()).find(({ id }) => id === tree)?.sync;
 
   /** The accepted text at a path, "<directory>" for a directory, or null. */
   async function acceptedFile(path: string): Promise<string | null> {
-    const { snapshot } = await readAccepted(owner(), tree);
+    const { snapshot } = await readAccepted(await owner(), tree);
     let entry: { file?: string; directory?: string } | undefined = { directory: snapshot.root };
     for (const name of path.split("/").filter(Boolean)) {
       if (!entry?.directory) return null;
@@ -609,7 +607,7 @@ describe("ignore rules in a placed folder", () => {
 
   /** Another client's accepted update: set (or, with null, delete) files by path. */
   async function remoteChange(changes: Record<string, string | null>): Promise<void> {
-    const client = owner();
+    const client = await owner();
     const current = await readAccepted(client, tree);
     const objects = new Map(current.snapshot.objects);
     const rewrite = (hash: string | undefined, names: string[], value: string | null): string => {

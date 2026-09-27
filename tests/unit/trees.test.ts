@@ -2,14 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HostAccountStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@overstory/protocol";
+import { deviceKeyFromSeed, HostAccountStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@overstory/protocol";
 import { loadTreeRegistry, savePlacementSyncMetadata } from "@overstory/arborsync/state";
 import { parseLocalPlacements } from "@overstory/client";
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
 const temporary: string[] = [];
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", shared = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", cfg = treeConfigurationID(profile), device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const canopy = "https://community.example";
+const canopy = "https://community.example", seed = "A".repeat(43);
 async function dataHome() {
   const home = await mkdtemp(join(tmpdir(), "arbor-account-config-"));
   temporary.push(home); process.env.ARBOR_DATA_HOME = home; process.env.ARBOR_CREDENTIAL_STORE = "file"; return home;
@@ -19,10 +19,10 @@ async function writeConfiguration(home: string, placementPath: string) {
   await mkdir(checkout, { recursive: true });
   await writeFile(join(checkout, "access.yaml"), `- who: {profile: ${profile}}\n  allow: [admin]\n`);
   await writeFile(join(checkout, "mounts.yaml"), `shared: ${shared}\n`);
-  await writeFile(join(checkout, "devices.yaml"), JSON.stringify({ [device]: { label: "Mac", administrator: true } }));
+  await writeFile(join(checkout, "devices.yaml"), JSON.stringify({ [device]: { label: "Mac", administrator: true, key: deviceKeyFromSeed(seed) } }));
   await writeFile(join(home, "placements.yaml"), JSON.stringify({ [cfg]: { [placementPath]: shared } }));
   await saveCurrentAccountDeviceID(cfg, device);
-  await new HostAccountStore(cfg).set("fixture-token", { origin: canopy, account: `${canopy}/~joe`, accountID: profile, profileTree: profile, deviceID: device });
+  await new HostAccountStore(cfg).setDeviceKey(seed, { origin: canopy, account: `${canopy}/~joe`, accountID: profile, profileTree: profile, deviceID: device });
 }
 afterEach(async () => {
   if (previousCredentialStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE;

@@ -9,6 +9,7 @@ import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashO
   type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, store: ObjectStore;
@@ -16,9 +17,9 @@ let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
 const token = "collection-owner";
 
 async function start() {
-  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }],
+  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new ProtocolClient(running.url, token);
+  client = await deviceClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 /** A fresh process: nothing read from an in-memory object cache. */

@@ -11,7 +11,7 @@ arbor-carol        client C
 
 The machines use their ordinary root disks and communicate through Tailscale. There is no Terraform/OpenTofu, Kubernetes, load balancer, Hetzner private network, attached volume, DNS setup, or TLS proxy in the baseline lab. `hcloud` creates, starts, stops, and deletes the VMs; ordinary Linux commands inject network faults.
 
-The lab is disposable. Use a separate Hetzner project, a dedicated Tailscale machine group if desired, a generated Overstory account credential, and content that can be deleted.
+The lab is disposable. Use a separate Hetzner project, a dedicated Tailscale machine group if desired, a generated Overstory owner device key, and content that can be deleted.
 
 ## What this lab must establish
 
@@ -85,11 +85,11 @@ bun run lab:hcloud test:authorization
 
 `smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy canopyd. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a binary overlap accepted as an unresolved alternative that survives an arborsync restart, its explicit resolution through canopyd's conflicts route, `/push` and public-history absence, and device pairing/revocation through `devices.yaml`. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
-`test:authorization` uses distinct claimed accounts on the same four hosts: the community owner reserves three handles for fresh self-certifying profiles in the community's `members`, and each account is claimed with its profile key and hosts its profile at `/~handle`. Alice declares a private tree whose tree configuration (`access.yaml`) makes her its administrator, grants Bob `read` and Carol `write`, and mounts it below her profile. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Short-lived account credentials travel only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
+`test:authorization` uses distinct claimed accounts on the same four hosts: the community owner reserves three handles for fresh self-certifying profiles in the community's `members`, and each account is claimed with its profile key and hosts its profile at `/~handle`. Alice declares a private tree whose tree configuration (`access.yaml`) makes her its administrator, grants Bob `read` and Carol `write`, and mounts it below her profile. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Each account's short-lived device key travels only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
 
 The full `test` and `test:authorization` commands are pre-production gates. Run both from the exact committed candidate revision and collect their evidence before requesting approval to update Railway. Do not deploy the Railway canopyd first and use this lab as an after-check.
 
-Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Overstory credentials. The disposable Overstory account token is generated and retained only in the canopyd's root-readable environment file; each client receives it over SSH on standard input only to offer its own pairing, and keeps just the credential of the device it paired.
+Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Overstory credentials. The disposable owner device key is generated and retained only in the community machine's root-readable `/etc/arbor-canopy-owner.json`; each client receives it over SSH on standard input only to offer its own pairing, and keeps just the key of the device it paired.
 
 Useful lifecycle commands are:
 
@@ -100,7 +100,7 @@ bun run lab:hcloud collect
 bun run lab:hcloud down
 ```
 
-`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=arbor-sync-lab` and run-ID labels. It then stops Overstory, clears only `/var/lib/arbor-canopy`, the three client content paths in the table above, and `/home/arbor/.arbor` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated Overstory credential, and deployed Git revision.
+`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=arbor-sync-lab` and run-ID labels. It then stops Overstory, clears only `/var/lib/arbor-canopy`, the three client content paths in the table above, and `/home/arbor/.arbor` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated owner device key, and deployed Git revision.
 
 `down` makes a best-effort evidence collection first, requests Tailscale logout, verifies every recorded server's name and run labels, and deletes only the four recorded Hetzner server IDs. If a run must be selected explicitly, add `--run-id <id>`. The underlying manual commands remain documented below as the recovery and inspection path.
 
@@ -146,7 +146,7 @@ This intentionally leaves public SSH available while the lab is active. Tighteni
 
 ## Run the community and clients
 
-The community starts with one owner account whose generated credential is its first administrator device. Each client pairs its own device into that account, and the owner makes it an administrator in the owner profile's `devices.yaml` so that it may place new trees. The automated acceptance suite separately pairs a short-lived device, proves it can read the test tree, revokes it by deleting its `devices.yaml` entry, and proves the same credential is then refused. The runner keeps credentials in the canopyd's root-readable environment or in process memory and does not print them.
+The community starts with one owner account whose generated key device is its first administrator device. Each client pairs its own device into that account, and the owner makes it an administrator in the owner profile's `devices.yaml` so that it may place new trees. The automated acceptance suite separately pairs a short-lived device, proves it can read the test tree, revokes it by deleting its `devices.yaml` entry, and proves its session is then refused. The runner keeps device keys in root-readable files on the community machine or in process memory and does not print them.
 
 Run the community as one systemd service with the equivalent of:
 
@@ -158,12 +158,12 @@ bun run canopyd serve /var/lib/arbor-canopy \
   --port 4318
 ```
 
-The service's root-only environment file supplies `ARBOR_COMMUNITY_HANDLE=sync-lab`, `ARBOR_ACCOUNT_HANDLE=owner`, and `ARBOR_ACCOUNT_TOKEN`; the first start with an empty data directory creates the community from them. Tailscale MagicDNS makes `http://arbor-community:4318` stable within the lab. This is intentionally private HTTP inside the encrypted tailnet; public HTTPS projection is a separate deployment test.
+The service's root-only environment file supplies `ARBOR_COMMUNITY_HANDLE=sync-lab` and `ARBOR_ACCOUNTS_JSON`, which names the owner account and its first device's DeviceID and public key; the first start with an empty data directory creates the community from them. Tailscale MagicDNS makes `http://arbor-community:4318` stable within the lab. This is intentionally private HTTP inside the encrypted tailnet; public HTTPS projection is a separate deployment test.
 
 On each client:
 
 1. Create its content path from the table above.
-2. Pair its own device into the owner account and install the account checkout, current device, and credential in its data home (`lab-node.ts connect`).
+2. Pair its own device into the owner account and install the account checkout, current device, and device key in its data home (`lab-node.ts connect`).
 3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless Arbor Sync control service, `bun run arborsync --control`, under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
 
 Add placements with `arbor place` while the client service runs: the command attaches to that Arbor Sync on `127.0.0.1:4317` and fails when none answers.
@@ -345,4 +345,4 @@ for arbor_lab_node in community alice bob carol; do
 done
 ```
 
-Remove the four machines from Tailscale if they were not configured as ephemeral nodes. Delete the dedicated Hetzner project token when the project is no longer needed. The test content and account credential must not be reused for a real community.
+Remove the four machines from Tailscale if they were not configured as ephemeral nodes. Delete the dedicated Hetzner project token when the project is no longer needed. The test content and device keys must not be reused for a real community.

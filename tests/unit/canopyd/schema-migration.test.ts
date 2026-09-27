@@ -4,12 +4,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CANOPY_SCHEMA_VERSION, HostDaemon, SchemaMismatchError } from "@overstory/canopyd";
+import { testAccount } from "../../helpers/devices.ts";
 
 const roots: string[] = [];
 const bootstrap = {
   handle: "community",
   name: "Community",
-  accounts: [{ handle: "owner", token: "test-token", communityWriter: true }],
+  accounts: [testAccount("owner", "test-token", { communityWriter: true })],
 };
 
 afterEach(async () => {
@@ -46,7 +47,7 @@ describe("Canopy schema version stamp", () => {
     expect(columns(database, "app_policy")).toEqual(["profile_tree", "app_tree", "rules_json"]);
     expect(columns(database, "mounts")).toEqual(["parent_tree", "path", "tree_id", "member"]);
     expect(columns(database, "challenges")).toEqual(["id", "purpose", "challenge_json", "expires_at", "consumed_at"]);
-    expect(columns(database, "devices")).toEqual(["id", "account_id", "label", "token_digest", "public_key", "created_at", "last_used_at", "revoked_at"]);
+    expect(columns(database, "devices")).toEqual(["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at"]);
     expect(columns(database, "device_sessions")).toEqual(["token_digest", "device_id", "created_at", "expires_at"]);
     expect(columns(database, "accepted_updates")).toEqual([
       "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
@@ -72,15 +73,15 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 25 is current: a schema-23 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("25");
+  test("schema 26 is current: a schema-23 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("26");
     const root = await dataRoot();
     const first = await HostDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
     db.run("UPDATE meta SET value = '23' WHERE key = 'schema_version'");
     db.close();
-    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 23 but this build requires 25.*run the offline migration/);
+    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 23 but this build requires 26.*run the offline migration/);
   });
 
   test("a root without the profile_facts table is a schema mismatch", async () => {

@@ -1,8 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "../index.ts";
-import { ProtocolHTTPError, ProtocolTransportError } from "../transport.ts";
-import { deviceKeyFromSeed, generateDeviceKeySeed, openDeviceSession } from "./device-key.ts";
+import { deviceKeyFromSeed, openDeviceSession } from "./device-key.ts";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
@@ -26,11 +25,12 @@ export interface HostAccountRecord {
   handle?: string;
   profileTree: string;
   deviceID: string;
-  /** Where the secret lives: the bearer credential, or for a key device its private key. */
+  /** Where the device key's seed lives: `file:device-key` or a credential-store slot. */
   credential: string;
+  /** SHA-256 of the seed, to confirm the slot still holds this device's key. */
   tokenDigest: string;
-  /** A key device's `devices.yaml` key; absent for a digest device. */
-  deviceKey?: string;
+  /** The device's `devices.yaml` key. */
+  deviceKey: string;
   configurationRef?: string;
   configurationUpdate?: string;
   connected: true;
@@ -38,13 +38,10 @@ export interface HostAccountRecord {
 
 /** A session within this long of expiring is replaced before it is handed out. */
 const SESSION_MARGIN_MS = 5 * 60_000;
-/** How often a digest device with a prepared key asks whether the host lists it yet. */
-const ADOPTION_RETRY_MS = 60_000;
 /** Keyed by the account's private directory: one data home, one account. */
 const sessions = new Map<string, { token: string; expiresAt: number }>();
 /** Session opens in flight, so concurrent callers share one challenge and one session. */
 const sessionOpens = new Map<string, Promise<{ token: string; expiresAt: number }>>();
-const adoptionAttempts = new Map<string, number>();
 /**
  * Each account's record and secret as last read, so a request does not reread
  * the connection file and the keychain. Writes through this store replace it;
@@ -91,7 +88,7 @@ export class HostAccountStore {
     return process.env.ARBOR_CREDENTIAL_STORE === "file";
   }
 
-  /** Durable pre-network slot used while an exact account claim is pending. */
+  /** Durable pre-network slot for a new device's key seed while a claim or pairing is pending. */
   async storeProvisionalCredential(value: string): Promise<void> {
     if (!value) throw new Error("Account credential must not be empty");
     if (this.usesFileCredentials) {
@@ -113,66 +110,7 @@ export class HostAccountStore {
     return Bun.secrets.get(this.credentialLocation()).catch(() => null);
   }
 
-  async set(accountToken: string, metadata: Omit<HostAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected" | "deviceKey">): Promise<HostAccountRecord> {
-    await prepareArborDataRoot();
-    if (!accountToken) throw new Error("Account credential must not be empty");
-    const location = this.credentialLocation();
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    if (this.usesFileCredentials) await writeFile(this.credentialPath, accountToken, { mode: 0o600 });
-    else await Bun.secrets.set({ ...location, value: accountToken });
-    return this.writeRecord({
-      ...metadata,
-      origin: new URL(metadata.origin).origin,
-      configurationTree: this.configurationTree,
-      credential: this.usesFileCredentials ? "file:credential" : `${location.service}/${location.name}`,
-      tokenDigest: sha256(accountToken),
-      connected: true,
-    });
-  }
-
-  /**
-   * This installation's device key for the account, created on first use and
-   * kept in the key slot. Until the host lists it (`adoptDeviceKey`), the
-   * device keeps authenticating with its credential.
-   */
-  async prepareDeviceKey(): Promise<string> {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    const existing = await this.readKeySeed();
-    if (existing) return deviceKeyFromSeed(existing);
-    const seed = generateDeviceKeySeed();
-    if (this.usesFileCredentials) await writeFile(this.keyPath, seed, { mode: 0o600, flag: "wx" });
-    else await Bun.secrets.set({ ...this.keyLocation(), value: seed });
-    if (await this.readKeySeed() !== seed) throw new Error("Device key could not be verified after saving");
-    return deviceKeyFromSeed(seed);
-  }
-
-  /**
-   * Become a key device once the host lists the prepared key: the record then
-   * names the key slot, and the credential the host no longer accepts is
-   * deleted.
-   */
-  async adoptDeviceKey(): Promise<HostAccountRecord> {
-    const record = await this.safe();
-    if (!record) throw new Error(`No account connection for ${this.configurationTree}`);
-    if (record.deviceKey) return record;
-    const seed = await this.readKeySeed();
-    if (!seed) throw new Error("No device key has been prepared for this account");
-    const key = this.keyLocation();
-    const adopted = await this.writeRecord({
-      ...record,
-      credential: this.usesFileCredentials ? "file:device-key" : `${key.service}/${key.name}`,
-      tokenDigest: sha256(seed),
-      deviceKey: deviceKeyFromSeed(seed),
-    });
-    if (record.credential === "file:credential") await rm(this.credentialPath, { force: true });
-    else {
-      const location = credentialLocation(record.credential);
-      if (location) await Bun.secrets.delete(location).catch(() => {});
-    }
-    return adopted;
-  }
-
-  /** Connect as a key device with a new seed, as pairing with a key does. */
+  /** Connect as a key device with its seed, as claiming and pairing do. */
   async setDeviceKey(seed: string, metadata: Omit<HostAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected" | "deviceKey">): Promise<HostAccountRecord> {
     await prepareArborDataRoot();
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -206,9 +144,8 @@ export class HostAccountStore {
   }
 
   /**
-   * The connection and the bearer token its requests send: a digest device's
-   * credential, or a session its key opens, reused until close to expiry. A
-   * digest device with a prepared key adopts it as soon as the host lists it.
+   * The connection and the bearer token its requests send: a session its key
+   * opens, reused until close to expiry.
    */
   async get(): Promise<{ record: HostAccountRecord; accountToken: string } | null> {
     let read = credentialReads.get(this.directory);
@@ -219,23 +156,14 @@ export class HostAccountStore {
       credentialReads.set(this.directory, read);
     }
     const { record, secret } = read;
-    if (!secret || sha256(secret) !== record.tokenDigest) return null;
-    if (!record.deviceKey) {
-      const adopted = await this.adoptIfListed(record);
-      return adopted ? this.get() : { record, accountToken: secret };
-    }
+    if (!record.deviceKey || !secret || sha256(secret) !== record.tokenDigest) return null;
     return { record, accountToken: await this.session(record, secret) };
   }
 
-  /**
-   * After the host refused this device: forget its session so the next `get`
-   * opens another, or for a digest device with a prepared key, ask again at
-   * once whether the host lists it.
-   */
+  /** After the host refused this device: forget its session so the next `get` opens another. */
   async forgetSession(): Promise<void> {
     sessions.delete(this.directory);
     credentialReads.delete(this.directory);
-    adoptionAttempts.delete(this.directory);
     await rm(this.sessionPath, { force: true });
   }
 
@@ -268,32 +196,14 @@ export class HostAccountStore {
     return (await opening).token;
   }
 
-  private async adoptIfListed(record: HostAccountRecord): Promise<boolean> {
-    const last = adoptionAttempts.get(this.directory) ?? 0;
-    if (Date.now() - last < ADOPTION_RETRY_MS) return false;
-    const seed = await this.readKeySeed();
-    if (!seed) return false;
-    adoptionAttempts.set(this.directory, Date.now());
-    try {
-      await this.session({ ...record, deviceKey: deviceKeyFromSeed(seed) }, seed);
-    } catch (error) {
-      // Not listed yet, or the host is out of reach: keep the credential.
-      if (error instanceof ProtocolHTTPError || error instanceof ProtocolTransportError) return false;
-      throw error;
-    }
-    await this.adoptDeviceKey();
-    return true;
-  }
-
   private async readSecret(reference: string): Promise<string | null> {
-    if (reference === "file:credential") return readFile(this.credentialPath, "utf8").catch(() => null);
     if (reference === "file:device-key") return readFile(this.keyPath, "utf8").catch(() => null);
     const location = credentialLocation(reference);
     if (!location) return null;
     return Bun.secrets.get(location).catch(() => null);
   }
 
-  /** Whether this installation holds a key for the account, adopted or prepared. */
+  /** Whether this installation holds a key for the account. */
   async hasDeviceKey(): Promise<boolean> {
     return (await this.readKeySeed()) !== null;
   }
@@ -315,7 +225,7 @@ export class HostAccountStore {
 
   async remove(): Promise<void> {
     const record = await this.safe();
-    if (record?.credential === "file:credential" || record?.credential === "file:device-key" || this.usesFileCredentials) {
+    if (record?.credential === "file:device-key" || this.usesFileCredentials) {
       await rm(this.credentialPath, { force: true });
       await rm(this.keyPath, { force: true });
     } else {

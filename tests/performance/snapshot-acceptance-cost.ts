@@ -8,15 +8,16 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
-import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
+import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 const count = Number(process.env.FILES ?? 200);
 const dir = await mkdtemp(`${tmpdir()}/arbor-snapshot-cost-`);
-const running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token: "cost", communityWriter: true }],
+const running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", "cost", { communityWriter: true })],
   publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-const client = new ProtocolClient(running.url, "cost");
+const client = await deviceClient(running.url, "cost");
 const objects = new Map<ObjectHash, Uint8Array>();
 const sent = new Set<ObjectHash>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };

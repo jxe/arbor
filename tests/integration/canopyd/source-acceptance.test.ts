@@ -9,6 +9,7 @@ import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
@@ -16,8 +17,8 @@ let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: Protoco
 let tree: string, base: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>;
 const token = "source-test-owner";
 async function start(mergeTool?: import("../../../packages/canopyd/src/merge-tool.ts").MergeToolOptions) {
-  running = await serveHost({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool: {contentChoices: "file", ...mergeTool} });
-  client = new ProtocolClient(running.url, token);
+  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool: {contentChoices: "file", ...mergeTool} });
+  client = await deviceClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 beforeEach(async () => {
@@ -649,7 +650,7 @@ test("the TS runner publishes a stale local change after restart, continues it, 
   expect(working.base!.update).toBe(current.tree.update);
   const inspection = await client.conflicts(tree, current.tree.update, current.tree.root);
   expect(inspection.decisions[0]!.alternatives.map(alternative => alternative.value)).toContainEqual({ file: hashObject(Buffer.from("LATER\r\n")) });
-  const second = new ProtocolClient(running.url, token), decision = inspection.decisions[0]!;
+  const second = await deviceClient(running.url, token), decision = inspection.decisions[0]!;
   const resolved = await second.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: current.tree.root,
     trace: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
   expect(resolved.results[0]!.update.conflicted).toBe(false);

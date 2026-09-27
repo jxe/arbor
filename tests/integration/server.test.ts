@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { encodeProtocolDirectory } from "@overstory/protocol";
+import { encodeProtocolDirectory, ProtocolClient } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@overstory/arborsync";
 import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import type { Workspace } from "@overstory/arborsync";
+import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 let root: string;
 let state: string;
@@ -226,19 +227,19 @@ describe("arborsync object route", () => {
 
   test("fetches through to Canopy for an unplaced tree named by origin", async () => {
     const { serveHost } = await import("@overstory/canopyd");
-    const { ProtocolClient, hashObject } = await import("@overstory/protocol");
+    const { hashObject } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     const hostRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
     const token = "object-route-owner";
     const canopy = await serveHost({
       dataRoot: join(hostRoot, "canopy"),
-      accounts: [{ handle: "owner", token, communityWriter: true }],
+      accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
     try {
-      const owner = new ProtocolClient(canopy.url, token);
+      const owner = await deviceClient(canopy.url, token);
       const account = await owner.account();
       const communityTree = account.account.community.id;
       const community = await owner.descriptor(communityTree);
@@ -298,7 +299,6 @@ describe("arborsync bootstrap and credential routes", () => {
 
   beforeAll(async () => {
     const { serveHost } = await import("@overstory/canopyd");
-    const { ProtocolClient } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     const { hostTree, readTreeConfig } = await import("../helpers/tree-config.ts");
 
@@ -315,19 +315,19 @@ describe("arborsync bootstrap and credential routes", () => {
 
     canopy = await serveHost({
       dataRoot: join(sandbox, "canopy"),
-      accounts: [{ handle: "owner", token, communityWriter: true }],
+      accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
-    const owner = new ProtocolClient(canopy.url, token);
+    const owner = await deviceClient(canopy.url, token);
     const account = await owner.account();
     const profile = account.account.profileTree!;
     const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
     tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(treeDir)), { parent: { tree: profile, name: "bootstrap", kind: "person" } });
 
     previousHome = process.env.ARBOR_DATA_HOME;
-    await installAccountHome(home, owner, device, token, { [treeDir]: tree });
+    await installAccountHome(home, owner, device, testDevice(token).seed, { [treeDir]: tree });
     // A long fallback interval keeps the daemon from racing the stored-state tests below.
     daemon = await serveArborSync(treeDir, { port: 0, syncIntervalMs: 60_000 });
     placedBase = daemon.url;
@@ -406,8 +406,11 @@ describe("arborsync bootstrap and credential routes", () => {
     expect(await placedClient.bootstrap(scope).catch((error) => error.status)).toBe(404);
   });
 
-  test("serves the shared account credential over loopback and 404s when absent", async () => {
-    expect(await placedClient.credential()).toEqual({ token });
+  test("serves a session its device key opened over loopback, never the key, and 404s when absent", async () => {
+    const { token: session } = await placedClient.credential();
+    expect(session).toStartWith("ars_");
+    expect(session).not.toBe(testDevice(token).seed);
+    expect((await new ProtocolClient(canopy.url, session).account()).account.device?.id).toBe(testDevice(token).device);
     const absent = await fetch(`${placedBase}/v1/credential?configurationTree=tr_${"c".repeat(26)}`);
     expect(absent.status).toBe(404);
     expect(await absent.json()).toMatchObject({ error: "not-found" });

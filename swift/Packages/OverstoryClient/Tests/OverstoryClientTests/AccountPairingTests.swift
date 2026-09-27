@@ -336,7 +336,6 @@ struct NativeAccountPairingTests {
         let first = NativeAccountService(
             origin: origin,
             credentials: store,
-            legacyCredentials: nil,
             session: session,
             retryDelay: { _ in }
         )
@@ -356,7 +355,6 @@ struct NativeAccountPairingTests {
         let restarted = NativeAccountService(
             origin: origin,
             credentials: store,
-            legacyCredentials: nil,
             session: session,
             retryDelay: { _ in }
         )
@@ -526,28 +524,6 @@ private final class PairingURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-@Test("Stored accounts move to the derived configuration TreeID once, keeping their credential")
-func rekeyStoredAccountsMovesCredential() async throws {
-    let store = MemoryAccountCredentialStore()
-    let origin = URL(string: "https://arbor.example")!
-    await store.saveAccount(NativeHostAccount(configurationTree: "tr_oldconfig", origin: origin, accountID: "ac_old",
-        handle: "joe", profileTree: "tr_joe", deviceID: "dv_phone"))
-    await store.save("secret", configurationTree: "tr_oldconfig")
-    await store.saveAccount(NativeHostAccount(configurationTree: "tr_orphan", origin: origin, accountID: "ac_orphan",
-        handle: nil, profileTree: nil, deviceID: "dv_phone"))
-    await store.save("orphan", configurationTree: "tr_orphan")
-    let derived = treeConfigurationID("tr_joe")
-    #expect(try await rekeyStoredAccounts(in: store) == ["tr_oldconfig": derived])
-    #expect(await store.load(configurationTree: derived) == "secret")
-    #expect(await store.load(configurationTree: "tr_oldconfig") == nil)
-    let accounts = await store.accounts()
-    #expect(accounts.map(\.configurationTree).sorted() == [derived, "tr_orphan"].sorted())
-    #expect(accounts.first { $0.configurationTree == derived }?.accountID == "tr_joe")
-    #expect(accounts.first { $0.configurationTree == derived }?.deviceID == "dv_phone")
-    #expect(await store.load(configurationTree: "tr_orphan") == "orphan")
-    #expect(try await rekeyStoredAccounts(in: store).isEmpty)
-}
-
 @Test("App consent reviews replace one exact key and reject stale or non-admin application")
 func appConsentReview() throws {
     let source = """
@@ -657,31 +633,21 @@ func sharingOverGranularPermission() throws {
     #expect(complete[0].allow == [.read, .createChild])
 }
 
-@Test("Keychain saves replace an existing credential in place")
+@Test("Keychain saves replace an existing value in place")
 func keychainSavesReplaceInPlace() async throws {
     let store = KeychainDeviceCredentialStore(service: "org.nxhx.Arbor.test.\(UUID().uuidString)")
-    let origin = URL(string: "https://canopy.test")!
     try await store.save("first", configurationTree: "tr_config")
     try await store.save("second", configurationTree: "tr_config")
     #expect(try await store.load(configurationTree: "tr_config") == "second")
-    try await store.save("first", origin: origin)
-    try await store.save("second", origin: origin)
-    #expect(try await store.load(origin: origin) == "second")
     try await store.forget(configurationTree: "tr_config")
-    try await store.forget(origin: origin)
     #expect(try await store.load(configurationTree: "tr_config") == nil)
 }
 
-@Test("The account credential provider reads the store once until the credential is rejected")
-func accountCredentialProviderCaches() async throws {
+@Test("A slot holding anything but a device key gives no credential")
+func accountCredentialProviderNeedsDeviceKey() async throws {
     let store = MemoryAccountCredentialStore()
-    await store.save("first", configurationTree: "tr_config")
+    await store.save("arb_a_bearer_credential_from_before_device_keys", configurationTree: "tr_config")
     let provider = AccountStoredCredentialProvider(configurationTree: "tr_config", store: store)
-    #expect(try await provider.credential() == "first")
-    #expect(try await provider.credential() == "first")
-    #expect(await store.loads == 1)
-    await store.save("second", configurationTree: "tr_config")
-    await provider.invalidate()
-    #expect(try await provider.credential() == "second")
-    #expect(await store.loads == 2)
+    #expect(try await provider.credential() == nil)
+    #expect(try await provider.credential() == nil)
 }
