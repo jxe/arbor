@@ -1051,10 +1051,13 @@ final class CanopyWorkspaceState {
         guard placed.osPath != nil else {
             throw ProtocolValidationError.invalidValue("\(placed.name) is not placed on this Mac")
         }
+        guard let configurationTree = placed.configurationTree else {
+            throw ProtocolValidationError.invalidValue("\(placed.name) has no configuration tree")
+        }
         // The account's Canopy is the origin only for a tree without a canonical endpoint.
         var originValue = placed.canonical?.endpoint
         if originValue == nil {
-            originValue = try await client.accounts().first { $0.configurationTree == placed.configurationTree }?.canopy
+            originValue = try await client.accounts().first { $0.configurationTree == configurationTree }?.canopy
         }
         guard let rawOrigin = originValue, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no Canopy origin")
@@ -1068,7 +1071,7 @@ final class CanopyWorkspaceState {
             update: bootstrap.accepted.update
         ).validated()
 
-        let credentialProvider = ArborSyncCredentialProvider.shared(client: client, configurationTree: placed.configurationTree)
+        let credentialProvider = ArborSyncCredentialProvider.shared(client: client, configurationTree: configurationTree)
         let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: protocolClient)
         let platform = DaemonObjectStore(client: client, tree: treeID)
