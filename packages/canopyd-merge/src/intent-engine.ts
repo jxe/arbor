@@ -3089,6 +3089,31 @@ export async function checkpointIntent(
       )
     );
   }
+  // Alternative roots (and folders) imported as their own states. Many choices
+  // name the same roots (a snapshot's are all the head and the candidate), and
+  // these states are only read: located, cloned from and recorded, never
+  // edited. So each distinct object is imported once, its child index built
+  // once, and it is recorded once; an import sees only objects an earlier one
+  // read, so sharing it changes no budget.
+  const imports = new Map<string, IntentState>();
+  const importChildren = new Map<IntentState, Map<string, Node[]>>();
+  const importRecords = new Map<IntentState, Promise<{ object: string; state: string }>>();
+  const imported = async (object: string): Promise<IntentState> => {
+    let context = imports.get(object);
+    if (!context) imports.set(object, (context = await engine.initial(object)));
+    return context;
+  };
+  const recordImport = (context: IntentState) => {
+    let recorded = importRecords.get(context);
+    if (!recorded) importRecords.set(context, (recorded = engine.record(context)));
+    return recorded;
+  };
+  const childrenOf = (view: View, id: string) => {
+    if (view === state) return engine.children(view, id);
+    let index = importChildren.get(view as IntentState);
+    if (!index) importChildren.set(view as IntentState, (index = engine.childIndex(view)));
+    return engine.children(view, id, index);
+  };
   const wrapped: string[] = [];
   const continuations: Array<{ decision: IntentDecision; apply: () => Promise<void> }> = [];
   for (const decision of state.decisions) {
@@ -3239,14 +3264,18 @@ export async function checkpointIntent(
         let node = view.nodes[view.root]!;
         for (const name of input.path!)
           node =
-            engine.children(view, node.id).find((n) => n.name === name) ??
+            childrenOf(view, node.id).find((n) => n.name === name) ??
             fail("Checkpoint decision path is absent");
         return node;
       };
       const find = (view: View) => {
         try { return locate(view); } catch (error) { rethrowUnlessFallback(error); return undefined; }
       };
-      const contexts = await Promise.all(input.alternatives.map((a) => engine.initial(a.object)));
+      // New roots import concurrently, as they always have (so they count the
+      // objects they share as they always have); known roots are shared.
+      const contexts = await Promise.all(input.alternatives.map((a) => imports.get(a.object) ?? engine.initial(a.object)));
+      for (const [index, a] of input.alternatives.entries())
+        if (!imports.has(a.object)) imports.set(a.object, contexts[index]!);
       if (contexts.some((context) => !find(context))) {
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
@@ -3265,7 +3294,7 @@ export async function checkpointIntent(
         }
         const alternatives = [];
         for (const [index, a] of input.alternatives.entries()) {
-          const recorded = await engine.record(contexts[index]!), node = present[index];
+          const recorded = await recordImport(contexts[index]!), node = present[index];
           if (!node) { alternatives.push({ ...recorded, contributions: a.contributions }); continue; }
           const material = clone(node);
           material.id = `imported:${input.key}:${index}`;
@@ -3297,7 +3326,7 @@ export async function checkpointIntent(
           const folder = locate(contexts[index]!);
           if (folder.kind !== "directory")
             return fail("Checkpoint folder alternative is not a directory");
-          const recorded = await engine.record(await engine.initial(folder.object));
+          const recorded = await recordImport(await imported(folder.object));
           if (index === input.selected && recorded.object !== shown)
             return fail("Checkpoint projection does not show the selected folder");
           alternatives.push({
@@ -3322,7 +3351,7 @@ export async function checkpointIntent(
         return fail("Checkpoint file decision has no file placement");
       const alternatives = [];
       for (const [index, a] of input.alternatives.entries()) {
-        const context = await engine.initial(a.object),
+        const context = contexts[index]!,
           material = clone(locate(context));
         if (!material.pieces)
           return fail("Checkpoint file alternative is not a file");
@@ -3331,7 +3360,7 @@ export async function checkpointIntent(
         if (index === input.selected) material.pieces = clone(selected.pieces);
         state.nodes[material.id] = material;
         alternatives.push({
-          ...(await engine.record(context)),
+          ...(await recordImport(context)),
           object: await engine.project(state, material.id),
           node: material.id,
           contributions: a.contributions,
@@ -3362,8 +3391,7 @@ export async function checkpointIntent(
     }
     const alternatives = [];
     for (const a of input.alternatives) {
-      const context = await engine.initial(a.object);
-      const recorded = await engine.record(context);
+      const recorded = await recordImport(await imported(a.object));
       alternatives.push({
         ...recorded,
         ...(a.object === request.projection ? { node: state.root } : {}),
@@ -3408,7 +3436,7 @@ export async function checkpointIntent(
       request.candidate !== (await previousRecord()).object
         ? [
             {
-              ...(await engine.record(await engine.initial(request.candidate))),
+              ...(await recordImport(await imported(request.candidate))),
               contributions: [{ change: request.change, operation: null }],
             },
           ]
