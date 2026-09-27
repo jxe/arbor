@@ -95,10 +95,10 @@ refused. It was canopyd 005, cut over live on 2026-09-26 by
 - **Accounts keyed by profile TreeID** (`accounts.id` is the profile), which
   is the identity Security 007's placement accounts reuse.
 - **Host-operator device reset** as an accepted `devices.yaml` update
-  (answer 1), which Security 006's profile-key reset will share.
+  (answer 1), which Security 006's recovery pairing (`canopyd recover`) became.
 
-Device keys, signatures and cross-host lending stay in their plans; none of
-them is needed for one host.
+Device keys shipped with Security 006 (schema 23; key devices only from schema
+26). Cross-host placement and lending stay in Security 007 and 008.
 
 ## Walk-through of the failures
 
