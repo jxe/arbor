@@ -66,12 +66,12 @@ refused. It was canopyd 005, cut over live on 2026-09-26 by
 ## Answers to the open questions
 
 1. **Recovering a tree with no reachable administrator.** The host operator's
-   reset stays the answer here: `ARBOR_RESET_ACCOUNT` (with
-   `ARBOR_ACCOUNT_TOKEN`) now rewrites the person's `devices.yaml` to one new
-   administrator device and revokes the rest, as an accepted configuration
-   update. A tree whose administrators are all unreachable is recovered by
-   recovering one of them. Profile-key recovery stays with
-   [Security 006](../../../plans/security/006-device-keys.md).
+   help is the answer: `canopyd recover <handle>` issues a recovery pairing
+   whose claim rewrites the person's `devices.yaml` to the claiming device,
+   an administrator, and revokes the rest, as an accepted configuration
+   update ([accounts §5.3](../../overstory-spec/04-accounts-and-devices.md#53-recovering-a-profiles-devices)).
+   A tree whose administrators are all unreachable is recovered by recovering
+   one of them.
 2. **Two meanings of "administrator".** Keep both names: a profile's `admin`
    on a tree, a device's `administrator` flag in `devices.yaml`. The spec
    introduces them together as the two authority bits

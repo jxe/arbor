@@ -2,7 +2,7 @@ import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDe
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
-import type { AccountChallenge, ProfileResetDevice, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
+import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
   AlreadyClaimedError,
@@ -407,31 +407,6 @@ export async function serveHost(options: {
           if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
           return json(await canopy.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
-        if (url.pathname === "/.arbor/profile-resets/challenges" && request.method === "POST") {
-          const body = await request.json() as { profileTree?: unknown; device?: unknown };
-          if (typeof body.profileTree !== "string") throw new Error("A reset challenge names a profile TreeID and the new device");
-          if (!challengeAllowed(request, `reset:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
-          return json(canopy.createProfileResetChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device as ProfileResetDevice }), 201);
-        }
-        const profileReset = /^\/\.arbor\/profile-resets\/([^/]+)$/.exec(url.pathname);
-        if (profileReset) {
-          const profileTree = decodeURIComponent(profileReset[1]!);
-          if (request.method === "PUT") {
-            const body = await request.json() as { challenge?: unknown; publicKey?: unknown; signature?: unknown };
-            if (!body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string") {
-              throw new Error("A reset requires the signed challenge, the profile public key and the signature");
-            }
-            const reset = canopy.requestProfileReset({ origin: publicOrigin, profileTree, challenge: body.challenge, publicKey: body.publicKey, signature: body.signature });
-            return json({ reset }, 202);
-          }
-          if (!authentication) throw new AuthenticationRequiredError("Account authentication is required");
-          if (request.method === "GET") return json({ reset: await canopy.pendingProfileReset(authentication, profileTree) });
-          if (request.method === "DELETE") {
-            await canopy.cancelProfileReset(authentication, profileTree);
-            return new Response(null, { status: 204 });
-          }
-          return new Response("Method not allowed", { status: 405 });
-        }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
           const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
           if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
@@ -744,8 +719,8 @@ export async function serveHost(options: {
             // By ID: a recheck reads the tree as it is now.
             return active && canopy.execution.run(execution, () => canopy.canRead(account, tree.id, link));
           });
-          // Execution token validity, session expiry and a reset taking
-          // effect change with time, not database state, so they are never cached.
+          // Execution token validity and session expiry change with time,
+          // not database state, so they are never cached.
           const authorized = () => (!execution || canopy.execution.valid(execution))
             && (!authentication || canopy.authenticationIsCurrent(authentication)) && readable();
           return new Response(new ReadableStream<Uint8Array>({

@@ -10,7 +10,6 @@ import {
   generateArborID,
   initialPersonConfig,
   personProfileTreeID,
-  profileResetChallengeBytes,
   ProtocolClient,
   snapshotTreeConfig,
   treeConfigurationID,
@@ -213,7 +212,7 @@ describe("published device keys (accounts §5.4)", () => {
   });
 });
 
-describe("profile-key reset (accounts §5.3)", () => {
+describe("recovery pairing (accounts §5.3)", () => {
   const laptop = ed25519Key();
   const laptopID = generateArborID("dv");
   let laptopClient: ProtocolClient;
@@ -237,50 +236,39 @@ describe("profile-key reset (accounts §5.3)", () => {
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);
   });
 
-  async function requestReset(device: { id: string; label: string; key: string }) {
-    const anonymous = new ProtocolClient(running.url);
-    const challenge = await anonymous.createProfileResetChallenge({ profileTree: carol.profileTree, device });
-    const request = { challenge, publicKey: carol.publicKey, signature: carol.sign(profileResetChallengeBytes(challenge)) };
-    return { request, reset: await anonymous.requestProfileReset(request) };
-  }
-
-  test("a pending reset waits, gives the new device nothing, and an administrator device cancels it", async () => {
-    const replacement = ed25519Key();
-    const replacementID = generateArborID("dv");
-    const { request, reset } = await requestReset({ id: replacementID, label: "Carol's new laptop", key: replacement.key });
-    expect(reset.device).toEqual({ id: replacementID, label: "Carol's new laptop" });
-    expect(reset.effectiveAt - reset.requestedAt).toBe(running.canopy.resetWaitMs);
-    // An exact retry returns the same pending reset; another is refused.
-    expect(await new ProtocolClient(running.url).requestProfileReset(request)).toEqual(reset);
-    await expect(requestReset({ id: generateArborID("dv"), label: "Another", key: ed25519Key().key })).rejects.toThrow("already pending");
-    // A reset signed by another key is refused.
-    const anonymous = new ProtocolClient(running.url);
-    await expect(anonymous.requestProfileReset({ ...request, signature: profileIdentity().sign(profileResetChallengeBytes(request.challenge)) })).rejects.toThrow();
-
-    expect(await laptopClient.pendingProfileReset(carol.profileTree)).toEqual(reset);
-    await expect(anonymous.createDeviceSessionChallenge({ profileTree: carol.profileTree, device: replacementID })).rejects.toThrow("not-found");
-    await laptopClient.cancelProfileReset(carol.profileTree);
-    expect(await laptopClient.pendingProfileReset(carol.profileTree)).toBeNull();
+  test("an operator's recovery pairing makes the claiming device the only one, an administrator", async () => {
+    // Carol has lost her laptop; the operator issues a recovery pairing for ~carol.
+    const offer = running.canopy.createRecoveryPairing("carol");
+    expect(offer.id.startsWith("pr_")).toBe(true);
+    expect(offer.expiresAt - Date.now()).toBeGreaterThan(23 * 60 * 60 * 1000);
+    // Until it is claimed, her devices keep working.
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);
+
+    const phone = p256Key();
+    const phoneID = generateArborID("dv");
+    await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Carol's phone", key: phone.key });
+    await expect(laptopClient.account()).rejects.toThrow("unauthenticated");
+    await expect(new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: carol.profileTree, device: laptopID })).rejects.toThrow("not-found");
+    const phoneClient = await openSession(carol.profileTree, phoneID, phone);
+    const { values } = await readTreeConfig(phoneClient, carol.profileTree, "person");
+    expect(values.devices).toEqual({ [phoneID]: { id: phoneID, label: "Carol's phone", administrator: true, key: phone.key } });
+    // A recovery pairing, like any pairing, is single use.
+    await expect(new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: generateArborID("dv"), label: "Again", key: ed25519Key().key }))
+      .rejects.toThrow();
   });
 
-  test("once the wait ends, only the new device is left", async () => {
-    const wait = running.canopy.resetWaitMs;
-    running.canopy.resetWaitMs = 0;
-    const replacement = p256Key();
-    const replacementID = generateArborID("dv");
-    try {
-      await requestReset({ id: replacementID, label: "Carol's phone", key: replacement.key });
-    } finally {
-      running.canopy.resetWaitMs = wait;
-    }
-    // The reset has taken effect: earlier devices authenticate nothing, even
-    // before the host accepts its configuration update.
-    await expect(laptopClient.account()).rejects.toThrow("unauthenticated");
-    const phoneClient = await openSession(carol.profileTree, replacementID, replacement);
-    const { values } = await readTreeConfig(phoneClient, carol.profileTree, "person");
-    expect(values.devices).toEqual({ [replacementID]: { id: replacementID, label: "Carol's phone", administrator: true, key: replacement.key } });
-    await expect(new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: carol.profileTree, device: laptopID })).rejects.toThrow("not-found");
-    expect(await phoneClient.pendingProfileReset(carol.profileTree)).toBeNull();
+  test("an ordinary pairing still adds an ordinary device beside the others", async () => {
+    const owner = new ProtocolClient(running.url, (await (async () => {
+      const challenge = await new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: ownerProfile(), device: ownerMac() });
+      return (await new ProtocolClient(running.url).openDeviceSession(challenge, ownerKey().sign(deviceSessionChallengeBytes(challenge)))).token;
+    })()));
+    const offer = await owner.createPairing();
+    expect(offer.id.startsWith("pa_")).toBe(true);
+    const tablet = ed25519Key();
+    const tabletID = generateArborID("dv");
+    await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: tabletID, label: "Tablet", key: tablet.key });
+    const devices = (await readTreeConfig(owner, ownerProfile(), "person")).values.devices!;
+    expect(devices[ownerMac()]!.administrator).toBe(true);
+    expect(devices[tabletID]).toEqual({ id: tabletID, label: "Tablet", administrator: false, key: tablet.key });
   });
 });

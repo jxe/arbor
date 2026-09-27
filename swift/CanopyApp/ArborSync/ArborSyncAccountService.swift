@@ -51,14 +51,6 @@ struct ArborSyncAccountService: CanopyAccountService {
         try await connect().backupIdentity(destination: destination.path, passphrase: passphrase)
     }
 
-    func pendingProfileReset(for account: CanopyAccount) async throws -> ProtocolPendingProfileReset? {
-        try await connect().pendingProfileReset(configurationTree: account.configurationTree)
-    }
-
-    func cancelProfileReset(for account: CanopyAccount) async throws {
-        try await connect().cancelProfileReset(configurationTree: account.configurationTree)
-    }
-
     func moveToDeviceKey(for account: CanopyAccount) async throws {
         try await connect().moveToDeviceKey(configurationTree: account.configurationTree)
     }

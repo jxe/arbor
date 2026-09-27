@@ -24,9 +24,6 @@ import {
   type DeviceSession,
   type PublishedDeviceKeys,
   type DeviceSessionChallenge,
-  type PendingProfileReset,
-  type ProfileResetChallenge,
-  type ProfileResetDevice,
 } from "./index.ts";
 import {
   type ObjectHash,
@@ -295,34 +292,6 @@ export class ProtocolClient {
       body: JSON.stringify({ challenge, signature }),
     }));
     return response.json();
-  }
-
-  async createProfileResetChallenge(input: { profileTree: TreeID; device: ProfileResetDevice }): Promise<ProfileResetChallenge> {
-    const response = await this.checked(await this.request("/.arbor/profile-resets/challenges", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-    }));
-    return response.json();
-  }
-
-  /** Record a pending reset signed by the profile key. */
-  async requestProfileReset(input: { challenge: ProfileResetChallenge; publicKey: string; signature: string }): Promise<PendingProfileReset> {
-    const response = await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(input.challenge.profileTree)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-    }));
-    return (await response.json() as { reset: PendingProfileReset }).reset;
-  }
-
-  async pendingProfileReset(profileTree: TreeID): Promise<PendingProfileReset | null> {
-    const response = await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(profileTree)}`, { headers: this.headers() }));
-    return (await response.json() as { reset: PendingProfileReset | null }).reset;
-  }
-
-  async cancelProfileReset(profileTree: TreeID): Promise<void> {
-    await this.checked(await this.request(`/.arbor/profile-resets/${encodeURIComponent(profileTree)}`, { method: "DELETE", headers: this.headers() }));
   }
 
   async list(): Promise<SnapshotEnvelope<RemoteTreeDescriptor[]>> {

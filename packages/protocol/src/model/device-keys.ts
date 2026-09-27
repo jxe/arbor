@@ -1,5 +1,5 @@
 import { encodeCanonicalCBOR } from "./cbor.ts";
-import { isGeneratedArborID, isPersonProfileTreeID } from "./identity.ts";
+import { isGeneratedArborID } from "./identity.ts";
 
 /**
  * A key device's public key as `devices.yaml` spells it: an algorithm tag and
@@ -133,68 +133,6 @@ export interface DeviceSession {
   token: string;
   device: string;
   expiresAt: number;
-}
-
-/** The new administrator device a profile-key reset installs. */
-export interface ProfileResetDevice {
-  id: string;
-  label: string;
-  key: string;
-}
-
-/** What the profile key signs to reset its devices at `origin` (accounts §5.3). */
-export interface ProfileResetChallenge {
-  version: 1;
-  purpose: "profile-reset";
-  id: string;
-  origin: string;
-  profileTree: string;
-  device: ProfileResetDevice;
-  nonce: string;
-  issuedAt: number;
-  expiresAt: number;
-}
-
-export function validateProfileResetDevice(value: unknown): ProfileResetDevice {
-  const fail = () => new Error("A reset names a new device with a generated DeviceID, a label and a key");
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw fail();
-  const device = value as Partial<ProfileResetDevice>;
-  if (
-    !exactKeys(device, ["id", "label", "key"])
-    || typeof device.id !== "string" || !isGeneratedArborID(device.id, "dv")
-    || typeof device.label !== "string" || !device.label.trim() || device.label.length > 100
-    || !isDeviceKey(device.key)
-  ) throw fail();
-  return device as ProfileResetDevice;
-}
-
-export function validateProfileResetChallenge(value: unknown): ProfileResetChallenge {
-  const fail = () => new Error("Malformed profile reset challenge");
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw fail();
-  const challenge = value as Partial<ProfileResetChallenge>;
-  if (
-    !exactKeys(challenge, ["version", "purpose", "id", "origin", "profileTree", "device", "nonce", "issuedAt", "expiresAt"])
-    || challenge.version !== 1 || challenge.purpose !== "profile-reset"
-    || typeof challenge.id !== "string" || !isGeneratedArborID(challenge.id, "ax")
-    || !originIsCanonical(challenge.origin)
-    || typeof challenge.profileTree !== "string" || !isPersonProfileTreeID(challenge.profileTree)
-    || !nonceIsValid(challenge.nonce) || !timesAreValid(challenge.issuedAt, challenge.expiresAt)
-  ) throw fail();
-  validateProfileResetDevice(challenge.device);
-  return challenge as ProfileResetChallenge;
-}
-
-/** Exact bytes the profile key signs to request a reset. */
-export function profileResetChallengeBytes(challenge: ProfileResetChallenge): Uint8Array {
-  return encodeCanonicalCBOR(validateProfileResetChallenge(challenge));
-}
-
-/** A pending reset, as the home host reports it to the profile's devices. */
-export interface PendingProfileReset {
-  profileTree: string;
-  device: { id: string; label: string };
-  requestedAt: number;
-  effectiveAt: number;
 }
 
 /** One entry of a home host's published device keys (accounts §5.4). */

@@ -1354,8 +1354,6 @@ private actor RecordingAccountService: CanopyAccountService {
     func createIdentity() {}
     func restoreIdentity(backup _: Data, passphrase _: String?) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
     func backupIdentity(to _: URL, passphrase _: String) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
-    func pendingProfileReset(for _: CanopyAccount) -> ProtocolPendingProfileReset? { nil }
-    func cancelProfileReset(for _: CanopyAccount) {}
     func moveToDeviceKey(for _: CanopyAccount) {}
     func claimAccount(_: String, deviceLabel _: String, inviteCode _: String?) {}
     func cancelPendingClaim() throws { throw CanopyAccountServiceError.unsupported(.cancelPendingClaim) }

@@ -4,15 +4,15 @@
 
 - **Priority:** P3
 - **Effort:** L
-- **Risk:** HIGH. It adds a second way for every device to authenticate, and a
-  way to reset a person's devices.
+- **Risk:** HIGH. It adds a second way for every device to authenticate.
 - **State:** PHASES 1–3 IMPLEMENTED AND DEPLOYED 2026-09-26: the host at
   schema 23 ([migration 023](../../packages/canopyd/migrations/023-device-keys/README.md)),
   the clients at `8448a63f`. Joe's Mac (Ed25519, through Arbor Sync) and
   iPhone (Secure Enclave P-256) moved to keys the same day, and he checked an
-  encrypted backup and session renewal by hand. Pairing and revoking with
-  keys and a reset are covered by tests but not yet tried by hand; see
-  [status](../../status.md). What remains is below.
+  encrypted backup and session renewal by hand. The profile-key reset was
+  withdrawn on 2026-09-27 in favour of an operator-issued recovery pairing
+  (below). Pairing, revoking and recovering with keys are covered by tests but
+  not yet tried by hand; see [status](../../status.md). What remains is below.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26), which
   puts a person's `devices.yaml` in their profile's configuration on its home
   host.
@@ -29,9 +29,9 @@ A device credential is a bearer secret whose digest one host binds
 ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing)).
 Only that host can check it, anyone holding it can use it, and it is sent with
 every request. A placement host could never check it without holding a secret
-per device. And a person who loses every administrator device has no way back but the
-host operator's reset (`ARBOR_RESET_ACCOUNT`), which canopyd 005 kept as its
-answer to that plan's open question 1 and left profile-key recovery here.
+per device. And a person who loses every administrator device needs a way
+back; canopyd 005 kept the host operator's reset as its answer and left
+recovery here.
 
 These are the parts of portable profiles that need only one host.
 
@@ -121,38 +121,31 @@ device. Pairing a new device writes `key` from then on. Digests are retired in
 
 ### Recovery
 
-The profile key, kept in its backup
-([accounts §1.1](../../docs/overstory-spec/04-accounts-and-devices.md#11-beginning-a-person-identity)),
-can start a **reset**: one update that replaces `devices.yaml` with a single new
-administrator key device. The host verifies a challenge signed by the profile
-key, as claiming already does.
+A person who has lost every administrator device asks the host operator, who
+issues a **recovery pairing** (`canopyd recover <handle>`): an ordinary
+pairing code, valid for a day, whose claim makes the new key device the
+profile's only one, an administrator, and revokes the rest in the same commit
+([accounts §5.3](../../docs/overstory-spec/04-accounts-and-devices.md#53-recovering-a-profiles-devices)).
+Until it is claimed, the existing devices keep working.
 
-The host cannot tell whether the person really has no administrator device
-left, since lost devices are still listed, so a reset waits:
-
-- The reset is recorded as pending and shown to every current device.
-- Any current administrator device can cancel it.
-- It takes effect after a fixed wait (72 hours proposed), when it revokes every
-  existing device, of both kinds, and adds the new one.
-- The new device has no authority during the wait.
-- The operator's reset (`ARBOR_RESET_ACCOUNT`) stays as the immediate path.
-
-This changes what the profile-key backup is: after this plan it can take over
-the profile on its home host, not only claim accounts. Phase 3 therefore makes
-backups passphrase-encrypted, and restore still accepts the existing
-unencrypted format.
+The operator already holds everything the account stores, so this adds no
+trust, and it reuses pairing whole. An earlier design let the profile key
+request a reset that waited 72 hours for any administrator device to cancel;
+it was built and withdrawn on 2026-09-27 as too much machinery (challenges, a
+pending state, a sweep, banners, a local journal) for what the operator can do
+directly. Recovery that does not depend on the operator, by the profile key or
+DNS, belongs with portability in [Security 008](008-portable-profiles.md). The
+profile-key backup stays passphrase-encrypted, since the key claims accounts.
 
 ## Decided so far
 
-- A session challenge lasts two minutes, a reset challenge five, a session at
-  most an hour (`sessionLifetimeMs`), and a session is never renewed without
-  a new signature.
-- A reset waits 72 hours (`resetWaitMs`). Its devices learn of it from
-  `GET /.arbor/profile-resets/{ProfileTreeID}`; Phase 3 decides where each
-  client shows it.
+- A session challenge lasts two minutes, a session at most an hour
+  (`sessionLifetimeMs`), and a session is never renewed without a new
+  signature.
 - A session challenge accepts any person profile TreeID, including one that
-  predates self-certifying IDs; a reset needs a self-certifying one, since it
-  is signed by the profile key.
+  predates self-certifying IDs.
+- A recovery pairing lasts a day and is told apart by its `pr_` ID, so it
+  needed no schema change.
 - Unauthenticated challenge requests are limited to 30 per caller and
   profile per ten minutes.
 - Identity backups (Phase 3) seal the seed with AES-256-GCM under scrypt
@@ -175,11 +168,9 @@ Everything is built and deployed; these are checks by hand, not code.
 - **Pair and revoke with a key:** pair a new device (the simulator or a spare
   phone), check its `devices.yaml` entry carries a `key`, then deauthorize it
   from the Mac and see its session and watch end.
-- **Reset, requested and cancelled on the live host:** restore the backup into
-  a scratch data home, `arbor me reset https://arb.nxhx.org`, see the banner on
-  the Mac and iPhone, cancel it from the Mac, and `arbor me reset --discard`.
-  Never let a live reset complete; completing one is covered by
-  `tests/integration/profile-reset.test.ts` against a local canopyd.
+- **Recovery pairing:** against a local canopyd (never the live account),
+  `canopyd recover <handle>` and claim the printed code from the simulator or
+  a spare device; check it becomes the only device, an administrator.
 - **The last digest device:** `devices.yaml` still lists an unused "iPhone"
   (`dv_ry4dqmh32o5ovzccizd2xfhhje`, last used 2026-09-05) with a credential;
   deauthorize it, so every device of Joe's is a key device.

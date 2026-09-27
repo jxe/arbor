@@ -10,14 +10,6 @@ const LAST_USED_RESOLUTION_MS = 60_000;
 /** A digest device's credential digest, or a key device's public key. */
 export type DeviceBinding = { tokenDigest: string } | { publicKey: string };
 
-export interface PendingResetRecord {
-  profileTree: string;
-  device: { id: string; label: string; key: string };
-  requestedAt: number;
-  effectiveAt: number;
-  proofDigest: string;
-}
-
 export interface PairingRecord {
   id: string;
   accountID: string;
@@ -31,6 +23,11 @@ export interface PairingRecord {
 }
 
 /** Accounts, device credentials, and pairing offers: the rows behind every authenticated request. */
+/** Whether a pairing is a recovery pairing, which only the host operator issues. */
+export function isRecoveryPairing(id: string): boolean {
+  return id.startsWith("pr_");
+}
+
 export class AccountDirectory {
   constructor(private readonly db: Database) {}
 
@@ -60,11 +57,7 @@ export class AccountDirectory {
     return row ? this.account(row.id) : null;
   }
 
-  /**
-   * A digest device's credential, or a key device's unexpired session. A
-   * profile whose reset has taken effect authenticates none of its earlier
-   * devices, even before the reset's update is accepted.
-   */
+  /** A digest device's credential, or a key device's unexpired session. */
   authenticateToken(token: string | undefined): HostAuthentication | null {
     if (!token) return null;
     const digest = sha256(token);
@@ -78,7 +71,7 @@ export class AccountDirectory {
       FROM device_sessions s JOIN devices d ON d.id = s.device_id JOIN accounts a ON a.id = d.account_id
       WHERE s.token_digest = ? AND s.expires_at > ? AND d.revoked_at IS NULL AND a.enabled = 1
     `).get(digest, digest, now) as { device_id: string; account_id: string; last_used_at: number | null; expires_at: number | null } | null;
-    if (!device || this.resetIsDue(device.account_id, now)) return null;
+    if (!device) return null;
     // Skip the write on the hot path while the stored time is recent enough.
     if (device.last_used_at === null || now - device.last_used_at >= LAST_USED_RESOLUTION_MS) {
       this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [now, device.device_id]);
@@ -173,43 +166,17 @@ export class AccountDirectory {
     this.db.run("INSERT INTO device_sessions (token_digest, device_id, created_at, expires_at) VALUES (?, ?, ?, ?)", [tokenDigest, deviceID, now, expiresAt]);
   }
 
-  pendingReset(profileTree: string): PendingResetRecord | null {
-    const row = this.db.query("SELECT * FROM profile_resets WHERE profile_tree = ?").get(profileTree) as {
-      profile_tree: string; device_id: string; label: string; public_key: string; requested_at: number; effective_at: number; proof_digest: string;
-    } | null;
-    return row ? {
-      profileTree: row.profile_tree, device: { id: row.device_id, label: row.label, key: row.public_key },
-      requestedAt: row.requested_at, effectiveAt: row.effective_at, proofDigest: row.proof_digest,
-    } : null;
-  }
-
-  insertReset(reset: PendingResetRecord): void {
-    this.db.run(
-      "INSERT INTO profile_resets (profile_tree, device_id, label, public_key, requested_at, effective_at, proof_digest) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [reset.profileTree, reset.device.id, reset.device.label, reset.device.key, reset.requestedAt, reset.effectiveAt, reset.proofDigest],
-    );
-  }
-
-  deleteReset(profileTree: string): boolean {
-    return this.db.run("DELETE FROM profile_resets WHERE profile_tree = ?", [profileTree]).changes === 1;
-  }
-
-  resetIsDue(profileTree: string, now: number): boolean {
-    return Boolean(this.db.query("SELECT 1 FROM profile_resets WHERE profile_tree = ? AND effective_at <= ?").get(profileTree, now));
-  }
-
-  /** Profiles whose reset has taken effect but not yet been accepted. */
-  dueResets(now: number): string[] {
-    return (this.db.query("SELECT profile_tree FROM profile_resets WHERE effective_at <= ? ORDER BY effective_at").all(now) as Array<{ profile_tree: string }>)
-      .map((row) => row.profile_tree);
-  }
-
-  createPairing(account: HostAccount): PairingOffer {
-    const id = generateArborID("pa");
+  /**
+   * A single-use pairing for `account`. A recovery pairing, which only the
+   * host operator issues (`canopyd recover`), lasts a day and its claim makes
+   * the new device the account's only one; its ID says which it is.
+   */
+  createPairing(account: HostAccount, options: { recovery?: boolean } = {}): PairingOffer {
+    const id = generateArborID(options.recovery ? "pr" : "pa");
     const secret = `arp_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
     const now = Date.now();
-    const expiresAt = now + 10 * 60 * 1000;
+    const expiresAt = now + (options.recovery ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000);
     // An expired unclaimed pairing can never be claimed; a claimed one stays for exact replay.
     this.db.run("DELETE FROM pairings WHERE claimed_at IS NULL AND expires_at <= ?", [now]);
     this.db.run(`

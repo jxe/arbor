@@ -3427,29 +3427,7 @@ private struct CanopyAgentBundlePage: View {
 }
 #endif
 
-private /// A pending reset of the profile's devices (accounts §5.3). Every device
-/// shows it prominently; an administrator device can cancel it.
-struct CanopyPendingResetBanner: View {
-    let reset: ProtocolPendingProfileReset
-    let canCancel: Bool
-    let cancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("A reset of your devices is pending", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
-            Text("On \(Date(timeIntervalSince1970: Double(reset.effectiveAt) / 1000).formatted(date: .abbreviated, time: .shortened)), every device will be signed out and replaced by “\(reset.device.label)”. If you did not ask for this, cancel it.")
-                .font(.callout)
-            Button("Cancel Reset", role: .destructive, action: cancel)
-                .disabled(!canCancel)
-                .help(canCancel ? "Keep your devices" : "Only an administrator device can cancel a reset")
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct CanopyDevicesHeader: View {
+private struct CanopyDevicesHeader: View {
     var title = "Devices"
     var showsAddAccount = true
     let addAccount: () -> Void
@@ -3499,8 +3477,6 @@ private struct MacArborSyncAccountPanel: View {
     @State private var setupPresented = false
     @State private var identityState: CanopyAccountState?
     @State private var message: String?
-    /// Pending profile resets by configuration TreeID (accounts §5.3).
-    @State private var resets: [String: ProtocolPendingProfileReset] = [:]
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
 
@@ -3528,14 +3504,6 @@ private struct MacArborSyncAccountPanel: View {
                     if !account.accounts.isEmpty {
                         ForEach(account.accounts, id: \.devicesSectionID) { hostAccount in
                             Section {
-                                if let reset = resets[hostAccount.configurationTree] {
-                                    CanopyPendingResetBanner(
-                                        reset: reset,
-                                        canCancel: workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree]?
-                                            .first(where: \.isCurrent)?.isAdministrator == true,
-                                        cancel: { Task { await cancelReset(configurationTree: hostAccount.configurationTree) } }
-                                    )
-                                }
                                 if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
                                     ForEach(devices) { device in
                                         hostDeviceRow(
@@ -3703,17 +3671,6 @@ private struct MacArborSyncAccountPanel: View {
                 message = error.localizedDescription
             }
         }
-        for account in (try? await workspace.accountService.accounts()) ?? [] {
-            resets[account.configurationTree] = try? await workspace.accountService.pendingProfileReset(for: account)
-        }
-    }
-
-    private func cancelReset(configurationTree: String) async {
-        do {
-            guard let account = try await workspace.accountService.accounts().first(where: { $0.configurationTree == configurationTree }) else { return }
-            try await workspace.accountService.cancelProfileReset(for: account)
-            resets[configurationTree] = nil
-        } catch { message = error.localizedDescription }
     }
 
     private func moveToDeviceKey(configurationTree: String) async {
@@ -4381,8 +4338,7 @@ private struct IOSAccountPanel: View {
     @State private var disconnectConfirmation = false
     @State private var loading = true
     @State private var addingAccount = false
-    /// Pending profile resets, and whether this device signs in with a key, by configuration TreeID.
-    @State private var resets: [String: ProtocolPendingProfileReset] = [:]
+    /// Whether this device signs in with a key, by configuration TreeID.
     @State private var keyed: [String: Bool] = [:]
 
     var body: some View {
@@ -4404,11 +4360,6 @@ private struct IOSAccountPanel: View {
                 syncSections
                 ForEach(accounts, id: \.devicesSectionID) { account in
                     Section {
-                        if let reset = resets[account.configurationTree] {
-                            CanopyPendingResetBanner(reset: reset, canCancel: true) {
-                                Task { await cancelReset(account) }
-                            }
-                        }
                         if let device = snapshots[account.configurationTree]?.device {
                             LabeledContent("This device", value: device.label)
                         }
@@ -4471,20 +4422,12 @@ private struct IOSAccountPanel: View {
                 do {
                     snapshots[account.configurationTree] = try await workspace.accountService
                         .client(for: account).account().account
-                    resets[account.configurationTree] = try? await workspace.accountService.pendingProfileReset(for: account)
                     let stored = try? await KeychainDeviceCredentialStore().load(configurationTree: account.configurationTree)
                     keyed[account.configurationTree] = stored.flatMap { $0 }.map { DeviceKeySecret(stored: $0) != nil }
                     accountErrors[account.configurationTree] = nil
                 } catch { accountErrors[account.configurationTree] = error.localizedDescription }
             }
             message = nil
-        } catch { message = error.localizedDescription }
-    }
-
-    private func cancelReset(_ account: CanopyAccount) async {
-        do {
-            try await workspace.accountService.cancelProfileReset(for: account)
-            resets[account.configurationTree] = nil
         } catch { message = error.localizedDescription }
     }
 
