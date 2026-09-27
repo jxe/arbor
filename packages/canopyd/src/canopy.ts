@@ -496,17 +496,16 @@ export class HostDaemon implements AsyncDisposable {
 
   /** One accepted update's transition from its predecessor, derived from the
    * two roots (as `netAcceptedTransition` derives a backlog's) and cached,
-   * since every watcher of a tree replays the same update. Null for a tree's
-   * first retained update, which has no predecessor. */
+   * since every watcher of a tree replays the same update. Null for an
+   * unknown update or a tree's first, which has no predecessor. Both roots
+   * are retained (`retention.ts`), so a failure to read them is a fault and
+   * propagates. */
   async acceptedTransition(updateID: string, credentialSubject?: string): Promise<AcceptedTransition | null> {
     const update = this.update(updateID);
     if (!update?.previous) return null;
     let payload = this.transitions.get(update.id);
     if (payload) this.transitions.delete(update.id);
-    else {
-      try { payload = await this.acceptedTransitionPayload(update.previous.root, update.root); }
-      catch { return null; }
-    }
+    else payload = await this.acceptedTransitionPayload(update.previous.root, update.root);
     this.transitions.set(update.id, payload);
     while (this.transitions.size > TRANSITION_CACHE_ENTRIES) this.transitions.delete(this.transitions.keys().next().value!);
     const requestDigest = credentialSubject && update.subject === credentialSubject
@@ -2146,9 +2145,7 @@ export class HostDaemon implements AsyncDisposable {
         if (request.resolves.length && own && !acceptedGraph.devices?.[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
         await authorize(acceptedGraph, candidateGraph, baseGraph);
       },
-      // Unreadable inputs reject the update as a whole-root policy conflict.
-      merge: (base, candidate, current, load) => mergeTreeConfigTrees(kind, base, candidate, current, load)
-        .catch(() => ({ root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: "tree-configuration" as const }], unresolvedDirectories: ["/"] })),
+      merge: (base, candidate, current, load) => mergeTreeConfigTrees(kind, base, candidate, current, load),
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref, undefined, true);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);

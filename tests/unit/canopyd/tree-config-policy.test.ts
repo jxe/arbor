@@ -68,6 +68,17 @@ describe("tree-config-v1: a person's own configuration", () => {
     expect(conflicted.conflicts).toEqual([{ path: "/devices.yaml", reason: "tree-configuration" }]);
   });
 
+  test("an input that is not a valid configuration is a whole-root conflict; an unreadable one is not", async () => {
+    const mounts = (value: Record<string, string>) => snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: value });
+    const snapshots = [mounts({}), mounts({ a: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb" }), mounts({ a: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", "a/b": "tr_cccccccccccccccccccccccccc" })];
+    const objects = new Map(snapshots.flatMap((s) => [...s.objects]));
+    const [base, incoming, current] = snapshots.map((s) => s.root);
+    expect(await mergeTreeConfigTrees("tree", base!, incoming!, current!, async (hash) => objects.get(hash)!))
+      .toEqual({ root: incoming!, objects: new Map(), conflicts: [{ path: "/", reason: "tree-configuration" }] });
+    const failure = Object.assign(new Error("EIO: test"), { code: "EIO", syscall: "read" });
+    await expect(mergeTreeConfigTrees("tree", base!, incoming!, current!, async () => { throw failure; })).rejects.toBe(failure);
+  });
+
   test("an ambiguous rule edit is a policy conflict holding the intersection", async () => {
     const tree = "tr_tttttttttttttttttttttttttt";
     const rules = (allow: string[]) => snapshotTreeConfig({

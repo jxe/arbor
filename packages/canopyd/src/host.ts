@@ -804,7 +804,7 @@ export async function serveHost(options: {
                   if (!authorized()) return resync("Authorization was revoked");
                   const next = single
                     ? {record: records[0]!, transition: single}
-                    : await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
+                    : await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject);
                   if (closed) return;
                   if (!authorized()) return resync("Authorization was revoked");
                   if (!next) return resync("The requested accepted basis is no longer retained");
@@ -812,7 +812,13 @@ export async function serveHost(options: {
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
                     data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [next.transition], access, next.record.id)})];
                 }
-              } catch (error) { closed = true; stop(); controller.error(error); }
+              } catch (error) {
+                // A failure here, such as a retained transition whose objects
+                // cannot be read, is a fault rather than an unretained basis:
+                // log it and end the stream.
+                console.error(`canopyd fault on watch of ${tree.id}`, error);
+                closed = true; stop(); controller.error(error);
+              }
             },
             cancel() { closed = true; stop(); },
           }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });

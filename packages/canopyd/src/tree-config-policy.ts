@@ -6,6 +6,7 @@ import {
   semanticTreeConfig,
   snapshotTreeConfig,
   type ObjectHash,
+  type ProtocolDirectory,
   type TreeConfigKind,
   type TreeConfigValues,
 } from "@overstory/protocol";
@@ -16,7 +17,7 @@ import type { MergeResult } from "./updates/reconcile.ts";
  * ambiguous rule edit whose restrictive intersection may stay open. */
 export const TREE_CONFIG_POLICY_CONFLICT = "tree-configuration-policy";
 /** Any other tree configuration conflict, which refuses the merge. */
-export const TREE_CONFIG_CONFLICT = "tree-configuration";
+const TREE_CONFIG_CONFLICT = "tree-configuration";
 
 /**
  * The per-device rules of a person's configuration: any listed device may
@@ -85,14 +86,20 @@ export async function mergeTreeConfigTrees(
   current: ObjectHash,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
 ): Promise<MergeResult> {
+  // An input that is not a valid configuration refuses the update as a
+  // whole-root conflict. A failure to load one (I/O, a missing object) is
+  // not a conflict and propagates.
   const graphAt = async (root: ObjectHash) => {
     const objects = new Map<ObjectHash, Uint8Array>([[root, await load(root)]]);
-    for (const entry of decodeProtocolDirectory(objects.get(root)!).entries)
+    let directory: ProtocolDirectory;
+    try { directory = decodeProtocolDirectory(objects.get(root)!); } catch { return null; }
+    for (const entry of directory.entries)
       if (entry.file) objects.set(entry.file, await load(entry.file));
-    return readTreeConfigGraph({ root, objects }, kind);
+    try { return readTreeConfigGraph({ root, objects }, kind); } catch { return null; }
   };
   const [b, c, r] = await Promise.all([base, candidate, current].map(graphAt));
-  const merged = mergeTreeConfigs(b!, c!, r!);
+  if (!b || !c || !r) return { root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: TREE_CONFIG_CONFLICT }] };
+  const merged = mergeTreeConfigs(b, c, r);
   const output = snapshotTreeConfig(merged.values);
   return {
     root: output.root,
