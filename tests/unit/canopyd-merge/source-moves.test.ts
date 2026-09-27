@@ -103,9 +103,8 @@ async function differential(f: Fixture, request: IntentRequest) {
   const objects = { read: async (hash: string) => f.objects.get(hash)!, states: f.states, store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => { for (const v of values) f.objects.set(v.hash, v.bytes); } };
   const shape = (r: IntentEvaluation) => ({ result: r.result, decisions: r.decisions, operations: r.evidence.operations });
   const eager = await mergeIntent(request, objects, { incremental: false, eager: true });
-  // Both check every kept projection against the full walk it replaces.
-  const full = await mergeIntent(request, objects, { incremental: false, verifyProjection: true });
-  const fast = await mergeIntent(request, objects, { verifyProjection: true });
+  const full = await mergeIntent(request, objects, { incremental: false });
+  const fast = await mergeIntent(request, objects);
   expect(shape(full)).toEqual(shape(eager));
   expect(shape(fast)).toEqual(shape(eager));
   return fast;

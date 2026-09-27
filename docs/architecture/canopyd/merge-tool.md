@@ -162,8 +162,7 @@ write them. A state loaded against its recorded root starts with the projections
 root's directories establish. Recording after a small edit therefore walks the paths from
 the edited nodes to the root, not the whole tree. A reused subtree is one this evaluation
 already projected, so the objects it generates, their order and the byte budgets are those
-of the full walk; `eager` keeps nothing. With `ARBOR_MERGE_VERIFY_PROJECTION=1` (tests
-only) every projection is also computed the full way and must match exactly.
+of the full walk; `eager` keeps nothing.
 
 A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
 start, and chains only grow: about 10 ms an entry at 120 files (15 ms with a choice
@@ -547,11 +546,8 @@ both arrival orders, requires one answer from each (and from the eager reference
 and keeps a case where each proof fails; `source-acceptance.test.ts` repeats a list
 item move and a same-anchor pair through canopyd with replay checks.
 `tests/unit/canopyd-merge/history-differential.test.ts` compares every incremental result
-against an eager reference that re-projects every state and enforces all history, with
-projection verification on. To run any suite or benchmark with it, set
-`ARBOR_MERGE_VERIFY_PROJECTION` to `1`, or to a file that receives each process's count of
-checked projections; canopyd passes a spawned sidecar a fixed environment, so point
-`ARBOR_MERGE_EXECUTABLE` at a wrapper that sets it.
+against an eager reference that re-projects every state, keeps no subtree projection,
+and enforces all history.
 
 Ordinary plain list edits, including splitting, removing, and rearranging list
 items, may merge with disjoint prose changes. This allowance checks the affected
