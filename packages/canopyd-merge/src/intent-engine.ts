@@ -1,4 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
+import { appendFileSync } from "node:fs";
 import { stableJSONString } from "@overstory/protocol";
 import {
   decodeProtocolDirectory,
@@ -152,6 +153,37 @@ type Walk = {index?: Map<string, Readonly<Node>[]>; projected?: Map<string, Proj
 type TrustedDirectory = {node: Readonly<Node>; object: string; directory: ProtocolDirectory; children: Readonly<Node>[]};
 /** A subtree's object and height (its deepest descendant's distance below it). */
 type Projected = {object: string; height: number};
+/** What reads and generated objects an evaluation has counted: the budgets'
+ * books. `log`, when present, lists what one projection newly read or
+ * generated, in order (projection verification compares two such lists). */
+type Books = {
+  generated: Map<string, Uint8Array>;
+  cache: Map<string, Uint8Array>;
+  readBytes: number;
+  writtenBytes: number;
+  log?: string[];
+};
+/** How one projection walk runs: which books it counts in, whether it may
+ * reuse and keep subtree projections (`memo`), and whether it is a shadow
+ * walk that must leave no trace on the engine. */
+type ProjectionRun = {books: Books; memo: boolean; shadow: boolean};
+
+/** Test-only projection verification (`ARBOR_MERGE_VERIFY_PROJECTION`, or
+ * `verifyProjection` on `mergeIntent`): every projection is also computed the
+ * full way and compared. "1" enables it; any other value also names a file
+ * to which each evaluation that verified any projection appends this
+ * process's running totals (a spawned sidecar reports nothing else). */
+const verifySetting = process.env.ARBOR_MERGE_VERIFY_PROJECTION;
+export const projectionVerification = {checked: 0, mismatched: 0};
+let verificationNoted = -1;
+const noteVerification = () => {
+  if (!verifySetting || verifySetting === "1" || verificationNoted === projectionVerification.checked) return;
+  verificationNoted = projectionVerification.checked;
+  try {
+    appendFileSync(verifySetting, `${JSON.stringify({pid: process.pid, ...projectionVerification})}\n`);
+  } catch { /* The totals are best effort. */ }
+};
+
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
   /** The effects an editable basis already enforced, when evaluation may
@@ -182,9 +214,11 @@ class Engine {
   readonly formatEvidence: FormatEvidence[] = [];
   readonly generated = new Map<string, Uint8Array>();
   private readonly cache = new Map<string, Uint8Array>();
+  private readonly books: Books = { generated: this.generated, cache: this.cache, readBytes: 0, writtenBytes: 0 };
   private readonly contexts = new Map<string, IntentState>();
-  private readBytes = 0;
-  private writtenBytes = 0;
+  /** Test-only: compare every projection with the full walk. */
+  verifyProjection = !!verifySetting;
+  private verifying: Promise<unknown> = Promise.resolve();
   /** Subtree projections this evaluation established, per nodes map (so a
    * state's copy never shares its original's) and by node. An entry holds
    * while nothing in the subtree changes: every node edit goes through
@@ -204,9 +238,9 @@ class Engine {
       throw new EvaluationFailure("Evaluation time budget exceeded", "limit");
   }
   constructor(readonly request: IntentRequest, readonly store: MergeObjects) {}
-  async read(hash: string): Promise<Uint8Array> {
+  async read(hash: string, books = this.books): Promise<Uint8Array> {
     this.checkBudget();
-    const known = this.generated.get(hash) ?? this.cache.get(hash);
+    const known = books.generated.get(hash) ?? books.cache.get(hash);
     if (known) return known;
     if (!OBJECT_HASH.test(hash)) return fail("Invalid object reference");
     let bytes: Uint8Array;
@@ -221,32 +255,34 @@ class Engine {
         `Object store failed reading ${hash}: ${error instanceof Error ? error.message : String(error)}`,
         undefined, { cause: error });
     }
-    this.readBytes += bytes.length;
+    books.readBytes += bytes.length;
+    books.log?.push(`read ${hash} ${bytes.length}`);
     if (
-      this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
+      books.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
     )
       throw new MergeRefusal("limit", "Evaluation object byte budget exceeded");
-    this.cache.set(hash, bytes);
+    books.cache.set(hash, bytes);
     return bytes;
   }
-  put(bytes: Uint8Array): string {
+  put(bytes: Uint8Array, books = this.books): string {
     const hash = hashObject(bytes);
-    if (this.cache.has(hash)) return hash;
-    if (!this.generated.has(hash)) {
-      this.writtenBytes += bytes.length;
+    if (books.cache.has(hash)) return hash;
+    if (!books.generated.has(hash)) {
+      books.writtenBytes += bytes.length;
+      books.log?.push(`put ${hash} ${bytes.length}`);
       if (
-        this.writtenBytes >
+        books.writtenBytes >
         (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
       )
         throw new MergeRefusal("limit", "Generated object byte budget exceeded");
     }
-    this.generated.set(hash, bytes);
+    books.generated.set(hash, bytes);
     return hash;
   }
-  async bytes(pieces: Piece[]): Promise<Uint8Array> {
+  async bytes(pieces: Piece[], books = this.books): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
     for (const p of pieces) {
-      const b = await this.read(p.object);
+      const b = await this.read(p.object, books);
       if (
         !Number.isSafeInteger(p.offset) ||
         !Number.isSafeInteger(p.length) ||
@@ -302,6 +338,9 @@ class Engine {
    * the old and the new ancestors unprojected. */
   edit(view: View, node: Readonly<Node>, change: (node: Node) => void): void {
     const { id, parent } = node;
+    // Verification also checks that the node is the view's.
+    if (this.verifyProjection && view.nodes[id] !== node)
+      throw new EvaluationFailure(`Node ${id} edited through a view that does not hold it`);
     this.forget(view, id, parent);
     change(node as Node);
     if (node.parent !== parent || node.id !== id) this.forget(view, node.id, node.parent);
@@ -526,14 +565,63 @@ class Engine {
     walk: Walk | Map<string, Readonly<Node>[]> = {}
   ): Promise<string> {
     const shared: Walk = walk instanceof Map ? { index: walk } : walk;
-    return (await this.projectNode(view, root, visiting, shared)).object;
+    const run: ProjectionRun = { books: this.books, memo: !this.eager, shadow: false };
+    if (!this.verifyProjection) return (await this.projectNode(view, root, visiting, shared, run)).object;
+    // One verified projection at a time, so that each one's books are its own.
+    const verified = this.verifying.then(() => this.verifiedProjection(view, root, visiting, shared, run));
+    this.verifying = verified.catch(() => undefined);
+    return verified;
+  }
+  /** `project` checked against the full walk it replaces: the same object (or
+   * the same failure), and the same objects newly read and generated, in the
+   * same order and with the same byte counts. The full walk runs first, on a
+   * copy of the books and of the walk's memo, and reuses no kept subtree. */
+  private async verifiedProjection(
+    view: View, root: string, visiting: Set<string>, shared: Walk, run: ProjectionRun
+  ): Promise<string> {
+    const outcome = async (walk: Promise<Projected>) => {
+      try { return { value: await walk }; } catch (error) { return { error }; }
+    };
+    const real = run.books;
+    const copy: Books = {
+      generated: new Map(real.generated), cache: new Map(real.cache),
+      readBytes: real.readBytes, writtenBytes: real.writtenBytes, log: [],
+    };
+    const full = await outcome(this.projectNode(view, root, new Set(visiting),
+      { index: shared.index, projected: shared.projected && new Map(shared.projected) },
+      { books: copy, memo: false, shadow: true }));
+    // The real books, with this projection's own log.
+    const tracked: Books = {
+      generated: real.generated, cache: real.cache, log: [],
+      get readBytes() { return real.readBytes; }, set readBytes(value) { real.readBytes = value; },
+      get writtenBytes() { return real.writtenBytes; }, set writtenBytes(value) { real.writtenBytes = value; },
+    };
+    const incremental = await outcome(this.projectNode(view, root, visiting, shared, { ...run, books: tracked }));
+    const describe = (result: typeof full) => "error" in result
+      ? `${(result.error as Error)?.constructor?.name}: ${(result.error as {code?: string}).code ?? ""} ${(result.error as Error)?.message}`
+      : `${result.value.object} (height ${result.value.height})`;
+    const timedOut = (result: typeof full) => "error" in result && result.error instanceof EvaluationFailure &&
+      result.error.message === "Evaluation time budget exceeded";
+    projectionVerification.checked++;
+    if (!timedOut(full) && !timedOut(incremental) && (describe(full) !== describe(incremental) ||
+        stableJSONString(copy.log) !== stableJSONString(tracked.log))) {
+      projectionVerification.mismatched++;
+      const message = `Projection verification failed for ${root}: full ${describe(full)} [${copy.log!.join(", ")}], ` +
+        `incremental ${describe(incremental)} [${tracked.log!.join(", ")}]`;
+      console.error(message);
+      noteVerification();
+      throw new EvaluationFailure(message);
+    }
+    if ("error" in incremental) throw incremental.error;
+    return incremental.value.object;
   }
   /** The object `root` projects to, and its height. */
   private async projectNode(
     view: View,
     root: string,
     visiting: Set<string>,
-    shared: Walk
+    shared: Walk,
+    run: ProjectionRun
   ): Promise<Projected> {
     this.checkBudget();
     // A subtree this walk projected already, while nothing edited the view:
@@ -545,7 +633,7 @@ class Engine {
     // nodes map, unedited since: the same, by the same argument. Nothing in it
     // changed, so it holds no cycle through `visiting`, no duplicate name and
     // no inactive node, and within the depth budget no walk of it can fail.
-    const kept = this.eager ? undefined : this.subtrees.get(view.nodes);
+    const kept = run.memo ? this.subtrees.get(view.nodes) : undefined;
     const reused = kept?.get(root);
     if (reused && visiting.size + reused.height <= 256) {
       shared.projected?.set(root, reused);
@@ -565,9 +653,9 @@ class Engine {
         const previous = material?.previous?.get(node.id);
         const object = previous && same(previous.node, node)
           ? previous.object
-          : node.pieces ? this.put(await this.bytes(node.pieces))
-          : (await this.read(node.object), node.object);
-        material?.next.set(node.id, {node, object});
+          : node.pieces ? this.put(await this.bytes(node.pieces, run.books), run.books)
+          : (await this.read(node.object, run.books), node.object);
+        if (!run.shadow) material?.next.set(node.id, {node, object});
         projected = {object, height: 0};
       } else if (node.kind === "tree") projected = {object: node.object, height: 0};
       else {
@@ -579,7 +667,7 @@ class Engine {
         )) {
           if (names.has(child.name)) return fail("Duplicate directory placement");
           names.add(child.name);
-          const { object, height: below } = await this.projectNode(view, child.id, visiting, shared);
+          const { object, height: below } = await this.projectNode(view, child.id, visiting, shared, run);
           height = Math.max(height, below + 1);
           entries.push(
             child.kind === "file"
@@ -594,13 +682,14 @@ class Engine {
             ...node.directory,
             type: "directory",
             entries,
-          } as ProtocolDirectory)
+          } as ProtocolDirectory),
+          run.books
         );
         projected = {object, height};
       }
       shared.projected?.set(root, projected);
       // Kept only when no edit interleaved the walk (it awaits reads).
-      if (!this.eager && this.editCount === edits) this.keep(view.nodes).set(root, projected);
+      if (run.memo && this.editCount === edits) this.keep(view.nodes).set(root, projected);
       return projected;
     } finally {
       visiting.delete(root);
@@ -3155,7 +3244,7 @@ export const engineDiagnostics: Record<string, number> = {};
 export async function mergeIntent(
   request: IntentRequest,
   objects: MergeObjects,
-  options: {incremental?: boolean; eager?: boolean} = {}
+  options: {incremental?: boolean; eager?: boolean; verifyProjection?: boolean} = {}
 ): Promise<IntentEvaluation> {
   checkTrace(request);
   const engine = new Engine(request, objects);
@@ -3163,6 +3252,7 @@ export async function mergeIntent(
   // and keeps no subtree projection. It is the reference the differential
   // suite compares the incremental path against.
   engine.eager = options.eager ?? false;
+  engine.verifyProjection = options.verifyProjection ?? engine.verifyProjection;
   const result = await engine.run(options.incremental);
   await keep(engine, objects);
   return result;
@@ -3170,6 +3260,7 @@ export async function mergeIntent(
 
 /** Keep what a completed evaluation generated: its objects and its states. */
 async function keep(engine: Engine, objects: MergeObjects): Promise<void> {
+  noteVerification();
   await objects.store([...engine.generated].map(([hash, bytes]) => ({ hash, bytes })));
   for (const [id, state] of engine.generatedStates) objects.states.set(id, state);
 }
