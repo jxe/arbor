@@ -1,4 +1,5 @@
-import { decodeBase64, encodeBase64, updateRequestDigests, decodeUpdateRequestJSON, type UpdateRequest } from "@overstory/protocol";
+import { decodeBase64, decodeWireBody, encodeBase64, encodeUpdateRequestJSON, encodeWireBody, updateRequestDigests, decodeUpdateRequestJSON,
+  type UpdateRequest, type WireEncoding } from "@overstory/protocol";
 import type { HeldReason } from "./update-machine.ts";
 
 /**
@@ -27,8 +28,13 @@ export interface UpdateAttempt {
   base: { root: string; update: string };
   candidate: string;
   generation: number;
-  /** Base64 of the request's JSON bytes. */
+  /** Base64 of the request body's exact bytes, in the encoding `contentType` names. */
   body: string;
+  /**
+   * `application/cbor` for a CBOR body. Absent is JSON: every attempt written
+   * before bodies could be CBOR, which therefore replays unchanged.
+   */
+  contentType?: "application/cbor";
   /** All per-element digests in prefix order. */
   requestDigests: string[];
   digest: string;
@@ -95,25 +101,36 @@ function decodeAttempt(value: unknown, file: string): UpdateAttempt {
   }
   const digests = attempt.requestDigests ?? [attempt.digest];
   if (!strings(digests)) throw new UpdateStateError(`${file} has invalid request digests`);
+  if (attempt.contentType !== undefined && attempt.contentType !== "application/cbor") throw new UpdateStateError(`${file} has an attempt in an unknown encoding`);
   return { tree: attempt.tree, base: { root: attempt.base.root, update: attempt.base.update }, candidate: attempt.candidate,
-    generation: typeof attempt.generation === "number" ? attempt.generation : 0, body: attempt.body, requestDigests: [...digests], digest: attempt.digest };
+    generation: typeof attempt.generation === "number" ? attempt.generation : 0, body: attempt.body,
+    ...(attempt.contentType ? { contentType: attempt.contentType } : {}), requestDigests: [...digests], digest: attempt.digest };
 }
 
-const encoder = new TextEncoder(), decoder = new TextDecoder("utf-8", { fatal: true });
-
-/** Encode one request as an immutable attempt. */
-export function encodeAttempt(tree: string, base: { root: string; update: string }, requestJSON: { base: string; updates: unknown[] }): UpdateAttempt {
+/**
+ * Encode one request as an immutable attempt, as CBOR unless `encoding` says
+ * otherwise. The body is fixed here; every submission of the attempt sends
+ * the same request in the same encoding.
+ */
+export function encodeAttempt(tree: string, base: { root: string; update: string }, requestJSON: { base: string; updates: unknown[] }, encoding: WireEncoding = "cbor"): UpdateAttempt {
   const request = decodeUpdateRequestJSON(requestJSON);
   const last = request.updates.at(-1);
   if (!last) throw new UpdateValidationError("An update request must carry at least one element");
   const digests = updateRequestDigests(tree, request);
-  return { tree, base, candidate: last.candidate, generation: 0, body: encodeBase64(encoder.encode(JSON.stringify(requestJSON))),
-    requestDigests: digests, digest: digests.at(-1)! };
+  const body = encoding === "cbor" ? encodeWireBody(encodeUpdateRequestJSON(request, "cbor"), "cbor") : encodeWireBody(requestJSON, "json");
+  return { tree, base, candidate: last.candidate, generation: 0, body: encodeBase64(body),
+    ...(encoding === "cbor" ? { contentType: "application/cbor" as const } : {}), requestDigests: digests, digest: digests.at(-1)! };
+}
+
+/** The encoding an attempt's body is in: JSON unless it names CBOR. */
+export function attemptEncoding(attempt: UpdateAttempt): WireEncoding {
+  return attempt.contentType === "application/cbor" ? "cbor" : "json";
 }
 
 /** The request an attempt's body carries. */
 export function attemptRequest(attempt: UpdateAttempt): UpdateRequest {
-  return decodeUpdateRequestJSON(JSON.parse(decoder.decode(decodeBase64(attempt.body))));
+  const encoding = attemptEncoding(attempt);
+  return decodeUpdateRequestJSON(decodeWireBody(decodeBase64(attempt.body), encoding), encoding);
 }
 
 /** An altered or incompatible durable request stays on disk for recovery; the runner refuses it. */
