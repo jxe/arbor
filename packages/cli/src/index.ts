@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
@@ -100,6 +100,7 @@ function usage(): never {
   arbor cloud start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
   arbor cloud finish [--root <directory>] [--timeout <duration>] [--json]
   arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
+    (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
   arbor place <canonical-url> <local-path>
   arbor mv [--dry-run] <placed-local-root> <new-local-path>
   arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>
@@ -115,6 +116,8 @@ Notes:
   arbor account place  claims a placement account for your profile at another host, with the profile key; your devices
     sign in there with the keys your home host lists.
   arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
+    A URL on a placement host (see arbor account place) creates or places the tree there, under the placement
+    root; placing the placement root's own URL activates it with the folder. Trees never move between hosts.
   arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   arbor pending  shows exactly what Arbor Sync would send next for a placed folder.
   arbor declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
@@ -339,19 +342,37 @@ function sameOrDescendantPath(path: string, root: string): boolean {
 
 interface SelectedHostAccount {
   configuration: ProfileConfigurationSnapshot & Required<Pick<ProfileConfigurationSnapshot, "canopy" | "profile" | "configuration" | "currentDevice">>;
+  /** The profile's home connection, which holds its configuration and this device's key. */
   connection: NonNullable<Awaited<ReturnType<HostAccountStore["get"]>>>;
+  /**
+   * The host the target is on and the session this device holds there: the
+   * home connection's, or a placement account's (accounts §1.3), whose
+   * session the same device key opens.
+   */
+  host: { origin: string; token: string; placement?: HostPlacementRecord };
+}
+
+/** A placement's `host` in `placements.yaml`: absent for the home host. */
+function placementHost(selected: SelectedHostAccount): { host?: string } {
+  return selected.host.placement ? { host: selected.host.origin } : {};
 }
 
 async function accountForCanonicalTarget(
   target: CanonicalTarget,
   options: { administrator: boolean },
 ): Promise<SelectedHostAccount> {
-  const [configurations, records] = await Promise.all([
+  const [configurations, records, placements] = await Promise.all([
     loadProfileConfigurations(),
     HostAccountStore.list(),
+    HostPlacementStore.list(),
   ]);
-  // A profile has one account per host; any tree its profile administers there may be placed.
-  const atOrigin = records.filter((record) => record.origin === target.endpoint);
+  // A profile has one account per host, its home or a placement account; any
+  // tree its profile administers there may be placed.
+  const homes = records.filter((record) => record.origin === target.endpoint)
+    .map((record) => ({ configurationTree: record.configurationTree, account: record.account, placement: undefined as HostPlacementRecord | undefined }));
+  const placed = homes.length ? [] : placements.filter((record) => record.origin === target.endpoint)
+    .map((record) => ({ configurationTree: record.configurationTree, account: record.account, placement: record as HostPlacementRecord | undefined }));
+  const atOrigin = homes.length ? homes : placed;
   const candidates = atOrigin.length > 1
     ? atOrigin.filter((record) => sameOrDescendantPath(target.canonicalPath, new URL(record.account).pathname))
     : atOrigin;
@@ -359,7 +380,9 @@ async function accountForCanonicalTarget(
     throw new Error(`No claimed Canopy account contains ${target.supplied}`);
   }
   if (candidates.length > 1) throw new Error(`Several claimed Canopy accounts contain ${target.supplied}`);
-  const record = candidates[0]!;
+  const { configurationTree, placement } = candidates[0]!;
+  const record = (await new HostAccountStore(configurationTree).safe());
+  if (!record) throw new Error(`Account ${configurationTree} has no home connection`);
   const configuration = configurations.find((candidate) => candidate.configurationTree === record.configurationTree);
   if (!configuration) throw new Error(`Account ${record.configurationTree} has no configuration checkout`);
   if (configuration.diagnostics.length || !configuration.configuration || !configuration.profile || !configuration.currentDevice) {
@@ -373,9 +396,16 @@ async function accountForCanonicalTarget(
   }
   const connection = await new HostAccountStore(record.configurationTree).get();
   if (!connection) throw new Error(`Account credential is unavailable for ${record.configurationTree}`);
+  let host: SelectedHostAccount["host"] = { origin: connection.record.origin, token: connection.accountToken };
+  if (placement) {
+    const opened = await new HostPlacementStore(record.configurationTree, placement.origin).get();
+    if (!opened) throw new Error(`Placement credential is unavailable for ${placement.account}`);
+    host = { origin: opened.record.origin, token: opened.accountToken, placement: opened.record };
+  }
   return {
     configuration: configuration as SelectedHostAccount["configuration"],
     connection,
+    host,
   };
 }
 
@@ -587,7 +617,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   const sourceCanonical = `${source.endpoint}${source.canonicalPath}`;
   const destinationCanonical = `${destination.endpoint}${destination.canonicalPath}`;
   if (source.endpoint !== destination.endpoint) {
-    throw new Error("Moving a tree to another Canopy is not supported: a profile has one home host");
+    throw new Error("Moving a tree to another Canopy is not supported: a tree stays on the host that holds it");
   }
 
   await withArborSync(arborDataRoot(), async (client, service) => {
@@ -596,7 +626,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     selected = await accountForCanonicalTarget(source, { administrator: true });
     const local = await loadLocalPlacements();
     if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
-    const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
+    const wire = new ProtocolClient(selected.host.origin, selected.host.token, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
     const resolved = await wire.resolve(source.canonicalPath);
     const sourceRemote = resolved.enclosingTree as import("@overstory/protocol").RemoteTreeDescriptor | undefined;
     if (!sourceRemote?.canonical || sourceRemote.canonical.path !== source.canonicalPath) throw new Error(`No exact canonical tree matches ${sourceInput}`);
@@ -704,20 +734,31 @@ async function placeLocal(
     await synchronizeOrDefer(client, service, selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: true });
     const config = selected.configuration;
-    const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
+    const wire = new ProtocolClient(selected.host.origin, selected.host.token);
     const local = await loadLocalPlacements();
     if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
     const existing = local.placements.find((placement) => placement.path === path);
     let tree = existing?.tree;
     const isNew = tree === undefined;
+    const rootPath = selected.host.placement ? new URL(selected.host.placement.account).pathname.replace(/\/$/, "") : null;
     if (existing) {
-      if (existing.configurationTree !== config.configurationTree) {
+      if (existing.configurationTree !== config.configurationTree || existing.host !== placementHost(selected).host) {
         throw new Error(`${path} is already placed through a different Canopy account`);
       }
       const current = await wire.descriptor(existing.tree).catch(() => null);
       if (current?.tree.canonical && current.tree.canonical.path !== target.canonicalPath) {
         throw new Error(`${path} already has a different canonical URL`);
       }
+    } else if (rootPath === target.canonicalPath) {
+      // The placement root: declared by the claim, activated here with the folder's content.
+      const { account } = await wire.placementAccount();
+      if (account.placementRoot.tree) {
+        throw new Error(`${target.supplied} is already active; place it with \`arbor place ${target.supplied} <local-path>\``);
+      }
+      if (audience.length) throw new Error("The placement root keeps its own access rules; edit them after placing it");
+      tree = account.placementRoot.id;
+      await addLocalPlacement({ configurationTree: config.configurationTree, path, tree, ...placementHost(selected) });
+      await waitForLocalPlacement(client, tree, config.configurationTree, path);
     } else {
       tree = generateArborID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
@@ -732,7 +773,7 @@ async function placeLocal(
         if (mounts[name]) throw new Error(`${target.supplied} is already mounted`);
         return { ...mounts, [name]: tree! };
       });
-      await addLocalPlacement({ configurationTree: config.configurationTree, path, tree });
+      await addLocalPlacement({ configurationTree: config.configurationTree, path, tree, ...placementHost(selected) });
       await waitForLocalPlacement(client, tree, config.configurationTree, path);
     }
     if (tree && !isNew && audience.length) {
@@ -755,11 +796,11 @@ async function placeLocal(
         return { ...values, access };
       });
     }
-    if (isNew && audience.length === 0) {
+    if (isNew && audience.length === 0 && rootPath !== target.canonicalPath) {
       console.warn(`Warning: no audience options supplied; created ${target.supplied} with private access.`);
     }
     const pushed = await synchronizeOrDefer(client, service, config.configurationTree);
-    if (!pushed) console.warn(`Warning: ${selected.connection.record.origin} is unreachable; the placement is saved and Arbor Sync will push it when the account reconnects.`);
+    if (!pushed) console.warn(`Warning: ${selected.host.origin} is unreachable; the placement is saved and Arbor Sync will push it when the account reconnects.`);
     console.log(`${target.supplied} ↔ ${path}`);
   });
 }
@@ -784,7 +825,7 @@ async function placeCommand(args: string[]): Promise<void> {
     let selected = await accountForCanonicalTarget(target, { administrator: false });
     await service.synchronizeNow(selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: false });
-    const remote = await new ProtocolClient(target.endpoint, selected.connection.accountToken).resolve(target.canonicalPath);
+    const remote = await new ProtocolClient(selected.host.origin, selected.host.token).resolve(target.canonicalPath);
     const descriptor = remote.enclosingTree;
     if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
     if (descriptor.canonical.path !== target.canonicalPath) {
@@ -794,6 +835,7 @@ async function placeCommand(args: string[]): Promise<void> {
       configurationTree: selected.configuration.configurationTree,
       path: destination,
       tree: descriptor.id,
+      ...placementHost(selected),
     });
     // Synchronization explicitly reloads placements before materializing the tree.
     // Do not depend on delivery of a filesystem notification to adopt this write.
@@ -881,6 +923,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       } else if (candidate.configuration.configurationTree !== selected.configuration.configurationTree) {
         throw new Error("A cloud bundle may contain trees from only one Arbor account");
       }
+      if (candidate.host.placement) throw new Error("A cloud bundle covers trees at the profile's home host only, not a placement host");
       if (target.endpoint !== selected.connection.record.origin) {
         throw new Error("A cloud bundle may target only one Canopy");
       }
@@ -1504,12 +1547,15 @@ async function statusCommand(args: string[]): Promise<void> {
 async function accountCommand(args: string[]): Promise<void> {
   const [action, ...operands] = args;
   if (action === undefined) {
-    const [homes, placements] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list()]);
+    const [homes, placements, local] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list(), loadLocalPlacements()]);
     if (!homes.length) console.log("No connected account");
     for (const home of homes) {
       console.log(`Home: ${home.account} (device ${home.deviceID})`);
       for (const placement of placements.filter((candidate) => candidate.configurationTree === home.configurationTree)) {
         console.log(`  Placement: ${placement.account} (root ${placement.placementRoot})`);
+        for (const folder of local.placements.filter((candidate) => candidate.configurationTree === home.configurationTree && candidate.host === placement.origin)) {
+          console.log(`    ${folder.path} (${folder.tree})`);
+        }
       }
     }
     return;

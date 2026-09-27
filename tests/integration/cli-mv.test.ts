@@ -104,7 +104,7 @@ describe("arbor mv", () => {
     expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/tasks");
     expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toContain(`tasks: ${tree}`);
     // Another Canopy is not a destination: a profile has one home host.
-    await expect(arbor(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("one home host");
+    await expect(arbor(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("stays on the host that holds it");
     expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
     expect((await loadLocalPlacements()).placements).toContainEqual({
       configurationTree: account.configurationTree,

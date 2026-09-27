@@ -31,7 +31,8 @@ profile TreeID are kept with its connection record, not in the checkout. A
 profile has one home host, so one profile has one checkout. It was `accounts/`
 until the schema-26 cutover renamed it once, by hand, with Arbor Sync stopped;
 no reader of the old name remains. `placements.yaml` is local-only and groups
-absolute filesystem paths by configuration TreeID. Other trees' configurations
+absolute filesystem paths by configuration TreeID (its format is
+[below](#placementsyaml)). Other trees' configurations
 are never checked out; clients read and edit them through the host.
 `packages/canopyd/migrations/022-tree-configurations/rekey-data-home.ts`
 moves a data home from the earlier random account-configuration TreeID to the
@@ -61,6 +62,46 @@ hash disagrees with the recomputed one and rewriting the row. Objects served
 by hash are always verified against their hash before leaving the daemon; the
 fetch-through cache for objects that live only on canopyd is in memory and
 bounded.
+
+### placements.yaml
+
+`placements.yaml` maps each profile's configuration TreeID to the folders
+this data home places for it, keyed by canonical absolute path. A folder's
+value is the placed TreeID when the tree is on the profile's home host, or a
+mapping naming the placement host
+([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account))
+when it is on one of the profile's placement accounts:
+
+```yaml
+tr_<configuration>:
+  /Users/joe/Notes: tr_<notes>
+  /Users/joe/Orchard:
+    tree: tr_<research>
+    host: https://orchard.example
+```
+
+`host` is an exact origin, HTTPS or loopback HTTP; the mapping allows no
+other field, and `{tree: tr_<id>}` alone means the home host as the bare
+TreeID does. Files written before placement hosts are valid and read the
+same, and writers keep the bare form for every home placement, so a data home
+that never places on another host never sees the mapping. A path and a TreeID
+still appear at most once in the whole file. Grouping stays by configuration
+TreeID rather than by host because the profile, not the host, owns the
+folder: the host only says which connection reaches the tree. The Swift
+reader (`LocalPlacementsYAML` in the OverstoryClient package) parses and
+writes the same two forms.
+
+The tree registry (`loadTreeRegistry`) takes a placement's endpoint from its
+origin: the home connection's for a bare TreeID or a `host` equal to the
+home, else the placement connection for that host (below), which must be
+recorded in this data home. A `host` with no placement connection makes the
+placement file invalid with an `unknown-placement-host` diagnostic, as an
+unknown configuration TreeID does, and the last valid projection stays
+active; `arbor account place <host>` records the connection. Arbor Sync then
+lists, pushes, pulls and watches that tree at the placement host with the
+placement connection's session, and its folder moves (`arbor mv`) keep the
+`host`. A tree never changes hosts: `arbor mv` between two hosts' canonical
+URLs is refused.
 
 Device keys use the platform credential facility where available and are
 scoped by the selected data home and configuration TreeID; a device holds no
@@ -181,7 +222,15 @@ keying every record by origin would move the home record every reader
 already knows; this nesting leaves the home record and
 `HostAccountStore.list()`, which lists home connections only, exactly as
 they were. Account selection (`accountProtocolClient`) picks the placement
-connection when a request names its origin.
+connection when a request names its origin, and never sends the home
+session to another host: an origin with no placement connection gets an
+anonymous client, or `credential-unavailable` when a credential is required.
+A 401 from a placement host makes Arbor Sync forget that placement
+connection's cached session and open another with the device key; the home
+connection's session is untouched, and a 401 from the home forgets only the
+home's. `GET /v1/credential?configurationTree=…&origin=…` serves the session
+for a placement host to a local working-tree client, under the same loopback
+exposure as the home session.
 
 ## Migration
 

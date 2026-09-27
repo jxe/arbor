@@ -98,6 +98,24 @@ arbor place --access public=read ./handbook https://garden.example/~joe/handbook
 arbor place https://garden.example/~joe/handbook ~/Documents/handbook
 ```
 
+A URL on a host where you hold a placement account (`arbor account place`)
+selects that account: both forms then create or place the tree on that host,
+under your placement root, and Arbor Sync syncs it there with the same device
+key. The placement root's own URL, while the root is not yet active,
+activates it with the folder's content; once active, place it with the
+canonical-first form like any other tree. The home host is not involved:
+the tree, its configuration and its history are the placement host's. The
+folder is recorded in `placements.yaml` with that host
+([the format](../architecture/arborsync/data-home.md#placementsyaml)).
+
+```sh
+arbor account place https://orchard.example
+arbor place ./orchard https://orchard.example/~joe
+arbor place ./research https://orchard.example/~joe/research
+# On another device paired at your home host, after `arbor account place` there:
+arbor place https://orchard.example/~joe/research ~/Documents/research
+```
+
 ### `arbor status`
 
 ```text
@@ -267,7 +285,7 @@ arbor account place [--invite <code>] <placement-host-url>
 ```
 
 `arbor account` lists this installation's home account and the profile's
-placement accounts. `arbor account place` claims a placement account for your
+placement accounts, each with the folders placed on it. `arbor account place` claims a placement account for your
 profile at another host
 ([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)):
 the host must have reserved an account for your Profile TreeID (or give you
@@ -275,9 +293,10 @@ an invitation code), and your profile key signs which host is your home. The
 host then accepts every device your home host lists, with the same key, and
 declares your placement root at the account's address as the parent of your
 trees there. Give the host's origin, or the exact account URL when it
-reserved several. Running it again reconnects to an account already claimed.
-Placing folders under a placement account (`arbor place`) is not supported
-yet.
+reserved several. Running it again reconnects to an account already claimed;
+another of your devices, once paired at your home host, runs it to connect
+to the same account. `arbor place` then places folders under the placement
+root (above).
 
 ### `arbor daemon`
 
@@ -324,11 +343,9 @@ arbor mv ~/Documents/todos-f ~/Documents/todos
 
 With two canonical URLs on the same canopyd account, rename the exact canonical
 tree while leaving its local folder, `TreeID`, contents, ACL, and accepted
-history unchanged. With URLs belonging to different claimed canopyd accounts,
-move the placement between those accounts. A cross-canopyd move preserves the
-`TreeID`, current authored snapshot, local path, and ACL, starts a new accepted
-history at the destination, and retains the source canopyd copy and declaration
-for recovery.
+history unchanged; this works on a placement host as on the home host. URLs on
+two different hosts, such as the home host and a placement host, are refused:
+a tree stays on the host that holds it.
 
 Canonical moves require a present, idle local placement and administrator
 access to the destination account. The destination must be vacant or an exact
