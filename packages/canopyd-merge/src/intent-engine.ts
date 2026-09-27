@@ -135,6 +135,10 @@ const components = (path: string): string[] => {
 /** Projected file objects by node, reused while a node is unchanged. Seeded
  * from an accepted root's directory metadata, never from a client assertion. */
 type ProjectedMaterial = Map<string, {node: Node; object: string}>;
+/** What one projection walk shares: the view's child index, and with
+ * `projected` each subtree's object and height (its deepest descendant's
+ * distance below it), for a walk over a view nothing edits meanwhile. */
+type Walk = {index?: Map<string, Node[]>; projected?: Map<string, {object: string; height: number}>};
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
   /** The effects an editable basis already enforced, when evaluation may
@@ -347,7 +351,10 @@ class Engine {
       if (node.parent !== null && components("/" + node.name).length !== 1)
         return fail("Invalid entry name");
     }
-    if (!trusted && (await this.project(state)) !== ref.object)
+    // Validation edits no node, so one walk projects the root and every
+    // alternative, each subtree once.
+    const project = this.projector(state);
+    if (!trusted && (await project()) !== ref.object)
       return fail("State does not project to supplied root");
     const decisions = new Map(state.decisions.map((d) => [d.key, d]));
     const visiting = new Set<string>(),
@@ -368,7 +375,7 @@ class Engine {
         if (
           !decision.context &&
           alternative.node &&
-          (await this.project(state, alternative.node)) !== alternative.object
+          (await project(alternative.node)) !== alternative.object
         )
           return fail(
             `Alternative does not match retained material: ${decision.key} (${alternative.node})`
@@ -419,13 +426,22 @@ class Engine {
       ? (index.get(id) ?? []).filter((n) => n.active)
       : Object.values(view.nodes).filter((n) => n.active && n.parent === id);
   }
+  /** The object `root` projects to. `walk` carries a child index (built on
+   * the first directory, not for a file) and, from `projector`, the subtrees
+   * already projected; a bare index is accepted as the index. */
   async project(
     view: View,
     root = view.root,
     visiting = new Set<string>(),
-    index = this.childIndex(view)
+    walk: Walk | Map<string, Node[]> = {}
   ): Promise<string> {
     this.checkBudget();
+    const shared: Walk = walk instanceof Map ? { index: walk } : walk;
+    // A subtree this walk projected already, while nothing edited the view:
+    // it projects to the same object, and every object it put is still put.
+    // Reused only where projecting it again would not reach the depth budget.
+    const known = shared.projected?.get(root);
+    if (known && visiting.size + known.height <= 256) return known.object;
     const node = view.nodes[root];
     if (!node?.active) return fail("Projection root is absent");
     if (visiting.has(root)) return fail("Directory cycle");
@@ -441,17 +457,23 @@ class Engine {
           : node.pieces ? this.put(await this.bytes(node.pieces))
           : (await this.read(node.object), node.object);
         material?.next.set(node.id, {node, object});
+        shared.projected?.set(root, {object, height: 0});
         return object;
       }
-      if (node.kind === "tree") return node.object;
+      if (node.kind === "tree") {
+        shared.projected?.set(root, {object: node.object, height: 0});
+        return node.object;
+      }
       const entries = [];
       const names = new Set<string>();
-      for (const child of this.children(view, root, index).sort((a, b) =>
+      let height = 0;
+      for (const child of this.children(view, root, (shared.index ??= this.childIndex(view))).sort((a, b) =>
         Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
       )) {
         if (names.has(child.name)) return fail("Duplicate directory placement");
         names.add(child.name);
-        const object = await this.project(view, child.id, visiting, index);
+        const object = await this.project(view, child.id, visiting, shared);
+        if (shared.projected) height = Math.max(height, shared.projected.get(child.id)!.height + 1);
         entries.push(
           child.kind === "file"
             ? { name: child.name, file: object }
@@ -460,16 +482,25 @@ class Engine {
             : { name: child.name, tree: object }
         );
       }
-      return this.put(
+      const object = this.put(
         encodeProtocolDirectory({
           ...node.directory,
           type: "directory",
           entries,
         } as ProtocolDirectory)
       );
+      shared.projected?.set(root, {object, height});
+      return object;
     } finally {
       visiting.delete(root);
     }
+  }
+  /** Projections of several nodes of `view` in a loop that edits no node of
+   * it (only decisions): one child index, and each subtree projected once.
+   * Never kept past such a loop: nodes are edited in place. */
+  projector(view: View, index?: Map<string, Node[]>): (id?: string) => Promise<string> {
+    const walk: Walk = { index, projected: new Map() };
+    return (id = view.root) => this.project(view, id, new Set(), walk);
   }
   async binding(
     ref: MaterialRef,
@@ -1266,11 +1297,13 @@ class Engine {
   // Preserve its immutable value through the state reference; a stale local
   // alias would make the recorded context unreadable on the next continuation.
   private async retainDirectoryAlternatives(state: IntentState): Promise<void> {
+    // Only alternatives' nodes are dropped here; no node is edited.
+    const project = this.projector(state);
     for (const decision of state.decisions) {
       if (decision.kind !== "directory") continue;
       for (const alternative of decision.alternatives)
         if (alternative.node && (!state.nodes[alternative.node]?.active ||
-            await this.project(state, alternative.node) !== alternative.object))
+            await project(alternative.node) !== alternative.object))
           delete alternative.node;
     }
   }
@@ -2703,12 +2736,14 @@ class Engine {
         }
         await this.declineDeletions(resultState, rootChoice,
           Object.values(resultState.nodes).flatMap((node) => node.active && node.pieces ? node.pieces : []));
+        // Only alternatives' nodes are dropped here; no node is edited.
+        const project = this.projector(resultState);
         for (const decision of resultState.decisions)
           for (const alternative of decision.alternatives)
             if (
               alternative.node &&
               (!resultState.nodes[alternative.node]?.active ||
-                (await this.project(resultState, alternative.node)) !==
+                (await project(alternative.node)) !==
                   alternative.object)
             )
               delete alternative.node;
@@ -3003,9 +3038,12 @@ export async function checkpointIntent(
   const oldObjects = new Map<string, string>();
   engine.knownLengths = new Map();
   const previousChildren = engine.childIndex(previous);
+  // Nothing edits `previous`: one walk projects its files here and its
+  // folders below.
+  const projectPrevious = engine.projector(previous, previousChildren);
   for (const node of Object.values(previous.nodes))
     if (node.active && node.kind === "file") {
-      const object = await engine.project(previous, node.id, new Set(), previousChildren);
+      const object = await projectPrevious(node.id);
       oldObjects.set(node.id, object);
       if (node.pieces) engine.knownLengths.set(object, length(node.pieces));
     }
@@ -3186,7 +3224,7 @@ export async function checkpointIntent(
     } else if (folderDecision(decision)) {
       // A choice about one folder concerns only that folder.
       const id = decision.affected[0]!,
-        before = displayed(previous, id) ? await engine.project(previous, id, new Set(), previousChildren) : undefined,
+        before = displayed(previous, id) ? await projectPrevious(id) : undefined,
         after = displayed(state, id) ? await engine.project(state, id) : undefined;
       if (before === after) continue;
       const selected = decision.alternatives[decision.selected]!;
