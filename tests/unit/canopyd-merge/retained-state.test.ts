@@ -44,7 +44,7 @@ test("a recorded state is frozen, and editability is part of its identity", () =
   expect(() => { (recorded.nodes.root as { active: boolean }).active = false; }).toThrow();
   // A loaded copy can be edited.
   const copy = loadState(states.get(editable.id)!);
-  copy.nodes.root!.active = false;
+  (copy.nodes.root as { active: boolean }).active = false;
   expect(recorded.nodes.root!.active).toBe(true);
 });
 
