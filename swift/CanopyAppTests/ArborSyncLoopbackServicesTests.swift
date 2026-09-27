@@ -1,6 +1,8 @@
 #if os(macOS)
+import CanopyAppKit
 import OverstoryObjectStore
 import Overstory
+import OverstoryClient
 import Foundation
 import Testing
 @testable import CanopyApp
@@ -179,6 +181,73 @@ struct LoopbackServicesTests {
         // As a ProtocolCredentialProvider it feeds the protocol client's bearer header.
         let wire: any ProtocolCredentialProvider = provider
         #expect(try await wire.credential() == "token-2")
+    }
+
+    @Test("A placement host's credential names its origin, and its provider is not the home's")
+    func placementCredentialCarriesOrigin() async throws {
+        await LoopbackStub.state.install { request, _ in
+            let placement = request.url?.query?.contains("origin=") == true
+            return (200, Data(#"{"token":"\#(placement ? "orchard" : "garden")-token"}"#.utf8), "application/json")
+        }
+        let client = stubbedClient()
+        #expect(try await client.credential(configurationTree: "tr_cfg", origin: "https://orchard.example") == "orchard-token")
+        var requests = await LoopbackStub.state.requests()
+        #expect(requests.map(\.path) == ["/v1/credential"])
+        #expect(requests[0].query == "configurationTree=tr_cfg&origin=https://orchard.example")
+        // An origin names the account whose device key opens the session there.
+        await #expect(throws: ProtocolValidationError.self) {
+            _ = try await client.credential(origin: "https://orchard.example")
+        }
+
+        // Shared providers are per account and host: B's never hands out the home session.
+        let home = ArborSyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg")
+        let orchard = ArborSyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example")
+        #expect(home !== orchard)
+        #expect(ArborSyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example") === orchard)
+        #expect(orchard.origin == "https://orchard.example")
+        #expect(try await orchard.credential() == "orchard-token")
+        #expect(try await home.credential() == "garden-token")
+        // After a 401 from B the provider asks the daemon again, still for B.
+        await orchard.invalidate()
+        #expect(try await orchard.credential() == "orchard-token")
+        requests = await LoopbackStub.state.requests()
+        #expect(requests.map(\.query) == [
+            "configurationTree=tr_cfg&origin=https://orchard.example",
+            "configurationTree=tr_cfg&origin=https://orchard.example",
+            "configurationTree=tr_cfg",
+            "configurationTree=tr_cfg&origin=https://orchard.example",
+        ])
+    }
+
+    @Test("Placing an account posts to the placement route and decodes the connection it recorded")
+    func placeAccountRoute() async throws {
+        let body = Data(#"{"claimed":true,"placement":{"configurationTree":"tr_cfg","origin":"https://orchard.example","account":"https://orchard.example/~joe","accountID":"ac_joe","handle":"joe","profileTree":"tr_profile","homeHost":"https://garden.example","placementRoot":"tr_root","placed":true}}"#.utf8)
+        await LoopbackStub.state.install { _, _ in (201, body, "application/json") }
+        let claim = try await stubbedClient().placeAccount(host: "https://orchard.example", inviteCode: "invite")
+        #expect(claim.claimed)
+        #expect(claim.placement.origin == "https://orchard.example")
+        #expect(claim.placement.placementRoot == "tr_root")
+        #expect(claim.placement.isWellFormed)
+        #expect(await LoopbackStub.state.requests().map(\.path) == ["/v1/bootstrap/placements"])
+
+        // A placement host's refusal keeps its code and names the home host.
+        let refused = Data(#"{"error":"internal-error","message":"The home host cannot be read","retryable":true,"details":{"homeHost":"https://garden.example"}}"#.utf8)
+        await LoopbackStub.state.install { _, _ in (503, refused, "application/json") }
+        do {
+            _ = try await stubbedClient().placeAccount(host: "https://orchard.example")
+            Issue.record("expected a 503")
+        } catch let error as ArborSyncServerError {
+            #expect(error.status == 503)
+            #expect(error.value.details == .object(["homeHost": .string("https://garden.example")]))
+        }
+
+        // A daemon from before the route answers 405.
+        await LoopbackStub.state.install { _, _ in
+            (405, Data(#"{"error":"unsupported-operation","message":"Method not allowed","retryable":false}"#.utf8), "application/json")
+        }
+        await #expect(throws: ArborSyncPlacementUnavailable(host: "https://orchard.example")) {
+            _ = try await stubbedClient().placeAccount(host: "https://orchard.example")
+        }
     }
 
     @Test("A missing credential propagates the daemon's 404 and caches nothing")

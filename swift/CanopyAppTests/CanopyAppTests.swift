@@ -1300,6 +1300,77 @@ struct CanopyAppTests {
 #endif
     }
 
+    private static let orchard = CanopyPlacement(NativePlacementAccount(
+        configurationTree: "tr_config", origin: "https://orchard.example", account: "https://orchard.example/~joe",
+        accountID: "tr_profile", handle: "joe", profileTree: "tr_profile",
+        homeHost: "https://garden.example", placementRoot: "tr_root"
+    ))
+
+    @Test("A new tree on a placement account is declared on that host, below its placement root")
+    func newTreeDestinationOnPlacementHost() throws {
+        let destination = CanopyShareAccount(placement: Self.orchard)
+        #expect(destination.id == Self.orchard.id)
+        #expect(destination.id != "tr_config")
+        #expect(destination.destinationLabel == "~joe · orchard.example")
+        #expect(destination.accountURL == "https://orchard.example/~joe")
+
+        let research = try destination.newTreeDestination(canonical: "https://orchard.example/~joe/research")
+        #expect(research.origin == URL(string: "https://orchard.example"))
+        #expect(research.host == "https://orchard.example")
+        #expect(research.segments == ["~joe", "research"])
+        #expect(research.placementRoot == nil)
+
+        // The placement root's own URL activates the root the claim declared.
+        let root = try destination.newTreeDestination(canonical: "https://orchard.example/~joe/")
+        #expect(root.placementRoot == "tr_root")
+        #expect(root.host == "https://orchard.example")
+
+        // Nowhere else on that host, and never on another host.
+        #expect(throws: ProtocolValidationError.self) { try destination.newTreeDestination(canonical: "https://orchard.example/~ann/notes") }
+        #expect(throws: ProtocolValidationError.self) { try destination.newTreeDestination(canonical: "https://orchard.example/~joey") }
+        #expect(throws: ProtocolValidationError.self) { try destination.newTreeDestination(canonical: "https://garden.example/~joe/research") }
+    }
+
+    @Test("A new tree at the home host names no placement host")
+    func newTreeDestinationAtHome() throws {
+        let home = CanopyShareAccount(configurationTree: "tr_config", origin: "https://garden.example", handle: "joe")
+        #expect(home.id == "tr_config")
+        #expect(home.destinationLabel == "~joe · garden.example")
+        #expect(home.accountURL == "https://garden.example/~joe")
+        let notes = try home.newTreeDestination(canonical: "https://garden.example/~joe/notes")
+        #expect(notes.host == nil)
+        #expect(notes.placementRoot == nil)
+        #expect(notes.segments == ["~joe", "notes"])
+        #expect(throws: ProtocolValidationError.self) { try home.newTreeDestination(canonical: "https://orchard.example/~joe/notes") }
+        #expect(throws: ProtocolValidationError.self) { try home.newTreeDestination(canonical: "https://garden.example/") }
+        #expect(throws: ProtocolValidationError.self) { try home.newTreeDestination(canonical: "https://garden.example/~joe/notes?x=1") }
+    }
+
+    @Test("A tree's session is its placement host's when its canonical endpoint is not the home host")
+    func placementOriginForTreeSessions() {
+        #expect(CanopyWorkspaceState.placementOrigin(endpoint: "https://orchard.example", home: "https://garden.example") == "https://orchard.example")
+        #expect(CanopyWorkspaceState.placementOrigin(endpoint: "https://Garden.example", home: "https://garden.example") == nil)
+        #expect(CanopyWorkspaceState.placementOrigin(endpoint: "http://127.0.0.1:4001", home: "http://127.0.0.1:4000") == "http://127.0.0.1:4001")
+        #expect(CanopyWorkspaceState.placementOrigin(endpoint: nil, home: "https://garden.example") == nil)
+        #expect(CanopyWorkspaceState.placementOrigin(endpoint: "https://orchard.example", home: nil) == nil)
+    }
+
+    @Test("A host with no home account is reached through the placement connection there")
+    func connectedPlacementByOrigin() async throws {
+        let service = RecordingAccountService(accounts: [
+            CanopyAccount(
+                configurationTree: "tr_config", origin: URL(string: "https://garden.example"),
+                handle: "joe", profileTree: "tr_profile", deviceID: "dv_mac", credentialAvailable: true
+            ),
+        ], placements: [Self.orchard])
+        let workspace = CanopyWorkspaceState(provider: .sample(), accountService: service)
+        let placement = await workspace.connectedPlacement(at: try #require(URL(string: "https://orchard.example/~joe/research")))
+        #expect(placement == Self.orchard)
+        // The home host is the home account's, never a placement's.
+        #expect(await workspace.connectedPlacement(at: try #require(URL(string: "https://garden.example"))) == nil)
+        #expect(await workspace.connectedPlacement(at: try #require(URL(string: "https://elsewhere.example"))) == nil)
+    }
+
 #if os(macOS)
     /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local Canopy,
     /// claims an account into the test data home, places a disposable folder,
@@ -1362,9 +1433,13 @@ private actor StatusConflictSession: WorkspaceDocumentSession {
 /// An account store that serves a fixed list and counts how often it is read.
 private actor RecordingAccountService: CanopyAccountService {
     private let fixed: [CanopyAccount]
+    private let fixedPlacements: [CanopyPlacement]
     private(set) var listings = 0
 
-    init(accounts: [CanopyAccount]) { fixed = accounts }
+    init(accounts: [CanopyAccount], placements: [CanopyPlacement] = []) {
+        fixed = accounts
+        fixedPlacements = placements
+    }
 
     nonisolated var capabilities: Set<CanopyAccountCapability> { [] }
     func state() -> CanopyAccountState {
@@ -1377,6 +1452,9 @@ private actor RecordingAccountService: CanopyAccountService {
     func credentialProvider(configurationTree: String) throws -> any ProtocolCredentialProvider {
         throw CanopyAccountServiceError.invalidAccount("No credential in the test store")
     }
+    func credentialProvider(configurationTree _: String, placementOrigin _: String) throws -> any ProtocolCredentialProvider {
+        throw CanopyAccountServiceError.invalidAccount("No placement credential in the test store")
+    }
     func createIdentity() {}
     func restoreIdentity(backup _: Data, passphrase _: String?) throws { throw CanopyAccountServiceError.unsupported(.restoreIdentity) }
     func backupIdentity(to _: URL, passphrase _: String) throws { throw CanopyAccountServiceError.unsupported(.backupIdentity) }
@@ -1387,7 +1465,9 @@ private actor RecordingAccountService: CanopyAccountService {
     }
     func resumePairing() throws { throw CanopyAccountServiceError.unsupported(.resumePairing) }
     func forget(origin _: URL, configurationTree _: String?) throws { throw CanopyAccountServiceError.unsupported(.forget) }
-    func placements(configurationTree _: String) -> [CanopyPlacement] { [] }
+    func placements(configurationTree: String) -> [CanopyPlacement] {
+        fixedPlacements.filter { $0.configurationTree == configurationTree }
+    }
     func placeAccount(configurationTree _: String, host _: String, inviteCode _: String?) throws {
         throw CanopyAccountServiceError.unsupported(.placeAccount)
     }

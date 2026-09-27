@@ -326,6 +326,7 @@ POST /v1/me/backup
 POST /v1/bootstrap/accounts
 POST /v1/bootstrap/accounts/cancel
 POST /v1/bootstrap/pairings/claim
+POST /v1/bootstrap/placements
 ```
 
 The former `POST /v1/bootstrap/pairings` (create a pairing offer) and
@@ -366,6 +367,27 @@ contacting the host, and installs the account into ArborSync's account store.
 It verifies the returned device, profile and community and refuses to overwrite
 an existing checkout with different contents. It does not generate a profile key.
 Pairing codes and device credentials must never be logged.
+
+`POST /v1/bootstrap/placements` accepts `{ host, inviteCode? }` and claims a
+placement account for the data home's profile at `host`
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)),
+exactly as `arbor account place <host>` does (`claimPlacementAccount` in
+`@overstory/client`): the profile key signs a challenge naming the profile's
+home host, and the device then opens a session there with the key it uses at
+home. `host` is an HTTPS Canopy URL (plain HTTP only on loopback), either the
+host's origin or the exact account URL. It answers
+`{ placement, claimed }`, where `placement` is the connection record the data
+home now holds (`HostPlacementRecord`: `configurationTree`, `origin`,
+`account`, `accountID`, `handle?`, `profileTree`, `homeHost`,
+`placementRoot`, `placed`), with `201` when this call claimed the account and
+`200` when it connected to one the profile already holds there (a second
+device, or a claim whose answer was lost). A missing `host` is
+`400 invalid-request`; no identity, no connected home account, or a `host`
+that is the profile's home host is `409 conflict`. A placement host's refusal
+keeps its status, error code and details, so a `403` or `503` carries
+`details.homeHost`; an unreachable placement host is `503 internal-error`,
+retryable. The route exists because only the data home holds the profile key:
+the Mac app claims through it and never holds that key itself.
 
 
 Account bootstrap requires an existing self-certifying profile identity. It

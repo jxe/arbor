@@ -38,6 +38,12 @@ struct ArborSyncAccountService: CanopyAccountService {
         ArborSyncCredentialProvider.shared(client: try await connect(), configurationTree: configurationTree)
     }
 
+    /// The daemon's session at a placement host (`GET /v1/credential?origin=`),
+    /// opened there with the data home's device key.
+    func credentialProvider(configurationTree: String, placementOrigin origin: String) async throws -> any ProtocolCredentialProvider {
+        ArborSyncCredentialProvider.shared(client: try await connect(), configurationTree: configurationTree, origin: origin)
+    }
+
     func createIdentity() async throws {
         let client = try await connect()
         try await client.createIdentity(path: Self.profilePath(try await client.onboardingState()))

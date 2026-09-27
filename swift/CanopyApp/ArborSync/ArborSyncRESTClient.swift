@@ -2,6 +2,7 @@
 import Foundation
 import CanopyAppKit
 import Overstory
+import OverstoryClient
 
 struct ArborSyncServerError: Error, LocalizedError, Sendable {
     var status: Int
@@ -58,6 +59,14 @@ struct LocalHostAccountsEnvelope: Codable, Sendable {
     var identity: LocalProfileIdentity?
     var pendingClaim: LocalPendingClaim?
     var pendingPairing: LocalPendingPairing?
+}
+
+/// `POST /v1/bootstrap/placements`'s answer: the placement connection the data
+/// home now holds (`HostPlacementRecord`), and whether this call claimed the
+/// account (201) rather than connecting to one already claimed (200).
+struct LocalPlacementClaim: Codable, Sendable, Equatable {
+    var placement: NativePlacementAccount
+    var claimed: Bool
 }
 
 /// The daemon's control surface as the Mac app sees it: status, trees,
@@ -137,17 +146,24 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/bootstrap/accounts", body: body)
     }
 
-    /// `POST /v1/bootstrap/placements`: claim a placement account for the
-    /// data home's profile at `host` (accounts §1.3), as
+    /// `POST /v1/bootstrap/placements {host, inviteCode?}`: claim a placement
+    /// account for the data home's profile at `host` (accounts §1.3), as
     /// `arbor account place <host>` does (`claimPlacementAccount` in
-    /// `@overstory/client`). The profile key and the device key are the data
-    /// home's, so only the daemon can do this for the Mac. A daemon without
-    /// the route sends the POST to its browser surface, which answers 405.
-    func placeAccount(host: String, inviteCode: String? = nil) async throws {
+    /// `@overstory/client`), or connect to one the profile already holds
+    /// there. The profile key and the device key are the data home's, so only
+    /// the daemon can do this for the Mac. It answers the connection record
+    /// the data home now holds. A daemon without the route sends the POST to
+    /// its browser surface, which answers 405.
+    @discardableResult
+    func placeAccount(host: String, inviteCode: String? = nil) async throws -> LocalPlacementClaim {
         var body = ["host": host]
         if let inviteCode { body["inviteCode"] = inviteCode }
+        var request = URLRequest(url: url("/v1/bootstrap/placements"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         do {
-            try await onboardingPost("/v1/bootstrap/placements", body: body)
+            return try await perform(request)
         } catch let error as ArborSyncServerError where error.status == 405 {
             throw ArborSyncPlacementUnavailable(host: host)
         }
@@ -205,12 +221,20 @@ actor ArborSyncRESTClient {
     }
 
     /// `GET /v1/credential`: the Canopy account credential the daemon holds for
-    /// `configurationTree` (or the only connected account when omitted).
-    func credential(configurationTree: String? = nil) async throws -> String {
-        let value: TreeCredential = try await get(
-            path: "/v1/credential",
-            items: configurationTree.map { [URLQueryItem(name: "configurationTree", value: $0)] } ?? []
-        )
+    /// `configurationTree` (or the only connected account when omitted). With
+    /// `origin`, the session is for that host: the account's home host, or one
+    /// of its placement hosts (accounts §1.3), which the same device key opens.
+    /// `origin` requires `configurationTree`.
+    func credential(configurationTree: String? = nil, origin: String? = nil) async throws -> String {
+        var items: [URLQueryItem] = []
+        if let configurationTree { items.append(URLQueryItem(name: "configurationTree", value: configurationTree)) }
+        if let origin {
+            guard configurationTree != nil else {
+                throw ProtocolValidationError.invalidValue("A credential for a host names its account's configuration tree")
+            }
+            items.append(URLQueryItem(name: "origin", value: origin))
+        }
+        let value: TreeCredential = try await get(path: "/v1/credential", items: items)
         guard !value.token.isEmpty else {
             throw ProtocolValidationError.invalidValue("Arbor Sync returned an empty credential")
         }

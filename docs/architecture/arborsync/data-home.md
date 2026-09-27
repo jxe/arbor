@@ -232,6 +232,16 @@ home's. `GET /v1/credential?configurationTree=…&origin=…` serves the session
 for a placement host to a local working-tree client, under the same loopback
 exposure as the home session.
 
+Two tools write a placement connection, both through `claimPlacementAccount`
+in `@overstory/client`, which signs with the data home's profile key: `arbor
+account place <host>`, and Arbor Sync's `POST /v1/bootstrap/placements`
+([the API](../../implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-declined-changes)),
+through which the Mac app claims, since the app never holds the profile key.
+Either one run again, or run on a second device that paired at the home
+host, connects to the account already claimed instead of claiming it twice.
+The Mac app then places folders under the placement root exactly as `arbor
+place` does, writing the `{tree, host}` form of `placements.yaml` above.
+
 ## Migration
 
 The alpha implementation moved legacy caches, rehearsal state, Finder

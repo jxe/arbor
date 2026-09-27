@@ -139,6 +139,10 @@ protocol CanopyAccountService: Sendable {
     func accounts() async throws -> [CanopyAccount]
     /// The sessions this device's key opens for requests to the account's Canopy.
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider
+    /// The sessions the same device key opens at `origin`, one of the
+    /// account's placement hosts (accounts §1.3, §5.4). Never the home
+    /// session: a placement host has its own.
+    func credentialProvider(configurationTree: String, placementOrigin origin: String) async throws -> any ProtocolCredentialProvider
 
     func createIdentity() async throws
     /// A version-2 backup is encrypted and needs its passphrase.
@@ -210,6 +214,10 @@ struct KeychainAccountService: CanopyAccountService {
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {
         AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: KeychainDeviceCredentialStore())
+    }
+
+    func credentialProvider(configurationTree: String, placementOrigin origin: String) async throws -> any ProtocolCredentialProvider {
+        AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: origin, store: KeychainDeviceCredentialStore())
     }
 
     func createIdentity() async throws {

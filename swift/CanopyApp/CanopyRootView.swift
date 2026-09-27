@@ -1269,9 +1269,18 @@ struct CanopyRootView: View {
             (overview?.accounts ?? []).map { ($0.configurationTree, $0.accountDisplayLabel) },
             uniquingKeysWith: { first, _ in first }
         )
+        let accounts = Dictionary(
+            (overview?.accounts ?? []).map { ($0.configurationTree, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let values = (overview?.trees ?? []).filter { $0.kind != CanopyTreeKind.treeConfiguration && $0.path != nil }.map { tree in
-            SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
-                account: tree.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
+            // A tree on a placement host (accounts §1.3) is listed under that host, not the account's home.
+            let account = tree.configurationTree.flatMap { accounts[$0] }
+            let placementHost = CanopyWorkspaceState.placementOrigin(endpoint: tree.canonicalEndpoint, home: account?.canopy)
+                .flatMap { URL(string: $0)?.host() }
+            let label = placementHost.map { host in "\(account?.accountDisplayName ?? "Canopy account") · \(host)" }
+                ?? tree.configurationTree.flatMap { accountLabels[$0] }
+            return SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name, account: label ?? "Other Trees")
         }
 #else
         let accountLabels = Dictionary(
@@ -3131,9 +3140,7 @@ private struct CanopySharePanel: View {
             Section("Destination") {
                 Picker("Account", selection: $selectedAccountID) {
                     ForEach(accounts) { account in
-                        Text(account.handle.map { "~\($0) · \(URL(string: account.origin)?.host ?? account.origin)" }
-                            ?? account.origin)
-                            .tag(account.id)
+                        Text(account.destinationLabel).tag(account.id)
                     }
                 }
                 TextField("Canonical URL", text: $canonicalURL)
@@ -3270,8 +3277,7 @@ private struct CanopySharePanel: View {
             .lowercased()
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        guard let handle = account.handle, !handle.isEmpty else { return account.origin + "/" + name }
-        return account.origin + "/~" + handle + "/" + name
+        return account.accountURL + "/" + name
     }
 
 }

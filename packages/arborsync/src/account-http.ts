@@ -47,6 +47,15 @@ export function accountHandler(service: LocalAccountService) {
       ) throw new ProtocolError("invalid-request", "Account bootstrap requires an account locator and local profile path", 400);
       return json(await service.claimHostAccount(body.account, body.path, body.displayName as string | undefined, body.inviteCode as string | undefined), 201);
     }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/placements") {
+      const body = await request.json() as { host?: unknown; inviteCode?: unknown };
+      if (typeof body.host !== "string" || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")) {
+        throw new ProtocolError("invalid-request", "Placement requires the placement host's Canopy URL", 400);
+      }
+      // 201 when this call claimed the account; 200 when it connected to one already claimed.
+      const result = await service.claimPlacementAccount(body.host, body.inviteCode as string | undefined);
+      return json(result, result.claimed ? 201 : 200);
+    }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings/claim") {
       const body = await request.json() as { payload?: unknown };
       await service.claimPairing(body.payload);
