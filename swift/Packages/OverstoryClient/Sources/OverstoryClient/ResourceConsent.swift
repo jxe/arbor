@@ -88,7 +88,7 @@ public extension ProtocolAppAccessRule {
     }
 }
 
-public extension AccountConfigurationYAML {
+public extension ProfileConfigurationYAML {
     /// Review one app approval in a profile's `apps.yaml`. A person's own entry
     /// is `who: me`; a group's `who: members`; any other `who` lends the access.
     static func prepareAppConsent(

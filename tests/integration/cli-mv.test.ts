@@ -1,4 +1,4 @@
-import { HostAccountStore, loadAccountConfigurations } from "@overstory/protocol";
+import { HostAccountStore, loadProfileConfigurations } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -84,7 +84,7 @@ describe("arbor mv", () => {
     expect(await stat(source).then(() => true).catch(() => false)).toBe(false);
     expect(await readFile(join(destination, "todo.md"), "utf8")).toBe("# Keep this\n");
     expect((await loadLocalPlacements()).placements).toContainEqual({
-      configurationTree: (await loadAccountConfigurations())[0]!.configurationTree,
+      configurationTree: (await loadProfileConfigurations())[0]!.configurationTree,
       path: destination,
       tree,
     });
@@ -92,7 +92,7 @@ describe("arbor mv", () => {
 
     const sourceCanonical = `${running.url}/~joe/todos`;
     const destinationCanonical = `${running.url}/~joe/tasks`;
-    const account = (await loadAccountConfigurations())[0]!;
+    const account = (await loadProfileConfigurations())[0]!;
     const beforeConfiguration = await readFile(join(account.path, "mounts.yaml"), "utf8");
     const canonicalDryRun = await arbor(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
     expect(canonicalDryRun).toContain(`Would move ${tree}`);

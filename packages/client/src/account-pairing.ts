@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { accountCheckoutPath, arborPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateArborID,
+import { configurationCheckoutPath, arborPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateArborID,
   openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@overstory/protocol";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
@@ -115,7 +115,7 @@ export async function connectDevice(
   }
   const configuration = (await wire.descriptor(account.configuration.id)).tree;
   const snapshot = await wire.snapshot(configuration.id, configuration.root);
-  const checkout = accountCheckoutPath(configuration.id);
+  const checkout = configurationCheckoutPath(configuration.id);
   const exists = await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return false; throw error;
   });

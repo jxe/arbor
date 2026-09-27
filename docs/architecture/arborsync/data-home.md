@@ -9,12 +9,12 @@ keeps on disk is in [Canopy local state](../canopy-browser/local-state.md).
 ## Data home
 
 The reference implementation uses `${ARBOR_DATA_HOME:-~/.arbor}` as one
-private-state and credential namespace containing its account checkouts:
+private-state and credential namespace containing its configuration checkouts:
 
 ```text
 ${ARBOR_DATA_HOME:-~/.arbor}/
   placements.yaml
-  accounts/
+  configurations/
     <ConfigurationTreeID>/
       access.yaml
       mounts.yaml
@@ -24,13 +24,15 @@ ${ARBOR_DATA_HOME:-~/.arbor}/
     ...private arborsync state...
 ```
 
-Each directory under `accounts/` is the source-preserving checkout of a
-person profile's tree configuration, named by its derived configuration
-TreeID; the account's host origin and profile TreeID are kept with its
-connection record, not in the checkout. A profile has one home host, so one
-profile has one checkout. `placements.yaml` is local-only and groups absolute
-filesystem paths by configuration TreeID. Other trees' configurations are
-never checked out; clients read and edit them through the host.
+Each directory under `configurations/` is the source-preserving checkout of
+a person profile's tree configuration (Canopy labels it "~handle settings"),
+named by its derived configuration TreeID; the account's host origin and
+profile TreeID are kept with its connection record, not in the checkout. A
+profile has one home host, so one profile has one checkout. It was `accounts/`
+until the schema-26 cutover renamed it once, by hand, with Arbor Sync stopped;
+no reader of the old name remains. `placements.yaml` is local-only and groups
+absolute filesystem paths by configuration TreeID. Other trees' configurations
+are never checked out; clients read and edit them through the host.
 `packages/canopyd/migrations/022-tree-configurations/rekey-data-home.ts`
 moves a data home from the earlier random account-configuration TreeID to the
 derived one. The plural layout above is the only supported account layout. The former
@@ -74,7 +76,7 @@ macOS implements this contract as the per-user launchd label `org.nxhx.Arbor.arb
 
 ## Watching and local activation
 
-Arbor Sync watches every `accounts/<ConfigurationTreeID>/` checkout and the
+Arbor Sync watches every `configurations/<ConfigurationTreeID>/` checkout and the
 local `placements.yaml` independently. A valid account edit is synchronized as
 an ordinary account-tree change. An invalid candidate leaves that account's
 last fully valid projection active without removing other accounts; an invalid
@@ -84,7 +86,7 @@ produce safe diagnostics.
 The configuration checkout is edited on disk, not through the daemon. The CLI
 (`arbor place`, `arbor mv`, cloud bundle revocation) and, later, the Mac app
 rewrite `access.yaml`, `mounts.yaml`, `apps.yaml` or `devices.yaml` in place under
-`accounts/<ConfigurationTreeID>/` with an atomic temporary-file-and-rename
+`configurations/<ConfigurationTreeID>/` with an atomic temporary-file-and-rename
 write, then ask Arbor Sync to synchronize that account. The checkout is a placed
 folder like any other: the daemon watches it, validates the candidate, and
 pushes it; if the account's canopyd is unreachable the edit simply waits on disk

@@ -66,13 +66,13 @@ public struct TreeConfigurationClient: Sendable {
         return NativeTreeAccessPresentation(
             tree: tree,
             canonical: declaration.canonical,
-            entries: AccountConfigurationYAML.presentedAccessEntries(
+            entries: ProfileConfigurationYAML.presentedAccessEntries(
                 rules: declaration.access,
                 profileLocators: profileLocators,
                 currentProfileTree: account.profileTree,
                 currentHandle: account.handle
             ),
-            canEdit: try AccountConfigurationYAML.isAdministrator(
+            canEdit: try ProfileConfigurationYAML.isAdministrator(
                 deviceID: account.device?.id,
                 devicesSource: devicesSource
             ),
@@ -90,18 +90,18 @@ public struct TreeConfigurationClient: Sendable {
         if let group {
             let config = try await treeConfiguration(group)
             let source = (try? utf8(config.snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
-            return try AccountConfigurationYAML.prepareAppConsent(profile: group, group: true, app: app, rule: rule, removing: removing, source: source)
+            return try ProfileConfigurationYAML.prepareAppConsent(profile: group, group: true, app: app, rule: rule, removing: removing, source: source)
         }
         let account = try await wire.account().account
         if rule.who != .me, let treeConfig = try? await treeConfiguration(tree) {
-            return try AccountConfigurationYAML.prepareTreeAppConsent(tree: tree, app: app, rule: rule, removing: removing,
+            return try ProfileConfigurationYAML.prepareTreeAppConsent(tree: tree, app: app, rule: rule, removing: removing,
                 source: utf8(treeConfig.snapshot.rootFile(named: "access.yaml"), name: "access.yaml"))
         }
         guard let profile = account.profileTree else { throw ProtocolValidationError.invalidValue("This account has no profile") }
         let configuration = try account.configuration.validated()
         let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
         let source = (try? utf8(snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
-        return try AccountConfigurationYAML.prepareAppConsent(profile: profile, group: false, app: app, rule: rule, removing: removing, source: source)
+        return try ProfileConfigurationYAML.prepareAppConsent(profile: profile, group: false, app: app, rule: rule, removing: removing, source: source)
     }
 
     public func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation? {
@@ -112,7 +112,7 @@ public struct TreeConfigurationClient: Sendable {
         let (account, configuration, snapshot, devicesSource, _) = try await treeConfiguration(governed)
         guard configuration.id == review.configurationTree else { throw ResourcePolicyError.invalid }
         let current = (try? utf8(snapshot.rootFile(named: review.target.file), name: review.target.file)) ?? "{}\n"
-        let after = try AccountConfigurationYAML.applyingResourceConsent(review, to: current,
+        let after = try ProfileConfigurationYAML.applyingResourceConsent(review, to: current,
             deviceID: account.device?.id, devicesSource: devicesSource)
         try await submitConfiguration(configuration, snapshot: snapshot, file: review.target.file, source: after)
         return try? await access(tree: review.tree)
@@ -130,7 +130,7 @@ public struct TreeConfigurationClient: Sendable {
         case .profile(let locator): .profile(tree: try await resolveProfile(locator))
         case .existing(let subject): subject
         }
-        try AccountConfigurationYAML.validateAccessChange(
+        try ProfileConfigurationYAML.validateAccessChange(
             subject: subject,
             access: access,
             currentProfileTree: account.profileTree

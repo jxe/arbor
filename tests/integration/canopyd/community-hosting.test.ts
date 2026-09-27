@@ -299,11 +299,11 @@ describe("client-generated profile and account bootstrap", () => {
       configurationTrees.push(configurationTree);
       expect(accounts[0]).toMatchObject({ handle: "charlie", credentialAvailable: true, profileTree: localProfileTree });
       expect(configurationTree).toBe(treeConfigurationID(localProfileTree));
-      expect(await readFile(join(home, "accounts", configurationTree, "access.yaml"), "utf8"))
+      expect(await readFile(join(home, "configurations", configurationTree, "access.yaml"), "utf8"))
         .toContain(localProfileTree);
-      expect(await readFile(join(home, "accounts", configurationTree, "devices.yaml"), "utf8"))
+      expect(await readFile(join(home, "configurations", configurationTree, "devices.yaml"), "utf8"))
         .not.toContain("placements");
-      await expect(readFile(join(home, "accounts", configurationTree, "account.yaml"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(home, "configurations", configurationTree, "account.yaml"), "utf8")).rejects.toThrow();
       // The claim activated the profile from the local folder, at the community's /~charlie.
       expect(running.canopy.boundary("/~charlie")?.id).toBe(localProfileTree);
       expect(await readFile(join(home, "placements.yaml"), "utf8"))
@@ -313,7 +313,7 @@ describe("client-generated profile and account bootstrap", () => {
       // The claiming device signs in with a key, which devices.yaml lists.
       const claimed = (await new HostAccountStore(configurationTree).safe())!;
       expect(claimed.deviceKey).toMatch(/^ed25519:/);
-      expect(await readFile(join(home, "accounts", configurationTree, "devices.yaml"), "utf8")).toContain(`key: ${claimed.deviceKey}`);
+      expect(await readFile(join(home, "configurations", configurationTree, "devices.yaml"), "utf8")).toContain(`key: ${claimed.deviceKey}`);
 
       // A recovered profile still needs a new authorized device on a claimed account.
       const originalCredential = await bootstrap.credentialToken(configurationTree);

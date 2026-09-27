@@ -20,7 +20,7 @@ syncing, lists them in the tree descriptor's `declined`, and serves
   (`sync: "conflict"`: one the host does not support).
 - `CanopyAppModel` receives each daemon tree's `sync` in
   `LocalArborSyncTreePresentation`; it does not decode `declined` yet.
-- `editAccountConfigurationFile` refuses to edit a configuration tree in
+- `editProfileConfigurationFile` refuses to edit a configuration tree in
   `conflict` with "review it in Sync Status", which names a review that no
   longer exists. A declined configuration edit now leaves the tree `idle` with
   `declined`, so that check no longer fires for it.

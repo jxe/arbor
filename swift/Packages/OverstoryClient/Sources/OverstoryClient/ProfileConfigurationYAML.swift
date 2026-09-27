@@ -351,7 +351,7 @@ public enum TreeConfigurationYAML {
     }
 }
 
-public enum AccountConfigurationYAML {
+public enum ProfileConfigurationYAML {
     public static func devices(from source: String) throws -> [String: AccountDeviceDeclaration] {
         try YAMLDecoder().decode([String: AccountDeviceDeclaration].self, from: source)
     }
@@ -490,7 +490,7 @@ public enum AccountConfigurationYAML {
 
 }
 
-public enum AccountConfigurationFileError: Error, LocalizedError, Sendable, Equatable {
+public enum ProfileConfigurationFileError: Error, LocalizedError, Sendable, Equatable {
     case notUTF8(String)
 
     public var errorDescription: String? {
@@ -500,12 +500,12 @@ public enum AccountConfigurationFileError: Error, LocalizedError, Sendable, Equa
     }
 }
 
-public extension AccountConfigurationYAML {
+public extension ProfileConfigurationYAML {
     /// The on-disk checkout of a person's tree configuration beneath a data
-    /// home: `<dataHome>/accounts/<configurationTree>/`.
+    /// home: `<dataHome>/configurations/<configurationTree>/`.
     static func checkoutURL(dataHome: URL, configurationTree: String) -> URL {
         dataHome
-            .appending(path: "accounts", directoryHint: .isDirectory)
+            .appending(path: "configurations", directoryHint: .isDirectory)
             .appending(path: configurationTree, directoryHint: .isDirectory)
     }
 
@@ -514,15 +514,15 @@ public extension AccountConfigurationYAML {
         let url = checkout.appending(path: filename)
         let data = try Data(contentsOf: url)
         guard let source = String(data: data, encoding: .utf8) else {
-            throw AccountConfigurationFileError.notUTF8(url.path)
+            throw ProfileConfigurationFileError.notUTF8(url.path)
         }
         return source
     }
 
     /// Edit one file of an account checkout on disk.
     ///
-    /// Swift twin of `editAccountConfigurationFile` in `@overstory/protocol`
-    /// (`packages/protocol/src/config/account-config.ts`); the contract is shared:
+    /// Swift twin of `editProfileConfigurationFile` in `@overstory/protocol`
+    /// (`packages/protocol/src/config/profile-config.ts`); the contract is shared:
     /// - The file lives at `checkoutURL(dataHome:configurationTree:)/<filename>`
     ///   and is read as strict UTF-8.
     /// - `change` rewrites only what it touches (`replacingMounts`, `replacingApps`

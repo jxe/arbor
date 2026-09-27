@@ -101,6 +101,12 @@ function skip(name: string, attribution: { revert?: string; gate?: string }, det
 
 // MARK: The data home (~/.arbor)
 
+/** The configuration checkouts: `configurations/` once the data home is
+ * renamed at cutover, `accounts/` before. */
+async function checkouts(dataHome: string): Promise<string> {
+  return await isDirectory(join(dataHome, "configurations")) ? join(dataHome, "configurations") : join(dataHome, "accounts");
+}
+
 async function prePluralFiles(dataHome: string): Promise<CheckResult> {
   const found: string[] = [];
   for (const name of ["account.yaml", "trees.yaml"]) if (await exists(join(dataHome, name))) found.push(name);
@@ -123,7 +129,7 @@ async function placementsUnderConfigurations(dataHome: string): Promise<CheckRes
   let count = 0;
   for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
     if (!TREE_ID.test(key)) { problems.push(`${key} is not a TreeID`); continue; }
-    if (!await isDirectory(join(dataHome, "accounts", key))) problems.push(`${key} has no ~/.arbor/accounts/${key}/ checkout`);
+    if (!await isDirectory(join(await checkouts(dataHome), key))) problems.push(`${key} has no configuration checkout in ~/.arbor`);
     if (!value || typeof value !== "object" || Array.isArray(value)) { problems.push(`${key} does not map paths to trees`); continue; }
     count += Object.keys(value).length;
   }
@@ -171,7 +177,7 @@ async function connectionsUseDeviceKeys(dataHome: string): Promise<CheckResult> 
 async function devicesHaveKeys(dataHome: string): Promise<CheckResult> {
   const name = "data home: every devices.yaml entry has a key";
   const attribution = { gate: GATES.digestRetirement };
-  const root = join(dataHome, "accounts");
+  const root = await checkouts(dataHome);
   const missing: string[] = [];
   let count = 0;
   for (const configuration of await entries(root)) {

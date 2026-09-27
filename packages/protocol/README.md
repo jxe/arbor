@@ -22,7 +22,7 @@ dependency of it. The Swift twin is `swift/Packages/Overstory`.
   placements, the host account stores, and the private data-home root.
 
 Subpath exports exist for `hash`, `logical-path`, `logical-url`, `node-key`,
-`node-model`, `path`, `sse`, `utf8`, `file-ops`, and `account-config`.
+`node-model`, `path`, `sse`, `utf8`, `file-ops`, and `profile-config`.
 Only `tree-config-v1` configurations are supported.
 
 This package must not depend on the host, SQLite, server history, access

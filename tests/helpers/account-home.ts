@@ -9,7 +9,7 @@ export async function installAccountHome(home: string, client: ProtocolClient, d
   const descriptor = await client.descriptor(configurationTree);
   const snapshot = await client.snapshot(configurationTree, descriptor.tree.root);
   const graph = readTreeConfigGraph(snapshot, "person", account.profileTree!);
-  const checkout = join(home, "accounts", configurationTree);
+  const checkout = join(home, "configurations", configurationTree);
   await mkdir(checkout, { recursive: true });
   for (const [path, source] of Object.entries(graph.sources)) await writeFile(join(checkout, path), source);
   await writeFile(join(home, "placements.yaml"), JSON.stringify({ [configurationTree]: placements }));

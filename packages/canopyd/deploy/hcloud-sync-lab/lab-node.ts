@@ -8,7 +8,7 @@ import { createPrivateKey, sign } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  accountCheckoutPath,
+  configurationCheckoutPath,
   arborDataRoot,
   decodeProtocolDirectory,
   deviceKeyFromSeed,
@@ -214,7 +214,7 @@ async function connect(): Promise<void> {
   const descriptor = await client.descriptor(configurationTree);
   const snapshot = await client.snapshot(configurationTree, descriptor.tree.root);
   const graph = readTreeConfigGraph(snapshot, "person", account.profileTree);
-  const checkout = accountCheckoutPath(configurationTree);
+  const checkout = configurationCheckoutPath(configurationTree);
   await mkdir(checkout, { recursive: true, mode: 0o700 });
   for (const [path, source] of Object.entries(graph.sources)) await writeFile(join(checkout, path), source);
   await writeFile(join(arborDataRoot(), "placements.yaml"), `${JSON.stringify({ [configurationTree]: {} })}\n`, { mode: 0o600 });

@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { activationElement, deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { activationElement, configurationCheckoutPath, deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadProfileConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
@@ -108,7 +108,7 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
   } else {
-    const existingAccounts = await loadAccountConfigurations();
+    const existingAccounts = await loadProfileConfigurations();
     if (existingAccounts.some((candidate) => candidate.diagnostics.length || !candidate.configuration || !candidate.currentDevice)) {
       throw new ProtocolError("conflict", "All existing account checkouts must be valid before another account is added", 409);
     }
@@ -239,7 +239,7 @@ async function claimAccountProfileBootstrap(
     if (existing !== null && existing !== source) throw new ProtocolError("conflict", `Bootstrap will not overwrite ${destination}`, 409);
     if (existing === null) await writeFile(destination, source, { mode: 0o600, flag: "wx" });
   };
-  const accountPath = join(arborDataRoot(), "accounts", pending.configurationTree);
+  const accountPath = configurationCheckoutPath(pending.configurationTree);
   await mkdir(accountPath, { recursive: true, mode: 0o700 });
   for (const [name, source] of Object.entries(pending.files)) {
     if (name !== "placements") await install(join(accountPath, name), source);
@@ -304,7 +304,7 @@ export async function cancelPendingAccountClaim(): Promise<void> {
     }
     // Prepared claims never install checkouts. Refuse unexpected state rather
     // than remove anything another operation might have adopted.
-    const checkout = join(arborDataRoot(), "accounts", pending.configurationTree);
+    const checkout = configurationCheckoutPath(pending.configurationTree);
     if (await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return false; throw error;
     }) || await new HostAccountStore(pending.configurationTree).safe()) {

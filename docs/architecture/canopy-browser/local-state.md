@@ -58,7 +58,7 @@ the app's support directory:
 
 The daemon's per-tree state, the folder itself, and the configuration checkout
 stay under the data home; the app edits the profile configuration's files
-under `~/.arbor/accounts/<cfg>/` (`mounts.yaml`, `apps.yaml`, `devices.yaml`,
+under `~/.arbor/configurations/<cfg>/` (`mounts.yaml`, `apps.yaml`, `devices.yaml`,
 and `access.yaml` for the profile tree itself) on disk exactly as the CLI does
 and asks the daemon to synchronize. Other trees' configurations are read and
 edited through the host (`TreeConfigurationClient`). The Mac's identity and device keys are data-home state

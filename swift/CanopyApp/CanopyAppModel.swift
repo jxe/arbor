@@ -583,27 +583,27 @@ final class CanopyWorkspaceState {
 #if os(macOS)
     // MARK: Account configuration on disk
     //
-    // The configuration tree is a placed folder at `~/.arbor/accounts/<cfg>/`.
+    // The configuration tree is a placed folder at `~/.arbor/configurations/<cfg>/`.
     // The app reads and edits its YAML there, exactly as the CLI does
-    // (`editAccountConfigurationFile` in `@arbor/stores`), and the daemon pushes
+    // (`editProfileConfigurationFile` in `@arbor/stores`), and the daemon pushes
     // the edit like any other placement. Nothing here goes through a daemon
     // editor route.
 
     private func accountCheckout(_ configurationTree: String) -> URL {
-        AccountConfigurationYAML.checkoutURL(
+        ProfileConfigurationYAML.checkoutURL(
             dataHome: CanopySupportDirectories.dataHome,
             configurationTree: configurationTree
         )
     }
 
-    private func readAccountConfigurationFile(_ configurationTree: String, named filename: String) throws -> String {
-        try AccountConfigurationYAML.readFile(named: filename, in: accountCheckout(configurationTree))
+    private func readProfileConfigurationFile(_ configurationTree: String, named filename: String) throws -> String {
+        try ProfileConfigurationYAML.readFile(named: filename, in: accountCheckout(configurationTree))
     }
 
     /// Edit one file of the account checkout on disk, then ask the daemon to push
     /// the checkout now. Refused while the daemon reports the configuration
     /// tree in conflict: a disk edit would only pile onto the review.
-    private func editAccountConfigurationFile(
+    private func editProfileConfigurationFile(
         _ configurationTree: String,
         named filename: String,
         change: (String) throws -> String,
@@ -614,7 +614,7 @@ final class CanopyWorkspaceState {
                 "The host refused the account configuration's last changes; discard them in Sync Status before changing it"
             )
         }
-        try AccountConfigurationYAML.editFile(
+        try ProfileConfigurationYAML.editFile(
             named: filename,
             in: accountCheckout(configurationTree),
             change: change,
@@ -627,10 +627,10 @@ final class CanopyWorkspaceState {
 
     private func isLocalAccountAdministrator(_ account: LocalHostAccountDescriptor) -> Bool {
         guard let deviceID = account.deviceID,
-              let source = try? readAccountConfigurationFile(account.configurationTree, named: "devices.yaml") else {
+              let source = try? readProfileConfigurationFile(account.configurationTree, named: "devices.yaml") else {
             return false
         }
-        return (try? AccountConfigurationYAML.isAdministrator(
+        return (try? ProfileConfigurationYAML.isAdministrator(
             deviceID: deviceID,
             devicesSource: source
         )) == true
@@ -642,8 +642,8 @@ final class CanopyWorkspaceState {
         }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
-        let devices = try AccountConfigurationYAML.devices(from: source)
+        let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
+        let devices = try ProfileConfigurationYAML.devices(from: source)
             .map { id, device in
                 LocalArborSyncDevicePresentation(
                     id: id,
@@ -677,16 +677,16 @@ final class CanopyWorkspaceState {
         }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
-        let devices = try AccountConfigurationYAML.devices(from: source)
-        try AccountConfigurationYAML.validateAdministratorChange(
+        let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
+        let devices = try ProfileConfigurationYAML.devices(from: source)
+        try ProfileConfigurationYAML.validateAdministratorChange(
             devices: devices,
             currentDeviceID: account.deviceID,
             targetDeviceID: deviceID,
             administrator: administrator
         )
-        try await editAccountConfigurationFile(configurationTree, named: "devices.yaml") { current in
-            try AccountConfigurationYAML.replacingDevices(in: current) { devices in
+        try await editProfileConfigurationFile(configurationTree, named: "devices.yaml") { current in
+            try ProfileConfigurationYAML.replacingDevices(in: current) { devices in
                 guard var device = devices[deviceID] else {
                     throw ProtocolValidationError.invalidValue("The device is no longer active")
                 }
@@ -694,7 +694,7 @@ final class CanopyWorkspaceState {
                 devices[deviceID] = device
             }
         } validate: { next in
-            _ = try AccountConfigurationYAML.devices(from: next)
+            _ = try ProfileConfigurationYAML.devices(from: next)
         }
         return try await localHostDevices(configurationTree: configurationTree)
     }
@@ -708,19 +708,19 @@ final class CanopyWorkspaceState {
         }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
-        let devices = try AccountConfigurationYAML.devices(from: source)
-        try AccountConfigurationYAML.validateDeviceRemoval(
+        let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
+        let devices = try ProfileConfigurationYAML.devices(from: source)
+        try ProfileConfigurationYAML.validateDeviceRemoval(
             devices: devices,
             currentDeviceID: account.deviceID,
             targetDeviceID: deviceID
         )
-        try await editAccountConfigurationFile(configurationTree, named: "devices.yaml") { current in
-            try AccountConfigurationYAML.replacingDevices(in: current) { devices in
+        try await editProfileConfigurationFile(configurationTree, named: "devices.yaml") { current in
+            try ProfileConfigurationYAML.replacingDevices(in: current) { devices in
                 devices[deviceID] = nil
             }
         } validate: { next in
-            _ = try AccountConfigurationYAML.devices(from: next)
+            _ = try ProfileConfigurationYAML.devices(from: next)
         }
         return try await localHostDevices(configurationTree: configurationTree)
     }
@@ -819,8 +819,8 @@ final class CanopyWorkspaceState {
         if let arborsync = arborsyncClient {
             try await arborsync.synchronize(configurationTree: record.configurationTree)
         }
-        let devices = try AccountConfigurationYAML.devices(
-            from: readAccountConfigurationFile(record.configurationTree, named: "devices.yaml")
+        let devices = try ProfileConfigurationYAML.devices(
+            from: readProfileConfigurationFile(record.configurationTree, named: "devices.yaml")
         )
         if devices[record.deviceID] != nil {
             _ = try await deauthorizeLocalHostDevice(configurationTree: record.configurationTree, deviceID: record.deviceID)

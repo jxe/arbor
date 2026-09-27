@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type AccountConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
@@ -309,7 +309,7 @@ async function withArborSync<T>(
   });
 }
 
-async function editAccountConfigurationYAML(
+async function editProfileConfigurationYAML(
   client: ArborSyncRESTClient,
   configurationTree: string,
   change: (document: Document) => void | Promise<void>,
@@ -325,7 +325,7 @@ async function editAccountConfigurationYAML(
   if (descriptor?.sync === "conflict") {
     throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`arbor status\`) before editing ${filename}`);
   }
-  await editAccountConfigurationFile(configurationTree, filename, change, validate);
+  await editProfileConfigurationFile(configurationTree, filename, change, validate);
 }
 
 function sameOrDescendantPath(path: string, root: string): boolean {
@@ -334,7 +334,7 @@ function sameOrDescendantPath(path: string, root: string): boolean {
 }
 
 interface SelectedHostAccount {
-  configuration: AccountConfigurationSnapshot & Required<Pick<AccountConfigurationSnapshot, "canopy" | "profile" | "configuration" | "currentDevice">>;
+  configuration: ProfileConfigurationSnapshot & Required<Pick<ProfileConfigurationSnapshot, "canopy" | "profile" | "configuration" | "currentDevice">>;
   connection: NonNullable<Awaited<ReturnType<HostAccountStore["get"]>>>;
 }
 
@@ -343,7 +343,7 @@ async function accountForCanonicalTarget(
   options: { administrator: boolean },
 ): Promise<SelectedHostAccount> {
   const [configurations, records] = await Promise.all([
-    loadAccountConfigurations(),
+    loadProfileConfigurations(),
     HostAccountStore.list(),
   ]);
   // A profile has one account per host; any tree its profile administers there may be placed.
@@ -547,7 +547,7 @@ async function editMounts(
   change: (mounts: Record<string, string>) => Record<string, string>,
 ): Promise<void> {
   if (parent === selected.configuration.profile) {
-    await editAccountConfigurationYAML(client, selected.configuration.configurationTree, (document) => {
+    await editProfileConfigurationYAML(client, selected.configuration.configurationTree, (document) => {
       const before = (document.toJS() ?? {}) as Record<string, string>;
       const after = change({ ...before });
       for (const name of Object.keys(before)) if (!(name in after)) document.deleteIn([name]);
@@ -967,7 +967,7 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
   }
   await withArborSync(process.cwd(), async (client, service) => {
     await service.synchronizeNow(record.configurationTree);
-    const configuration = (await loadAccountConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
+    const configuration = (await loadProfileConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
     if (!configuration?.configuration || !configuration.devices || !configuration.currentDevice) {
       throw new Error(`Account ${record.configurationTree} is unavailable or invalid`);
     }
@@ -975,7 +975,7 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
       throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
     }
     if (configuration.devices[record.deviceID]) {
-      await editAccountConfigurationYAML(
+      await editProfileConfigurationYAML(
         client,
         record.configurationTree,
         (document) => { document.deleteIn([record.deviceID]); },
@@ -1038,7 +1038,7 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
     ) throw new Error("Cloud bundle authorization does not match its account identity");
     const configuration = (await wire.descriptor(payload.configurationTree)).tree;
     const snapshot = await wire.snapshot(payload.configurationTree, configuration.root);
-    const checkout = accountCheckoutPath(payload.configurationTree);
+    const checkout = configurationCheckoutPath(payload.configurationTree);
     await materializeTree(checkout, snapshot.root, (hash) => {
       const bytes = snapshot.objects.get(hash);
       if (!bytes) throw new Error(`Account configuration snapshot is missing ${hash}`);

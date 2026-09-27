@@ -463,7 +463,7 @@ describe("private self-sync", () => {
     const owner = await deviceClient(host.url, token);
     const configurationTree = (await owner.account()).account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
-    const checkout = join(stateA, "accounts", configurationTree);
+    const checkout = join(stateA, "configurations", configurationTree);
     // A path the host refuses in an account configuration.
     await mkdir(join(checkout, "LinkPreviews"), { recursive: true });
     await writeFile(join(checkout, "LinkPreviews", "preview.txt"), "refused\n");

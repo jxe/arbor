@@ -3,9 +3,9 @@ import { dirname, join } from "node:path";
 import type { Diagnostic, TreeID, SharedTreePlacement, TreePlacement } from "@overstory/protocol";
 import { revisionOf, HostAccountStore, arborPrivateRoot } from "@overstory/protocol";
 import {
-  loadAccountConfigurations,
-  watchAccountConfigurations,
-  type AccountConfigurationSnapshot,
+  loadProfileConfigurations,
+  watchProfileConfigurations,
+  type ProfileConfigurationSnapshot,
 } from "@overstory/protocol";
 import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "@overstory/client";
 
@@ -16,7 +16,7 @@ export interface TreeRegistrySnapshot {
   diagnostics: Diagnostic[];
   revision: string;
   source: string;
-  accounts: AccountConfigurationSnapshot[];
+  accounts: ProfileConfigurationSnapshot[];
   /** V2 accounts whose authored graph could not safely replace its last accepted local projection. */
   invalidAccounts: TreeID[];
   /** False means keep the last accepted local placement projection unchanged. */
@@ -65,7 +65,7 @@ function canonicalLocator(origin: string, path: string): string {
  * one the host last reported, kept with the placement's sync metadata.
  */
 export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
-  const pluralConfigurations = await loadAccountConfigurations();
+  const pluralConfigurations = await loadProfileConfigurations();
   const local = await loadLocalPlacements();
   const placements: SharedTreePlacement[] = [];
   const diagnostics = [
@@ -147,7 +147,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
 }
 
 export async function watchTreeRegistry(onChange: () => void): Promise<() => void> {
-  const stopAccounts = await watchAccountConfigurations(onChange);
+  const stopAccounts = await watchProfileConfigurations(onChange);
   const stopPlacements = watchLocalPlacements(onChange);
   return () => { stopAccounts(); stopPlacements(); };
 }

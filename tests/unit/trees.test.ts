@@ -15,7 +15,7 @@ async function dataHome() {
   temporary.push(home); process.env.ARBOR_DATA_HOME = home; process.env.ARBOR_CREDENTIAL_STORE = "file"; return home;
 }
 async function writeConfiguration(home: string, placementPath: string) {
-  const checkout = join(home, "accounts", cfg);
+  const checkout = join(home, "configurations", cfg);
   await mkdir(checkout, { recursive: true });
   await writeFile(join(checkout, "access.yaml"), `- who: {profile: ${profile}}\n  allow: [admin]\n`);
   await writeFile(join(checkout, "mounts.yaml"), `shared: ${shared}\n`);
@@ -43,7 +43,7 @@ test("uses an explicit local placement and the profile configuration's checkout"
   expect(result.accounts[0]?.currentDevice?.id).toBe(device);
   expect(result.accounts[0]?.profile).toBe(profile);
   expect(result.placements).toEqual([
-    expect.objectContaining({ tree: cfg, configurationTree: cfg, path: join(home, "accounts", cfg), kind: "tree-configuration" }),
+    expect.objectContaining({ tree: cfg, configurationTree: cfg, path: join(home, "configurations", cfg), kind: "tree-configuration" }),
     expect.objectContaining({ tree: shared, configurationTree: cfg, path: placed, endpoint: canopy }),
   ]);
   // A placement's canonical path is the one the host last reported.
@@ -64,7 +64,7 @@ test("strict YAML rejects duplicates, aliases, unknown fields, stored none and r
 });
 test("invalid account candidates do not invent an active projection", async () => {
   const home = await dataHome(); await writeConfiguration(home, join(home, "tree"));
-  await writeFile(join(home, "accounts", cfg, "access.yaml"), "- who: everyone\n  allow: [read]\n");
+  await writeFile(join(home, "configurations", cfg, "access.yaml"), "- who: everyone\n  allow: [read]\n");
   const result = await loadTreeRegistry();
   expect(result.invalidAccounts).toContain(cfg);
   expect(result.placements.filter((placement) => placement.kind === "tree-configuration")).toEqual([]);

@@ -16,7 +16,7 @@
     "./utf8": "./src/model/utf8.ts",
     "./path": "./src/model/path.ts",
     "./file-ops": "./src/model/file-ops.ts",
-    "./account-config": "./src/config/account-config.ts"
+    "./profile-config": "./src/config/profile-config.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0",

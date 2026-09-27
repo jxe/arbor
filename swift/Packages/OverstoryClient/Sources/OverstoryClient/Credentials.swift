@@ -563,7 +563,7 @@ public actor NativeAccountService {
             let configurationTree = treeConfigurationID(identity.profileTree)
             let deviceID = try generatedID(prefix: "dv")
             let key = try DeviceKeySecret.generate()
-            let configuration = try initialAccountConfiguration(
+            let configuration = try initialProfileConfiguration(
                 profileTree: identity.profileTree,
                 configurationTree: configurationTree,
                 deviceID: deviceID,
@@ -731,7 +731,7 @@ public actor NativeAccountService {
 
     private func generatedID(prefix: String) throws -> String { try generateArborID(prefix: prefix) }
 
-    private func initialAccountConfiguration(
+    private func initialProfileConfiguration(
         profileTree: String,
         configurationTree: String,
         deviceID: String,

@@ -99,7 +99,7 @@ struct NativeAccountPairingTests {
             try ProtocolResourceAccessRule(who: .profile("tr_joe"), allow: [.admin]),
             try ProtocolResourceAccessRule(who: .everyone, allow: [.read]),
         ])
-        #expect(try AccountConfigurationYAML.isAdministrator(deviceID: "dv_mac", devicesSource: files["devices.yaml"]!))
+        #expect(try ProfileConfigurationYAML.isAdministrator(deviceID: "dv_mac", devicesSource: files["devices.yaml"]!))
         #expect(treeConfigurationID("tr_joe").hasPrefix("tr_"))
         #expect(treeConfigurationID("tr_joe").count == 55)
     }
@@ -116,17 +116,17 @@ struct NativeAccountPairingTests {
         dv_phone:
           label: 'Joe’s iPhone'
         """
-        let changed = try AccountConfigurationYAML.replacingDevices(in: source) { devices in
+        let changed = try ProfileConfigurationYAML.replacingDevices(in: source) { devices in
             var phone = try #require(devices["dv_phone"])
             phone.administrator = true
             devices["dv_phone"] = phone
         }
-        let decoded = try AccountConfigurationYAML.devices(from: changed)
+        let decoded = try ProfileConfigurationYAML.devices(from: changed)
 
         #expect(decoded["dv_phone"]?.administrator == true)
         #expect(changed.contains("# Current Mac\ndv_mac:\n  label: Joe's Mac\n  administrator: true"))
         #expect(throws: Never.self) {
-            try AccountConfigurationYAML.validateAdministratorChange(
+            try ProfileConfigurationYAML.validateAdministratorChange(
                 devices: decoded,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_phone",
@@ -134,7 +134,7 @@ struct NativeAccountPairingTests {
             )
         }
         #expect(throws: (any Error).self) {
-            try AccountConfigurationYAML.validateAdministratorChange(
+            try ProfileConfigurationYAML.validateAdministratorChange(
                 devices: decoded,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_mac",
@@ -154,18 +154,18 @@ struct NativeAccountPairingTests {
           label: Joe's iPhone
           key: p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k
         """
-        let changed = try AccountConfigurationYAML.replacingDevices(in: source) { devices in
+        let changed = try ProfileConfigurationYAML.replacingDevices(in: source) { devices in
             devices["dv_phone"]?.label = "Phone"
             devices["dv_phone"]?.administrator = true
         }
-        let decoded = try AccountConfigurationYAML.devices(from: changed)
+        let decoded = try ProfileConfigurationYAML.devices(from: changed)
         #expect(decoded["dv_phone"] == AccountDeviceDeclaration(label: "Phone", administrator: true, key: "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k"))
         #expect(decoded["dv_mac"]?.key == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
         let files = try TreeConfigurationYAML.initialPersonFiles(
             profileTree: "tr_joe", deviceID: "dv_mac", label: "Mac",
             key: ProtocolDeviceKey("ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
         )
-        #expect(try AccountConfigurationYAML.devices(from: files["devices.yaml"]!)["dv_mac"]?.key == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
+        #expect(try ProfileConfigurationYAML.devices(from: files["devices.yaml"]!)["dv_mac"]?.key == "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w")
     }
 
     @Test("Device removal requires an administrator and preserves another administrator")
@@ -177,28 +177,28 @@ struct NativeAccountPairingTests {
         ]
 
         #expect(throws: Never.self) {
-            try AccountConfigurationYAML.validateDeviceRemoval(
+            try ProfileConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_phone"
             )
         }
         #expect(throws: (any Error).self) {
-            try AccountConfigurationYAML.validateDeviceRemoval(
+            try ProfileConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_phone",
                 targetDeviceID: "dv_phone"
             )
         }
         #expect(throws: (any Error).self) {
-            try AccountConfigurationYAML.validateDeviceRemoval(
+            try ProfileConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_phone",
                 targetDeviceID: "dv_tablet"
             )
         }
         #expect(throws: (any Error).self) {
-            try AccountConfigurationYAML.validateDeviceRemoval(
+            try ProfileConfigurationYAML.validateDeviceRemoval(
                 devices: devices,
                 currentDeviceID: "dv_mac",
                 targetDeviceID: "dv_mac"
@@ -215,26 +215,26 @@ struct NativeAccountPairingTests {
         dv_phone:
           label: 'Joe’s iPhone'
         """
-        let changed = try AccountConfigurationYAML.replacingDevices(in: source) {
+        let changed = try ProfileConfigurationYAML.replacingDevices(in: source) {
             $0["dv_phone"] = nil
         }
-        #expect(Set(try AccountConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
+        #expect(Set(try ProfileConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
         #expect(changed.contains("# Keep this administrator note."))
         #expect(changed.contains("# Remove this whole device block."))
     }
 
     @Test("Account configuration files are edited on disk atomically and only after validation")
-    func accountConfigurationFileEdit() throws {
+    func profileConfigurationFileEdit() throws {
         let dataHome = FileManager.default.temporaryDirectory
             .appending(path: "ArborAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dataHome) }
-        let checkout = AccountConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
+        let checkout = ProfileConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
         #expect(checkout.path.hasSuffix("/accounts/tr_config"))
         try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
         let source = "# mounted trees\nfirst: tr_first\n"
         try source.write(to: checkout.appending(path: "mounts.yaml"), atomically: true, encoding: .utf8)
 
-        let written = try AccountConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { current in
+        let written = try ProfileConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { current in
             try TreeConfigurationYAML.replacingMounts(in: current) { mounts in
                 mounts["second"] = "tr_second"
             }
@@ -247,7 +247,7 @@ struct NativeAccountPairingTests {
 
         struct Rejected: Error {}
         #expect(throws: Rejected.self) {
-            try AccountConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
+            try ProfileConfigurationYAML.editFile(named: "mounts.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
                 throw Rejected()
             }
         }
@@ -256,8 +256,8 @@ struct NativeAccountPairingTests {
         #expect(leftovers.isEmpty)
 
         try Data([0xFF, 0xFE, 0x00]).write(to: checkout.appending(path: "devices.yaml"))
-        #expect(throws: AccountConfigurationFileError.self) {
-            try AccountConfigurationYAML.readFile(named: "devices.yaml", in: checkout)
+        #expect(throws: ProfileConfigurationFileError.self) {
+            try ProfileConfigurationYAML.readFile(named: "devices.yaml", in: checkout)
         }
     }
 
@@ -284,17 +284,17 @@ struct NativeAccountPairingTests {
 
     @Test("Profile ACL labels prefer handles and protect the current user")
     func profileACLPresentation() throws {
-        #expect(AccountConfigurationYAML.profileDisplayName(
+        #expect(ProfileConfigurationYAML.profileDisplayName(
             locator: "arbor://community.example/~alice"
         ) == "~alice")
-        #expect(AccountConfigurationYAML.profileDisplayName(
+        #expect(ProfileConfigurationYAML.profileDisplayName(
             locator: nil,
             handle: "joe"
         ) == "~joe")
 
         var rejected = false
         do {
-            try AccountConfigurationYAML.validateAccessChange(
+            try ProfileConfigurationYAML.validateAccessChange(
                 subject: .profile(tree: "tr_joe"),
                 access: "none",
                 currentProfileTree: "tr_joe"
@@ -303,13 +303,13 @@ struct NativeAccountPairingTests {
             rejected = true
         }
         #expect(rejected)
-        try AccountConfigurationYAML.validateAccessChange(
+        try ProfileConfigurationYAML.validateAccessChange(
             subject: .profile(tree: "tr_alice"),
             access: "none",
             currentProfileTree: "tr_joe"
         )
 
-        let entries = AccountConfigurationYAML.presentedAccessEntries(
+        let entries = ProfileConfigurationYAML.presentedAccessEntries(
             rules: [
                 AccountAccessRule(subject: .profile(tree: "tr_alice"), access: "read"),
                 AccountAccessRule(subject: .everyone, access: "read"),
@@ -536,7 +536,7 @@ func appConsentReview() throws {
         allow: [read]
     """
     let rule = try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read, .createChild])
-    let review = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, source: source)
+    let review = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, source: source)
     #expect(review.previous?.allow == [.read])
     #expect(review.configurationTree == treeConfigurationID("tr_joe"))
     #expect(!review.lendsWrite)
@@ -544,22 +544,22 @@ func appConsentReview() throws {
     #expect(try TreeConfigurationYAML.apps(from: review.after)["tr_other"] == [try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read])])
     #expect(review.after.contains("# Keep this note."))
     let devices = "dv_admin:\n  label: Mac\n  administrator: true\ndv_phone:\n  label: Phone\n"
-    #expect(try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
+    #expect(try ProfileConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
     #expect(throws: (any Error).self) {
-        try AccountConfigurationYAML.applyingResourceConsent(review, to: source + "\n", deviceID: "dv_admin", devicesSource: devices)
+        try ProfileConfigurationYAML.applyingResourceConsent(review, to: source + "\n", deviceID: "dv_admin", devicesSource: devices)
     }
     #expect(throws: (any Error).self) {
-        try AccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
+        try ProfileConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
     }
-    let removal = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, removing: true, source: review.after)
+    let removal = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies", rule: rule, removing: true, source: review.after)
     #expect(try TreeConfigurationYAML.apps(from: removal.after)["tr_supplies"] == nil)
     #expect(try TreeConfigurationYAML.apps(from: removal.after)["tr_other"] == [try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read])])
-    let again = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+    let again = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read]), source: review.after)
     #expect(try TreeConfigurationYAML.apps(from: again.after)["tr_supplies"] == [try ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read])])
     // A person's apps.yaml never says `members`; a group's never says `me`.
     #expect(throws: (any Error).self) {
-        try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+        try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
             rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), source: source)
     }
     let approvals = try TreeConfigurationYAML.appApprovals(for: "tr_notes", source: review.after)
@@ -567,22 +567,22 @@ func appConsentReview() throws {
     #expect(approvals.last?.rule == rule)
     #expect(try TreeConfigurationYAML.appApprovals(for: "tr_elsewhere", source: review.after).isEmpty)
     // A group's own use is `members`; its approvals carry the group they belong to.
-    let forGroup = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+    let forGroup = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), source: "{}\n")
     #expect(forGroup.target == .profileApps(profile: "tr_garden", group: true))
     #expect(forGroup.configurationTree == treeConfigurationID("tr_garden"))
     #expect(try TreeConfigurationYAML.appApprovals(for: "tr_notes", source: forGroup.after, group: "tr_garden").map(\.rule.who) == [.members])
     // The group's own use is written without `who`, and reads back as `members`: removing it finds it.
     #expect(!forGroup.after.contains("who"))
-    let groupRemoval = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+    let groupRemoval = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .members, allow: [.read]), removing: true, source: forGroup.after)
     #expect(groupRemoval.previous != nil)
     #expect(try TreeConfigurationYAML.apps(from: groupRemoval.after, group: true).isEmpty)
     #expect(throws: (any Error).self) {
-        try AccountConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
+        try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_garden", group: true, app: "tr_supplies",
             rule: ProtocolAppAccessRule(resource: "tr_notes", who: .me, allow: [.read]), source: "{}\n")
     }
-    let lent = try AccountConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
+    let lent = try ProfileConfigurationYAML.prepareAppConsent(profile: "tr_joe", group: false, app: "tr_supplies",
         rule: ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.write]), source: source)
     #expect(lent.lendsWrite)
     #expect(lent.after.contains("who: everyone"))
@@ -592,14 +592,14 @@ func appConsentReview() throws {
 func treeAppConsent() throws {
     let source = "- who:\n    profile: tr_joe\n  allow: [admin]\n"
     let rule = try ProtocolAppAccessRule(resource: "tr_notes", who: .everyone, allow: [.createChild], within: "/inbox")
-    let review = try AccountConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies", rule: rule, source: source)
+    let review = try ProfileConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies", rule: rule, source: source)
     #expect(review.target == .treeAccess(tree: "tr_notes"))
     #expect(review.configurationTree == treeConfigurationID("tr_notes"))
     let rules = try TreeConfigurationYAML.access(from: review.after)
     #expect(rules.first?.isAdministrator == true)
     #expect(rules.contains(try ProtocolResourceAccessRule(who: .everyone, app: "tr_supplies", allow: [.createChild], within: "/inbox")))
     #expect(throws: (any Error).self) {
-        try AccountConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies",
+        try ProfileConfigurationYAML.prepareTreeAppConsent(tree: "tr_notes", app: "tr_supplies",
             rule: ProtocolAppAccessRule(resource: "tr_other", who: .everyone, allow: [.read]), source: source)
     }
     let link = try ProtocolResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])

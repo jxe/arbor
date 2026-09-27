@@ -23,7 +23,7 @@ import {
  * placed at `accounts/<configuration TreeID>/`. The profile and the host
  * origin are the account's connection record, not authored files.
  */
-export interface AccountConfigurationSnapshot {
+export interface ProfileConfigurationSnapshot {
   configurationTree: TreeID;
   path: string;
   /** The Canopy origin of the account's connection. */
@@ -60,19 +60,19 @@ export function parseAccountDevicesConfiguration(source: string): Record<string,
   return parseDevicesYAML(source);
 }
 
-export function accountsRoot(): string {
-  return join(arborDataRoot(), "accounts");
+export function configurationsRoot(): string {
+  return join(arborDataRoot(), "configurations");
 }
 
-export function accountCheckoutPath(configurationTree: string): string {
-  return join(accountsRoot(), configurationTreeID(configurationTree));
+export function configurationCheckoutPath(configurationTree: string): string {
+  return join(configurationsRoot(), configurationTreeID(configurationTree));
 }
 
 /**
  * Edit one file of an account checkout on disk.
  *
- * Contract (shared with the Mac app's Swift twin, `AccountConfigurationYAML`):
- * - The file lives at `accountCheckoutPath(configurationTree)/<filename>` and is
+ * Contract (shared with the Mac app's Swift twin, `ProfileConfigurationYAML`):
+ * - The file lives at `configurationCheckoutPath(configurationTree)/<filename>` and is
  *   read as strict UTF-8.
  * - It is parsed as a single YAML document with unique keys and source tokens
  *   retained, so an edit rewrites only the nodes it touches; comments, ordering,
@@ -89,13 +89,13 @@ export function accountCheckoutPath(configurationTree: string): string {
  *
  * Returns the source that was written.
  */
-export async function editAccountConfigurationFile(
+export async function editProfileConfigurationFile(
   configurationTree: string,
   filename: string,
   change: (document: Document) => void | Promise<void>,
   validate?: (source: string) => void,
 ): Promise<string> {
-  const path = join(accountCheckoutPath(configurationTree), filename);
+  const path = join(configurationCheckoutPath(configurationTree), filename);
   const previous = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
   const document = parseDocument(previous, { uniqueKeys: true, keepSourceTokens: true });
   if (document.errors.length) throw new Error(`${filename} is invalid: ${document.errors[0]!.message}`);
@@ -137,10 +137,10 @@ export async function saveCurrentAccountDeviceID(configurationTree: string, idVa
 
 const ACCOUNT_FILES = ["access.yaml", "mounts.yaml", "apps.yaml", "devices.yaml"] as const;
 
-export async function loadAccountConfiguration(configurationTreeInput: string): Promise<AccountConfigurationSnapshot> {
+export async function loadProfileConfiguration(configurationTreeInput: string): Promise<ProfileConfigurationSnapshot> {
   await prepareArborDataRoot();
   const configurationTree = configurationTreeID(configurationTreeInput);
-  const path = accountCheckoutPath(configurationTree);
+  const path = configurationCheckoutPath(configurationTree);
   const diagnostics: Diagnostic[] = [];
   const sources: Record<string, string> = {};
   const expected = new Set<string>(ACCOUNT_FILES);
@@ -201,10 +201,10 @@ export async function loadAccountConfiguration(configurationTreeInput: string): 
   };
 }
 
-export async function loadAccountConfigurations(): Promise<AccountConfigurationSnapshot[]> {
+export async function loadProfileConfigurations(): Promise<ProfileConfigurationSnapshot[]> {
   await prepareArborDataRoot();
   let names: string[];
-  try { names = await readdir(accountsRoot()); }
+  try { names = await readdir(configurationsRoot()); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
@@ -214,11 +214,11 @@ export async function loadAccountConfigurations(): Promise<AccountConfigurationS
     try { valid.push(configurationTreeID(name, `accounts/${name}`)); }
     catch { /* Invalid entries surface through the root layout validator later. */ }
   }
-  return Promise.all(valid.sort().map(loadAccountConfiguration));
+  return Promise.all(valid.sort().map(loadProfileConfiguration));
 }
 
-export async function watchAccountConfigurations(onChange: () => void): Promise<() => void> {
-  await mkdir(accountsRoot(), { recursive: true, mode: 0o700 });
+export async function watchProfileConfigurations(onChange: () => void): Promise<() => void> {
+  await mkdir(configurationsRoot(), { recursive: true, mode: 0o700 });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const accountWatchers = new Map<string, FSWatcher>();
@@ -227,7 +227,7 @@ export async function watchAccountConfigurations(onChange: () => void): Promise<
     timer = setTimeout(onChange, 80);
   };
   const refreshAccountWatchers = async () => {
-    const accounts = await loadAccountConfigurations();
+    const accounts = await loadProfileConfigurations();
     const paths = new Set(accounts.map((account) => account.path));
     for (const [path, watcher] of accountWatchers) {
       if (paths.has(path)) continue;
@@ -241,7 +241,7 @@ export async function watchAccountConfigurations(onChange: () => void): Promise<
     }
   };
   await refreshAccountWatchers();
-  const rootWatcher = watch(accountsRoot(), { persistent: false }, () => {
+  const rootWatcher = watch(configurationsRoot(), { persistent: false }, () => {
     changed();
     void refreshAccountWatchers().catch(changed);
   });

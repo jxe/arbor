@@ -1,4 +1,4 @@
-import { HostAccountStore, ProtocolClient, loadAccountConfigurations, generateArborID, treeConfigurationID } from "@overstory/protocol";
+import { HostAccountStore, ProtocolClient, loadProfileConfigurations, generateArborID, treeConfigurationID } from "@overstory/protocol";
 import { editTreeConfig, readTreeConfig } from "../helpers/tree-config.ts";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -206,7 +206,7 @@ describe("plural-account CLI place", () => {
     const firstSource = await source("first-source", "# First\n");
     const firstCanonical = `${firstHost.url}/~alice/notes`;
     expect(await arbor(["place", "--access", "public=read", firstSource, firstCanonical])).toContain(firstCanonical);
-    const accounts = await loadAccountConfigurations();
+    const accounts = await loadProfileConfigurations();
     const placements = (await loadLocalPlacements()).placements;
     expect(accounts).toHaveLength(1);
     expect(accounts[0]!.configurationTree).toBe(treeConfigurationID(profileTree));
@@ -265,7 +265,7 @@ describe("plural-account CLI place", () => {
     const canonical = `${firstHost.url}/~alice/private-remote`;
     await arbor(["place", original, canonical]);
 
-    const account = (await loadAccountConfigurations())[0]!;
+    const account = (await loadProfileConfigurations())[0]!;
     const tree = firstHost.canopy.boundary("/~alice/private-remote")!.id;
     const placementsPath = join(state, "placements.yaml");
     const document = parseDocument(await readFile(placementsPath, "utf8"), { uniqueKeys: true, keepSourceTokens: true });
@@ -308,7 +308,7 @@ describe("plural-account CLI place", () => {
     firstHost.server.stop(true);
     try {
       const offlineSource = await source("placed-while-first-offline", "# Placed offline\n");
-      const account = (await loadAccountConfigurations())[0]!;
+      const account = (await loadProfileConfigurations())[0]!;
       const before = await readFile(join(account.path, "mounts.yaml"), "utf8");
       await arborFailure(["place", offlineSource, `${firstHost.url}/~alice/offline-placed`]);
       expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toBe(before);
@@ -368,7 +368,7 @@ test("CLI sharing edits preserve unrelated granular and executable rules", async
   const path = await source("resource-policy-cli", "# Resource policy\n");
   const canonical = `${firstHost.url}/~alice/resource-policy-cli`;
   await arbor(["place", path, canonical]);
-  const account = (await loadAccountConfigurations())[0]!;
+  const account = (await loadProfileConfigurations())[0]!;
   const record = await new HostAccountStore(account.configurationTree).get();
   const wire = new ProtocolClient(firstHost.url, record!.accountToken);
   const tree = firstHost.canopy.boundary("/~alice/resource-policy-cli")!.id;
