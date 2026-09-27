@@ -175,8 +175,11 @@ After claiming, create a small folder elsewhere on the Mac and use **Share** to 
 The reservation names one exact self-certifying Profile TreeID, so an unrelated
 client cannot win the account by claiming first. Treat the deployment as
 recoverable only to the extent that its profile-key backup, canopyd backup, and
-documented restore procedure have actually been tested; end-user dispute and
-administrator recovery flows remain future product work.
+documented restore procedure have actually been tested; end-user dispute flows
+remain future product work. A person who has lost every administrator device is
+recovered by the operator: `railway ssh -- bun run canopyd recover <handle>`
+prints a day-long recovery pairing code to pass to them out of band, never
+through logs.
 
 ## Coordinated alpha upgrades
 

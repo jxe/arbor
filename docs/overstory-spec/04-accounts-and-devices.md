@@ -116,20 +116,19 @@ valid profile proof.
 The operation refuses to replace a different local identity or silently adopt
 an ordinary random TreeID as a person identity. Repeating it for the same
 profile and available key is idempotent. This version has one permanent key and
-defines no rotation, successor key or delegation. Besides claiming accounts
-(§1.2, §1.3), the profile key has one other use: resetting the profile's
-devices at its home host after a wait its devices can cancel (§5.3).
+defines no rotation, successor key or delegation. The profile key claims
+accounts (§1.2, §1.3); it does not recover lost devices, which is the home
+host's help (§5.3).
 
 A backup contains the same private key, not another authority. Because that
-key can reset the profile's devices, a conforming backup operation encrypts it
+key claims accounts for the profile, a conforming backup operation encrypts it
 under a passphrase the person chooses, writes a versioned, profile-bound secret
 file with owner-only permissions, refuses to overwrite an existing path, and
 never prints the key. Restore validates that the private key derives the
 recorded public key and Profile TreeID before storing it or binding a local
 profile folder, and still reads the earlier unencrypted format. Losing every
 copy of the private key permanently loses the ability to establish that profile
-at another host or to reset its devices, though already-paired devices keep
-working.
+at another host, though already-paired devices keep working.
 
 ### 1.2 Claiming an account with the profile key
 
@@ -438,11 +437,11 @@ The account tokens, and what each survives:
 | person-profile `TreeID` | one person and one public identity key; with the host, one host account | `arbor me create` | all account, canonical-name, and hosting changes |
 | configuration `TreeID` | one tree's configuration | derived from the tree's `TreeID` | everything the tree survives |
 | group-profile `TreeID` | one authored group | the first local workspace | canonical-name and hosting changes |
-| `DeviceID` | one device of one person, with its credential binding or key | the device | everything except deletion of its `devices.yaml` entry, a reset (§5.3) included |
+| `DeviceID` | one device of one person, with its credential binding or key | the device | everything except deletion of its `devices.yaml` entry, a recovery (§5.3) included |
 | device key | one key device's public key | the device | nothing; a device never changes its key |
 | device session | one key device at one host, for at most an hour | that host | nothing; it expires, and ends when its device is deleted |
 | `PairingID` | one short-lived pairing secret for one account | the server | nothing; it is single use |
-| account, session and reset challenges | one short-lived, host-bound signature | the host that issued it | nothing; each is single use and expires |
+| account and session challenges | one short-lived, host-bound signature | the host that issued it | nothing; each is single use and expires |
 | access-link digest | one access link | hashing the secret, which is shown once and never stored | deleting the rule revokes it |
 
 ## 4. Local placements
@@ -535,7 +534,7 @@ The token is a bearer credential for that host alone: requests send it
 exactly where a device credential goes
 ([access control §2](05-access-control.md#2-authentication-and-secrets)). The
 host stores only its digest. It stops working when it expires or its device
-is deleted or reset away, whichever comes first, and it cannot open another
+is deleted, a recovery included, whichever comes first, and it cannot open another
 session; the device signs a new challenge instead. A watch ends when its
 session does ([access control §3.2](05-access-control.md#32-watches-and-revocation)).
 
@@ -549,41 +548,22 @@ the device's credential binding in the same commit, so from then on the
 device holds exactly one kind. A second move, or an update that adds a key to
 another device's entry, is refused (§3.1).
 
-### 5.3 Resetting a profile's devices
+### 5.3 Recovering a profile's devices
 
-```text
-POST   /.arbor/profile-resets/challenges
-PUT    /.arbor/profile-resets/{ProfileTreeID}
-GET    /.arbor/profile-resets/{ProfileTreeID}
-DELETE /.arbor/profile-resets/{ProfileTreeID}
-```
+A person who has lost every administrator device asks the home host's operator
+for help. The host cannot tell from the protocol whether the person asking is
+the profile's owner, so recovery is the operator's decision, made outside the
+protocol, and it adds no trust: the operator already holds everything the
+account stores.
 
-A person who has lost every administrator device resets the profile's devices
-with the profile key. The challenge request names `profileTree` and the new
-`device`: a generated `id`, `label` and `key`. The home host returns a
-single-use challenge with `purpose: "profile-reset"`, its `origin`, the
-profile, the new device and a nonce, valid for at most five minutes. The
-client signs its canonical CBOR encoding with the profile key and sends the
-challenge, the raw profile public key and the signature. The host verifies
-them as it verifies an account claim (§1.2) and records a **pending reset**.
-
-The host cannot tell whether the person really has no administrator device
-left, since lost devices remain listed, so a reset waits:
-
-- A pending reset takes effect 72 hours after it is recorded. The response
-  and `GET`, to any device of the profile, return the new device's `id` and
-  `label`, `requestedAt` and `effectiveAt`; clients show it prominently.
-- Any administrator device of the profile may `DELETE` it before then.
-- There is one pending reset per profile; another request while one is
-  pending is refused.
-- The new device has no authority while the reset is pending.
-- When it takes effect, the host advances the profile's configuration so that
-  `devices.yaml` holds only the new device, an administrator key device;
-  every earlier device and its sessions are revoked. From that moment no
-  earlier device authenticates, even if the host completes the update later.
-
-A host may also offer its operator an immediate reset outside this protocol
-(canopyd: `ARBOR_RESET_ACCOUNT`).
+The operator issues a **recovery pairing** for the account: a pairing secret
+as in §5, valid for longer (canopyd: a day, `canopyd recover <handle>`), passed
+to the person out of band. The person claims it from a new device exactly as an
+ordinary pairing, with a key. Claiming it advances the profile's configuration
+so that `devices.yaml` holds only the new device, an administrator key device,
+and revokes every earlier device and its sessions in the same commit. Until it
+is claimed, every existing device keeps working, and an unclaimed recovery
+pairing expires like any other.
 
 ### 5.4 Published device keys
 

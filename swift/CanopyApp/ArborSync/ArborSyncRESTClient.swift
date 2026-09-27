@@ -117,22 +117,6 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/device-key", body: ["configurationTree": configurationTree])
     }
 
-    /// The pending reset of an account's profile, as its devices see it.
-    func pendingProfileReset(configurationTree: String) async throws -> ProtocolPendingProfileReset? {
-        struct Envelope: Decodable { var reset: ProtocolPendingProfileReset? }
-        let envelope: Envelope = try await get(path: "/v1/profile-reset", items: [URLQueryItem(name: "configurationTree", value: configurationTree)])
-        return envelope.reset
-    }
-
-    func cancelProfileReset(configurationTree: String) async throws {
-        struct Response: Decodable { var cancelled: Bool }
-        var components = URLComponents(url: url("/v1/profile-reset"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "configurationTree", value: configurationTree)]
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "DELETE"
-        let _: Response = try await perform(request)
-    }
-
     func claimPairing(payload: Data? = nil) async throws {
         var body: [String: Any] = [:]
         if let payload { body["payload"] = try JSONSerialization.jsonObject(with: payload) }

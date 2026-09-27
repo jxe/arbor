@@ -20,16 +20,8 @@ private struct DeviceKeyVectors: Decodable {
         var signature: String
         var tamperedSignature: String
     }
-    struct Reset: Decodable {
-        var name: String
-        var profilePublicKey: String
-        var challenge: ProtocolProfileResetChallenge
-        var cborHex: String
-        var signature: String
-    }
     var keys: Keys
     var sessionChallenges: [Session]
-    var resetChallenges: [Reset]
 }
 
 private func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
@@ -70,21 +62,6 @@ struct DeviceKeysTests {
             let data = try JSONSerialization.data(withJSONObject: vector["challenge"]!)
             #expect(throws: (any Error).self, "\(vector["name"]!)") {
                 try JSONDecoder().decode(ProtocolDeviceSessionChallenge.self, from: data).validated()
-            }
-        }
-    }
-
-    @Test func resetChallenges() throws {
-        for vector in try vectors().resetChallenges {
-            let bytes = try profileResetChallengeSigningBytes(vector.challenge)
-            #expect(hex(bytes) == vector.cborHex, "\(vector.name)")
-            let profileKey = try ProtocolDeviceKey("ed25519:\(vector.profilePublicKey)")
-            #expect(profileKey.verifies(vector.signature, over: bytes))
-        }
-        for vector in try rawCases("invalidResetChallenges") {
-            let data = try JSONSerialization.data(withJSONObject: vector["challenge"]!)
-            #expect(throws: (any Error).self, "\(vector["name"]!)") {
-                try JSONDecoder().decode(ProtocolProfileResetChallenge.self, from: data).validated()
             }
         }
     }

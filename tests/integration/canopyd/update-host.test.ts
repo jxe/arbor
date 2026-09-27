@@ -363,8 +363,11 @@ describe("governed tree-configuration Canopy server", () => {
       fetch(snapshotURL(arbitraryObject), { headers: authenticated }),
       fetch(snapshotURL(baseline.snapshot.root), { headers: { authorization: "Bearer revoked-or-unknown" } }),
     ]);
-    expect(hiddenResponses.map(({ status }) => status)).toEqual([404, 404, 404]);
-    expect(await Promise.all(hiddenResponses.map((response) => response.text()))).toEqual(["Not found", "Not found", "Not found"]);
+    // Hidden objects are not found; a token that authenticates nothing is refused outright.
+    expect(hiddenResponses.map(({ status }) => status)).toEqual([404, 404, 401]);
+    const bodies = await Promise.all(hiddenResponses.map((response) => response.text()));
+    expect(bodies.slice(0, 2)).toEqual(["Not found", "Not found"]);
+    expect(JSON.parse(bodies[2]!).error).toBe("unauthenticated");
 
     const restored = await client.submitUpdate(treeID, advanced.update.id, baseline.snapshot);
     if (restored.outcome !== "accepted") throw new Error("Expected restored configuration root");
@@ -384,7 +387,7 @@ describe("governed tree-configuration Canopy server", () => {
     expect(`sha256:${sha256(historicalBytes)}`).toBe(historicalOnly);
     expect(Array.from(historicalBytes)).toEqual(Array.from(advancedSnapshot.objects.get(historicalOnly)!));
     expect((await fetch(objectURL)).status).toBe(404);
-    expect((await fetch(objectURL, { headers: { authorization: "Bearer revoked-or-unknown" } })).status).toBe(404);
+    expect((await fetch(objectURL, { headers: { authorization: "Bearer revoked-or-unknown" } })).status).toBe(401);
     // Read access to any tree serves any retained object by hash.
     expect((await fetch(`${running.url}/.arbor/trees/${communityTree}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(200);
 
@@ -747,7 +750,7 @@ describe("governed tree-configuration Canopy server", () => {
     expect((await fetch(
       `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/snapshots/${peerConfiguration.tree.root}`,
       { headers: { authorization: `Bearer ${peerCredential}` } },
-    )).status).toBe(404);
+    )).status).toBe(401);
     const retired = await client.createPairing();
     await expect(client.claimPairing(retired.id, retired.secret, {
       id: peerID,

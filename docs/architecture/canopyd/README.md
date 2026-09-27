@@ -82,26 +82,29 @@ configurations have their shape, and the tests for each refused case, are in
   `profile_facts`. A group administers through its current members, and an
   update that would remove the last member of a group administering any tree
   is refused. A disabled account's device credentials stop working, but the
-  rules naming its profile stay as written. The host operator can reset a
-  person's devices with `ARBOR_RESET_ACCOUNT` when every administrator device
-  is lost (`resetAccountToken`), which also cancels a pending profile-key
-  reset.
+  rules naming its profile stay as written. When a person has lost every
+  administrator device, the host operator runs `canopyd recover <handle>`
+  beside the running server (`recoverAccount`, `createRecoveryPairing`): it
+  writes a day-long recovery pairing, whose ID begins `pr_`, and prints its
+  code. Claiming it replaces the person's `devices.yaml` with the claiming
+  device, as an administrator, and revokes every other device in the same
+  commit (accounts §5.3).
 - **Device keys and sessions.** A `devices` row holds a digest device's
   credential digest or a key device's public key, never both; the key is
   also in `devices.yaml`, which is authoritative, and accepting a device's
-  first `key` replaces its digest in the same transaction. Session and reset
-  challenges share `device_challenges`, consumed exactly as issued; a session
-  is a random `ars_` token whose digest `device_sessions` holds for at most
-  an hour (`sessionLifetimeMs`). Deleting a device or completing a reset
-  deletes its sessions, and a watch rechecks its session's expiry and any
-  reset taking effect outside the cached authorization. A pending profile-key reset is a `profile_resets`
-  row; from its `effective_at` no earlier device authenticates, and the reset
-  is accepted by the next session challenge or reset read for the profile,
-  or by a sweep every minute (`completeDueResets`). Unauthenticated challenge
-  requests are limited to 30 per caller and profile per ten minutes, and
-  pairing claims to 10 per caller and pairing; the limiter keeps at most
-  10,000 keys, and its caller address comes from proxy headers canopyd does
-  not verify (`attempt-limiter.ts`, `clientAddress` in `host.ts`). As a
+  first `key` replaces its digest in the same transaction. Session challenges
+  are `device_challenges` rows, consumed exactly as issued; a session is a
+  random `ars_` token whose digest `device_sessions` holds for at most an hour
+  (`sessionLifetimeMs`). Deleting a device or claiming a recovery pairing
+  deletes its sessions, and a watch rechecks its session's expiry outside the
+  cached authorization. A request whose bearer token authenticates nothing is
+  refused with 401 on every route. The `profile_resets` table is unused since
+  the profile-key reset was withdrawn and goes in the next migration batch.
+  Unauthenticated challenge requests are limited to 30 per caller and profile
+  per ten minutes, and pairing claims to 10 per caller and pairing; the
+  limiter keeps at most 10,000 keys, and its caller address comes from proxy
+  headers canopyd does not verify (`attempt-limiter.ts`, `clientAddress` in
+  `host.ts`). As a
   home host canopyd publishes each profile's key devices at
   `GET /.arbor/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked key devices'

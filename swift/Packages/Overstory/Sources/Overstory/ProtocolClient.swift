@@ -308,43 +308,6 @@ public actor ProtocolClient {
         )
     }
 
-    public func createProfileResetChallenge(profileTree: String, device: ProtocolProfileResetDevice) async throws -> ProtocolProfileResetChallenge {
-        let value: ProtocolProfileResetChallenge = try await post(
-            path: "/.arbor/profile-resets/challenges",
-            body: ProfileResetChallengeRequest(profileTree: profileTree, device: device.validated()),
-            authorized: false
-        )
-        let challenge = try value.validated()
-        guard challenge.device == device, challenge.profileTree == profileTree,
-              challenge.origin == canonicalOrigin else {
-            throw ProtocolValidationError.invalidValue("Reset challenge does not match the request")
-        }
-        return challenge
-    }
-
-    /// Record a pending reset signed by the profile key.
-    public func requestProfileReset(challenge: ProtocolProfileResetChallenge, publicKey: String, signature: String) async throws -> ProtocolPendingProfileReset {
-        let value: ProfileResetEnvelope = try await put(
-            path: "/.arbor/profile-resets/\(component(challenge.profileTree))",
-            body: ProfileResetRequest(challenge: challenge.validated(), publicKey: publicKey, signature: signature),
-            authorized: false
-        )
-        guard let reset = value.reset else { throw ProtocolValidationError.invalidValue("Reset response has no reset") }
-        return reset
-    }
-
-    public func pendingProfileReset(profileTree: String) async throws -> ProtocolPendingProfileReset? {
-        let value: ProfileResetEnvelope = try await get(path: "/.arbor/profile-resets/\(component(profileTree))")
-        return value.reset
-    }
-
-    public func cancelProfileReset(profileTree: String) async throws {
-        var request = try await authorizedRequest(path: "/.arbor/profile-resets/\(component(profileTree))")
-        request.httpMethod = "DELETE"
-        let (data, response) = try await logged(request, kind: .read, name: Self.logName(request), tree: Self.logTree(request))
-        try validate(data: data, status: statusCode(response))
-    }
-
     public func access(tree: String) async throws -> ProtocolTreeAccessSnapshot {
         try await get(path: "/.arbor/trees/\(component(tree))/access")
     }
@@ -701,18 +664,6 @@ private struct DeviceSessionChallengeRequest: Encodable {
 private struct DeviceSessionRequest: Encodable {
     var challenge: ProtocolDeviceSessionChallenge
     var signature: String
-}
-private struct ProfileResetChallengeRequest: Encodable {
-    var profileTree: String
-    var device: ProtocolProfileResetDevice
-}
-private struct ProfileResetRequest: Encodable {
-    var challenge: ProtocolProfileResetChallenge
-    var publicKey: String
-    var signature: String
-}
-private struct ProfileResetEnvelope: Decodable {
-    var reset: ProtocolPendingProfileReset?
 }
 private struct PairingClaimBody: Encodable {
     var secret: String

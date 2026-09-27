@@ -1,18 +1,26 @@
 #!/usr/bin/env bun
+import { Database } from "bun:sqlite";
 import { mkdir, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { AccountDirectory } from "./accounts.ts";
 import { HostDaemon, SchemaMismatchError, serveHost, type HostBootstrapAccount } from "./index.ts";
 
 const USAGE = `Usage:
   canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]
   canopyd [serve] [<directory>] [--url <canonical-url>] [--port <number>] [--hostname <host>]
+  canopyd recover <handle> [--data <directory>] [--url <canonical-url>]
 
 init creates a new community once: its handle, and the founder account that
 only the named self-certifying profile may claim. The data directory defaults
 to ./<community>. serve runs an existing community; it is the default command.
 An unattended serve of an empty directory (Railway, Compose) creates the
 community from ARBOR_COMMUNITY_HANDLE, ARBOR_FIRST_WRITER_HANDLE, and
-ARBOR_FIRST_WRITER_PROFILE, or from ARBOR_ACCOUNTS_JSON / ARBOR_ACCOUNT_TOKEN.`;
+ARBOR_FIRST_WRITER_PROFILE, or from ARBOR_ACCOUNTS_JSON / ARBOR_ACCOUNT_TOKEN.
+recover is the operator's help for a person who has lost every administrator
+device: it prints a one-day recovery pairing code for their account, which they
+claim from a new device as an ordinary pairing. That device becomes the
+account's only one; until then every existing device keeps working. Run it
+where the data lives (on Railway, over \`railway ssh\`), never in logs.`;
 
 function usage(): never {
   console.error(USAGE);
@@ -198,12 +206,6 @@ export async function serveCommunity(args: string[]): Promise<void> {
     }
     throw error;
   }
-  const resetAccount = process.env.ARBOR_RESET_ACCOUNT?.trim();
-  if (resetAccount) {
-    if (!accountToken) throw new Error("ARBOR_RESET_ACCOUNT requires ARBOR_ACCOUNT_TOKEN");
-    await running.canopy.resetAccountToken(resetAccount, accountToken);
-    console.log(`Reset the device credential for ~${resetAccount}; remove ARBOR_RESET_ACCOUNT after recovery.`);
-  }
   console.log(`${existingHost ? "Serving" : "Created and serving"} ${running.canopy.communityHandle()} at ${running.url}`);
   console.log(`Data: ${dataRoot}`);
   const unclaimed = running.canopy.unclaimedFounderHandle();
@@ -222,9 +224,44 @@ export async function serveCommunity(args: string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
+/**
+ * `canopyd recover <handle> [--data <directory>] [--url <canonical-url>]`:
+ * a recovery pairing for the account, written beside a running server (the
+ * database is shared in WAL mode) and printed as the pairing code a client
+ * pastes or scans.
+ */
+export async function recoverAccount(args: string[]): Promise<void> {
+  const valued = ["--data", "--url"];
+  rejectUnknown(args, valued);
+  const positional = positionals(args, valued);
+  if (positional.length !== 1) usage();
+  const handle = positional[0]!.replace(/^~/, "");
+  const dataRoot = resolve(option(args, "--data") ?? process.env.ARBOR_CANOPY_DATA ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".arbor-canopy");
+  const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+  const origin = option(args, "--url") ?? (process.env.ARBOR_DOMAIN ? `https://${process.env.ARBOR_DOMAIN}` : undefined)
+    ?? (railwayDomain ? (/^https?:\/\//.test(railwayDomain) ? railwayDomain : `https://${railwayDomain}`) : undefined);
+  if (!origin) throw new Error("recover needs the community's public origin: pass --url or set ARBOR_DOMAIN");
+  if (!await hasCommunity(dataRoot)) throw new Error(`No community at ${dataRoot}`);
+  const db = new Database(join(dataRoot, "canopy.sqlite3"));
+  try {
+    db.run("PRAGMA busy_timeout = 5000");
+    const accounts = new AccountDirectory(db);
+    const account = accounts.accountByHandle(handle);
+    if (!account) throw new Error(`Unknown account: ~${handle}`);
+    const offer = accounts.createPairing(account, { recovery: true });
+    console.log(`Recovery pairing for ~${handle}, valid until ${new Date(offer.expiresAt).toISOString()}.`);
+    console.log("Claim it from the new device as a pairing code; it becomes the account's only device.");
+    console.log(`Confirmation code: ${offer.confirmationCode}`);
+    console.log(JSON.stringify({ version: 1, origin: new URL(origin).origin, pairing: { id: offer.id, secret: offer.secret } }));
+  } finally {
+    db.close();
+  }
+}
+
 export async function runHostDaemon(args = process.argv.slice(2)): Promise<void> {
   const [first, ...rest] = args;
   if (first === "init") return initCommunity(rest);
+  if (first === "recover") return recoverAccount(rest);
   if (first === "serve") return serveCommunity(rest);
   if (first === "--help" || first === "-h" || first === "help") usage();
   return serveCommunity(args);

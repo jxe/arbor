@@ -174,7 +174,10 @@ token a key device opened at this host
 ([accounts §5.1](04-accounts-and-devices.md#51-device-sessions)), identifies
 one account and device and contributes the profile TreeID. Both are checked
 against the device's current state on every request: a deleted device, and an
-expired session, authenticate nothing.
+expired session, authenticate nothing. A request presenting such a token is
+refused as unauthenticated (401) on every route, never answered as an
+anonymous request would be, so a client knows to refresh its credential or open
+a new session rather than seeing a private tree as missing.
 The host establishes executable context separately over an authenticated runtime
 channel. Incoming public requests cannot forge or override it. Across matching
 rules, allowed operations union within their scopes. Caller authentication,

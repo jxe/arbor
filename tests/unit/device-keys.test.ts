@@ -5,12 +5,8 @@ import {
   deviceSessionChallengeBytes,
   deviceSignatureBytes,
   parseDeviceKey,
-  personProfileTreeID,
-  profileResetChallengeBytes,
   validateDeviceSessionChallenge,
-  validateProfileResetChallenge,
   type DeviceSessionChallenge,
-  type ProfileResetChallenge,
 } from "@overstory/protocol";
 import vectors from "../../docs/overstory-spec/conformance/device-keys.json";
 
@@ -47,26 +43,5 @@ describe("device-keys.json", () => {
 
   test("rejects each malformed session challenge", () => {
     for (const vector of vectors.invalidSessionChallenges) expect(() => validateDeviceSessionChallenge(vector.challenge), vector.name).toThrow();
-  });
-
-  test("encodes reset challenges exactly and verifies the profile key's signature", () => {
-    for (const vector of vectors.resetChallenges) {
-      const challenge = vector.challenge as ProfileResetChallenge;
-      const bytes = profileResetChallengeBytes(challenge);
-      expect(hex(bytes), vector.name).toBe(vector.cborHex);
-      expect(personProfileTreeID(Buffer.from(vector.profilePublicKey, "base64url"))).toBe(challenge.profileTree);
-      expect(verifies(`ed25519:${vector.profilePublicKey}`, bytes, vector.signature)).toBe(true);
-      expect(sign(null, bytes, ed25519Private(vector.profileSeedHex)).toString("base64url")).toBe(vector.signature);
-    }
-  });
-
-  test("rejects each malformed reset challenge", () => {
-    for (const vector of vectors.invalidResetChallenges) expect(() => validateProfileResetChallenge(vector.challenge), vector.name).toThrow();
-  });
-
-  test("a session challenge never validates as a reset challenge", () => {
-    const session = vectors.sessionChallenges[0]!.challenge;
-    expect(() => validateProfileResetChallenge(session)).toThrow();
-    expect(() => validateDeviceSessionChallenge(vectors.resetChallenges[0]!.challenge)).toThrow();
   });
 });
