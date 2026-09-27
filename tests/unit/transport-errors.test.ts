@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeProtocolDirectory, hashObject, ProtocolClient, ProtocolHTTPError } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, ProtocolClient, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 
 async function withHost<T>(respond: () => Response, run: (client: ProtocolClient) => Promise<T>): Promise<T> {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: respond });
@@ -33,4 +33,15 @@ test("a plain-text failure still reports its status", async () => {
   expect(error).toBeInstanceOf(ProtocolHTTPError);
   expect(error).toMatchObject({ status: 404 });
   expect((error as ProtocolHTTPError).code).toBeUndefined();
+});
+
+test("a watch that goes silent past its idle timeout fails as a transport error", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(": ready\n\n")); },
+  }), { headers: { "content-type": "text/event-stream" } }) });
+  try {
+    const client = new ProtocolClient(server.url.toString().replace(/\/$/, ""), undefined, { watchIdleTimeoutMs: 100 });
+    const error = await (async () => { for await (const _ of client.watch("tr_transporterrorsaaaaaaaaaaaa", null)) {} })().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProtocolTransportError);
+  } finally { server.stop(true); }
 });

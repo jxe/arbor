@@ -967,13 +967,8 @@ struct ProtocolValueVectorTests {
     @Test("observation-events.sse frames satisfy id == cursor and event == kind")
     func observationEvents() throws {
         let source = try String(contentsOf: fixtures.appending(path: "observation-events.sse"), encoding: .utf8)
-        // TODO: `ProtocolSSEParser` throws "Frame has no data" for a comment-only frame such as the
-        // fixture's `: keepalive`, so comment lines are stripped before parsing here.
-        let semantic = source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.hasPrefix(":") }
-            .joined(separator: "\n")
         var parser = ProtocolSSEParser()
-        var frames = try parser.append(Data(semantic.utf8))
+        var frames = try parser.append(Data(source.utf8))
         frames.append(contentsOf: try parser.finish())
         #expect(frames.map(\.event) == ["tree.update"])
         for frame in frames {

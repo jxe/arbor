@@ -67,19 +67,24 @@ async function submitConfiguration(
   );
 }
 
+/** Complete frames that carry an event; comment-only frames (`: ready`, `: keepalive`) are skipped. */
+function eventFrames(source: string): string[] {
+  return source.split("\n\n").slice(0, -1).filter((frame) => frame.split("\n").some((line) => line && !line.startsWith(":")));
+}
+
 async function readWatchFrames(url: string, count: number) {
   const abort = new AbortController();
   const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
   expect(response.status).toBe(200);
   const reader = response.body!.getReader();
   let source = "";
-  while (source.split("\n\n").length <= count) {
+  while (eventFrames(source).length < count) {
     const chunk = await reader.read();
     if (chunk.done) break;
     source += new TextDecoder().decode(chunk.value, { stream: true });
   }
   abort.abort();
-  return source.split("\n\n").slice(0, count).map((frame) => {
+  return eventFrames(source).slice(0, count).map((frame) => {
     const lines = frame.split("\n");
     const field = (name: string) => lines.filter((line) => line.startsWith(`${name}: `)).map((line) => line.slice(name.length + 2));
     return {
@@ -450,13 +455,13 @@ describe("governed tree-configuration Canopy server", () => {
     expect(response.status).toBe(200);
     const reader = response.body!.getReader();
     let source = "";
-    while (!source.includes("\n\n")) {
+    while (!eventFrames(source).length) {
       const chunk = await reader.read();
       if (chunk.done) break;
       source += new TextDecoder().decode(chunk.value, { stream: true });
     }
     abort.abort();
-    const data = source.split("\n\n", 1)[0]!.split("\n")
+    const data = eventFrames(source)[0]!.split("\n")
       .filter((line) => line.startsWith("data: "))
       .map((line) => line.slice(6))
       .join("\n");

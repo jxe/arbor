@@ -231,16 +231,39 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
  * `authorizationEpoch` shows the database or execution authority changed.
  * Watches poll it often; between changes it costs one trivial query.
  */
-function cachedAuthorization(canopy: HostDaemon, check: () => boolean): () => boolean {
+function cachedAuthorization(canopy: HostDaemon, check: () => boolean): (epoch?: string) => boolean {
   let epoch: string | undefined;
   let allowed = false;
-  return () => {
-    const current = canopy.authorizationEpoch();
+  return (current = canopy.authorizationEpoch()) => {
     if (current !== epoch) {
       allowed = check();
       epoch = current;
     }
     return allowed;
+  };
+}
+
+/**
+ * One timer for every open stream's revocation check. Each tick reads the
+ * authorization epoch once and hands it to every stream, so an idle host with
+ * many watchers runs one trivial query per tick, not one per watcher.
+ */
+function authorizationTicker(canopy: HostDaemon, intervalMs = 250) {
+  const checks = new Set<(epoch: string) => void>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return (check: (epoch: string) => void): (() => void) => {
+    checks.add(check);
+    if (!timer) {
+      timer = setInterval(() => {
+        const epoch = canopy.authorizationEpoch();
+        for (const each of [...checks]) each(epoch);
+      }, intervalMs);
+      timer.unref?.();
+    }
+    return () => {
+      checks.delete(check);
+      if (!checks.size && timer) { clearInterval(timer); timer = undefined; }
+    };
   };
 }
 
@@ -275,6 +298,7 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
+  const onAuthorizationTick = authorizationTicker(canopy);
   const pairingClaims = new AttemptLimiter(10, 10 * 60 * 1000);
   const challenges = new AttemptLimiter(30, 10 * 60 * 1000);
   /** Unauthenticated challenges are cheap to ask for; bound them per caller and profile. */
@@ -306,7 +330,7 @@ export async function serveHost(options: {
           // Token validity (revocation, expiry, its host callback) is checked
           // every time; the grants' database-backed permissions only on change.
           const permitted = cachedAuthorization(canopy, () => canopy.execution.covered(execution));
-          const covered = () => canopy.execution.valid(execution) && permitted();
+          const covered = (epoch?: string) => canopy.execution.valid(execution) && permitted(epoch);
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               let closed = false;
@@ -317,9 +341,8 @@ export async function serveHost(options: {
                 if (!allowed) { closed = true; cleanup(); controller.close(); }
               };
               const stop = canopy.execution.subscribe(publish);
-              const timer = setInterval(() => { if (!covered()) publish(); }, 250);
-              timer.unref?.();
-              cleanup = () => { closed = true; stop(); clearInterval(timer); };
+              const stopTicks = onAuthorizationTick((epoch) => { if (!covered(epoch)) publish(); });
+              cleanup = () => { closed = true; stop(); stopTicks(); };
               request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
               publish();
             },
@@ -697,7 +720,6 @@ export async function serveHost(options: {
             return protocolError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
-          const keepaliveRequested = request.headers.get("arbor-watch-keepalive") === "1";
           let closed = false;
           let delivered = 0;
           let frames: string[] = [];
@@ -711,8 +733,8 @@ export async function serveHost(options: {
           });
           // Execution token validity and session expiry change with time,
           // not database state, so they are never cached.
-          const authorized = () => (!execution || canopy.execution.valid(execution))
-            && (!authentication || canopy.authenticationIsCurrent(authentication)) && readable();
+          const authorized = (epoch?: string) => (!execution || canopy.execution.valid(execution))
+            && (!authentication || canopy.authenticationIsCurrent(authentication)) && readable(epoch);
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               resync = (reason: string) => {
@@ -726,15 +748,21 @@ export async function serveHost(options: {
                 stop(); controller.close();
               };
               const stopObserving = canopy.subscribeObservations(tree.id, () => { wake?.(); wake = undefined; });
-              const timer = setInterval(() => { if (!authorized()) resync("Authorization was revoked"); }, 250);
-              timer.unref?.();
+              const stopTicks = onAuthorizationTick((epoch) => { if (!authorized(epoch)) resync("Authorization was revoked"); });
+              // Comments flush headers through proxies at once, then keep an
+              // idle stream alive through their timeouts; clients skip them.
+              const keepalive = setInterval(() => {
+                if (closed) return;
+                try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
+              }, WATCH_KEEPALIVE_MS);
+              keepalive.unref?.();
               const abort = () => {
                 if (closed) return;
                 closed = true; stop();
                 try { controller.close(); } catch {}
               };
               stop = () => {
-                clearInterval(timer); stopObserving();
+                stopTicks(); clearInterval(keepalive); stopObserving();
                 request.signal.removeEventListener("abort", abort);
                 frames = []; wake?.(); wake = undefined;
               };
@@ -743,22 +771,7 @@ export async function serveHost(options: {
               const position = canopy.observationPosition(tree.id, lastEventID);
               if (!position.retained) return resync("The requested cursor is no longer retained");
               delivered = position.through;
-              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
-              // Clients that opt in receive an immediate comment so headers flush
-              // through proxies and an open stream is distinguishable from a
-              // stalled connect, then periodic comments through proxy idle
-              // timeouts. Older clients reject comment-only blocks, so this is
-              // never sent unrequested.
-              if (keepaliveRequested) {
-                controller.enqueue(encoder.encode(": ready\n\n"));
-                const keepalive = setInterval(() => {
-                  if (closed) return;
-                  try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
-                }, WATCH_KEEPALIVE_MS);
-                keepalive.unref?.();
-                const stopTimers = stop;
-                stop = () => { clearInterval(keepalive); stopTimers(); };
-              }
+              controller.enqueue(encoder.encode(execution ? ": authorized\n\n" : ": ready\n\n"));
             },
             async pull(controller) {
               try {
@@ -887,7 +900,7 @@ export async function serveHost(options: {
             }
             // A tree's raw file, typed by its name. The sandbox keeps an HTML
             // or SVG file from running script with this origin's authority.
-            return new Response(logical.bytes, { headers: {
+            return new Response(logical.bytes as Uint8Array<ArrayBuffer>, { headers: {
               "content-type": Bun.file(objectName).type,
               "cache-control": "no-cache",
               "x-content-type-options": "nosniff",

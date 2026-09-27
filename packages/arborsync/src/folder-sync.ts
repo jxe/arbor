@@ -667,6 +667,7 @@ export class FolderSync implements AcceptedTree {
 
   private async runWatch(key: string, signal: AbortSignal): Promise<void> {
     let backoff = INITIAL_WATCH_BACKOFF_MS;
+    let refreshed = false;
     while (!signal.aborted) {
       const placement = this.host.placement();
       if (!placement?.update || `${placement.configurationTree ?? "legacy"}:${placement.endpoint}` !== key) return;
@@ -678,11 +679,18 @@ export class FolderSync implements AcceptedTree {
         const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
         for await (const event of client.watch(this.tree, cursor, { signal: connection.signal })) {
           backoff = INITIAL_WATCH_BACKOFF_MS;
+          refreshed = false;
           await this.coordinator.observe(event);
           if (event.kind === "resync-required") break;
         }
-      } catch {
-        // Transport failures fall through to the backoff below.
+      } catch (error) {
+        // An ended session is replaced at once, once; a second 401 is a real
+        // revocation and waits like any other failure below.
+        if (!refreshed && error instanceof ProtocolHTTPError && error.status === 401
+          && await this.host.forgetSession?.(placement).catch(() => false)) {
+          refreshed = true;
+          continue;
+        }
       } finally {
         signal.removeEventListener("abort", stop);
         connection.abort();

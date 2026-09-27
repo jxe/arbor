@@ -1141,7 +1141,9 @@ freeze valid encodings and rejected byte sequences for every language binding.
 
 Tree watch and query result streams use one UTF-8 SSE framing rule: blank lines
 separate frames, multiple `data:` lines join with newlines, and clients ignore
-comments and keepalives. The `event` field names the typed event and `data` is
+comments and keepalives. A host sends a comment as soon as a watch opens and
+at least every 30 seconds while it is idle, with no request header to ask for
+them, so a client may treat a longer silence as a lost connection. The `event` field names the typed event and `data` is
 one canonical JSON value. Producers share escaping, cancellation,
 bounded-buffer, and terminal-close behavior.
 

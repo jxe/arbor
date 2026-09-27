@@ -41,6 +41,9 @@ import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from
 import { decodeSnapshotBundle } from "./snapshots.ts";
 
 
+/** Three missed keepalives. */
+const WATCH_IDLE_TIMEOUT_MS = 60_000;
+
 export interface CurrentTree {
   tree: RemoteTreeDescriptor;
   observedThrough: EventCursor;
@@ -198,13 +201,15 @@ export class ProtocolTransportError extends TypeError {
 
 export class ProtocolClient {
   private readonly timeoutMs: number;
+  private readonly watchIdleTimeoutMs: number;
 
   constructor(
     readonly origin: string,
     private accountToken?: string,
-    options: { timeoutMs?: number } = {},
+    options: { timeoutMs?: number; watchIdleTimeoutMs?: number } = {},
   ) {
     this.timeoutMs = options.timeoutMs ?? 5_000;
+    this.watchIdleTimeoutMs = options.watchIdleTimeoutMs ?? WATCH_IDLE_TIMEOUT_MS;
   }
 
   private headers(json = false): HeadersInit {
@@ -497,12 +502,38 @@ export class ProtocolClient {
    */
   async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal } = {}): AsyncGenerator<WatchEvent> {
     const query = after ? `?after=${encodeURIComponent(after)}` : "";
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/watch${query}`, {
-      headers: { ...this.headers(), accept: "text/event-stream" },
-      signal: options.signal ?? new AbortController().signal,
-    }));
-    if (!response.body) throw new Error("Watch response has no body");
-    for await (const frame of parseSSEStream(response.body)) {
+    // The host comments at least every 20 s; a longer silence is a dead
+    // connection (a half-open socket, a proxy that dropped it), not an idle tree.
+    const idle = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expectBytes = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => idle.abort(), this.watchIdleTimeoutMs);
+      (timer as { unref?: () => void }).unref?.();
+    };
+    expectBytes();
+    try {
+      const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/watch${query}`, {
+        headers: { ...this.headers(), accept: "text/event-stream" },
+        signal: options.signal ? AbortSignal.any([options.signal, idle.signal]) : idle.signal,
+      }));
+      if (!response.body) throw new Error("Watch response has no body");
+      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) { expectBytes(); controller.enqueue(chunk); },
+      }));
+      yield* this.watchEvents(tree, body);
+    } catch (error) {
+      if (idle.signal.aborted && !options.signal?.aborted) {
+        throw new ProtocolTransportError(`Watch from ${this.origin} went silent`, error);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async *watchEvents(tree: TreeID, body: ReadableStream<Uint8Array>): AsyncGenerator<WatchEvent> {
+    for await (const frame of parseSSEStream(body)) {
       if (!frame.data) continue;
       const decoded = JSON.parse(frame.data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
       if (typeof decoded.cursor !== "string" || typeof decoded.kind !== "string" || decoded.tree !== tree
