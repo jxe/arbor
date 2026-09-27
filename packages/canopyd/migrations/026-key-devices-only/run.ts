@@ -5,10 +5,9 @@ import { oneChallengeTable } from "./steps/025-one-challenge-table.ts";
 import { keyDevicesOnly } from "./steps/026-key-devices-only.ts";
 
 /**
- * The next migration batch: every schema step ready since the last cutover,
- * run once against the live data root. Steps are added here in schema order;
- * see README.md for the list, the product changes each one brings at
- * cutover, and the runbook.
+ * Migration 026, the first batch: schema 23 to 26 through steps 024–026,
+ * run once against the live data root. README.md lists the steps, the
+ * product change each brought, and the runbook.
  */
 export const steps = [dropProfileResets, oneChallengeTable, keyDevicesOnly];
 

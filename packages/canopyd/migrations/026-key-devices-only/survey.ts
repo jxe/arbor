@@ -12,7 +12,7 @@ import type { HostSurvey } from "./survey-host.ts";
  * live host. It never writes anything. Joe runs it on the Mac before the
  * cutover (see README.md, "Before cutover: the survey"):
  *
- *   bun run packages/canopyd/migrations/next/survey.ts \
+ *   bun run packages/canopyd/migrations/026-key-devices-only/survey.ts \
  *     [--iphone <copied container>] [--live <survey-host.json>]
  *
  * Each line is PASS, FAIL or SKIP, the check, the commit to `git revert` when

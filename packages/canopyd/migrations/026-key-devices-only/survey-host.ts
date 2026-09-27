@@ -5,7 +5,7 @@ import { join } from "node:path";
  * The host half of the pre-cutover survey: counts, never content or digests,
  * read from the live database opened read-only. Run on the host,
  *
- *   railway ssh -- bun run packages/canopyd/migrations/next/survey-host.ts /data
+ *   railway ssh -- bun run packages/canopyd/migrations/026-key-devices-only/survey-host.ts /data
  *
  * and give its JSON to `survey.ts --live <file>` on the Mac.
  */

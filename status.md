@@ -107,7 +107,7 @@ deployed; the live host is at schema 23. [canopyd 019](plans/soon/019-cutover-02
 is the runbook. The branch is one cutover: its host serves only schema 26, and
 the Mac app, Arbor Sync and the iPhone follow in the same sitting.
 
-- **Batch 024–026.** `migrations/next/` carries schema 23 to 26 in one
+- **Batch 024–026.** `migrations/026-key-devices-only/` (batch 024–026) carries schema 23 to 26 in one
   transaction: 024 drops `profile_resets` (refusing a pending row), 025 makes
   `account_challenges` and `device_challenges` one `challenges` table apart by
   `purpose` (copying only redeemable rows; a challenge of one purpose is never
@@ -154,7 +154,7 @@ the Mac app, Arbor Sync and the iPhone follow in the same sitting.
   `editProfileConfigurationFile`, `profile-config.ts`). Per-tree sync state is
   keyed by TreeID, so the one install renames the directory by hand with Arbor
   Sync stopped; `.state/accounts/` keeps its name.
-- **Survey.** `migrations/next/survey.ts` and `survey-host.ts` check read-only
+- **Survey.** `026-key-devices-only/survey.ts` and `survey-host.ts` check read-only
   that the state each removal assumes gone is gone on the Mac, the iPhone copy
   and the host, including no pending account claim; each failure names the
   commit to revert or the live step to take.
@@ -163,7 +163,7 @@ Evidence: `bun run typecheck`; `bun run test` with `ARBOR_CREDENTIAL_STORE=file`
 (the container lacks libsecret) matches the base commit apart from two
 environment failures (a saved-state timing test under load, and an
 unreadable-folder test that passes as root); `bun run test:migration
-packages/canopyd/migrations/next`; the TypeScript half of `bun run
+packages/canopyd/migrations/026-key-devices-only`; the TypeScript half of `bun run
 test:protocol` (338); `bun run check:links`. The Swift packages (CanopyAppKit,
 Overstory, OverstoryObjectStore, CanopyWorkingTree, OverstoryClient) were
 built and tested on Linux with Swift 6.2 against stand-ins for CryptoKit,

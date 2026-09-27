@@ -96,7 +96,7 @@ configurations have their shape, and the tests for each refused case, are in
   in `devices.yaml`, which is authoritative, and accepting a configuration
   refuses an entry without a key or with a key other than the row's. The key is
   required unless the row is revoked: devices revoked while they still had
-  bearer credentials, before [schema 26](../../../packages/canopyd/migrations/next/README.md),
+  bearer credentials, before [schema 26](../../../packages/canopyd/migrations/026-key-devices-only/README.md),
   keep keyless rows so their DeviceIDs are never reused. `devices.yaml` history
   from before then still parses, entries without `key` included. Session challenges
   are `challenges` rows of purpose `device-session` (account claims' are
