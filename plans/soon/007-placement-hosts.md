@@ -116,19 +116,17 @@ key named A. A compromised A can act as those profiles on B, which is no more
 than A holds already. B trusts A for nothing else. Checking the list back to
 the profile key, so that B need not trust A at all, is Security 008.
 
-## Open questions
+## Decided
 
-Details for Phase 1, not direction:
-
-1. **Lifetimes:** the cache lifetime (about a minute), the early-refetch rate
-   limit, and how long B serves from a stale copy while A is unreachable
-   (proposed: not at all past the cache lifetime).
-2. **The ordinary tree at `/~handle` on B:** its name in the spec, and what
-   happens to it if the home host changes (Security 008).
-3. **Two meanings of "administrator"**, moved here from Security 006, since B
-   is the first host to read a device's flag from another host. canopyd 005
-   kept both names: a profile's `admin` on a tree and a device's
-   `administrator` flag. Decide whether B's docs and errors need them apart.
+1. **Lifetimes:** a placement host keeps a fetched list for 60 s, refetches
+   early for an unknown DeviceID at most once per 5 s per profile, and refuses
+   to open a session from a copy older than 60 s that it cannot refresh.
+   [Security 008](008-portable-profiles.md) proposes a grace once lists are
+   signed.
+2. **The tree at `/~handle` on B** is the **placement root** (accounts §1.3).
+   It cannot become the profile tree if the home moves; Security 008 Q7.
+3. **Both names stay:** a tree's `admin` rule and a device's `administrator`
+   flag. B's errors say "administrator device" for the second.
 
 ## Work
 
