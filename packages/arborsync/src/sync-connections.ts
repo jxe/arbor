@@ -1,5 +1,4 @@
 import { accountProtocolClient, type AccountSelector, type AccountProtocolClient } from "@overstory/client";
-import { HostAccountStore } from "@overstory/protocol";
 import { type SharedTreePlacement } from "./state/index.ts";
 
 /** The sync engine selects connections; it never administers accounts. */
@@ -15,8 +14,8 @@ export function localSyncConnections(): SyncConnections {
     async tokenFor(placement) {
       const selected = await accountClientFor({ configurationTree: placement.configurationTree, origin: placement.endpoint });
       if (!selected.authenticated) return undefined;
-      if (selected.configurationTree) return (await new HostAccountStore(selected.configurationTree).get())?.accountToken;
-      return undefined;
+      // The session of the connection selected: the home account's, or a placement account's at another host.
+      return selected.token;
     },
   };
 }

@@ -162,6 +162,27 @@ non-loopback `Host` headers. Local clients never hold the key, and on a 401
 they fetch a session again. A connection record without a device key, as a
 bearer credential was once stored, is ignored.
 
+## Placement connections
+
+A profile has one home account, whose connection record lives in
+`.state/accounts/<ConfigurationTreeID>/` as before, and at most one
+placement account per other host
+([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+Each placement connection is `connection.json` and `session.json` in
+`accounts/<ConfigurationTreeID>/placements/host-<hash>/`, where `<hash>` is
+the first 24 hex digits of the SHA-256 of the placement host's origin, so the
+pair (origin, profile) names one record (`HostPlacementStore` in
+`packages/protocol/src/config/server-config.ts`). The record holds the
+placement account's URL, its home host and its placement root, and no key:
+its sessions are opened with the home connection's DeviceID and key, since a
+placement host accepts the devices the home host lists. Keying by the
+configuration TreeID alone would put two hosts' records in one slot, and
+keying every record by origin would move the home record every reader
+already knows; this nesting leaves the home record and
+`HostAccountStore.list()`, which lists home connections only, exactly as
+they were. Account selection (`accountProtocolClient`) picks the placement
+connection when a request names its origin.
+
 ## Migration
 
 The alpha implementation moved legacy caches, rehearsal state, Finder

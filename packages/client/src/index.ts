@@ -5,3 +5,4 @@ export * from "./account-pairing.ts";
 export * from "./local-state-lock.ts";
 export * from "./profile-identity.ts";
 export * from "./placements.ts";
+export * from "./account-placement.ts";
