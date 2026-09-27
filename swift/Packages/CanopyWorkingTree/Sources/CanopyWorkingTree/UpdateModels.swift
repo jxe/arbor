@@ -106,9 +106,20 @@ struct UpdateAttempt: Codable, Equatable, Sendable {
     var candidate: String
     var generation: Int
     var body: Data
+    /// `application/cbor` for a CBOR body. Nil is JSON: every attempt written
+    /// before bodies could be CBOR, which therefore replays unchanged.
+    var contentType: String?
     /// All per-element digests in prefix order.
     var requestDigests: [String]
     var digest: String
+
+    /// The exact request this attempt sends, in the encoding it was written in.
+    var prepared: PreparedProtocolUpdate {
+        PreparedProtocolUpdate(tree: tree, body: body, requestDigests: requestDigests, contentType: contentType)
+    }
+
+    /// The request the body carries.
+    func request() throws -> ProtocolUpdateRequest { try prepared.decodedRequest() }
 }
 
 /// Why a retained request is held, so a restart holds it again.

@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { activationElement, deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
@@ -202,7 +202,10 @@ async function claimAccountProfileBootstrap(
       publicKey: pending.publicKey!,
       signature: pending.signature!,
       device: { id: pending.deviceID, label: pending.label, key: pending.key },
-      configuration: bootstrapSnapshot(pending.configuration),
+      // The journal keeps the configuration's snapshot; the claim sends it as
+      // the configuration tree's activation element, whose change is the
+      // device's ID so that every replay of this claim sends the same element.
+      configuration: activationElement(bootstrapSnapshot(pending.configuration), pending.deviceID),
     });
   };
   let result;

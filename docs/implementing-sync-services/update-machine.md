@@ -49,7 +49,7 @@ Each effect, and what the runners do for it:
 | Effect | Runner |
 |---|---|
 | `persistRequest(base, tip, extends)` | Cut `ChangeLog.request(through: tip)`: the chain from the oldest unsettled change's accepted basis through the tip, settled changes repeated without objects. Persist it as the immutable `UpdateAttempt`, then dispatch `requestPersisted`. An `extends` whose digests are not a prefix is retried exactly instead. |
-| `submit(request)` | Send the persisted body; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
+| `submit(request)` | Send the persisted body in its persisted encoding; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
 | `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark the request's changes settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
 | `catchUp(cursor)` | Replay the watch batch that cursor names when it chains from the installed state, otherwise install the host's current state; dispatch `applied(installed:)`. |
 | `settle(tip)` | Mark the chain through `tip` settled without a request. |
@@ -109,7 +109,11 @@ Under a tree's state root:
   `UpdateAttempt` and the change it ends at, the held reason, the settled
   changes the log has not yet compacted, and the accepted unresolved signal.
   The accepted `{ root, update, cursor }` is the working tree's own state.
-  Every write appends a line to `sync/events.jsonl`.
+  Every write appends a line to `sync/events.jsonl`. An attempt's `body` is
+  its exact request bytes and `contentType` their encoding: new attempts are
+  CBOR (`application/cbor`), and an attempt without `contentType` is JSON, so
+  one written before bodies could be CBOR replays unchanged, as JSON
+  ([tree operations §4.4](../overstory-spec/01-tree-operations.md#44-request-and-response-encodings)).
 - **`sync/conflict-review.json`** (schema 3): review drafts, and the draft
   fingerprint each submitted resolution change carries.
 

@@ -12,6 +12,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import {
   accountChallengeBytes,
+  activationElement,
   canonicalHTTPURL,
   deviceKeyFromSeed,
   generateArborID,
@@ -108,7 +109,7 @@ async function setup(): Promise<void> {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: device, label, key },
-      configuration: snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key })),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key }))),
     });
     const held: LabDevice = { profileTree: identity.profileTree, device, seed };
     const client = await labClient(LOCAL_COMMUNITY, held, TIMEOUT);

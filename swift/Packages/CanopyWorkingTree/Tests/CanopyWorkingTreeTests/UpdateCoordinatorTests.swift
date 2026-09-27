@@ -45,7 +45,7 @@ private actor ClosureTransport: UpdateTransport {
         requests.append(prepared)
         let response = try await submitter(prepared, requests.count)
         if advancesCurrentOnAccept, let final = response.results.last {
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+            let request = try prepared.decodedRequest()
             var known = current
             for update in request.updates {
                 known = try completeCandidate(update, retained: known)
@@ -441,7 +441,7 @@ struct UpdateCoordinatorTests {
                 edits: [WorkspaceSourceEdit(utf8Range: range, replacement: "Edited", expected: "Base")]
             ))
             _ = try await coordinator.syncOnce()
-            let first = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.first).body)
+            let first = try #require(await transport.requests.first).decodedRequest()
             let element = try #require(first.updates.last)
             let delta = try #require(element.deltas.first { $0.instructions.contains(.insert(Data("Edited".utf8))) })
             #expect(delta.instructions.contains(where: { if case .copy = $0 { return true } else { return false } }))
@@ -454,7 +454,7 @@ struct UpdateCoordinatorTests {
                 edits: [WorkspaceSourceEdit(utf8Range: 0..<Data(large.source.utf8).count, replacement: fallbackSource, expected: large.source)]
             ))
             _ = try await coordinator.syncOnce()
-            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.last).body)
+            let second = try #require(await transport.requests.last).decodedRequest()
             let replaced = try #require(second.updates.last)
             #expect(!replaced.deltas.contains { $0.instructions.contains(.insert(Data(fallbackSource.utf8))) })
             #expect(replaced.objects.contains { $0.hash == (try? ProtocolObjectCodec.object(.file(Data(fallbackSource.utf8))))?.hash })
@@ -492,8 +492,8 @@ struct UpdateCoordinatorTests {
             }
             let requests = await transport.requests
             #expect(requests.count == 2)
-            let prefix = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
-            let successor = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
+            let prefix = try requests[0].decodedRequest()
+            let successor = try requests[1].decodedRequest()
             #expect(prefix.updates.count == 1)
             // One chain: the settled first change is repeated without its objects, then the successor once.
             #expect(successor.base == "up_initial")
@@ -550,7 +550,7 @@ struct UpdateCoordinatorTests {
             }
             let requests = await transport.requests
             #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first?.body))
+            let request = try #require(requests.first).decodedRequest()
             // One element per authored change, in log order.
             #expect(request.updates.count == 15)
             #expect(request.updates.last?.candidate == (try await workingTree.heads().acceptedRoot))
@@ -584,8 +584,8 @@ struct UpdateCoordinatorTests {
             let reconnect = Task { await coordinator.setTransportAvailable(true) }
             try await waitUntil { await transport.requests.count == 2 }
             let requests = await transport.requests
-            let prefix = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
-            let resumed = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
+            let prefix = try requests[0].decodedRequest()
+            let resumed = try requests[1].decodedRequest()
             #expect(prefix.updates.count == 1)
             #expect(resumed.updates.count == 38)
             #expect(Array(resumed.updates.prefix(1)) == prefix.updates)
@@ -796,7 +796,7 @@ struct UpdateCoordinatorTests {
             _ = try await coordinator.syncOnce()
             #expect(await coordinator.syncState.kind == "offline")
             let frozen = try #require(await transport.requests.first)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: frozen.body)
+            let request = try frozen.decodedRequest()
             let candidate = try #require(request.updates.last?.candidate)
             let eventTree = ProtocolTreeDescriptor(
                 id: tree, kind: "ordinary", root: candidate, access: "write",
@@ -837,7 +837,7 @@ struct UpdateCoordinatorTests {
             try await admitAppend(session, "Local\n")
             try await waitUntil { await gate.waiting }
             let frozen = try #require(await transport.requests.first)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: frozen.body)
+            let request = try frozen.decodedRequest()
             let candidate = try #require(request.updates.last?.candidate)
             let observation = Task {
                 try await coordinator.observe(.init(
@@ -888,8 +888,8 @@ struct UpdateCoordinatorTests {
             #expect((try await session.snapshot()).source.hasSuffix("Candidate\nTail\n"))
             let requests = await transport.requests
             #expect(requests.count == 2)
-            let first = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[0].body)
-            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
+            let first = try requests[0].decodedRequest()
+            let second = try requests[1].decodedRequest()
             #expect(first.base == "up_initial" && second.base == "up_initial")
             #expect(second.updates.count == 2)
             #expect(try await workingTree.heads().acceptedRoot == second.updates.last?.candidate)
@@ -994,7 +994,7 @@ struct UpdateCoordinatorTests {
                 let resumed = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
                 #expect(try await resumed.syncOnce().state == .current, Comment(rawValue: point.rawValue))
                 let requests = await transport.requests
-                let frozen = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first).body)
+                let frozen = try #require(requests.first).decodedRequest()
                 #expect(frozen.updates.flatMap(\.objects).count < (try await workingTree.currentSnapshot()).objects.count)
                 if requests.count > 1 {
                     #expect(Set(requests.map(\.requestDigest)).count == 1)
@@ -1082,7 +1082,7 @@ struct UpdateCoordinatorPhase3Tests {
             #expect(try await resumed.syncOnce().state == .current)
             let requests = await transport.requests
             #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(requests.first).body)
+            let request = try #require(requests.first).decodedRequest()
             #expect(request.updates == [change.update])
             #expect(try await workingTree.heads().acceptedRoot == change.candidate.root)
             let control = try UpdateControlFiles(root: root).load()
@@ -1181,7 +1181,7 @@ struct UpdateCoordinatorPhase3Tests {
             let session = try await noteSession(workingTree, coordinator, tree: tree)
             try await admitAppend(session, "Sparse\n")
             #expect(try await coordinator.syncOnce().state == .current)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: try #require(await transport.requests.first).body)
+            let request = try #require(await transport.requests.first).decodedRequest()
             let sent = Set(request.updates.flatMap(\.objects).map(\.hash))
             #expect(!sent.isEmpty)
             #expect(!sent.contains(photo.hash))
@@ -1213,7 +1213,7 @@ struct UpdateCoordinatorPhase3Tests {
         let delta = try ProtocolObjectDelta(base: photo.hash, result: photo2.hash, instructions: [.insert(photo2.bytes)]).validated()
         let merged = MergedRootBox()
         let transport = ClosureTransport(initial: spine) { prepared, _ in
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+            let request = try prepared.decodedRequest()
             let element = try #require(request.updates.last)
             // The element carries the new note and root, whole or as deltas; the photo is never sent.
             let localNote = try #require((element.objects.map(\.hash) + element.deltas.map(\.result)).first { $0 != element.candidate })
@@ -1266,7 +1266,7 @@ struct UpdateCoordinatorPhase3Tests {
             _ = try await coordinator.syncOnce()
             #expect(await coordinator.syncState.kind == "offline")
             let prepared = try #require(await transport.requests.first)
-            #expect(try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body).updates.flatMap(\.objects).contains { $0.hash == assetHash })
+            #expect(try prepared.decodedRequest().updates.flatMap(\.objects).contains { $0.hash == assetHash })
 
             // A collection that keeps nothing: the request in flight must not notice.
             try overlay.retain(reachableFrom: [])
@@ -1316,7 +1316,7 @@ private func acceptingTransport(tree: String, initial: ProtocolSnapshot, before:
     let accepted = AcceptedCounter()
     return ClosureTransport(initial: initial, advancesCurrentOnAccept: true) { prepared, call in
         try await before(call)
-        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+        let request = try prepared.decodedRequest()
         let number = await accepted.next()
         var previous = initial.root
         let results = request.updates.enumerated().map { index, element in
@@ -1434,7 +1434,7 @@ struct LiveNativePeerTests {
             // Every body is sparse: only objects the base does not retain travel.
             let total = (try await mac.currentSnapshot()).objects.count
             for prepared in await transport.requests {
-                let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+                let request = try prepared.decodedRequest()
                 #expect(request.updates.allSatisfy { $0.objects.count < total })
             }
             await macSync.close(); await tabletSync.close()
@@ -1606,7 +1606,7 @@ private actor SourceModeTransport: UpdateTransport {
     func submit(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
         received.append(prepared)
         if received.count == 1, let gate { await gate.hold() }
-        let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: prepared.body)
+        let request = try prepared.decodedRequest()
         #expect(request.base == "up_initial")
         var candidate = initial
         var results: [ProtocolUpdateElementResult] = []
@@ -1680,7 +1680,7 @@ struct SourceSessionPublicationTests {
             let requests = await transport.received
             #expect(requests.count == 2)
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
-            let second = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
+            let second = try requests[1].decodedRequest()
             #expect(second.updates.count == 2)
             #expect(second.updates[0].objects.isEmpty)
             #expect(second.updates[0].deltas.isEmpty)
@@ -1712,7 +1712,7 @@ struct SourceSessionPublicationTests {
             _ = try await publishing.value
             let requests = await transport.received
             #expect(requests.count == 2)
-            let batch = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: requests[1].body)
+            let batch = try requests[1].decodedRequest()
             #expect(batch.updates.count == 4)
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
             #expect(batch.updates.first?.objects.isEmpty == true)

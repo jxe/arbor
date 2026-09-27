@@ -95,7 +95,7 @@ public actor UpdateCoordinator {
         self.control = try files.load()
         // An incompatible or altered durable request must remain on disk for recovery.
         if let attempt = control.attempt {
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body)
+            let request = try attempt.request()
             guard request.base == attempt.base.update,
                   request.updates.last?.candidate == attempt.candidate,
                   request.updates.last?.change == control.attemptTip,
@@ -128,16 +128,19 @@ public actor UpdateCoordinator {
         await publishTip()
     }
 
-    /// Encode one request as an immutable attempt: its body carries every envelope it will ever send.
+    /// Encode one request as an immutable attempt: its body carries every
+    /// envelope it will ever send, in CBOR (tree operations §4.4).
     static func attempt(tree: String, base: ProtocolUpdateBase, request: ProtocolUpdateRequest) throws -> UpdateAttempt {
         guard let last = request.updates.last else { throw UpdateError.requestEmpty }
         let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
+        let encoding = ProtocolWireEncoding.cbor
         return UpdateAttempt(
             tree: tree,
             base: base,
             candidate: last.candidate,
             generation: 0,
-            body: try sortedKeysJSON(request),
+            body: try encoding.encode(request),
+            contentType: encoding.storedContentType,
             requestDigests: digests,
             digest: digests.last!
         )
@@ -311,7 +314,7 @@ public actor UpdateCoordinator {
             try faultInjector.reached(.duringUpload)
             let started = Date()
             Self.publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.requestDigests.count) bytes=\(attempt.body.count)")
-            let response = try await transport.submit(PreparedProtocolUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.requestDigests))
+            let response = try await transport.submit(attempt.prepared)
             Self.publicationLog.notice("submit succeeded seconds=\(Date().timeIntervalSince(started)) results=\(response.results.count)")
             try faultInjector.reached(.afterServerAcceptance)
             let current = try await validate(response, for: attempt)
@@ -365,7 +368,7 @@ public actor UpdateCoordinator {
             if stashed == nil {
                 // Watch evidence or a restart: replaying the exact durable
                 // request obtains the host's stored response.
-                let response = try await transport.submit(PreparedProtocolUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.requestDigests))
+                let response = try await transport.submit(attempt.prepared)
                 stashed = (attempt.digest, response, try await validate(response, for: attempt))
             }
             guard let (_, response, current) = stashed, let final = response.results.last else { throw UpdateError.returnedSnapshotMissing }
@@ -391,7 +394,7 @@ public actor UpdateCoordinator {
             }
             let installed = try await install(current: current, projection: projected)
             try faultInjector.reached(.beforeBaseAdvancement)
-            let request = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body)
+            let request = try attempt.request()
             control.settled = Array(Set(control.settled + request.updates.map(\.change))).sorted()
             control.attempt = nil
             control.attemptTip = nil
@@ -605,7 +608,7 @@ public actor UpdateCoordinator {
     public func discardHeldChanges() async throws {
         try requireOpen()
         guard case let .held(_, _, request, _) = machine.phase, let attempt = control.attempt, attempt.digest == request.id else { return }
-        let changes = try JSONDecoder().decode(ProtocolUpdateRequest.self, from: attempt.body).updates.map(\.change)
+        let changes = try attempt.request().updates.map(\.change)
         try await changeLog().discard(Set(changes).subtracting(control.settled))
         control.attempt = nil
         control.attemptTip = nil

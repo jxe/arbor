@@ -8,6 +8,7 @@ import type {
 } from "@overstory/protocol";
 import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
+import { decodeCanonicalCBOR } from "@overstory/protocol";
 import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
@@ -55,6 +56,9 @@ const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance
 const canopyFixtures = join(import.meta.dir, "../fixtures/canopy");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
+/** A bootstrap body exactly as `GET /v1/bootstrap` sends it: canonical CBOR. */
+const bootstrapBody = async (name: string): Promise<TreeBootstrap> =>
+  decodeCanonicalCBOR(new Uint8Array(await readFile(join(fixtures, name)))) as TreeBootstrap;
 const conformanceJSON = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
@@ -73,14 +77,17 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("decodes the bootstrap and credential fixtures", async () => {
-    const clean = await json<TreeBootstrap>("bootstrap.json");
-    const legacy = await json<TreeBootstrap>("bootstrap-pending.json");
+    const clean = await bootstrapBody("bootstrap.cbor");
+    const legacy = await bootstrapBody("bootstrap-pending.cbor");
+    // The CBOR body is the JSON fixture's value with the spine as bytes.
+    const readable = await json<Omit<TreeBootstrap, "spine"> & { spine: string }>("bootstrap.json");
+    expect({ ...clean, spine: Buffer.from(clean.spine).toString("base64") }).toEqual(readable);
     const credential = await json<TreeCredential>("credential.json");
     expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
     expect(clean.accepted.cursor).toBeNull();
     expect("modifiedAtByPath" in clean).toBe(false);
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
-    const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
+    const spine = decodeSparseSnapshotBundle(clean.spine);
     const root = decodeProtocolDirectory(spine.get(clean.accepted.root as never)!);
     if (root.type !== "directory") throw new Error("Expected a directory root");
     expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
@@ -88,7 +95,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(spine.has(root.entries[1]!.file!)).toBe(false);
     expect("files" in clean).toBe(false);
     // New clients use only accepted-root fields if an older daemon includes local pending metadata.
-    expect(legacy.spine).toBe(clean.spine);
+    expect(legacy.spine).toEqual(clean.spine);
     expect(legacy.accepted.root).toBe(clean.accepted.root);
     expect(legacy.accepted.update).toBe(clean.accepted.update);
     expect(credential.token).toBe("canopy-account-token-fixture");
@@ -335,7 +342,7 @@ describe("canonical descriptor helpers", () => {
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
     expect(canonicalArborLocator(canonical)).toBe("arbor://community.example/~joe");
-    const bootstrap = await json<TreeBootstrap>("bootstrap.json");
+    const bootstrap = await bootstrapBody("bootstrap.cbor");
     expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
     expect(canonicalArborLocator(bootstrap.tree.canonical!)).toBe("arbor://notes.example/~joe/notes");
   });

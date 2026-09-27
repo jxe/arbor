@@ -13,6 +13,7 @@ import {
 } from "@overstory/protocol";
 import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
+import { interceptedUpdateRequest } from "../support/wire-body.ts";
 
 const token = "folder-pause-owner";
 let sandbox: string;
@@ -97,7 +98,8 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
   const requests: UpdateRequest[] = [];
   globalThis.fetch = (async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") requests.push(decodeUpdateRequestJSON(JSON.parse(init.body)));
+    const request = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
+    if (request) requests.push(request);
     return systemFetch(input, init);
   }) as typeof fetch;
   const original = await accepted(), edited = large("A paused middle line.");

@@ -224,7 +224,7 @@ export class FolderSync implements AcceptedTree {
       }
     };
     const transport: UpdateTransport = {
-      submitUpdates: (tree, request) => authenticated((client) => client.submitUpdates(tree, request)),
+      submitUpdates: (tree, request, options) => authenticated((client) => client.submitUpdates(tree, request, options)),
       descriptor: (tree) => authenticated((client) => client.descriptor(tree)),
       object: (tree, hash) => authenticated((client) => client.object(tree, hash)),
       snapshot: (tree, root) => authenticated((client) => client.snapshot(tree, root)),

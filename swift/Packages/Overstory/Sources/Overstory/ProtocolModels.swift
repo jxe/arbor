@@ -309,15 +309,12 @@ public struct ProtocolObjectEnvelope: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case hash, bytes }
 
-    /// Object bytes are standard padded base64 with nothing to normalize.
+    /// Object bytes are a CBOR byte string, or in JSON standard padded base64
+    /// with nothing to normalize (tree operations §4.4).
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         hash = try values.decode(String.self, forKey: .hash)
-        let text = try values.decode(String.self, forKey: .bytes)
-        guard let bytes = Data(base64Encoded: text), bytes.base64EncodedString() == text else {
-            throw ProtocolValidationError.invalidValue("Noncanonical object base64")
-        }
-        self.bytes = bytes
+        bytes = try decodeProtocolBytes(values, forKey: .bytes, from: decoder, invalid: "Noncanonical object base64")
     }
 }
 
@@ -383,11 +380,8 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
             }
             self = .copy(offset: offset, length: length)
         } else {
-            let encoded = try values.decode(String.self, forKey: .insert)
-            guard let bytes = Data(base64Encoded: encoded), !bytes.isEmpty,
-                  bytes.base64EncodedString() == encoded else {
-                throw ProtocolValidationError.invalidValue("Invalid object delta insert")
-            }
+            let bytes = try decodeProtocolBytes(values, forKey: .insert, from: decoder, invalid: "Invalid object delta insert")
+            guard !bytes.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid object delta insert") }
             self = .insert(bytes)
         }
     }
@@ -400,7 +394,8 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
             try copy.encode(offset, forKey: .offset)
             try copy.encode(length, forKey: .length)
         case let .insert(bytes):
-            try values.encode(bytes.base64EncodedString(), forKey: .insert)
+            // Padded base64 in JSON (JSONEncoder's default for `Data`), a byte string in CBOR.
+            try values.encode(bytes, forKey: .insert)
         }
     }
 
@@ -611,6 +606,13 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     }
     public init(from decoder: Decoder) throws { try self.init(ProtocolAuthoredCandidate(from: decoder)) }
     public func encode(to encoder: Encoder) throws { try authored().encode(to: encoder) }
+
+    /// The activation element of a tree's first snapshot: snapshot semantics,
+    /// no resolutions, every object complete and no deltas. A claim carries
+    /// its configuration in this shape (accounts §1.2).
+    public static func activation(_ snapshot: ProtocolSnapshot, change: String) -> ProtocolCandidateUpdate {
+        ProtocolCandidateUpdate(candidate: snapshot.root, change: change, objects: snapshot.objects)
+    }
 }
 
 public struct ProtocolUpdateRequest: Codable, Sendable, Equatable {
@@ -642,16 +644,26 @@ public struct PreparedProtocolUpdate: Sendable, Equatable {
     public var tree: String
     public var body: Data
     public var requestDigests: [String]
+    /// The body's encoding as stored: `application/cbor`, or nil for JSON
+    /// (tree operations §4.4). A body keeps its encoding across every retry.
+    public var contentType: String?
     public var requestDigest: String { requestDigests[0] }
+    public var encoding: ProtocolWireEncoding { ProtocolWireEncoding(contentType: contentType) }
 
-    public init(tree: String, body: Data, requestDigest: String) {
-        self.init(tree: tree, body: body, requestDigests: [requestDigest])
+    public init(tree: String, body: Data, requestDigest: String, contentType: String? = nil) {
+        self.init(tree: tree, body: body, requestDigests: [requestDigest], contentType: contentType)
     }
 
-    public init(tree: String, body: Data, requestDigests: [String]) {
+    public init(tree: String, body: Data, requestDigests: [String], contentType: String? = nil) {
         self.tree = tree
         self.body = body
         self.requestDigests = requestDigests
+        self.contentType = contentType
+    }
+
+    /// The request the body carries, read in its own encoding.
+    public func decodedRequest() throws -> ProtocolUpdateRequest {
+        try encoding.decode(ProtocolUpdateRequest.self, from: body)
     }
 }
 
@@ -1004,7 +1016,8 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
     public var signature: String
     public var inviteCode: String?
     public var device: ProtocolPairingDevice
-    public var configuration: ProtocolSnapshot
+    /// The configuration tree's activation element (accounts §1.2).
+    public var configuration: ProtocolCandidateUpdate
 
     public init(
         account: String,
@@ -1015,7 +1028,7 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
         signature: String,
         inviteCode: String? = nil,
         device: ProtocolPairingDevice,
-        configuration: ProtocolSnapshot
+        configuration: ProtocolCandidateUpdate
     ) {
         self.account = account
         self.profileTree = profileTree

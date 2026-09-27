@@ -77,6 +77,17 @@ the sole decision with IDs `decision_0`, `decision_1`, etc.; it tests absence of
 fixed count cap without duplicating fixture text. The previous deployed-format
 `protocol-update-intent.json` and `protocol-operations.json` remain compatibility evidence.
 
+`protocol-cbor-transport.json` gives every valid request and response vector
+above (and those in `protocol-endpoints.json`), and a complete account claim,
+in both body encodings of
+[tree operations §4.4](../01-tree-operations.md#44-request-and-response-encodings):
+the JSON body and the canonical CBOR of the same value, with byte strings
+where JSON has padded base64. Requests repeat their digests, which neither
+encoding changes. `rejected` holds CBOR bodies a receiver refuses:
+unsorted keys, an indefinite length, base64 text where bytes belong, and a
+claim in the retired `{ root, objects }` configuration shape. The generator
+derives the file from the JSON vectors.
+
 `accepted-ambiguity.json` records planned semantic scenarios, not executable claims
 that a host supports those effects. `protocol-operations.json` and
 `protocol-update-intent.json` are likewise grammar and digest vectors: they do

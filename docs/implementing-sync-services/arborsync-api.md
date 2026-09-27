@@ -239,7 +239,11 @@ GET /v1/credential[?configurationTree={TreeID}]
 placed tree as its own working tree, without walking the folder or fetching
 every object. The tree must have a local placement (else `404 not-found`) and
 an accepted base already recorded by synchronization (else `409 conflict`
-with `details.kind: "unsynchronized"`). The response is:
+with `details.kind: "unsynchronized"`). The response is canonical CBOR
+(`Content-Type: application/cbor`, [tree operations §4.4](../overstory-spec/01-tree-operations.md#44-request-and-response-encodings)),
+whatever the request's `Accept`; clients send `Accept: application/cbor`.
+There is no JSON form: the daemon and its clients are one install. Errors are
+the usual JSON envelopes. The value is:
 
 ```ts
 {
@@ -247,7 +251,7 @@ with `details.kind: "unsynchronized"`). The response is:
     "id" | "configurationTree" | "kind" | "access" | "canonical" |
     "name" | "osPath" | "placement">,
   accepted: { root: Hash, update: string, cursor: string | null },   // independent observation boundary; null requires refresh
-  spine: string,          // base64 sparse CBOR snapshot bundle
+  spine: Uint8Array,      // the sparse CBOR snapshot bundle's bytes, a byte string
   observedThrough: string,
 }
 ```
@@ -508,8 +512,11 @@ resynchronization. Another local implementation may expose the same underlying
 Overstory behavior through a different client/daemon boundary.
 The bootstrap and credential routes are fixed by `bootstrap.json` (a clean
 bootstrap with a sparse spine and one omitted binary), `bootstrap-pending.json`
-(the same tree with a verbatim pending string and its request digests), and
-`credential.json`.
+(the same tree with a verbatim pending string and its request digests, which
+newer clients ignore), and `credential.json`. The bootstrap fixtures spell the
+value in JSON, with the spine as padded base64 for review;
+`bootstrap.cbor` and `bootstrap-pending.cbor` are the bodies the route sends,
+generated from them by `canonical-cbor-vectors.ts`.
 
 The bootstrap spine uses typed `file` and `directory` entries. Every directory
 and Markdown file is present; other file payloads may be omitted. File sizes

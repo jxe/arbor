@@ -1,17 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  type UpdateRequest, type UpdateResponse, type UpdateResult } from "@overstory/protocol";
+  type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON } from "@overstory/protocol";
 import { decodeControl, UpdateCoordinator, UpdateStateError, type UpdateTransport } from "@overstory/working-tree";
+import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
 
 /** Executes `tests/fixtures/update-runner.json` against the TypeScript runner, as `RunnerVectorTests` does for Swift. */
-interface Expectation { phase?: string; requests?: number; lastElements?: number; repeatsPrefix?: boolean; sameBody?: boolean; pending?: number; document?: string }
-interface Step { append?: string; sync?: boolean; transport?: boolean; restart?: boolean; discardHeld?: boolean; expect?: Expectation }
+interface Expectation { phase?: string; requests?: number; lastElements?: number; repeatsPrefix?: boolean; sameBody?: boolean; sameDigests?: boolean; lastEncoding?: WireEncoding; pending?: number; document?: string }
+interface Step { append?: string; sync?: boolean; transport?: boolean; restart?: boolean; restartWithJSONAttempt?: boolean; discardHeld?: boolean; expect?: Expectation }
 interface Scenario { name: string; document: string; responses?: string[]; steps: Step[] }
 
 const fixture = JSON.parse(await readFile(new URL("../fixtures/update-runner.json", import.meta.url), "utf8")) as { scenarios: Scenario[] };
@@ -27,6 +28,7 @@ function snapshot(markdown: string): TreeSnapshot {
 class VectorHost implements UpdateTransport {
   readonly requests: UpdateRequest[] = [];
   readonly digests: string[][] = [];
+  readonly encodings: Array<WireEncoding | undefined> = [];
   private readonly objects = new Map<string, Uint8Array>();
   private readonly receipts = new Map<string, UpdateResult>();
   private root: string;
@@ -37,8 +39,9 @@ class VectorHost implements UpdateTransport {
     for (const [hash, bytes] of initial.objects) this.objects.set(hash, bytes);
   }
 
-  async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
+  async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     this.requests.push(request);
+    this.encodings.push(options.encoding);
     const digests = updateRequestDigests(tree, request);
     this.digests.push(digests);
     const action = this.script.shift() ?? "accept";
@@ -113,6 +116,11 @@ for (const scenario of fixture.scenarios) test(`runner vector: ${scenario.name}`
       if (step.sync) await coordinator.syncOnce();
       if (step.transport !== undefined) await coordinator.setTransportAvailable(step.transport);
       if (step.restart) { coordinator.close(); coordinator = open(); }
+      if (step.restartWithJSONAttempt) {
+        coordinator.close();
+        await rewriteAttemptAsJSON(new FileControlStore(stateRoot).path);
+        coordinator = open();
+      }
       if (step.discardHeld) await coordinator.discardHeldChanges();
       const expected = step.expect;
       if (!expected) continue;
@@ -127,7 +135,8 @@ for (const scenario of fixture.scenarios) test(`runner vector: ${scenario.name}`
         expect(last.length, label).toBeGreaterThan(previous.length);
         expect(last.slice(0, previous.length), label).toEqual(previous);
       }
-      if (expected.sameBody) expect(host.digests.at(-1), label).toEqual(host.digests.at(-2));
+      if (expected.sameBody || expected.sameDigests) expect(host.digests.at(-1), label).toEqual(host.digests.at(-2));
+      if (expected.lastEncoding) expect(host.encodings.at(-1), label).toBe(expected.lastEncoding);
       if (expected.pending !== undefined) expect((await coordinator.pendingChanges()).length, label).toBe(expected.pending);
       if (expected.document !== undefined) expect(readSource((await editorView(coordinator, working)).graph, "/note.md"), label).toBe(expected.document);
     }
@@ -137,6 +146,14 @@ for (const scenario of fixture.scenarios) test(`runner vector: ${scenario.name}`
   }
 });
 
+/** Rewrite a persisted attempt as a client wrote it before bodies could be CBOR: base64 of the JSON text, no content type. */
+async function rewriteAttemptAsJSON(path: string): Promise<void> {
+  const control = JSON.parse(await readFile(path, "utf8")) as { attempt: UpdateAttempt };
+  const { contentType: _contentType, ...attempt } = control.attempt;
+  const body = encodeBase64(new TextEncoder().encode(JSON.stringify(encodeUpdateRequestJSON(attemptRequest(control.attempt)))));
+  await writeFile(path, JSON.stringify({ ...control, attempt: { ...attempt, body } }));
+}
+
 /** Holds the first POST until released, as `FirstRequestGate` does for Swift. */
 class GatedHost extends VectorHost {
   sent = 0;
@@ -144,13 +161,13 @@ class GatedHost extends VectorHost {
   private release!: () => void;
   private readonly gate = new Promise<void>((resolve) => { this.release = resolve; });
   open(): void { this.release(); }
-  override async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
+  override async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     this.sent += 1;
     if (this.sent === 1) {
       this.held = request;
       await this.gate;
     }
-    return super.submitUpdates(tree, request);
+    return super.submitUpdates(tree, request, options);
   }
 }
 

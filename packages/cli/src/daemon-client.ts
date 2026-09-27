@@ -10,6 +10,7 @@ import type {
   WorkspaceEvent,
 } from "@overstory/protocol";
 import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
+import { decodeCanonicalCBOR } from "@overstory/protocol/cbor";
 
 export type {
   OverstoryErrorCode,
@@ -79,8 +80,8 @@ export interface TreeBootstrap {
   tree: BootstrapTreeDescriptor;
   /** The daemon's accepted base; `cursor` equals `update` and seeds a protocol watch. */
   accepted: { root: string; update: string; cursor: string | null };
-  /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
-  spine: string;
+  /** The sparse CBOR snapshot bundle's bytes: every directory object plus every Markdown file object. */
+  spine: Uint8Array;
   observedThrough: string;
 }
 
@@ -140,9 +141,13 @@ export class ArborSyncRESTClient {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  /** Bootstrap material for a placed tree: accepted base, sparse spine, file map, and any verbatim pending update. */
-  bootstrap(tree: string): Promise<TreeBootstrap> {
-    return this.request(`/v1/bootstrap?tree=${encodeURIComponent(tree)}`);
+  /** Bootstrap material for a placed tree: accepted base and sparse spine, answered as canonical CBOR. */
+  async bootstrap(tree: string): Promise<TreeBootstrap> {
+    const response = await this.fetcher(`${this.baseURL}/v1/bootstrap?tree=${encodeURIComponent(tree)}`, { headers: { accept: "application/cbor" } });
+    if (!response.ok) await this.throwResponse(response);
+    const value = decodeCanonicalCBOR(new Uint8Array(await response.arrayBuffer())) as TreeBootstrap;
+    if (!(value?.spine instanceof Uint8Array)) throw new Error("Bootstrap spine must be a CBOR byte string");
+    return value;
   }
 
   /** A session of the device for a configuration tree's account (or the only connected account when omitted). */

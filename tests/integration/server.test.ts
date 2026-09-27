@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { encodeProtocolDirectory, ProtocolClient } from "@overstory/protocol";
+import { decodeCanonicalCBOR, encodeProtocolDirectory, ProtocolClient } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -362,7 +362,7 @@ describe("arborsync bootstrap and credential routes", () => {
     expect(bootstrap.accepted).toEqual({ root: descriptor.root!, update: descriptor.update!, cursor: descriptor.update! });
     expect(typeof bootstrap.observedThrough).toBe("string");
 
-    const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
+    const spine = decodeSparseSnapshotBundle(bootstrap.spine);
     expect(spine.has(bootstrap.accepted.root as never)).toBe(true);
     const directories = [decodeProtocolDirectory(spine.get(bootstrap.accepted.root)!)];
     for (const entry of directories[0]!.entries) if (entry.directory) directories.push(decodeProtocolDirectory(spine.get(entry.directory)!));
@@ -388,13 +388,21 @@ describe("arborsync bootstrap and credential routes", () => {
       expect(bootstrap.accepted).toEqual(accepted);
       expect("pending" in bootstrap).toBe(false);
       expect("blocked" in bootstrap).toBe(false);
-      const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
+      const spine = decodeSparseSnapshotBundle(bootstrap.spine);
       const root = decodeProtocolDirectory(spine.get(accepted.root as never)!);
       const note = root.entries.find((entry) => entry.name === "note.md")?.file;
       expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
     } finally {
       await writeFile(join(treeDir, "note.md"), "A note\n");
     }
+  });
+
+  test("answers CBOR only, even to a caller that does not ask for it", async () => {
+    const plain = await fetch(`${placedBase}/v1/bootstrap?tree=${tree}`);
+    expect(plain.status).toBe(200);
+    expect(plain.headers.get("content-type")).toBe("application/cbor");
+    const value = decodeCanonicalCBOR(new Uint8Array(await plain.arrayBuffer())) as { spine?: unknown };
+    expect(value.spine).toBeInstanceOf(Uint8Array);
   });
 
   test("answers 404 for an unplaced tree and 400 without tree scope", async () => {

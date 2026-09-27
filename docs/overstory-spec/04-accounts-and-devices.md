@@ -171,12 +171,48 @@ The account-claim body names the host-allocated account locator, that existing
 local profile `TreeID`, its derived configuration `TreeID`, a generated
 `DeviceID`, device label, the device's `key` (§5), and the complete initial
 snapshot of the profile's tree configuration. It contains no profile snapshot
-or filesystem path. The initial configuration must grant the profile `admin`,
-list the claiming device, with that `key`, as its one administrator device,
-and mount nothing.
+or filesystem path.
+
+The configuration travels as the configuration tree's activation element: the
+same [`CandidateUpdate`](01-tree-operations.md#21-the-update-request) a
+`declareTree` request sends (§6), with `trace: null`, no `resolves`, no
+`ifCurrent`, every object of the snapshot complete, and no `deltas`. Its
+`change` names the configuration's first accepted update; a client replaying
+one claim sends the same element. The claim stays one atomic request, and like
+an update request it may be JSON or CBOR
+([tree operations §4.4](01-tree-operations.md#44-request-and-response-encodings)).
+In JSON (object bytes shortened):
+
+```json
+{
+  "account": "https://community.example/~alice",
+  "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+  "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
+  "challenge": { "version": 1, "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "…": "…" },
+  "publicKey": "…",
+  "signature": "…",
+  "device": { "id": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Alice's Mac", "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" },
+  "configuration": {
+    "change": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "candidate": "sha256:…",
+    "trace": null,
+    "resolves": [],
+    "objects": [
+      { "hash": "sha256:…", "bytes": "…" }
+    ],
+    "deltas": []
+  }
+}
+```
+
+The [`protocol-cbor-transport`](conformance/protocol-cbor-transport.json)
+vectors hold a complete claim body in both encodings. The initial
+configuration must grant the profile `admin`, list the claiming device, with
+that `key`, as its one administrator device, and mount nothing.
 The claim **declares the profile tree**: the server validates the reservation
 and configuration, then atomically creates the host account, the profile's
-tree configuration, accepted update and first administrator device, and reserves the profile tree as
+tree configuration, accepted update and first administrator device, and
+reserves the profile tree as
 `awaiting-initialization` (§6). It does not create, copy, or locate the
 profile tree's content; the person activates it with its first snapshot. Exact retry is
 idempotent; a different attempt after success returns `already-claimed`. For

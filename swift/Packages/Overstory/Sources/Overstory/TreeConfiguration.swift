@@ -39,12 +39,12 @@ public extension ProtocolClient {
         _ = try ProtocolObjectGraph.validate(configuration)
         let update = ProtocolCandidateUpdate(candidate: configuration.root, objects: configuration.objects)
         let request = ProtocolUpdateRequest(base: nil, updates: [update])
-        let prepared = PreparedProtocolUpdate(
+        let submission = try self.prepared(
             tree: "\(tree);\(treeConfigurationParameter)",
-            body: try JSONEncoder().encode(request),
+            request: request,
             requestDigests: updateRequestDigests(tree: treeConfigurationID(tree), base: nil, updates: [update])
         )
-        return try await submitUpdate(prepared)
+        return try await submitUpdate(submission)
     }
 }
 

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./hash": "./src/model/hash.ts",
+    "./cbor": "./src/model/cbor.ts",
     "./logical-path": "./src/model/logical-path.ts",
     "./logical-url": "./src/model/logical-url.ts",
     "./node-key": "./src/model/node-key.ts",

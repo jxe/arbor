@@ -10,6 +10,7 @@ import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts
 import { serveHost } from "@overstory/canopyd";
 import { HostAccountStore, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
+import { interceptedBody, wireResponseValue } from "../support/wire-body.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
@@ -344,15 +345,15 @@ describe("private self-sync", () => {
     const daemonReleased = new Promise<void>((resolve) => { releaseDaemon = resolve; });
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+      const body = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedBody(init) : undefined;
+      if (body) {
         if (failing) throw new TypeError("connection lost");
-        const body = JSON.parse(init.body);
         // Only the daemon's first chain is held; the peer's own request passes.
-        if (body.updates?.length >= 2 && !daemonBodies.length) {
+        if (body.value.updates?.length >= 2 && !daemonBodies.length) {
           daemonBodies.push(body);
           await daemonReleased;
           const response = await systemFetch(input, init);
-          daemonResponses.push(await response.clone().json());
+          daemonResponses.push(await wireResponseValue(response.clone()));
           return response;
         }
       }
@@ -373,7 +374,7 @@ describe("private self-sync", () => {
       failing = false;
       const syncing = author.running.service.synchronizeNow();
       await waitFor(async () => daemonBodies.length === 1, 10_000);
-      const chain = decodeUpdateRequestJSON(daemonBodies[0]);
+      const chain = decodeUpdateRequestJSON(daemonBodies[0].value, daemonBodies[0].encoding);
 
       // The peer's successor adds one file on top of the chain's final root.
       const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
