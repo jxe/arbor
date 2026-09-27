@@ -131,7 +131,8 @@ configurations have their shape, and the tests for each refused case, are in
   (`PlacementDeviceKeys` in `placement.ts`): a copy serves for
   `deviceKeyLifetimeMs` (60 s); a challenge naming a DeviceID the copy lacks,
   or a fetch that failed, refetches at most once per `deviceKeyRefetchMs`
-  (5 s) per profile; and a copy the host cannot refresh keeps opening
+  (5 s) per profile, and such a challenge within the interval waits for the
+  refetch rather than being refused; and a copy the host cannot refresh keeps opening
   sessions until it is `deviceKeyStaleMs` old (the grace, one hour), then
   opens none. A session opened there expires by the time the copy it was
   opened from runs out of grace (`servesUntil`), so while a home is down

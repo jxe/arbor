@@ -63,8 +63,9 @@ function validPublishedKeys(value: unknown, profileTree: string): Map<string, Li
  * that it is refetched, and if the home host cannot be read the copy still
  * serves until it is `staleMs` old (the grace), then nothing is served from
  * it. A
- * DeviceID missing from a copy refetches it early, and a failed fetch is
- * retried, at most once every `refetchMs` per profile, so nobody can use
+ * DeviceID missing from a copy refetches it early (waiting out the window
+ * rather than refusing), and a failed fetch is retried, at most once every
+ * `refetchMs` per profile, so nobody can use
  * this host to flood a home host. Every successful fetch is handed to
  * `onFetched`, which ends what a device no longer listed held.
  */
@@ -140,16 +141,25 @@ export class PlacementDeviceKeys {
 
   /**
    * A listed device, from a copy `current` accepts. A DeviceID the copy
-   * lacks refetches it, unless the last fetch for the profile began within
-   * `refetchMs`.
+   * lacks refetches it once. Within `refetchMs` of the profile's last fetch
+   * that refetch waits for the window to pass rather than refusing, so a
+   * device paired at the home moments ago is found while the home host is
+   * still asked at most once per window; waiters share the one fetch.
    */
   async device(profileTree: string, homeHost: string, deviceID: string): Promise<ListedDevice | null> {
     const copy = await this.current(profileTree, homeHost);
     const listed = copy.devices.get(deviceID);
     if (listed) return listed;
-    if (this.recentlyFetched(profileTree, Date.now())) return null;
+    const last = this.attempts.get(profileTree);
+    const wait = last ? last.at + this.lifetimes().refetchMs - Date.now() : 0;
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     try {
-      return (await this.fetch(profileTree, homeHost)).devices.get(deviceID) ?? null;
+      // A fetch that began while this one waited answers it too.
+      const since = this.attempts.get(profileTree);
+      const fresh = since !== last && since && !since.failed && !this.fetches.has(profileTree)
+        ? this.copies.get(profileTree)
+        : await this.fetch(profileTree, homeHost);
+      return fresh?.devices.get(deviceID) ?? null;
     } catch {
       // The copy held still serves; an early refetch that fails changes nothing.
       return null;

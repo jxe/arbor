@@ -77,6 +77,8 @@ let proxy: ReturnType<typeof Bun.serve>;
 let homeHost: string;
 let homeReachable = true;
 let keyFetches = 0;
+/** When each fetch of A's device keys reached A, by profile. */
+const keyFetchTimes: number[] = [];
 /** B reads the groups A holds through this proxy: the `homeHost` B's rules name for them. */
 let groupProxy: ReturnType<typeof Bun.serve>;
 let groupHost: string;
@@ -150,7 +152,7 @@ beforeAll(async () => {
     async fetch(request) {
       const url = new URL(request.url);
       if (!homeReachable) return new Response("unreachable", { status: 502 });
-      if (url.pathname.endsWith("/device-keys")) keyFetches += 1;
+      if (url.pathname.endsWith("/device-keys")) { keyFetches += 1; keyFetchTimes.push(Date.now()); }
       return fetch(`${a.url}${url.pathname}${url.search}`, { method: request.method, headers: request.headers });
     },
   });
@@ -250,15 +252,18 @@ describe("claiming a placement account (accounts §1.3)", () => {
   test("a challenge naming an unknown DeviceID refetches A's keys at most once per interval", async () => {
     const anonymous = new ProtocolClient(b.url);
     const unknown = () => anonymous.createDeviceSessionChallenge({ profileTree: alice.profileTree, device: generateArborID("dv") });
-    // The claim just fetched: nothing refetches within the interval.
-    const start = keyFetches;
-    for (let i = 0; i < 3; i++) await expect(unknown()).rejects.toThrow("not-found");
-    expect(keyFetches).toBe(start);
-    await Bun.sleep(REFETCH_MS + 50);
-    await expect(unknown()).rejects.toThrow("not-found");
-    expect(keyFetches).toBe(start + 1);
-    for (let i = 0; i < 3; i++) await expect(unknown()).rejects.toThrow("not-found");
-    expect(keyFetches).toBe(start + 1);
+    // However many arrive, A is asked at most once per interval: a challenge
+    // for an unknown device waits out the interval of the last fetch, and
+    // those waiting share the one fetch that follows.
+    const from = keyFetchTimes.length;
+    // Two rounds of two, within this file's challenge budget (30 per profile
+    // per ten minutes).
+    for (let round = 0; round < 2; round++) {
+      await Promise.all([0, 1].map(() => expect(unknown()).rejects.toThrow("not-found")));
+    }
+    const times = keyFetchTimes.slice(from - 1);
+    expect(times.length).toBeGreaterThan(1);
+    for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(REFETCH_MS - 50);
   });
 });
 

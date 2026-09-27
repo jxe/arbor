@@ -662,7 +662,9 @@ the change, so the only deletion it can miss is one made in the last minute
 before the outage. A challenge request naming a DeviceID missing from its
 copy makes it refetch early, and a failed fetch is retried, at most once
 every five seconds per profile, so that nobody can use a placement host to
-flood a home host.
+flood a home host. A challenge for a missing DeviceID that arrives within
+that interval waits for it to pass and the refetch that follows, rather than
+being refused, so a device paired at the home host moments before is found.
 
 ## 6. Declaring, activating and mounting a tree
 

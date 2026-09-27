@@ -40,15 +40,20 @@ describe("a placement host's copy of a home host's device keys (accounts §5.4)"
     expect(fetched).toEqual([[mac], [mac]]);
   });
 
-  test("an unknown DeviceID refetches early at most once per interval", async () => {
+  test("an unknown DeviceID waits out the interval and refetches once, so a device paired moments ago is found", async () => {
     await keys.device(PROFILE, HOME, mac);
     listed = [mac, phone];
-    expect(await keys.device(PROFILE, HOME, phone)).toBeNull();
-    expect(loads).toBe(1);
-    await Bun.sleep(lifetimes.refetchMs + 20);
-    expect(await keys.device(PROFILE, HOME, phone)).toEqual({ key: KEY, administrator: false });
-    expect(await keys.device(PROFILE, HOME, generateArborID("dv"))).toBeNull();
+    const started = Date.now();
+    // Within the interval of the last fetch: it waits, then refetches once.
+    const [first, second] = await Promise.all([keys.device(PROFILE, HOME, phone), keys.device(PROFILE, HOME, phone)]);
+    expect(first).toEqual({ key: KEY, administrator: false });
+    expect(second).toEqual(first);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(lifetimes.refetchMs - 20);
     expect(loads).toBe(2);
+    // A DeviceID the home host does not list is still refused, one fetch per interval.
+    const unknown = await Promise.all([keys.device(PROFILE, HOME, generateArborID("dv")), keys.device(PROFILE, HOME, generateArborID("dv"))]);
+    expect(unknown).toEqual([null, null]);
+    expect(loads).toBe(3);
   });
 
   test("an unreachable home host: the copy serves until the staleness limit, and failed fetches are not retried within the interval", async () => {
