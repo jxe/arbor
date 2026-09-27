@@ -92,8 +92,24 @@ device. On the Mac the connections are the data home's
 (`accounts/<cfg>/placements/host-<hash>/`, see [the data home](../arborsync/data-home.md)),
 which the app reads and removes on disk (`DataHomePlacementStore`); claiming
 needs the data home's profile key, so the app asks the daemon
-(`POST /v1/bootstrap/placements`), and until the daemon has that route it
-points to `arbor account place <url>`. On iOS, `NativeAccountService.placeAccount`
+(`POST /v1/bootstrap/placements`), and an older daemon without that route
+answers 405, for which the app points to `arbor account place <url>`.
+The Mac places new folders under a placement root as `arbor place` does.
+Making a folder an Overstory tree offers each placement account of an
+account this Mac administers as a destination beside the home host
+(`~joe · orchard.example`); a canonical URL there must be at or below the
+placement account's URL. The app declares and mounts the tree on the
+placement host with a protocol client whose session the daemon opened there
+(`GET /v1/credential?configurationTree=…&origin=…`), writes
+`{tree, host}` into `placements.yaml`, and asks the daemon to synchronize.
+The placement account's own URL declares nothing while its root is inactive:
+the app writes the placement root's TreeID with the host, and the daemon
+activates the root with the folder's content. A tree placed on a placement
+host names it as its descriptor's `canonical.endpoint`; opening it, editing
+its working tree, its access and app rules, and its sidebar group use that
+host and the session there (`ArborSyncCredentialProvider` is shared per
+account and host, and refetches from the daemon after a 401), never the home
+session. Agent codes cover home-host trees only. On iOS, `NativeAccountService.placeAccount`
 keeps each connection as a Keychain item named
 `<cfg>/host-<hash>`, the same key. A paired iPhone holds no profile key (it is
 kept only on the device that created it), so it cannot claim: it connects
@@ -103,7 +119,8 @@ The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree
 following that tree's Overstory watch, anonymous unless an account at the same
-origin holds a device key, with file bytes served by `/v1/objects?origin=`
+origin holds a device key (a home account there, or else a placement
+connection there, whose session the home device key opens), with file bytes served by `/v1/objects?origin=`
 when the daemon is running and by canopyd's object route otherwise.
 
 ## Editor recovery

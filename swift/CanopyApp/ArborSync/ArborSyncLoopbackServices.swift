@@ -10,29 +10,38 @@ import Synchronization
 /// provider. A caller that sees Canopy answer 401/403 calls `invalidate()` so the
 /// next request asks the daemon for a fresh session instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
+///
+/// With `origin`, the sessions are for one of the account's placement hosts
+/// (accounts §1.3), which the daemon opens there with the same device key
+/// (`GET /v1/credential?configurationTree=…&origin=…`). A nil origin is the
+/// account's home host.
 actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
-    /// One provider per account for the connected daemon, so the app's clients
-    /// share one token instead of each asking the daemon for it.
+    /// One provider per account and host for the connected daemon, so the
+    /// app's clients share one token instead of each asking the daemon for it.
     private static let providers = Mutex<[String: ArborSyncCredentialProvider]>([:])
 
-    static func shared(client: ArborSyncRESTClient, configurationTree: String) -> ArborSyncCredentialProvider {
-        providers.withLock { providers in
+    static func shared(client: ArborSyncRESTClient, configurationTree: String, origin: String? = nil) -> ArborSyncCredentialProvider {
+        let key = configurationTree + (origin.map { "\u{0}" + $0 } ?? "")
+        return providers.withLock { providers in
             // A reconnected daemon is a new client; its providers start fresh.
-            if let provider = providers[configurationTree], provider.client === client { return provider }
-            let provider = ArborSyncCredentialProvider(client: client, configurationTree: configurationTree)
-            providers[configurationTree] = provider
+            if let provider = providers[key], provider.client === client { return provider }
+            let provider = ArborSyncCredentialProvider(client: client, configurationTree: configurationTree, origin: origin)
+            providers[key] = provider
             return provider
         }
     }
 
     private let client: ArborSyncRESTClient
     private let configurationTree: String?
+    /// The placement host these sessions are for; nil for the home host.
+    let origin: String?
     private var cached: String?
     private var inFlight: Task<String, Error>?
 
-    init(client: ArborSyncRESTClient, configurationTree: String? = nil) {
+    init(client: ArborSyncRESTClient, configurationTree: String? = nil, origin: String? = nil) {
         self.client = client
         self.configurationTree = configurationTree
+        self.origin = origin
     }
 
     func credential() async throws -> String? {
@@ -40,7 +49,8 @@ actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
         if let inFlight { return try await inFlight.value }
         let client = self.client
         let configurationTree = self.configurationTree
-        let task = Task { try await client.credential(configurationTree: configurationTree) }
+        let origin = self.origin
+        let task = Task { try await client.credential(configurationTree: configurationTree, origin: origin) }
         inFlight = task
         let result = await task.result
         // An `invalidate()` during the fetch may have started a newer one; this

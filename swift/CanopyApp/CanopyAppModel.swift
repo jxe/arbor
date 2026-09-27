@@ -10,11 +10,91 @@ import Observation
 import QuagmireExtras
 import Network
 
+/// Where a new tree can go: an account's home host, or one of its placement
+/// accounts on another host (accounts §1.3). Either way the profile's home
+/// account (`configurationTree`) holds the device key and lists the folder in
+/// `placements.yaml`; `origin` is the host the tree is declared on.
 struct CanopyShareAccount: Identifiable, Hashable, Sendable {
     let configurationTree: String
     let origin: String
     let handle: String?
-    var id: String { configurationTree }
+    /// The placement account the tree goes under; nil for the home host.
+    var placement: CanopyPlacement? = nil
+    var id: String { placement?.id ?? configurationTree }
+
+    /// A placement account as a destination: its host, its handle there, and
+    /// the home account's configuration tree.
+    init(placement: CanopyPlacement) {
+        self.init(configurationTree: placement.configurationTree, origin: placement.origin, handle: placement.handle, placement: placement)
+    }
+
+    init(configurationTree: String, origin: String, handle: String?, placement: CanopyPlacement? = nil) {
+        self.configurationTree = configurationTree
+        self.origin = origin
+        self.handle = handle
+        self.placement = placement
+    }
+
+    /// The account's URL, under which new trees are suggested: the placement
+    /// account's (its placement root) or `/~handle` at home.
+    var accountURL: String {
+        if let placement { return placement.account }
+        guard let handle, !handle.isEmpty else { return origin }
+        return origin + "/~" + handle
+    }
+
+    /// "~joe · orchard.example": the handle there and the host.
+    var destinationLabel: String {
+        let host = URL(string: origin)?.host ?? origin
+        return handle.map { "~\($0) · \(host)" } ?? origin
+    }
+
+    /// Where a new tree at `canonical` goes on this destination, checked
+    /// before anything is written: on this host, and on a placement account
+    /// at or below its placement root, the only place the profile may declare
+    /// trees there (accounts §1.3).
+    func newTreeDestination(canonical: String) throws -> CanopyNewTreeDestination {
+        func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+            lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+                && lhs.host()?.lowercased() == rhs.host()?.lowercased() && lhs.port == rhs.port
+        }
+        guard let canonicalURL = URL(string: canonical.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let accountOrigin = URL(string: origin),
+              sameOrigin(canonicalURL, accountOrigin),
+              canonicalURL.query == nil,
+              canonicalURL.fragment == nil else {
+            throw ProtocolValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
+        }
+        let segments = canonicalURL.path.split(separator: "/").map(String.init)
+        guard !segments.isEmpty else { throw ProtocolValidationError.invalidValue("The community root cannot be placed again") }
+        guard let placement else {
+            return CanopyNewTreeDestination(origin: accountOrigin, host: nil, segments: segments, placementRoot: nil)
+        }
+        let root = (URL(string: placement.account)?.path ?? "").split(separator: "/").map(String.init)
+        guard !root.isEmpty, segments.starts(with: root) else {
+            throw ProtocolValidationError.invalidValue("Enter a canonical URL under \(placement.account); on \(placement.hostName) your trees go below your placement account")
+        }
+        return CanopyNewTreeDestination(
+            origin: accountOrigin,
+            host: placement.origin,
+            segments: segments,
+            placementRoot: segments == root ? placement.placementRoot : nil
+        )
+    }
+}
+
+/// A new tree's place, from its canonical URL and destination.
+struct CanopyNewTreeDestination: Equatable, Sendable {
+    /// The host the tree is declared on.
+    let origin: URL
+    /// `placements.yaml`'s `host`: the placement host's origin; nil at the home host.
+    let host: String?
+    /// The canonical path's segments.
+    let segments: [String]
+    /// The placement root's TreeID when the URL is the placement root's own.
+    /// The claim declared that tree; placing a folder there activates it with
+    /// the folder's content, and nothing is declared.
+    let placementRoot: String?
 }
 
 enum CanopySharePresentation: Hashable, Sendable {
@@ -68,6 +148,9 @@ struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let access: String?
     let sync: String?
     let missing: Bool
+    /// The host that holds the tree (`canonical.endpoint`): the account's home
+    /// host, or a placement host (accounts §1.3). Nil without a canonical URL.
+    var canonicalEndpoint: String? = nil
 }
 
 struct LocalArborSyncVisitPresentation: Identifiable, Sendable, Equatable {
@@ -512,6 +595,14 @@ final class CanopyWorkspaceState {
                     origin: origin,
                     handle: account.handle
                 ))
+                // The account's placement accounts on other hosts; declaring a
+                // tree under a placement root needs an administrator device too.
+                do {
+                    accounts += try await accountService.placements(configurationTree: account.configurationTree)
+                        .map(CanopyShareAccount.init(placement:))
+                } catch {
+                    Self.recordDiagnostic("placement-list", error)
+                }
             }
             return .promotable(path: folder.standardizedFileURL.path, accounts: accounts)
         }
@@ -571,12 +662,31 @@ final class CanopyWorkspaceState {
     private func treeConfigurationClient(for tree: String) async throws -> TreeConfigurationClient {
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
         guard let overview = localArborSyncOverview,
-              let placedTree = overview.trees.first(where: { $0.id == tree }),
-              let origin = overview.accounts.first(where: { $0.configurationTree == placedTree.configurationTree })?.canopy,
-              let originURL = URL(string: origin) else {
+              let placedTree = overview.trees.first(where: { $0.id == tree }) else {
             throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
         }
-        return TreeConfigurationClient(wire: try await accountClient(origin: originURL))
+        return TreeConfigurationClient(wire: try await placedTreeClient(placedTree, overview: overview))
+    }
+
+    /// A protocol client at the host that holds a tree placed on this Mac,
+    /// with this device's session there: its account's home host, or the
+    /// placement host its `canonical.endpoint` names (accounts §1.3), whose
+    /// session the same device key opens. A tree's configuration lives on its
+    /// own host, so edits to it go there.
+    private func placedTreeClient(_ placedTree: LocalArborSyncTreePresentation, overview: LocalArborSyncOverview) async throws -> ProtocolClient {
+        guard let configurationTree = placedTree.configurationTree,
+              let home = overview.accounts.first(where: { $0.configurationTree == configurationTree })?.canopy,
+              let homeURL = URL(string: home) else {
+            throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
+        }
+        guard let endpoint = placedTree.canonicalEndpoint, let endpointURL = URL(string: endpoint),
+              !Self.sameOrigin(endpointURL, homeURL) else {
+            return try await accountClient(origin: homeURL)
+        }
+        return ProtocolClient(
+            origin: endpointURL,
+            credentialProvider: try await accountService.credentialProvider(configurationTree: configurationTree, placementOrigin: endpoint)
+        )
     }
 #endif
 
@@ -749,6 +859,11 @@ final class CanopyWorkspaceState {
               let scheme = origin.scheme, let host = origin.host(),
               let handle = account.handle, let profileTree = account.profileTree else {
             throw ProtocolValidationError.invalidValue("The current tree has no connected Canopy account on this Mac")
+        }
+        // As `arbor cloud bundle create`: an agent code pairs a device at the home host only.
+        if let endpoint = overview.trees.first(where: { $0.id == tree })?.canonicalEndpoint.flatMap(URL.init(string:)),
+           !Self.sameOrigin(endpoint, origin) {
+            throw ProtocolValidationError.invalidValue("An agent code covers trees at your home host only, not a tree on \(endpoint.host() ?? endpoint.absoluteString)")
         }
         guard isLocalAccountAdministrator(account) else {
             throw ProtocolValidationError.invalidValue("This Mac needs administrator access to make an agent code")
@@ -934,41 +1049,67 @@ final class CanopyWorkspaceState {
     }
 
     /// Declare a new tree at `canonical` with `rules` and place it at `folder`.
+    ///
+    /// On a placement account (accounts §1.3) the tree is declared on that
+    /// host, with this device's session there, below the placement root, and
+    /// `placements.yaml` names the host. The URL of the placement root itself
+    /// declares nothing: the claim declared it, and Arbor Sync activates it
+    /// with the folder's content, as `arbor place` does.
     private func declareAndPlaceNewTree(
         folder: String,
         account: CanopyShareAccount,
         canonical: String,
         rules: [AccountAccessRule]
     ) async throws -> String {
-        guard let canonicalURL = URL(string: canonical),
-              let accountOrigin = URL(string: account.origin),
-              Self.sameOrigin(canonicalURL, accountOrigin),
-              canonicalURL.query == nil,
-              canonicalURL.fragment == nil else {
-            throw ProtocolValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
+        let destination = try account.newTreeDestination(canonical: canonical)
+        let wire: ProtocolClient
+        if let host = destination.host {
+            wire = ProtocolClient(
+                origin: destination.origin,
+                credentialProvider: try await accountService.credentialProvider(configurationTree: account.configurationTree, placementOrigin: host)
+            )
+        } else {
+            wire = try await accountClient(origin: destination.origin)
         }
-        let tree = try generateArborID(prefix: "tr")
+        let tree: String
+        if let placementRoot = destination.placementRoot {
+            let current = try await wire.placementAccount().account
+            guard current.placementRoot.id == placementRoot else {
+                throw ProtocolValidationError.invalidValue("\(account.origin) names another placement root for this account; place the account there again")
+            }
+            guard current.placementRoot.tree == nil else {
+                throw ProtocolValidationError.invalidValue("\(canonical) is already active; open it and place it from there, or choose a URL below it")
+            }
+            guard rules.isEmpty else {
+                throw ProtocolValidationError.invalidValue("The placement root keeps its own access rules; choose Private, then change who can see it once it is placed")
+            }
+            tree = placementRoot
+        } else {
+            tree = try generateArborID(prefix: "tr")
+        }
         let placementsURL = CanopySupportDirectories.dataHome.appending(path: "placements.yaml")
         let placementsSource = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
         let placements = try LocalPlacementsYAML.adding(
             configurationTree: account.configurationTree,
             path: folder,
             tree: tree,
+            host: destination.host,
             to: placementsSource
         )
-        // Declare the tree with its configuration and mount it where its URL
-        // says; the daemon activates it with the folder's content once placed.
-        let wire = try await accountClient(origin: accountOrigin)
-        let segments = canonicalURL.path.split(separator: "/").map(String.init)
-        guard let last = segments.last else { throw ProtocolValidationError.invalidValue("The community root cannot be placed again") }
-        let parent = try await wire.resolve(path: "/" + segments.dropLast().joined(separator: "/"))
-        let within = parent.ref.path == "/" ? "" : String(parent.ref.path.dropFirst())
-        try await TreeConfigurationClient(wire: wire).declareAndMount(
-            tree: tree,
-            rules: try rules.map { try $0.resourceRule() },
-            parent: parent.ref.tree,
-            name: within.isEmpty ? last : "\(within)/\(last)"
-        )
+        if destination.placementRoot == nil {
+            // Declare the tree with its configuration and mount it where its URL
+            // says; the daemon activates it with the folder's content once placed.
+            let segments = destination.segments
+            let last = segments[segments.count - 1]
+            let parent = try await wire.resolve(path: "/" + segments.dropLast().joined(separator: "/"))
+            let within = parent.ref.path == "/" ? "" : String(parent.ref.path.dropFirst())
+            try await TreeConfigurationClient(wire: wire).declareAndMount(
+                tree: tree,
+                rules: try rules.map { try $0.resourceRule() },
+                parent: parent.ref.tree,
+                name: within.isEmpty ? last : "\(within)/\(last)"
+            )
+        }
         try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
         do {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
@@ -1054,14 +1195,16 @@ final class CanopyWorkspaceState {
         guard let configurationTree = placed.configurationTree else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no configuration tree")
         }
-        // The account's Canopy is the origin only for a tree without a canonical endpoint.
-        var originValue = placed.canonical?.endpoint
-        if originValue == nil {
-            originValue = try await client.accounts().first { $0.configurationTree == configurationTree }?.canopy
-        }
-        guard let rawOrigin = originValue, let origin = URL(string: rawOrigin) else {
+        // The tree's host is its canonical endpoint: the account's home host,
+        // or one of its placement hosts (accounts §1.3). The account's Canopy
+        // is the origin only for a tree without a canonical endpoint.
+        let home = try await client.accounts().first { $0.configurationTree == configurationTree }?.canopy
+        guard let rawOrigin = placed.canonical?.endpoint ?? home, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no Canopy origin")
         }
+        // A placement host has its own session, which the daemon opens there
+        // with the same device key; the home session never goes to it.
+        let placementOrigin = Self.placementOrigin(endpoint: rawOrigin, home: home)
         let descriptor = try ProtocolTreeDescriptor(
             id: placed.id,
             kind: placed.kind,
@@ -1071,7 +1214,7 @@ final class CanopyWorkspaceState {
             update: bootstrap.accepted.update
         ).validated()
 
-        let credentialProvider = ArborSyncCredentialProvider.shared(client: client, configurationTree: configurationTree)
+        let credentialProvider = ArborSyncCredentialProvider.shared(client: client, configurationTree: configurationTree, origin: placementOrigin)
         let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: protocolClient)
         let platform = DaemonObjectStore(client: client, tree: treeID)
@@ -1160,7 +1303,9 @@ final class CanopyWorkspaceState {
                 && candidate.canonicalPath.map { path in
                     remote.path == path || remote.path.hasPrefix(path == "/" ? "/" : path + "/")
                 } == true
-                && (localArborSyncOverview?.accounts.first { $0.configurationTree == candidate.configurationTree }?.canopy)
+                // The tree's own host: a placement host's trees are not at the account's home.
+                && (candidate.canonicalEndpoint
+                    ?? localArborSyncOverview?.accounts.first { $0.configurationTree == candidate.configurationTree }?.canopy)
                     .flatMap(URL.init(string:)).map { Self.sameOrigin($0, remote.origin) } == true
         }) {
             // The locator names a tree placed on this Mac: open the working tree instead of visiting.
@@ -1470,7 +1615,8 @@ final class CanopyWorkspaceState {
                 placement: $0.placement,
                 access: $0.access,
                 sync: $0.sync,
-                missing: $0.missing == true
+                missing: $0.missing == true,
+                canonicalEndpoint: $0.canonical?.endpoint
             )
         }
         let visits = await recentVisits()
@@ -1576,14 +1722,44 @@ final class CanopyWorkspaceState {
         return match(knownAccounts)
     }
 
+    /// The placement connection this device holds at `origin` for one of its
+    /// connected accounts (accounts §1.3), when it holds no home account
+    /// there. An unreadable store holds none.
+    func connectedPlacement(at origin: URL) async -> CanopyPlacement? {
+        if await connectedAccount(at: origin) != nil { return nil }
+        for account in knownAccounts where account.credentialAvailable {
+            do {
+                if let placement = try await accountService.placements(configurationTree: account.configurationTree)
+                    .first(where: { URL(string: $0.origin).map { Self.sameOrigin($0, origin) } == true }) {
+                    return placement
+                }
+            } catch {
+                Self.recordDiagnostic("placement-list", error)
+            }
+        }
+        return nil
+    }
+
     /// A protocol client at `origin`: with the credential of an account this
-    /// device holds there, anonymous otherwise.
+    /// device holds there, or else of a placement connection there (whose
+    /// session the home account's device key opens), anonymous otherwise.
     private func accountClient(origin: URL) async throws -> ProtocolClient {
-        guard let account = await connectedAccount(at: origin) else { return ProtocolClient(origin: origin) }
-        return ProtocolClient(
-            origin: origin,
-            credentialProvider: try await accountService.credentialProvider(configurationTree: account.configurationTree)
-        )
+        if let account = await connectedAccount(at: origin) {
+            return ProtocolClient(
+                origin: origin,
+                credentialProvider: try await accountService.credentialProvider(configurationTree: account.configurationTree)
+            )
+        }
+        if let placement = await connectedPlacement(at: origin) {
+            return ProtocolClient(
+                origin: origin,
+                credentialProvider: try await accountService.credentialProvider(
+                    configurationTree: placement.configurationTree,
+                    placementOrigin: placement.origin
+                )
+            )
+        }
+        return ProtocolClient(origin: origin)
     }
 
     static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
@@ -1892,6 +2068,19 @@ final class CanopyWorkspaceState {
         serverWatchTask = HostWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
             await self?.refreshSyncPresentation(from: coordinator)
         }.start()
+    }
+
+    /// The placement host a tree's session is for: its canonical `endpoint`
+    /// when that is not the account's `home` host, else nil (the home
+    /// session). Passed as `origin` to `GET /v1/credential`, spelled as the
+    /// daemon's descriptor spells it.
+    nonisolated static func placementOrigin(endpoint: String?, home: String?) -> String? {
+        guard let endpoint, let endpointURL = URL(string: endpoint),
+              let home, let homeURL = URL(string: home) else { return nil }
+        let same = endpointURL.scheme?.lowercased() == homeURL.scheme?.lowercased()
+            && endpointURL.host()?.lowercased() == homeURL.host()?.lowercased()
+            && endpointURL.port == homeURL.port
+        return same ? nil : endpoint
     }
 
     static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
