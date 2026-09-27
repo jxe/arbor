@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeProtocolDirectory, hashObject, TreeReader, walkTreeDiff, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { buildAcceptedTransitionPayload } from "../../../packages/canopyd/src/updates/transition.ts";
+import { encodeProtocolDirectory, hashObject, transitionPayload, TreeReader, walkTreeDiff, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { entryChanges } from "../../../packages/canopyd/src/updates/entry-metadata.ts";
 
 function store() {
@@ -18,7 +17,7 @@ test("a shared reader reads each object once across the transition and entry-cha
   const before = s.dir([{ name: "a.md", file: s.file("A") }, { name: "gone", directory: s.dir([{ name: "x.md", file: s.file("X") }]) }]);
   const after = s.dir([{ name: "a.md", file: s.file("A!") }, { name: "new", directory: s.dir([{ name: "y.md", file: s.file("Y") }]) }]);
   const reader = new TreeReader(s.load);
-  const transition = await buildAcceptedTransitionPayload(before, after, reader);
+  const transition = await transitionPayload(before, after, reader);
   const changes = await entryChanges(before, after, reader);
   expect(changes.set.map((c) => c.path)).toEqual(["/a.md", "/new/y.md"]);
   expect(changes.removed).toEqual(["/gone/x.md"]);

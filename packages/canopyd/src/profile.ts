@@ -6,18 +6,12 @@ const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
 /** A Canopy-local account handle, the name in `/~handle`. */
 export const HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
 const HANDLE_PATH = new RegExp(`^/~(${HANDLE_SOURCE})/?$`);
-const HANDLE_PREFIX = new RegExp(`^/~(${HANDLE_SOURCE})(?:/|$)`);
 const PROFILE_LOCATOR = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/;
 const LEGACY_HANDLE_LOCATOR = new RegExp(`/~(${HANDLE_SOURCE})/?$`);
 
 /** The handle a `/~handle` path names, exactly (a trailing slash allowed). */
 export function handleOfPath(path: string): string | undefined {
   return HANDLE_PATH.exec(path)?.[1];
-}
-
-/** The handle in a path's leading `/~handle` segment, if it has one. */
-export function leadingHandle(path: string): string | undefined {
-  return HANDLE_PREFIX.exec(path)?.[1];
 }
 
 /** The Profile TreeID an `arbor://<TreeID>/` member locator names. */
@@ -73,20 +67,15 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
   return /\.(?:png|jpe?g|gif|webp)$/i.test(parts.at(-1)!) ? value : undefined;
 }
 
-/**
- * The profile facts a tree root declares in its `_index.md` frontmatter: the
+/** A root's profile as canopyd reads it for its tree: the facts, and what
+ * decides whether a later update must recompute them.
+ *
+ * The facts are what the root declares in its `_index.md` frontmatter: the
  * `type` and each authored profile locator / Canopy-local handle. String
  * members remain a v1 shorthand; structured members keep identity separate
- * from this Canopy's allocation policy.
- * canopyd stores them per tree (`profile_facts`) so authorization never
- * reparses mutable state; migration 020 rebuilt the rows for every head.
- */
-export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
-  return (await readRootProfile(root, load)).facts;
-}
-
-/** A root's profile as canopyd reads it for its tree: the facts, and what
- * decides whether a later update must recompute them. */
+ * from this Canopy's allocation policy. canopyd stores them per tree
+ * (`profile_facts`) so authorization never reparses mutable state; migration
+ * 020 rebuilt the rows for every head. */
 export interface RootProfileRead {
   facts: RootProfileFacts;
   /** The root `_index.md` file object, or null when the root has none. */
@@ -102,7 +91,7 @@ export async function rootIndexHash(root: ObjectHash, load: (hash: ObjectHash) =
   return directory.entries.find((entry) => entry.name === "_index.md")?.file ?? null;
 }
 
-/** `rootProfileFacts` with the root `_index.md` hash and the declared avatar
+/** A root's profile facts with its `_index.md` hash and the declared avatar
  * path. It parses `_index.md` once. */
 export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileRead> {
   const none: RootProfileRead = { facts: { version: 3, type: null, members: [] }, indexHash: null, avatarPath: null };

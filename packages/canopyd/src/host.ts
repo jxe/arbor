@@ -2,7 +2,7 @@ import { AuthenticationRequiredError, isServerFault, NotFoundError, PermissionDe
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, ProfileResetDevice, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
@@ -25,7 +25,7 @@ import {
   type ObjectHash,
   type RemoteAccountDescriptor,
 } from "@overstory/protocol";
-import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { escapeHTML, publicTreePath, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
 
@@ -224,10 +224,6 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
     status,
     headers: responseHeaders,
   });
-}
-
-function bodySnapshot(body: unknown): TreeSnapshot {
-  return decodeTreeSnapshotJSON(body);
 }
 
 /**
@@ -526,7 +522,7 @@ export async function serveHost(options: {
             deviceID: body.device.id,
             deviceLabel: body.device.label,
             ...enrollment(body.device),
-            configurationSnapshot: bodySnapshot(body.configuration),
+            configurationSnapshot: decodeTreeSnapshotJSON(body.configuration),
           });
           return json({
             account: accountDescriptor(publicOrigin, canopy, result.account),
@@ -852,8 +848,8 @@ export async function serveHost(options: {
             const profileURL = `${publicOrigin}/~${pendingHandle}`;
             return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`, 200, { "x-arbor-profile-state": "reserved" });
           }
-          if (pendingHandle && canopy.accountByHandle(pendingHandle) && !canopy.boundary(requestLocator.path)) {
-            const claimed = canopy.accountByHandle(pendingHandle)!;
+          const claimed = pendingHandle ? canopy.accountByHandle(pendingHandle) : null;
+          if (pendingHandle && claimed && !canopy.boundary(requestLocator.path)) {
             return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.profileTree ?? "unbound")}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
           }
           const resolved = canopy.resolve(requestLocator.path);
@@ -869,10 +865,9 @@ export async function serveHost(options: {
           const resolution = await projection.resolve(resolved.path, requestLocator.stableKey);
           if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
           const logicalPath = resolution.path;
+          const canonicalPath = tree.canonicalPath!;
+          const publicPath = publicTreePath(canonicalPath, logicalPath);
           if (requestLocator.stableKey && resolved.path !== logicalPath) {
-            const publicPath = tree.canonicalPath === "/"
-              ? logicalPath
-              : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
             const location = buildNetworkLocator(publicPath, {
               stableKey: requestLocator.stableKey,
               applicationQuery: requestLocator.applicationQuery,
@@ -883,7 +878,6 @@ export async function serveHost(options: {
           }
           const collectionFileRow = resolution.kind === "collection-file-row" ? resolution : null;
           const logical = resolution.kind === "node" ? resolution.node : null;
-          const canonicalPath = tree.canonicalPath!;
           if (collectionFileRow) {
             const title = protocolCollectionFileRowTitle(collectionFileRow.row);
             if (request.headers.get("accept")?.includes("text/markdown")) {
@@ -918,10 +912,7 @@ export async function serveHost(options: {
               logical.bytes.byteOffset + logical.bytes.byteLength,
             ) as ArrayBuffer);
           }
-          const prefix = (tree.canonicalPath === "/"
-            ? logicalPath
-            : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`)
-            .split("/").map((part) => encodeURIComponent(part)).join("/").replace(/\/$/, "");
+          const prefix = publicPath.replace(/\/$/, "");
           const source = logical.body ? new TextDecoder().decode(logical.body) : "";
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });

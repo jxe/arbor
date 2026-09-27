@@ -3,7 +3,6 @@ import { Database } from "bun:sqlite";
 import type { AcceptedUpdate, ObjectHash, UpdateResult } from "@overstory/protocol";
 import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
 import { updateOrdinal } from "./observations.ts";
-export { updateOrdinal } from "./observations.ts";
 
 export interface StoredAcceptedResponse {
   status: number;

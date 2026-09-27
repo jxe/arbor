@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { profileChanged, readRootProfile, rootIndexHash, rootProfileFacts, storedProfileOf } from "@overstory/canopyd";
+import { profileChanged, readRootProfile, rootIndexHash, storedProfileOf } from "@overstory/canopyd";
+
+const rootProfileFacts = async (root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>) => (await readRootProfile(root, load)).facts;
 
 function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, title = "Profile") {
   const objects = new Map<ObjectHash, Uint8Array>();

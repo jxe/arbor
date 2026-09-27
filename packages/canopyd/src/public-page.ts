@@ -27,7 +27,8 @@ function encodedPath(path: string): string {
   return `/${parts.join("/")}`;
 }
 
-function publicTreePath(boundary: string, path: string): string {
+/** A tree path as a public URL path: the tree's boundary joined to it, each segment encoded. */
+export function publicTreePath(boundary: string, path: string): string {
   const base = boundary === "/" ? "" : encodedPath(boundary).replace(/\/$/, "");
   const suffix = path === "/" ? "" : encodedPath(path);
   return `${base}${suffix}` || "/";

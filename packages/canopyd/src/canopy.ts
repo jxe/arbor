@@ -61,6 +61,7 @@ import {
   initialPersonConfig,
   readTreeConfigGraph,
   snapshotTreeConfig,
+  transitionPayload,
   treeConfigurationID,
   type ResourceAccessRule,
   type TreeConfigKind,
@@ -70,7 +71,6 @@ import { authorizePersonConfigTransition, mergeTreeConfigTrees, TREE_CONFIG_POLI
 import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
-import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory, type DeviceBinding, type PendingResetRecord } from "./accounts.ts";
@@ -314,8 +314,8 @@ export class HostDaemon implements AsyncDisposable {
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
   /** Stored profile rows by TreeID (`treeProfile`), committed state only. */
   private readonly treeProfiles = new Map<string, TreeProfile>();
-  private db: Database;
-  private acceptedStore: AcceptedUpdateStore;
+  private readonly db: Database;
+  private readonly acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
   private readonly objects: ObjectStore;
   private readonly mergeTool: MergeTool;
@@ -615,8 +615,7 @@ export class HostDaemon implements AsyncDisposable {
     configurationTree: string;
     inviteCode?: string;
   }): AccountChallenge {
-    if (input.inviteCode && !/^[A-Za-z0-9_-]{22}$/.test(input.inviteCode)) throw new Error("Invitation code is invalid");
-    const inviteDigest = input.inviteCode ? `sha256:${sha256(input.inviteCode)}` : null;
+    const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
     const matches = input.account === undefined
       ? [...this.communityReservations()].filter(([, value]) => inviteDigest
         ? value.inviteDigest === inviteDigest : value.profileTree === input.profileTree)
@@ -649,12 +648,7 @@ export class HostDaemon implements AsyncDisposable {
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
     };
-    // An expired challenge can never be claimed, consumed or not.
-    this.db.run("DELETE FROM account_challenges WHERE expires_at <= ?", [issuedAt]);
-    this.db.run(
-      "INSERT INTO account_challenges (id, challenge_json, expires_at) VALUES (?, ?, ?)",
-      [challenge.id, stableJSONString(challenge), challenge.expiresAt],
-    );
+    this.accounts.insertChallenge("account_challenges", challenge.id, stableJSONString(challenge), challenge.expiresAt, issuedAt);
     return challenge;
   }
 
@@ -673,14 +667,9 @@ export class HostDaemon implements AsyncDisposable {
       || challenge.profileTree !== input.profileTree
       || challenge.configurationTree !== input.configurationTree
     ) throw new Error("Account challenge does not match the claim");
-    const publicKey = Buffer.from(input.publicKey, "base64url");
-    const signature = Buffer.from(input.signature, "base64url");
-    if (publicKey.byteLength !== 32 || publicKey.toString("base64url") !== input.publicKey) throw new Error("Account claim public key is invalid");
-    if (signature.byteLength !== 64 || signature.toString("base64url") !== input.signature) throw new Error("Account claim signature is invalid");
-    if (personProfileTreeID(publicKey) !== input.profileTree) throw new Error("Account claim public key derives another Profile TreeID");
-    const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), publicKey]);
-    const key = createPublicKey({ key: spki, format: "der", type: "spki" });
-    if (!verify(null, accountChallengeBytes(challenge), key, signature)) throw new Error("Account claim signature is invalid");
+    if (!profileKeySigned("Account claim public key", input.publicKey, input.profileTree, accountChallengeBytes(challenge), input.signature)) {
+      throw new Error("Account claim signature is invalid");
+    }
     return { challenge, proofDigest: sha256(stableJSONString({ challenge, publicKey: input.publicKey, signature: input.signature })) };
   }
 
@@ -806,7 +795,7 @@ export class HostDaemon implements AsyncDisposable {
       issuedAt,
       expiresAt: issuedAt + 2 * 60 * 1000,
     };
-    this.accounts.insertChallenge(challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
+    this.accounts.insertChallenge("device_challenges", challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
     return challenge;
   }
 
@@ -822,7 +811,7 @@ export class HostDaemon implements AsyncDisposable {
     const token = `ars_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
     const expiresAt = now + this.sessionLifetimeMs;
     this.db.transaction(() => {
-      if (!this.accounts.consumeChallenge(challenge.id, stableJSONString(challenge), now)) {
+      if (!this.accounts.consumeChallenge("device_challenges", challenge.id, stableJSONString(challenge), now)) {
         throw new Error("Device session challenge is invalid, expired, or already used");
       }
       this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
@@ -847,7 +836,7 @@ export class HostDaemon implements AsyncDisposable {
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
     };
-    this.accounts.insertChallenge(challenge.id, stableJSONString(validateProfileResetChallenge(challenge)), challenge.expiresAt, issuedAt);
+    this.accounts.insertChallenge("device_challenges", challenge.id, stableJSONString(validateProfileResetChallenge(challenge)), challenge.expiresAt, issuedAt);
     return challenge;
   }
 
@@ -855,10 +844,7 @@ export class HostDaemon implements AsyncDisposable {
   requestProfileReset(input: { origin: string; profileTree: string; challenge: unknown; publicKey: string; signature: string }): PendingProfileReset {
     const challenge = validateProfileResetChallenge(input.challenge);
     if (challenge.origin !== input.origin || challenge.profileTree !== input.profileTree) throw new Error("Reset challenge names another host or profile");
-    const publicKey = Buffer.from(input.publicKey, "base64url");
-    if (publicKey.byteLength !== 32 || publicKey.toString("base64url") !== input.publicKey) throw new Error("Profile public key is invalid");
-    if (personProfileTreeID(publicKey) !== challenge.profileTree) throw new Error("Profile public key derives another Profile TreeID");
-    if (!verifyDeviceSignature(`ed25519:${input.publicKey}`, profileResetChallengeBytes(challenge), input.signature)) {
+    if (!profileKeySigned("Profile public key", input.publicKey, challenge.profileTree, profileResetChallengeBytes(challenge), input.signature)) {
       throw new PermissionDeniedError("Reset signature is invalid");
     }
     const account = this.accounts.enabledAccount(challenge.profileTree);
@@ -871,7 +857,7 @@ export class HostDaemon implements AsyncDisposable {
       profileTree: account.id, device: challenge.device, requestedAt: now, effectiveAt: now + this.resetWaitMs, proofDigest,
     };
     this.db.transaction(() => {
-      if (!this.accounts.consumeChallenge(challenge.id, stableJSONString(challenge), now)) {
+      if (!this.accounts.consumeChallenge("device_challenges", challenge.id, stableJSONString(challenge), now)) {
         throw new Error("Reset challenge is invalid, expired, or already used");
       }
       if (this.accounts.pendingReset(account.id)) throw new Error("A reset is already pending for this profile");
@@ -984,7 +970,7 @@ export class HostDaemon implements AsyncDisposable {
   /** Which files a tree's configuration holds: a person's if an account
    * claims the tree as its profile, a group's if its head declares
    * `type: group`, and otherwise an ordinary tree's. */
-  treeConfigKind(tree: string): TreeConfigKind {
+  private treeConfigKind(tree: string): TreeConfigKind {
     if (this.accounts.account(tree)) return "person";
     return this.rootProfileType(tree) === "group" ? "group" : "tree";
   }
@@ -1001,7 +987,7 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** The accepted configuration of a tree, or null for a tree without one. */
-  async treeConfig(tree: string): Promise<TreeConfigValues | null> {
+  private async treeConfig(tree: string): Promise<TreeConfigValues | null> {
     const configuration = this.get(treeConfigurationID(tree));
     if (!configuration) return null;
     return this.configGraphAt(configuration.ref, this.treeConfigKind(tree), tree, undefined, true);
@@ -1358,11 +1344,11 @@ export class HostDaemon implements AsyncDisposable {
       }
       throw new AlreadyClaimedError(input.handle);
     }
-    const challengeRow = this.db.query("SELECT challenge_json, expires_at, consumed_at FROM account_challenges WHERE id = ?")
-      .get(proof.challenge.id) as { challenge_json: string; expires_at: number; consumed_at: number | null } | null;
-    if (!challengeRow || challengeRow.challenge_json !== stableJSONString(proof.challenge)) throw new Error("Account challenge is invalid");
-    if (challengeRow.expires_at <= Date.now()) throw new Error("Account challenge is expired");
-    if (challengeRow.consumed_at !== null) throw new Error("Account challenge was already consumed");
+    const challengeJSON = stableJSONString(proof.challenge);
+    const issued = this.accounts.challenge("account_challenges", proof.challenge.id);
+    if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
+    if (issued.expiresAt <= Date.now()) throw new Error("Account challenge is expired");
+    if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
     if (this.nameHeldByTree(input.handle)) throw new AlreadyClaimedError(input.handle);
     if (!this.communityReservations().has(input.handle)) {
       throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
@@ -1391,11 +1377,9 @@ export class HostDaemon implements AsyncDisposable {
     const community = this.community();
     const now = Date.now();
     this.db.transaction(() => {
-      const consumed = this.db.run(
-        "UPDATE account_challenges SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
-        [now, proof.challenge.id, now],
-      );
-      if (consumed.changes !== 1) throw new Error("Account challenge was already consumed or expired");
+      if (!this.accounts.consumeChallenge("account_challenges", proof.challenge.id, challengeJSON, now)) {
+        throw new Error("Account challenge was already consumed or expired");
+      }
       this.db.run(
         "INSERT INTO accounts (id, handle, claim_digest, enabled) VALUES (?, ?, ?, 1)",
         [input.profileTree, input.handle, claimDigest],
@@ -1412,9 +1396,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
   private async prepareInvitationClaim(handle: string, digest: string, code: string | undefined, profileTree: string) {
-    if (!code || !/^[A-Za-z0-9_-]{22}$/.test(code) || `sha256:${sha256(code)}` !== digest) {
-      throw new Error("Invitation code is invalid");
-    }
+    if (!code || inviteCodeDigest(code) !== digest) throw new Error("Invitation code is invalid");
     const community = this.community();
     const directory = decodeProtocolDirectory(await this.objects.load(community.ref));
     const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
@@ -1456,12 +1438,12 @@ export class HostDaemon implements AsyncDisposable {
   ): Promise<UpdateResult> {
     if (result.update.root === candidate) return result;
     if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new PermissionDeniedError("Reconciliation disclosure is not allowed");
-    const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
+    const reconciliation = await transitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
   }
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
-    return buildAcceptedTransitionPayload(previousRoot, root, this.storedReader());
+    return transitionPayload(previousRoot, root, this.storedReader());
   }
 
   /** The file entries an accepted update writes, read before its transaction. */
@@ -1805,7 +1787,7 @@ export class HostDaemon implements AsyncDisposable {
     root: ObjectHash = request.candidate,
     conflicts: UpdateConflictResult["details"]["conflicts"] = [{ path: "/", reason: "node-conflict" }],
   ): Promise<{ status: number; result: UpdateConflictResult }> {
-    const draft = { root, ...(await buildAcceptedTransitionPayload(request.candidate, root, (hash) => this.objects.load(hash, proposed))) };
+    const draft = { root, ...(await transitionPayload(request.candidate, root, (hash) => this.objects.load(hash, proposed))) };
     return {
       status: 409,
       result: {
@@ -2666,6 +2648,22 @@ function verifyDeviceSignature(key: string, message: Uint8Array, signature: stri
   return parseDeviceKey(key).algorithm === "ed25519"
     ? verify(null, message, publicKey, bytes)
     : verify("sha256", message, { key: publicKey, dsaEncoding: "ieee-p1363" }, bytes);
+}
+
+/** Whether a profile key, unpadded base64url Ed25519, signed `message`.
+ * Throws when the key is malformed or derives another Profile TreeID; false
+ * when the signature does not verify. */
+function profileKeySigned(label: string, publicKey: string, profileTree: string, message: Uint8Array, signature: string): boolean {
+  const bytes = Buffer.from(publicKey, "base64url");
+  if (bytes.byteLength !== 32 || bytes.toString("base64url") !== publicKey) throw new Error(`${label} is invalid`);
+  if (personProfileTreeID(bytes) !== profileTree) throw new Error(`${label} derives another Profile TreeID`);
+  return verifyDeviceSignature(`ed25519:${publicKey}`, message, signature);
+}
+
+/** The digest a well-formed invitation code is reserved under. */
+function inviteCodeDigest(code: string): string {
+  if (!/^[A-Za-z0-9_-]{22}$/.test(code)) throw new Error("Invitation code is invalid");
+  return `sha256:${sha256(code)}`;
 }
 
 /** What a pending reset discloses: never its key or proof. */

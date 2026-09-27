@@ -14,20 +14,24 @@ depends on it except tests and the deployment tooling.
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
 - `updates/`: `reconcile.ts` (the identity-only current, accept, and merge
   table; invokes the merge sidecar only when both sides changed),
-  `transition.ts`, `store.ts` (private accepted history, the
-  accepted-row transaction, and the only writer of `trees.ref`),
-  `observations.ts` (cursor order over accepted updates, the only source of
-  watch order), `tree-diff.ts` (the one paired walk over two roots, and
-  the per-update object reader), `entry-metadata.ts` (entry dates and
-  document versions), `graph-validation.ts`, `merge-history.ts` (each
-  accepted update's log entry in the object store, the only conflict record;
-  public decision ids, guards and bindings derived from it).
+  `store.ts` (private accepted history, the accepted-row transaction, and
+  the only writer of `trees.ref`), `observations.ts` (cursor order over
+  accepted updates, the only source of watch order), `entry-metadata.ts`
+  (entry dates and document versions), `graph-validation.ts`,
+  `merge-history.ts` (each accepted update's log entry in the object store,
+  the only conflict record; public decision ids, guards and bindings
+  derived from it). The one paired walk over two roots and the per-update
+  object reader are protocol's (`packages/protocol/src/updates/tree-diff.ts`);
+  an accepted transition is derived from its two roots by protocol's
+  `transitionPayload` and cached in memory, never stored.
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter (one question,
   staging, answer checks) and the process supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
-- `access.ts`, `accounts.ts`, `account-policy.ts`, `profile.ts`,
+- `access.ts`, `accounts.ts`, `tree-config-policy.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
   accounts, governed configuration (including its three-way merge), and
-  resource policy.
+  resource policy; `errors.ts`: the errors whose HTTP status the host maps
+  by type; `attempt-limiter.ts`: the bounded rate limit on unauthenticated
+  challenges and pairing claims.
 - `public-page.ts`, `projection.ts`: public HTML and Markdown projection and
   collection-file projection.
 

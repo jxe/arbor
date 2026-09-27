@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildAcceptedTransitionPayload } from "@overstory/canopyd";
 import {
   applyObjectDelta,
   encodeTransitionPayloadJSON,
   encodeProtocolDirectory,
   hashObject,
+  transitionPayload,
   type AcceptedTransitionPayload,
   type ObjectHash,
 } from "@overstory/protocol";
@@ -48,7 +48,7 @@ describe("accepted transition derivation", () => {
     const after = graph("note.md", encoder.encode(`# Note\n\nEdited\n${"shared text\n".repeat(1_000)}`));
     const objects = new Map([...before.objects, ...after.objects]);
 
-    const transition = await buildAcceptedTransitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
+    const transition = await transitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
 
     expect(results(transition)).toEqual(new Set([after.root, after.file]));
     expect(transition.deltas.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
@@ -66,7 +66,7 @@ describe("accepted transition derivation", () => {
     const after = graph("archive.bin", nextBytes);
     const objects = new Map([...before.objects, ...after.objects]);
 
-    const transition = await buildAcceptedTransitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
+    const transition = await transitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
     expect(transition.deltas.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
     expect(encodedBytes(transition)).toBeLessThan(2_000);
     expect(reconstruct(transition, before.objects).get(after.file)).toEqual(after.objects.get(after.file));
@@ -74,7 +74,7 @@ describe("accepted transition derivation", () => {
     const emptyRootBytes = encodeProtocolDirectory({ type: "directory", entries: [] });
     const emptyRoot = hashObject(emptyRootBytes);
     objects.set(emptyRoot, emptyRootBytes);
-    const creation = await buildAcceptedTransitionPayload(emptyRoot, after.root, async (hash) => objects.get(hash)!);
+    const creation = await transitionPayload(emptyRoot, after.root, async (hash) => objects.get(hash)!);
     expect(creation.deltas).toEqual([]);
     expect(new Set(creation.objects.map(({ hash }) => hash))).toEqual(new Set([after.root, after.file]));
   });
@@ -96,7 +96,7 @@ describe("accepted transition derivation", () => {
       [hashObject(afterRoot), afterRoot],
     ]);
 
-    const transition = await buildAcceptedTransitionPayload(hashObject(beforeRoot), hashObject(afterRoot), async (hash) => objects.get(hash)!);
+    const transition = await transitionPayload(hashObject(beforeRoot), hashObject(afterRoot), async (hash) => objects.get(hash)!);
 
     expect(results(transition)).toEqual(new Set([hashObject(afterRoot), hashObject(changed)]));
     expect(transition.deltas.some((delta) => delta.base === hashObject(beforeRoot) && delta.result === hashObject(afterRoot))).toBe(true);
