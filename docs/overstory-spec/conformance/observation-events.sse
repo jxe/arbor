@@ -2,6 +2,6 @@
 
 id: 1
 event: tree.update
-data: {"cursor":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.update","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null},"root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"1"}}}
+data: {"cursor":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.update","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null},"root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"1","conflicted":false},"transitions":[{"update":{"id":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","previous":{"id":"0","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"acceptedAt":1,"subject":null,"conflicted":false},"objects":[],"deltas":[]}]}}
 
 : end of fixture

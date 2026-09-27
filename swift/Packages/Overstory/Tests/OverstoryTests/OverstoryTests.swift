@@ -985,8 +985,11 @@ struct ProtocolValueVectorTests {
             #expect(frame.id == payload["cursor"] as? String)
             #expect(frame.event == payload["kind"] as? String)
             #expect((payload["tree"] as? String)?.hasPrefix("tr_") == true)
+            // The frame is one the watch decoder accepts, transitions and all.
+            let observation = try JSONDecoder().decode(ProtocolTreeRefObservation.self, from: Data(frame.data.utf8))
+            #expect(try observation.change.validated(tree: observation.tree).transitions.count == 1)
         }
-        // TODO: observation-events-invalid.json is not consumed here. The id/cursor, event/kind, and
-        // tree checks live inside `ProtocolClient.watch` rather than an exported decoder.
+        // TODO: observation-events-invalid.json is not consumed here. The id/cursor and event/kind
+        // checks live inside `ProtocolClient.watch`; the batch checks are `ProtocolTreeRefChange.validated`.
     }
 }

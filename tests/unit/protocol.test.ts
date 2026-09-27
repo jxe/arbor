@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { decodeAcceptedWatchChange } from "../../packages/protocol/src/updates/accepted-contract.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -135,8 +136,10 @@ describe("REST v1 protocol fixtures", () => {
       expect(frame.event).toBe(data.kind);
       expect(data.tree).toStartWith("tr_");
     }
-    const ref = JSON.parse(frames[0]!.data) as { change: { descriptor: RemoteTreeDescriptor } };
+    const ref = JSON.parse(frames[0]!.data) as { tree: string; change: { descriptor: RemoteTreeDescriptor } };
     validateTreeDescriptor(ref.change.descriptor);
+    // The frame is one the watch decoder accepts, transitions and all.
+    expect(decodeAcceptedWatchChange(ref.change, ref.tree).transitions).toHaveLength(1);
     expect(ref.change.descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${ref.change.descriptor.id}`);
   });
 
