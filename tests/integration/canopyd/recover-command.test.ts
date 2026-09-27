@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { generateArborID, ProtocolClient } from "@overstory/protocol";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 const token = "recover-command-owner";
 let sandbox: string;
@@ -14,7 +15,7 @@ beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-recover-command-"));
   running = await serveHost({
     dataRoot: join(sandbox, "canopy"),
-    accounts: [{ handle: "owner", token, communityWriter: true }],
+    accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
@@ -40,7 +41,7 @@ test("canopyd recover prints a recovery pairing beside a running server, and cla
   const { publicKey } = generateKeyPairSync("ed25519");
   const key = `ed25519:${Buffer.from(publicKey.export({ format: "der", type: "spki" })).subarray(12).toString("base64url")}`;
   const device = generateArborID("dv");
-  const owner = new ProtocolClient(running.url, token);
+  const owner = await deviceClient(running.url, token);
   await new ProtocolClient(running.url).claimPairing(payload.pairing.id, payload.pairing.secret, { id: device, label: "Recovered laptop", key });
   // The old credential is revoked with every other device.
   await expect(owner.account()).rejects.toThrow("unauthenticated");

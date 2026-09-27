@@ -2,6 +2,7 @@ import { assertCurrentHostSchema, assertHostData } from "../../src/schema.ts";
 import { runBatch, type BatchReport } from "../tools/batch.ts";
 import { dropProfileResets } from "./steps/024-drop-profile-resets.ts";
 import { oneChallengeTable } from "./steps/025-one-challenge-table.ts";
+import { keyDevicesOnly } from "./steps/026-key-devices-only.ts";
 
 /**
  * The next migration batch: every schema step ready since the last cutover,
@@ -9,7 +10,7 @@ import { oneChallengeTable } from "./steps/025-one-challenge-table.ts";
  * see README.md for the list, the product changes each one brings at
  * cutover, and the runbook.
  */
-export const steps = [dropProfileResets, oneChallengeTable];
+export const steps = [dropProfileResets, oneChallengeTable, keyDevicesOnly];
 
 export function migrateNextBatch(dataRoot: string): BatchReport {
   return runBatch(dataRoot, steps, (db) => {

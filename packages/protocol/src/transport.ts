@@ -96,11 +96,8 @@ export interface ExistingProfileAccountRequest {
   configuration: TreeSnapshot;
 }
 
-/** A device a claim or pairing adds: a key device sends its public `key`, a
- * digest device only its credential's digest. */
-export type DeviceEnrollment =
-  | { id: string; label: string; credentialDigest: `sha256:${string}` }
-  | { id: string; label: string; key: string };
+/** A device a claim or pairing adds: its DeviceID, label and public `key`. */
+export interface DeviceEnrollment { id: string; label: string; key: string }
 
 export interface PairingClaimResult {
   device: ServerDevice;

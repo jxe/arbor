@@ -15,7 +15,8 @@ only the named self-certifying profile may claim. The data directory defaults
 to ./<community>. serve runs an existing community; it is the default command.
 An unattended serve of an empty directory (Railway, Compose) creates the
 community from ARBOR_COMMUNITY_HANDLE, ARBOR_FIRST_WRITER_HANDLE, and
-ARBOR_FIRST_WRITER_PROFILE, or from ARBOR_ACCOUNTS_JSON / ARBOR_ACCOUNT_TOKEN.
+ARBOR_FIRST_WRITER_PROFILE, or from ARBOR_ACCOUNTS_JSON: accounts, each with
+its first key device's DeviceID and key.
 recover is the operator's help for a person who has lost every administrator
 device: it prints a one-day recovery pairing code for their account, which they
 claim from a new device as an ordinary pairing. That device becomes the
@@ -156,16 +157,9 @@ export async function serveCommunity(args: string[]): Promise<void> {
 
   // Unattended bootstrap of an empty data directory comes only from the
   // environment; the interactive path is `canopyd init`.
-  const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
+  const accounts = process.env.ARBOR_ACCOUNTS_JSON
     ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as HostBootstrapAccount[]
-    : null;
-  const accountToken = process.env.ARBOR_ACCOUNT_TOKEN;
-  const accounts = configuredAccounts ?? (accountToken ? [{
-    handle: process.env.ARBOR_ACCOUNT_HANDLE ?? "owner",
-    token: accountToken,
-    name: process.env.ARBOR_ACCOUNT_NAME ?? "Owner",
-    communityWriter: true,
-  }] : []);
+    : [];
   const envCommunity = process.env.ARBOR_COMMUNITY_HANDLE;
   const envFounderHandle = process.env.ARBOR_FIRST_WRITER_HANDLE;
   const envFounderProfile = process.env.ARBOR_FIRST_WRITER_PROFILE;

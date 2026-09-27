@@ -5,17 +5,17 @@ import type { MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore } from "@overstory/client";
 import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { moveToDeviceKey } from "@overstory/client";
 import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
   constructor(private readonly deps: AccountBootstrapDeps) {}
   /**
-   * The account credential for a configuration tree. Serving it over loopback
-   * is deliberate: any local process with the user's filesystem access can
-   * already read the credential store and write the placed folders, so this
-   * exposes no new authority (documented in `docs/architecture/arborsync/data-home.md`).
+   * A session token for a configuration tree's account, which the device key
+   * opens and never leaves Arbor Sync. Serving it over loopback is deliberate:
+   * any local process with the user's filesystem access can already read the
+   * credential store and write the placed folders, so this exposes no new
+   * authority (documented in `docs/architecture/arborsync/data-home.md`).
    */
   async credentialToken(configurationTree?: string): Promise<string> {
     let token: string | undefined;
@@ -35,15 +35,6 @@ export class LocalAccountService {
     }
     if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
     return token;
-  }
-
-  /** Move this installation's device for an account to a key; returns the key. */
-  async moveToDeviceKey(configurationTree: string): Promise<string> {
-    let store: HostAccountStore;
-    try { store = new HostAccountStore(configurationTree); }
-    catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
-    if (!await store.safe()) throw new ProtocolError("not-found", "No account is connected for that configuration", 404);
-    return (await moveToDeviceKey(configurationTree)).deviceKey!;
   }
 
   async claimHostAccount(account: string, inputPath: string, displayName?: string, inviteCode?: string): Promise<MutationReceipt["effects"]> {

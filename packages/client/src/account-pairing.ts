@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { accountCheckoutPath, arborPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateArborID,
-  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, sha256, ProtocolClient } from "@overstory/protocol";
+  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@overstory/protocol";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
@@ -19,10 +19,8 @@ interface PendingPairing {
   pairingID: string;
   credentialSlot: string;
 }
-/** A device pairs with a key; a pairing saved before keys resumes with its credential. */
-type PairingSecrets =
-  | { payload: LocalPairingPayload; device: { id: string; label: string; key: string }; seed: string }
-  | { payload: LocalPairingPayload; device: { id: string; label: string; credentialDigest: `sha256:${string}` }; credential: string };
+/** A device pairs with a new key, whose seed is saved before the first request. */
+interface PairingSecrets { payload: LocalPairingPayload; device: { id: string; label: string; key: string }; seed: string }
 const pendingPath = () => join(arborPrivateRoot(), "bootstrap-pairing.json");
 async function readPending(): Promise<PendingPairing | null> {
   try {
@@ -62,9 +60,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
       const source = await new HostAccountStore(pending.credentialSlot).provisionalCredential();
       if (!source) throw new ProtocolError("credential-unavailable", "Unlock the credential store to resume this pairing", 409);
       secrets = JSON.parse(source);
-      const matches = "seed" in secrets
-        ? "key" in secrets.device && deviceKeyFromSeed(secrets.seed) === secrets.device.key
-        : "credentialDigest" in secrets.device && `sha256:${sha256(secrets.credential)}` === secrets.device.credentialDigest;
+      const matches = typeof secrets.seed === "string" && deviceKeyFromSeed(secrets.seed) === secrets.device.key;
       if (secrets.payload.origin !== pending.origin || secrets.payload.pairing.id !== pending.pairingID || !matches) {
         throw new ProtocolError("conflict", "Pending pairing does not match its saved credential", 409);
       }
@@ -87,8 +83,8 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     // Persisted before the first request. Replays retain the same secret,
     // device and credential even if the host accepted a lost response.
     await new ProtocolClient(pending.origin).claimPairing(pending.pairingID, secrets.payload.pairing.secret, secrets.device);
-    await connectDevice(pending.origin, identity.profileTree, secrets.device.id,
-      "seed" in secrets ? { seed: secrets.seed } : { credential: secrets.credential }, "The paired account does not belong to this Mac’s profile identity and community");
+    await connectDevice(pending.origin, identity.profileTree, secrets.device.id, secrets.seed,
+      "The paired account does not belong to this Mac’s profile identity and community");
     await deps.trees.refreshConfiguration();
     // Remove the journal first: a crash may leave an unused secret, never a
     // resumable journal whose exact credential has already been deleted.
@@ -98,21 +94,20 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
 }
 
 /**
- * Connect this installation as `device` of `profileTree` at `origin`, once
- * the host lists it: check the account is that profile's at that community,
- * install its configuration as the account checkout (or confirm the one
- * already there), and store the connection. Shared by pairing and by a
- * completed profile reset.
+ * Connect this installation as key device `device` of `profileTree` at
+ * `origin`, once the host lists it: open a session with its seed, check the
+ * account is that profile's at that community, install its configuration as
+ * the account checkout (or confirm the one already there), and store the
+ * connection.
  */
 export async function connectDevice(
   origin: string,
   profileTree: string,
   device: string,
-  secret: { seed: string } | { credential: string },
+  seed: string,
   mismatch: string,
 ): Promise<void> {
-  const token = "seed" in secret ? (await openDeviceSession(origin, profileTree, device, secret.seed)).token : secret.credential;
-  const wire = new ProtocolClient(origin, token);
+  const wire = new ProtocolClient(origin, (await openDeviceSession(origin, profileTree, device, seed)).token);
   const { account } = await wire.account();
   if (account.device?.id !== device || account.profileTree !== profileTree
     || !account.community.canonical?.endpoint || new URL(account.community.canonical.endpoint).origin !== origin) {
@@ -146,8 +141,6 @@ export async function connectDevice(
     accountID: account.id, ...(account.handle ? { handle: account.handle } : {}), profileTree,
     deviceID: device, configurationRef: configuration.root, configurationUpdate: configuration.update,
   };
-  const store = new HostAccountStore(configuration.id);
-  if ("seed" in secret) await store.setDeviceKey(secret.seed, connection);
-  else await store.set(secret.credential, connection);
+  await new HostAccountStore(configuration.id).setDeviceKey(seed, connection);
   await saveCurrentAccountDeviceID(configuration.id, device);
 }

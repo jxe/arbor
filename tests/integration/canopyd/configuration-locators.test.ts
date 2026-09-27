@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ProtocolClient, treeConfigurationID } from "@overstory/protocol";
 import { serveHost } from "@overstory/canopyd";
+import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 
 test("canonical ;arbor-config locators resolve a tree's configuration for its administrators only", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "arbor-config-locators-"));
@@ -12,10 +13,11 @@ test("canonical ;arbor-config locators resolve a tree's configuration for its ad
     publicOrigin: "http://127.0.0.1:0",
     port: 0,
     hostname: "127.0.0.1",
-    accounts: [{ handle: "owner", token: "owner", communityWriter: true }],
+    accounts: [testAccount("owner", "owner", { communityWriter: true })],
   });
   try {
-    const owner = new ProtocolClient(running.url, "owner");
+    const owner = await deviceClient(running.url, "owner");
+    const session = await deviceSession(running.url, "owner");
     const profile = running.canopy.accountByHandle("owner")!.id;
     const configuration = treeConfigurationID(profile);
 
@@ -26,18 +28,18 @@ test("canonical ;arbor-config locators resolve a tree's configuration for its ad
     // Only a tree's root has a configuration, and a percent-encoded `;` is a filename.
     const status = async (path: string, token?: string) =>
       (await fetch(`${running.url}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, redirect: "manual" })).status;
-    expect(await status("/.well-known/arbor/~owner/notes;arbor-config", "owner")).toBe(404);
-    const literal = await (await fetch(`${running.url}/.well-known/arbor/~owner%3Barbor-config`, { headers: { authorization: "Bearer owner" } })).json();
+    expect(await status("/.well-known/arbor/~owner/notes;arbor-config", session)).toBe(404);
+    const literal = await (await fetch(`${running.url}/.well-known/arbor/~owner%3Barbor-config`, { headers: { authorization: `Bearer ${session}` } })).json();
     expect(literal.ref.path).toBe("/~owner;arbor-config");
     // Anyone else sees what an unreadable tree shows.
     await expect(new ProtocolClient(running.url).resolveConfiguration("/~owner")).rejects.toThrow();
     expect(await status("/.well-known/arbor/~owner;arbor-config")).toBe(404);
 
     // The canonical URL sends an administrator to the configuration's descriptor.
-    const redirect = await fetch(`${running.url}/~owner;arbor-config`, { headers: { authorization: "Bearer owner" }, redirect: "manual" });
+    const redirect = await fetch(`${running.url}/~owner;arbor-config`, { headers: { authorization: `Bearer ${session}` }, redirect: "manual" });
     expect(redirect.status).toBe(303);
     expect(redirect.headers.get("location")).toBe(`/.arbor/trees/${profile};arbor-config`);
-    const descriptor = await fetch(new URL(redirect.headers.get("location")!, running.url), { headers: { authorization: "Bearer owner" } });
+    const descriptor = await fetch(new URL(redirect.headers.get("location")!, running.url), { headers: { authorization: `Bearer ${session}` } });
     expect((await descriptor.json()).tree.id).toBe(configuration);
     expect(await status("/~owner;arbor-config")).toBe(404);
   } finally {

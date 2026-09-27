@@ -21,6 +21,7 @@ the batch, a failed `quick_check` or a dangling foreign key; a rerun reports
 |---|---|---|
 | [024-drop-profile-resets](steps/024-drop-profile-resets.ts) | Drop `profile_resets`, unused since the profile-key reset was withdrawn (Security 006, 2026-09-27). Refuses if it holds a row. | `schema.ts`: the table is gone. |
 | [025-one-challenge-table](steps/025-one-challenge-table.ts) | `account_challenges` and `device_challenges` become one `challenges` table with `purpose` (`account-claim` or `device-session`); only unexpired, unconsumed rows are copied. | `AccountDirectory`'s challenge helpers take a purpose and filter every read and consume on it. |
+| [026-key-devices-only](steps/026-key-devices-only.ts) | `devices` loses `token_digest`; `public_key` is required unless the device is revoked. Every row is kept, so a revoked digest device's DeviceID is never reused. Refuses, naming the count, while any unrevoked device has no key. | Digest devices are gone: sessions are the only device authentication, pairing and claiming enroll a key, and a new `devices.yaml` entry without `key` is refused. |
 
 At cutover the batch's last schema becomes `CANOPY_SCHEMA_VERSION`, and
 `run.ts` passes `assertCurrentHostSchema` and `assertHostData` as `finish`.

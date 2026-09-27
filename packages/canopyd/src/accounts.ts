@@ -7,9 +7,6 @@ import type { HostAccount, HostAuthentication } from "./model.ts";
 /** A device's last-use time is advisory; refresh it at most this often. */
 const LAST_USED_RESOLUTION_MS = 60_000;
 
-/** A digest device's credential digest, or a key device's public key. */
-export type DeviceBinding = { tokenDigest: string } | { publicKey: string };
-
 /** What a challenge is for; one purpose's challenge is never redeemed by another. */
 export type ChallengePurpose = "account-claim" | "device-session";
 
@@ -25,7 +22,7 @@ export interface PairingRecord {
   secretMatches(secret: string): boolean;
 }
 
-/** Accounts, device credentials, and pairing offers: the rows behind every authenticated request. */
+/** Accounts, device keys and sessions, and pairing offers: the rows behind every authenticated request. */
 /** Whether a pairing is a recovery pairing, which only the host operator issues. */
 export function isRecoveryPairing(id: string): boolean {
   return id.startsWith("pr_");
@@ -60,29 +57,21 @@ export class AccountDirectory {
     return row ? this.account(row.id) : null;
   }
 
-  /** A digest device's credential, or a key device's unexpired session. */
+  /** A key device's unexpired session: the only bearer token a device presents. */
   authenticateToken(token: string | undefined): HostAuthentication | null {
     if (!token) return null;
-    const digest = sha256(token);
     const now = Date.now();
     const device = this.db.query(`
-      SELECT d.id AS device_id, d.account_id, d.last_used_at, NULL AS expires_at
-      FROM devices d JOIN accounts a ON a.id = d.account_id
-      WHERE d.token_digest = ? AND d.revoked_at IS NULL AND a.enabled = 1
-      UNION ALL
       SELECT d.id AS device_id, d.account_id, d.last_used_at, s.expires_at
       FROM device_sessions s JOIN devices d ON d.id = s.device_id JOIN accounts a ON a.id = d.account_id
       WHERE s.token_digest = ? AND s.expires_at > ? AND d.revoked_at IS NULL AND a.enabled = 1
-    `).get(digest, digest, now) as { device_id: string; account_id: string; last_used_at: number | null; expires_at: number | null } | null;
+    `).get(sha256(token), now) as { device_id: string; account_id: string; last_used_at: number | null; expires_at: number } | null;
     if (!device) return null;
     // Skip the write on the hot path while the stored time is recent enough.
     if (device.last_used_at === null || now - device.last_used_at >= LAST_USED_RESOLUTION_MS) {
       this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [now, device.device_id]);
     }
-    return {
-      account: this.account(device.account_id)!, subject: `device:${device.device_id}`, device: device.device_id,
-      ...(device.expires_at !== null ? { expiresAt: device.expires_at } : {}),
-    };
+    return { account: this.account(device.account_id)!, subject: `device:${device.device_id}`, device: device.device_id, expiresAt: device.expires_at };
   }
 
   private deviceRow(value: unknown): ServerDevice | null {
@@ -119,29 +108,19 @@ export class AccountDirectory {
     return Boolean(this.db.query("SELECT 1 FROM devices WHERE id = ?").get(id));
   }
 
-  /** The stored binding for one device of one account, for exact pairing replay. */
-  deviceBinding(id: string, accountID: string): { binding: DeviceBinding; label: string; revokedAt: number | null } | null {
-    const row = this.db.query("SELECT token_digest, public_key, label, revoked_at FROM devices WHERE id = ? AND account_id = ?")
-      .get(id, accountID) as { token_digest: string | null; public_key: string | null; label: string; revoked_at: number | null } | null;
-    if (!row) return null;
-    return {
-      binding: row.public_key !== null ? { publicKey: row.public_key } : { tokenDigest: row.token_digest! },
-      label: row.label,
-      revokedAt: row.revoked_at,
-    };
+  /**
+   * The stored key of one device of one account, for sessions and exact
+   * pairing replay. `publicKey` is null only for a device revoked before
+   * every device had a key; its row stays so its DeviceID is never reused.
+   */
+  deviceBinding(id: string, accountID: string): { publicKey: string | null; label: string; revokedAt: number | null } | null {
+    const row = this.db.query("SELECT public_key, label, revoked_at FROM devices WHERE id = ? AND account_id = ?")
+      .get(id, accountID) as { public_key: string | null; label: string; revoked_at: number | null } | null;
+    return row ? { publicKey: row.public_key, label: row.label, revokedAt: row.revoked_at } : null;
   }
 
-  insertDevice(id: string, accountID: string, label: string, binding: DeviceBinding, at: number): void {
-    this.db.run(
-      "INSERT INTO devices (id, account_id, label, token_digest, public_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, accountID, label, "tokenDigest" in binding ? binding.tokenDigest : null, "publicKey" in binding ? binding.publicKey : null, at],
-    );
-  }
-
-  /** A digest device moves to a key: its credential stops working in the same
-   * transaction. Callers run this inside the transaction that accepts the key. */
-  bindDeviceKey(id: string, publicKey: string): void {
-    this.db.run("UPDATE devices SET public_key = ?, token_digest = NULL WHERE id = ?", [publicKey, id]);
+  insertDevice(id: string, accountID: string, label: string, publicKey: string, at: number): void {
+    this.db.run("INSERT INTO devices (id, account_id, label, public_key, created_at) VALUES (?, ?, ?, ?, ?)", [id, accountID, label, publicKey, at]);
   }
 
   /** End every session of one device; callers run this inside their transaction. */

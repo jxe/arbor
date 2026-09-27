@@ -8,9 +8,10 @@ import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
-  HostAccountStore, ProtocolClient, decodeProtocolDirectory, decodeUpdateRequestJSON, hashObject,
+  HostAccountStore, decodeProtocolDirectory, decodeUpdateRequestJSON, hashObject,
   type UpdateRequest,
 } from "@overstory/protocol";
+import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "folder-deltas-owner";
 let sandbox: string;
@@ -28,18 +29,18 @@ beforeAll(async () => {
   await writeFile(join(folder, "large.md"), large("The original middle line."));
   host = await serveHost({
     dataRoot: join(sandbox, "host"),
-    accounts: [{ handle: "owner", token, communityWriter: true }],
+    accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
   });
-  const owner = new ProtocolClient(host.url, token);
+  const owner = await deviceClient(host.url, token);
   const account = await owner.account();
   const profile = account.account.profileTree!;
   tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder)), { parent: { tree: profile, name: "deltas", kind: "person" } });
   const { values } = await readTreeConfig(owner, profile, "person");
   const device = Object.values(values.devices!).find((candidate) => candidate.administrator)!.id;
-  await installAccountHome(state, owner, device, token, { [folder]: tree });
+  await installAccountHome(state, owner, device, testDevice(token).seed, { [folder]: tree });
 });
 
 afterAll(async () => {
@@ -67,7 +68,7 @@ async function recording<T>(body: (requests: UpdateRequest[], offline: (value: b
 }
 
 async function accepted(path: string): Promise<string> {
-  const owner = new ProtocolClient(host.url, token);
+  const owner = await deviceClient(host.url, token);
   const current = await owner.descriptor(tree);
   const root = decodeProtocolDirectory(await owner.object(tree, current.tree.root));
   const entry = root.entries.find((candidate) => candidate.name === path)!;

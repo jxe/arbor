@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate } from "@overstory/protocol";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 /** canopyd's rule-agnostic acceptance behavior against the reference sidecar
  * in test support, which reads only the object store and the question. */
@@ -12,9 +13,9 @@ const objects = new Map<string, Uint8Array>();
 
 async function start() {
   running = await serveHost({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    accounts: [{ handle: "owner", token: "owner-token", communityWriter: true }],
+    accounts: [testAccount("owner", "owner-token", { communityWriter: true })],
     mergeTool: { command: [process.execPath, sidecar], onTiming: (phase) => { if (phase === "worker-process") questions++; } } });
-  client = new ProtocolClient(running.url, "owner-token");
+  client = await deviceClient(running.url, "owner-token");
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
 beforeEach(async () => {

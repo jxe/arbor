@@ -7,6 +7,7 @@ import { EvaluationFailure } from "../../../packages/canopyd-merge/src/engine-co
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { recordedQuestion, sidecar } from "../../support/replay-check.ts";
+import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 /** A cold rebuild longer than the sidecar's replay budget answers retryably
  * and keeps what it rebuilt, so retries finish it: a long chain after a
@@ -15,8 +16,8 @@ let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: Protoco
 const objects = new Map<string, Uint8Array>();
 const start = async () => {
   running = await serveHost({ dataRoot: dir, publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    accounts: [{ handle: "owner", token: "owner-token", communityWriter: true }] });
-  client = new ProtocolClient(running.url, "owner-token");
+    accounts: [testAccount("owner", "owner-token", { communityWriter: true })] });
+  client = await deviceClient(running.url, "owner-token");
 };
 const stop = async () => { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); };
 beforeAll(async () => { dir = await mkdtemp(`${tmpdir()}/arbor-replay-budget-`); await start(); tree = (await client.account()).account.community.id; });

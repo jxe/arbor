@@ -158,7 +158,7 @@ describe("plural-account CLI place", () => {
       "--place", canonical, "checkout",
     ]);
     expect(created.stderr).toContain("Created reusable cloud bundle");
-    expect(created.stdout).toStartWith("arbor-cloud-v1.cb_");
+    expect(created.stdout).toStartWith("arbor-cloud-v2.cb_");
     expect(created.stdout).not.toContain("From the creator");
 
     const firstRoot = join(sandbox, "cloud-run-one");
@@ -199,7 +199,7 @@ describe("plural-account CLI place", () => {
     expect(listed.bundles).toContainEqual(expect.objectContaining({ bundleID, revokedAt: expect.any(String) }));
     expect(JSON.stringify(listed)).not.toContain(created.stdout);
     expect(await arborFailure(["cloud", "start", created.stdout, "--root", join(sandbox, "cloud-run-revoked"), "--timeout", "2s"]))
-      .toContain("unauthenticated");
+      .toContain("No such key device");
   }, 45_000);
 
   test("declares, mounts and activates a placed tree below the profile, publicly readable when asked", async () => {
@@ -349,7 +349,6 @@ describe("Canopy deployment guards", () => {
       RAILWAY_PROJECT_ID: "",
       RAILWAY_ENVIRONMENT_ID: "",
       ARBOR_DOMAIN: "",
-      ARBOR_ACCOUNT_TOKEN: "",
       ARBOR_ACCOUNTS_JSON: "",
     };
     const missingCommunity = await hostFailure([join(sandbox, "unattended-no-community")], { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "" });

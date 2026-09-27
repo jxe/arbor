@@ -4,12 +4,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HostDaemon } from "@overstory/canopyd";
+import { daemonSession, testAccount } from "../../helpers/devices.ts";
 
 const root = await mkdtemp(join(tmpdir(), "arbor-canopy-queries-"));
 const canopy = await HostDaemon.open(root, {
   handle: "community",
   name: "Community",
-  accounts: [{ handle: "owner", token: "test-token" }],
+  accounts: [testAccount("owner", "test-token")],
 });
 afterAll(async () => {
   await canopy[Symbol.asyncDispose]();
@@ -33,11 +34,12 @@ test("resolve picks the closest enclosing canonical boundary", () => {
   expect(canopy.resolve("/~owner/a")!.tree).toEqual(owner);
 });
 
-test("the authorization epoch moves only when authorization inputs may have changed", () => {
+test("the authorization epoch moves only when authorization inputs may have changed", async () => {
+  const session = await daemonSession(canopy, "test-token");
   const before = canopy.authorizationEpoch();
   canopy.canRead(null, canopy.boundary("/")!.id);
   expect(canopy.authorizationEpoch()).toBe(before);
-  canopy.authenticateToken("test-token");
+  canopy.authenticateToken(session);
   const written = canopy.authorizationEpoch();
   expect(written).not.toBe(before);
   canopy.execution.invalidate();

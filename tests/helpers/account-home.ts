@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostAccountStore, readTreeConfigGraph, saveCurrentAccountDeviceID, type ProtocolClient } from "@overstory/protocol";
 
-/** Install the host's actual account checkout (the profile's configuration) and local-only placements in a disposable home. */
-export async function installAccountHome(home: string, client: ProtocolClient, device: string, credential: string, placements: Record<string, string>) {
+/** Install the host's actual account checkout (the profile's configuration), local-only placements, and the device's key seed in a disposable home. */
+export async function installAccountHome(home: string, client: ProtocolClient, device: string, seed: string, placements: Record<string, string>) {
   const { account } = await client.account();
   const configurationTree = account.configuration.id;
   const descriptor = await client.descriptor(configurationTree);
@@ -16,7 +16,7 @@ export async function installAccountHome(home: string, client: ProtocolClient, d
   process.env.ARBOR_DATA_HOME = home;
   await saveCurrentAccountDeviceID(configurationTree, device);
   const origin = new URL(account.community.canonical!.endpoint).origin;
-  await new HostAccountStore(configurationTree).set(credential, {
+  await new HostAccountStore(configurationTree).setDeviceKey(seed, {
     origin, account: `${origin}/~${account.handle}`,
     accountID: account.id, handle: account.handle!, profileTree: account.profileTree!, deviceID: device,
     configurationRef: descriptor.tree.root, configurationUpdate: descriptor.tree.update,

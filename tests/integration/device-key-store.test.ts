@@ -1,18 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
-import { arborPrivateRoot, HostAccountStore, ProtocolClient, treeConfigurationID } from "@overstory/protocol";
-import { moveToDeviceKey } from "@overstory/client";
-import { editTreeConfig, readTreeConfig } from "../helpers/tree-config.ts";
+import { arborPrivateRoot, HostAccountStore, ProtocolClient, sha256, treeConfigurationID } from "@overstory/protocol";
+import { testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "device-key-store-owner";
-const moverToken = "device-key-store-mover";
 let sandbox: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
-let profileTree: string;
-let deviceID: string;
 const previous = { home: process.env.ARBOR_DATA_HOME, store: process.env.ARBOR_CREDENTIAL_STORE };
 
 beforeAll(async () => {
@@ -21,15 +17,11 @@ beforeAll(async () => {
   process.env.ARBOR_CREDENTIAL_STORE = "file";
   host = await serveHost({
     dataRoot: join(sandbox, "host"),
-    accounts: [{ handle: "owner", token, communityWriter: true }, { handle: "mover", token: moverToken }],
+    accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
   });
-  const owner = new ProtocolClient(host.url, token);
-  const { account } = await owner.account();
-  profileTree = account.profileTree!;
-  deviceID = Object.keys((await readTreeConfig(owner, profileTree, "person")).values.devices!)[0]!;
 });
 
 afterAll(async () => {
@@ -41,29 +33,19 @@ afterAll(async () => {
 });
 
 describe("an installation's device key", () => {
-  test("a digest device keeps its credential until the host lists its key, then uses sessions", async () => {
+  test("the store keeps only the key and hands out sessions it opens", async () => {
+    const { profileTree, device: deviceID, seed, key } = testDevice(token);
     const store = new HostAccountStore(treeConfigurationID(profileTree));
-    await store.set(token, { origin: host.url, account: `${host.url}/~owner`, accountID: profileTree, profileTree, deviceID });
-    const key = await store.prepareDeviceKey();
-    expect(await store.prepareDeviceKey()).toBe(key);
-    expect((await store.get())!.accountToken).toBe(token);
-
-    // The move itself, as any client submits it with its credential.
-    await editTreeConfig(new ProtocolClient(host.url, token), profileTree, "person", (values) => ({
-      ...values, devices: { ...values.devices, [deviceID]: { ...values.devices![deviceID]!, key } },
-    }));
-
-    // The old credential now fails; after that 401 the store sees the key
-    // listed, adopts it and drops the credential.
-    await expect(new ProtocolClient(host.url, token).account()).rejects.toThrow("unauthenticated");
-    await store.forgetSession();
-    const connected = (await new HostAccountStore(treeConfigurationID(profileTree)).get())!;
-    expect(connected.record.deviceKey).toBe(key);
-    expect(connected.accountToken).not.toBe(token);
-    expect((await new ProtocolClient(host.url, connected.accountToken).account()).account.profileTree).toBe(profileTree);
+    const record = await store.setDeviceKey(seed, { origin: host.url, account: `${host.url}/~owner`, accountID: profileTree, profileTree, deviceID });
+    expect(record).toMatchObject({ credential: "file:device-key", deviceKey: key });
     const account = join(arborPrivateRoot(), "accounts", treeConfigurationID(profileTree));
-    expect(await readFile(join(account, "device-key"), "utf8")).toHaveLength(43);
+    expect(await readFile(join(account, "device-key"), "utf8")).toBe(seed);
     await expect(readFile(join(account, "credential"), "utf8")).rejects.toThrow("ENOENT");
+
+    const connected = (await store.get())!;
+    expect(connected.accountToken).not.toBe(seed);
+    expect(connected.accountToken).toStartWith("ars_");
+    expect((await new ProtocolClient(host.url, connected.accountToken).account()).account.profileTree).toBe(profileTree);
 
     // The session is reused until close to expiry, and replaced once forgotten.
     expect((await store.get())!.accountToken).toBe(connected.accountToken);
@@ -78,21 +60,16 @@ describe("an installation's device key", () => {
     expect(new Set(concurrent.map((each) => each!.accountToken)).size).toBe(1);
   });
 
-  test("moveToDeviceKey adds the key to this device's entry, adopts it, and is idempotent", async () => {
-    const mover = new ProtocolClient(host.url, moverToken);
-    const { account } = await mover.account();
-    const profile = account.profileTree!;
-    const configuration = treeConfigurationID(profile);
-    const before = await readTreeConfig(mover, profile, "person");
-    const device = Object.keys(before.values.devices!)[0]!;
-    await new HostAccountStore(configuration).set(moverToken, { origin: host.url, account: `${host.url}/~mover`, accountID: profile, profileTree: profile, deviceID: device });
-
-    const moved = await moveToDeviceKey(configuration);
-    expect(moved.deviceKey).toMatch(/^ed25519:/);
-    await expect(mover.account()).rejects.toThrow("unauthenticated");
-    const session = (await new HostAccountStore(configuration).get())!.accountToken;
-    const after = await readTreeConfig(new ProtocolClient(host.url, session), profile, "person");
-    expect(after.values.devices).toEqual({ ...before.values.devices, [device]: { ...before.values.devices![device]!, key: moved.deviceKey } });
-    expect((await moveToDeviceKey(configuration)).deviceKey).toBe(moved.deviceKey);
+  test("a connection saved with a bearer credential and no key is never used", async () => {
+    const { profileTree, device } = testDevice("device-key-store-credential");
+    const configurationTree = treeConfigurationID(profileTree);
+    const directory = join(arborPrivateRoot(), "accounts", configurationTree);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "credential"), "arb_before_device_keys");
+    await writeFile(join(directory, "connection.json"), JSON.stringify({
+      configurationTree, origin: host.url, account: `${host.url}/~owner`, accountID: profileTree, profileTree, deviceID: device,
+      credential: "file:credential", tokenDigest: sha256("arb_before_device_keys"), connected: true,
+    }));
+    expect(await new HostAccountStore(configurationTree).get()).toBeNull();
   });
 });

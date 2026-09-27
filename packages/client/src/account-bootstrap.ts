@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { MutationReceipt } from "@overstory/protocol";
-import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, sha256, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
+import { deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadAccountConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
@@ -19,9 +19,8 @@ interface PendingAccountClaimBootstrap {
   profileTree: string;
   configurationTree: string;
   deviceID: string;
-  /** The device's key; a claim prepared before keys carries a credential digest instead. */
-  key?: string;
-  credentialDigest?: `sha256:${string}`;
+  /** The device's key, whose seed waits in the provisional slot until the claim lands. */
+  key: string;
   /** The profile configuration's files, installed as the account checkout, and `placements.yaml`. */
   files: Record<string, string>;
   configuration: TreeSnapshotJSON;
@@ -105,8 +104,7 @@ async function claimAccountProfileBootstrap(
       throw new ProtocolError("conflict", "A different invitation code is already pending for this account", 409);
     }
     if (inviteCode && !pending.inviteCode) pending.inviteCode = inviteCode;
-    const matches = credential && (pending.key ? deviceKeyFromSeed(credential) === pending.key : `sha256:${sha256(credential)}` === pending.credentialDigest);
-    if (!matches) {
+    if (!credential || !pending.key || deviceKeyFromSeed(credential) !== pending.key) {
       throw new ProtocolError("conflict", "The pending account credential is unavailable", 409);
     }
   } else {
@@ -214,9 +212,7 @@ async function claimAccountProfileBootstrap(
       challenge: pending.challenge!,
       publicKey: pending.publicKey!,
       signature: pending.signature!,
-      device: pending.key
-        ? { id: pending.deviceID, label: pending.label, key: pending.key }
-        : { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest! },
+      device: { id: pending.deviceID, label: pending.label, key: pending.key },
       configuration: bootstrapSnapshot(pending.configuration),
     });
   };
@@ -273,10 +269,8 @@ async function claimAccountProfileBootstrap(
     configurationRef: result.account.configuration.root,
     configurationUpdate: result.account.configuration.update,
   };
-  if (pending.key) {
-    await store.setDeviceKey(credential, connection);
-    await store.clearProvisionalCredential();
-  } else await store.set(credential, connection);
+  await store.setDeviceKey(credential, connection);
+  await store.clearProvisionalCredential();
   await rm(pendingPath, { force: true });
   // The claim declared the profile tree; its first snapshot activates it at
   // the community's /~handle. A later retry can do the same.

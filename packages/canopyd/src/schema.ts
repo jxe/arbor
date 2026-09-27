@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "25";
+export const CANOPY_SCHEMA_VERSION = "26";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "governs"],
@@ -18,7 +18,7 @@ export const AUTHORITY_SCHEMA = {
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
   accounts: ["id", "handle", "enabled", "claim_digest"],
-  devices: ["id", "account_id", "label", "token_digest", "public_key", "created_at", "last_used_at", "revoked_at"],
+  devices: ["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   challenges: ["id", "purpose", "challenge_json", "expires_at", "consumed_at"],
   device_sessions: ["token_digest", "device_id", "created_at", "expires_at"],
@@ -56,8 +56,9 @@ export function createTreeConfigIndex(db: Database): void {
 }
 
 /**
- * A device's binding: a digest device's credential digest, or a key device's
- * public key as its `devices.yaml` entry spells it. Exactly one is set.
+ * Every device a profile ever enrolled, by DeviceID, which is never reused:
+ * its public key as its `devices.yaml` entry spells it. Only a device revoked
+ * before every device had a key has none.
  */
 export function createDevicesTable(db: Database): void {
   db.run(`
@@ -65,12 +66,11 @@ export function createDevicesTable(db: Database): void {
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
       label TEXT NOT NULL,
-      token_digest TEXT UNIQUE,
       public_key TEXT UNIQUE,
       created_at INTEGER NOT NULL,
       last_used_at INTEGER,
       revoked_at INTEGER,
-      CHECK ((token_digest IS NULL) <> (public_key IS NULL))
+      CHECK (public_key IS NOT NULL OR revoked_at IS NOT NULL)
     )
   `);
 }
@@ -91,7 +91,7 @@ export function createChallengesTable(db: Database): void {
   `);
 }
 
-/** Key devices' open sessions, by token digest. */
+/** Devices' open sessions, by token digest. */
 export function createDeviceSessionsTable(db: Database): void {
   db.run(`
     CREATE TABLE device_sessions (

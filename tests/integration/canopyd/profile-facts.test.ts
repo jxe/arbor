@@ -10,6 +10,7 @@ import {
   type ObjectHash, type ProtocolDirectoryEntry,
 } from "@overstory/protocol";
 import { PhaseTimer } from "../../../packages/canopyd/src/updates/timing.ts";
+import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 
 const ownerToken = "profile-facts-owner", bobToken = "profile-facts-bob";
 let sandbox: string, running: Awaited<ReturnType<typeof serveHost>>, owner: ProtocolClient;
@@ -69,10 +70,10 @@ beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-profile-facts-"));
   running = await serveHost({
     dataRoot: join(sandbox, "canopy"),
-    accounts: [{ handle: "owner", token: ownerToken, communityWriter: true }, { handle: "bob", token: bobToken, communityWriter: false }],
+    accounts: [testAccount("owner", ownerToken, { communityWriter: true }), testAccount("bob", bobToken, { communityWriter: false })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
   });
-  owner = new ProtocolClient(running.url, ownerToken);
+  owner = await deviceClient(running.url, ownerToken);
   const account = (await owner.account()).account;
   const snapshotOf = (text: string) => {
     const bytes = encoder.encode(text), file = hashObject(bytes);
@@ -170,7 +171,7 @@ test("a tree that gains type: group is a group for authorization in the same acc
   expect(running.canopy.rootProfileType(ids.club)).toBe("group");
   expect(running.canopy.canRead(bob, ids.notes)).toBe(true);
   // The directory finds the group through its stored row.
-  const response = await fetch(`${running.url}/.arbor/directory`, { headers: { authorization: `Bearer ${ownerToken}` } });
+  const response = await fetch(`${running.url}/.arbor/directory`, { headers: { authorization: `Bearer ${await deviceSession(running.url, ownerToken)}` } });
   expect(response.status).toBe(200);
   const directory = await response.json() as { snapshot: Array<{ profile: string; kind: string; sources: string[] }> };
   const club = directory.snapshot.find((entry) => entry.profile === ids.club)!;

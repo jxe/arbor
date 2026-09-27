@@ -24,7 +24,7 @@ afterEach(async () => {
 
 function payload(overrides: Partial<CloudBundlePayload> = {}): CloudBundlePayload {
   return {
-    version: 1,
+    version: 2,
     bundleID: "cb_0123456789abcdefghij",
     label: "Cloud agent",
     createdAt: "2026-09-06T12:00:00.000Z",
@@ -34,7 +34,7 @@ function payload(overrides: Partial<CloudBundlePayload> = {}): CloudBundlePayloa
     configurationTree: "tr_abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst",
     profileTree: "tr_bcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstu",
     deviceID: "dv_abcdefghijklmnopqrstuvwxyz",
-    credential: `arb_${"a".repeat(64)}`,
+    deviceKeySeed: "A".repeat(43),
     placements: [{
       treeID: "tr_cdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv",
       canonicalURL: "https://garden.example/~joe/code",
@@ -48,14 +48,14 @@ describe("cloud bundle strings", () => {
   test("round-trip authorization and placements in a versioned opaque string", () => {
     const original = payload();
     const encoded = encodeCloudBundle(original);
-    expect(encoded.startsWith(`arbor-cloud-v1.${original.bundleID}.`)).toBe(true);
+    expect(encoded.startsWith(`arbor-cloud-v2.${original.bundleID}.`)).toBe(true);
     expect(decodeCloudBundle(encoded)).toEqual(original);
   });
 
   test("decodes a bundle Canopy's Share panel encoded", () => {
-    // Made by `CanopyCloudBundle.encode` (swift/CanopyApp/CanopyAgentBundle.swift):
-    // Apple's raw DEFLATE of sorted-key JSON must stay readable here.
-    const fromCanopy = "arbor-cloud-v1.cb_0123456789abcdefghij.pZLBTsMwDIZfZcqZrmmBwnqbxAWJA0LjAkKTm7htRpqUNCmDaTw77jq0C0wCohwi54v9-3c2DISwwXiWs9r7tsvjuAIn0UxxDU2rMf5YWWQnX9z1FZH7c5RQvAhGatyFRbHkSXp6dp5dXM6gEBLLqlYrgoQ1paqCA6-sWThEor1bHphn3RjbvrjOh_51_fY-ZvnufsjmEDzK-SA65WkW8VnEs0WS5pzTnnLOH0aM-vAK9CDZFUv456KcEnslxm5lf0Q_oRoKHCrPKxIxKa2bCCsHJ61TlTI_Gk5Eq0FgQ886lj9umABjjRKg7-9ujs8p3pdwqMnqHm_B18Ngxqgn43fSyfrfGx96tn0ibc6WSuNhiH-YYSAxPbqOPgPLk-0n";
+    // The form `CanopyCloudBundle.encode` (swift/CanopyApp/CanopyAgentBundle.swift)
+    // makes: raw DEFLATE of sorted-key JSON, which must stay readable here.
+    const fromCanopy = "arbor-cloud-v2.cb_0123456789abcdefghij.nVHBTsMwDP2VyedszQoMltskLggOCMYFhKY0cbuMLCmuWzam8e2olLELTIBPlv3sZ7-3AW1MrAODgjlzWakkKTRZDANc6WXpMXlbRASxw12cg9rl_SEIyOpgPX6UTTaTw_To-GR0ejbWmbGYF3O3AAEmhtwVNWl2MUwJERQwzfaYJ78MsXymiuvmZbV-7bZ812-3EWpGO2mPTmU66stxX46mw1RJqaQcSCnvQYDFxpnuMtsc4PqCXuL6FtGCgsnvAwR4naFvpwoM3Msj9Uy0rWaRXOHCj9KCgNJrg0sMXIF62IDRIQZntL-7uTrsSPJJQeg1uwavNc9bC7oqE3aPM83-LnHdwPZRQEkxdx73dv3DrRoENEiViwFUun0H";
     expect(decodeCloudBundle(fromCanopy)).toEqual(payload({
       label: "Agent for code",
       placements: [{ ...payload().placements[0]!, relativePath: "code" }],
@@ -64,7 +64,7 @@ describe("cloud bundle strings", () => {
 
   test("rejects corrupt, unsupported, and mismatched payloads", () => {
     const encoded = encodeCloudBundle(payload());
-    expect(() => decodeCloudBundle(encoded.replace("arbor-cloud-v1", "arbor-cloud-v2"))).toThrow("unsupported version");
+    expect(() => decodeCloudBundle(encoded.replace("arbor-cloud-v2", "arbor-cloud-v1"))).toThrow("unsupported version");
     expect(() => decodeCloudBundle(`${encoded.slice(0, -3)}xxx`)).toThrow("corrupt");
     expect(() => decodeCloudBundle(encoded.replace("cb_0123456789abcdefghij", "cb_0123456789abcdefghik"))).toThrow("does not match");
   });
@@ -85,7 +85,7 @@ describe("cloud bundle strings", () => {
     }] }))).toThrow(`${MAX_CLOUD_BUNDLE_LENGTH}-character limit`);
   });
 
-  test("safe registry never stores the credential or placements", async () => {
+  test("safe registry never stores the device key or placements", async () => {
     const home = await mkdtemp(join(tmpdir(), "arbor-cloud-registry-"));
     temporaryHomes.push(home);
     process.env.ARBOR_CLOUD_HOME = home;
@@ -107,7 +107,7 @@ describe("cloud bundle strings", () => {
       configurationTree: payload().configurationTree,
       deviceID: payload().deviceID,
     }]);
-    expect(JSON.stringify(await loadCloudBundles())).not.toContain("credential");
+    expect(JSON.stringify(await loadCloudBundles())).not.toContain("deviceKeySeed");
     expect(JSON.stringify(await loadCloudBundles())).not.toContain("placements");
   });
 
@@ -143,8 +143,8 @@ describe("cloud bundle strings", () => {
       account: "https://garden.example/~joe",
       configurationTree: payload().configurationTree,
       deviceID: payload().deviceID,
-      credential: payload().credential,
+      deviceKeySeed: payload().deviceKeySeed,
     }]));
-    expect(loadCloudBundles()).rejects.toThrow("unknown fields: credential");
+    expect(loadCloudBundles()).rejects.toThrow("unknown fields: deviceKeySeed");
   });
 });

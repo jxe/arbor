@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { ProtocolClient, decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
+import { decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -51,7 +52,7 @@ try {
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
-    accounts: [{ handle: "owner", token: authorityToken, communityWriter: true }],
+    accounts: [testAccount("owner", authorityToken, { communityWriter: true })],
   });
   try {
     await mkdir(home, { recursive: true });
@@ -61,7 +62,7 @@ try {
     await writeFile(join(treeDir, "photo.bin"), new Uint8Array([1, 2, 3, 4, 5]));
     await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
 
-    const owner = new ProtocolClient(canopy.url, authorityToken);
+    const owner = await deviceClient(canopy.url, authorityToken);
     const account = await owner.account();
     const profile = account.account.profileTree!;
     const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
@@ -78,7 +79,7 @@ try {
 
     // Materialize the accepted configuration checkout into the data home and
     // record the device and community credential the daemon reads at start.
-    await installAccountHome(home, owner, device, authorityToken, { [treeDir]: tree });
+    await installAccountHome(home, owner, device, testDevice(authorityToken).seed, { [treeDir]: tree });
 
     const control = await serveArborSyncControl({ port: 0, syncIntervalMs: 60_000 });
     try {

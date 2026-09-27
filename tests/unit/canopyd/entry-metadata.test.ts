@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
 import { documentKey, entryChanges } from "../../../packages/canopyd/src/updates/entry-metadata.ts";
+import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 
 const objects = new Map<ObjectHash, Uint8Array>();
 const file = (text: string) => { const bytes = new TextEncoder().encode(text), hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
@@ -48,8 +49,8 @@ let data: string, running: Awaited<ReturnType<typeof serveHost>>, client: Protoc
 const token = "entry-metadata-owner";
 beforeEach(async () => {
   data = await mkdtemp(`${tmpdir()}/arbor-entry-metadata-`);
-  running = await serveHost({ dataRoot: data, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
-  client = new ProtocolClient(running.url, token);
+  running = await serveHost({ dataRoot: data, accounts: [testAccount("owner", token, { communityWriter: true })], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
+  client = await deviceClient(running.url, token);
 });
 afterEach(async () => { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); await rm(data, { recursive: true, force: true }); });
 
@@ -72,7 +73,7 @@ test("accepted updates keep entry times and document versions, served by the met
     return result.update;
   };
   const route = async () => {
-    const response = await fetch(`${running.url}/.arbor/trees/${encodeURIComponent(tree)}/entry-metadata`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await fetch(`${running.url}/.arbor/trees/${encodeURIComponent(tree)}/entry-metadata`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` } });
     return await response.json() as { update: string; entries: Record<string, { modifiedAt: number }> };
   };
   const page = "---\nid: pg_trip\n---\nTrip";
@@ -97,5 +98,5 @@ test("accepted updates keep entry times and document versions, served by the met
   const anonymous = await fetch(`${running.url}/.arbor/trees/${encodeURIComponent(tree)}/entry-metadata`);
   const snapshot = await fetch(`${running.url}/.arbor/trees/${encodeURIComponent(tree)}/snapshots/${head.root}`);
   expect(anonymous.status).toBe(snapshot.status);
-  expect((await fetch(`${running.url}/.arbor/trees/tr_missing/entry-metadata`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(404);
+  expect((await fetch(`${running.url}/.arbor/trees/tr_missing/entry-metadata`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` } })).status).toBe(404);
 });

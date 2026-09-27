@@ -11,7 +11,10 @@ if [[ "$role" == "community" ]]; then
   install -d -o arbor -g arbor -m 0700 /var/lib/arbor-canopy
   if [[ ! -f /etc/arbor-canopy.env ]]; then
     umask 077
-    printf 'ARBOR_ACCOUNT_HANDLE=owner\nARBOR_ACCOUNT_TOKEN=%s\n' "$(openssl rand -hex 32)" > /etc/arbor-canopy.env
+    # The owner account's first device is a key device whose seed stays
+    # root-only here; the lab runner reads it to open owner sessions.
+    /usr/local/bin/bun "$lab/lab-node.ts" owner-device > /etc/arbor-canopy-owner.json
+    printf "ARBOR_ACCOUNTS_JSON='%s'\n" "$(/usr/local/bin/bun "$lab/lab-node.ts" owner-accounts < /etc/arbor-canopy-owner.json)" > /etc/arbor-canopy.env
   fi
   # An empty data directory creates the community only when its handle is set.
   if ! grep -q '^ARBOR_COMMUNITY_HANDLE=' /etc/arbor-canopy.env; then
@@ -46,8 +49,8 @@ case "$role:$content_path" in
   *) printf 'Unexpected client placement: %s:%s\n' "$role" "$content_path" >&2; exit 2 ;;
 esac
 
-# Standard input carries {ownerToken, label, administrator}: the owner
-# credential offers one pairing and is not written anywhere on this machine.
+# Standard input carries {owner, label, administrator}: the owner's device
+# offers one pairing and is not written anywhere on this machine.
 connect_request="$(cat)"
 if [[ -z "$connect_request" ]]; then
   printf 'Client configuration requires the pairing request on stdin\n' >&2

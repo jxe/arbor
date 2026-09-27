@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type AccountConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, HostAccountStore, arborDataRoot, loadAccountConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type AccountConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@overstory/arborsync";
 import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
-import { moveToDeviceKey } from "@overstory/client";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { listLocalAccounts } from "@overstory/arborsync/state";
 import { addLocalPlacement, backupIsEncrypted, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
@@ -91,7 +90,6 @@ function usage(): never {
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
   arbor device [--account <ConfigurationTreeID>]
-  arbor device move-to-key [--account <ConfigurationTreeID>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor status [<locator>] [--json]
   arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
@@ -906,10 +904,10 @@ async function createCloudBundle(args: string[]): Promise<void> {
     const label = (requested.label ?? `Cloud bundle ${bundleID.slice(-8)}`).trim();
     if (!label || label.length > 100) throw new Error("Cloud bundle name must be from 1 through 100 characters");
     const deviceID = generateArborID("dv");
-    const credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    const deviceKeySeed = generateDeviceKeySeed();
     const createdAt = new Date().toISOString();
     const payload: CloudBundlePayload = {
-      version: 1,
+      version: 2,
       bundleID,
       label,
       createdAt,
@@ -919,7 +917,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       configurationTree: selected.configuration.configurationTree,
       profileTree: selected.connection.record.profileTree,
       deviceID,
-      credential,
+      deviceKeySeed,
       placements,
     };
     const encoded = encodeCloudBundle(payload);
@@ -928,7 +926,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
     await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
       id: deviceID,
       label,
-      credentialDigest: `sha256:${sha256(credential)}`,
+      key: deviceKeyFromSeed(deviceKeySeed),
     });
     await saveCloudBundleRecord({
       bundleID,
@@ -1029,7 +1027,8 @@ async function directoryIsEmpty(path: string): Promise<boolean> {
 
 async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudSessionRecord): Promise<void> {
   await withEnvironment({ ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" }, async () => {
-    const wire = new ProtocolClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+    const opened = await openDeviceSession(payload.origin, payload.profileTree, payload.deviceID, payload.deviceKeySeed);
+    const wire = new ProtocolClient(payload.origin, opened.token, { timeoutMs: 60_000 });
     const account = await wire.account();
     if (
       account.account.id !== payload.accountID
@@ -1045,7 +1044,7 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
       if (!bytes) throw new Error(`Account configuration snapshot is missing ${hash}`);
       return Promise.resolve(bytes);
     });
-    await new HostAccountStore(payload.configurationTree).set(payload.credential, {
+    await new HostAccountStore(payload.configurationTree).setDeviceKey(payload.deviceKeySeed, {
       origin: payload.origin,
       account: payload.account,
       accountID: payload.accountID,
@@ -1107,14 +1106,27 @@ async function waitForCloudOrigin(session: CloudSessionRecord, deadline: number)
   throw new Error("Cloud Arbor Sync did not become reachable before the timeout");
 }
 
+/** The cloud session's account at its Canopy: the session token its device key opened there. */
+interface CloudAccountAccess { origin: string; token: string; configurationTree: string }
+
+/** The cloud session's account access, from the session's own data home. */
+async function cloudAccountAccess(session: CloudSessionRecord): Promise<CloudAccountAccess> {
+  const connection = await withEnvironment(
+    { ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
+    () => new HostAccountStore(session.configurationTree).get(),
+  );
+  if (!connection) throw new Error("Cloud session credential is unavailable");
+  return { origin: connection.record.origin, token: connection.accountToken, configurationTree: connection.record.configurationTree };
+}
+
 async function cloudPlacementsReady(
   session: CloudSessionRecord,
-  payload: Pick<CloudBundlePayload, "origin" | "credential" | "configurationTree">,
+  payload: CloudAccountAccess,
 ): Promise<{ ready: boolean; reason?: string }> {
   if (!session.origin) return { ready: false, reason: "Arbor Sync has no recorded origin" };
   const client = new ArborSyncRESTClient({ baseURL: session.origin });
   const local = (await client.trees()).snapshot;
-  const wire = new ProtocolClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+  const wire = new ProtocolClient(payload.origin, payload.token, { timeoutMs: 60_000 });
   for (const target of session.placements) {
     const descriptor = local.find((candidate) =>
       candidate.id === target.treeID
@@ -1139,7 +1151,7 @@ async function cloudPlacementsReady(
 
 async function waitForCloudPlacements(
   session: CloudSessionRecord,
-  payload: Pick<CloudBundlePayload, "origin" | "credential" | "configurationTree">,
+  payload: CloudAccountAccess,
   deadline: number,
 ): Promise<void> {
   let reason = "placements are not ready";
@@ -1236,7 +1248,7 @@ async function startCloud(args: string[]): Promise<void> {
     if (!session.origin) throw new Error("Cloud Arbor Sync origin is unavailable");
     const client = new ArborSyncRESTClient({ baseURL: session.origin });
     await client.synchronizeNow(payload.configurationTree);
-    await waitForCloudPlacements(session, payload, deadline);
+    await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
     const result = { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin: session.origin, placements: session.placements };
@@ -1284,16 +1296,7 @@ async function finishCloud(args: string[]): Promise<void> {
   await saveCloudSession(session);
   try {
     const deadline = Date.now() + options.timeoutMs;
-    const connection = await withEnvironment(
-      { ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
-      () => new HostAccountStore(session!.configurationTree).get(),
-    );
-    if (!connection) throw new Error("Cloud session credential is unavailable");
-    const payload = {
-      origin: connection.record.origin,
-      credential: connection.accountToken,
-      configurationTree: connection.record.configurationTree,
-    };
+    const payload = await cloudAccountAccess(session);
     const client = new ArborSyncRESTClient({ baseURL: session.origin });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, payload, deadline);
@@ -1610,7 +1613,7 @@ async function main(): Promise<void> {
   }
   if (command === "device") {
     const [action, ...rest] = args[0]?.startsWith("-") ? [undefined, ...args] : args;
-    if (action !== undefined && action !== "move-to-key") usage();
+    if (action !== undefined) usage();
     let configurationTree: string | undefined;
     for (let index = 0; index < rest.length; index += 1) {
       if (rest[index] === "--account" && rest[index + 1]) configurationTree = rest[++index];
@@ -1625,10 +1628,9 @@ async function main(): Promise<void> {
         ? `Several accounts are connected; name one with --account: ${accounts.map((candidate) => candidate.configurationTree).join(", ")}`
         : "No connected account matches");
     }
-    const moved = action === "move-to-key" ? await moveToDeviceKey(record.configurationTree) : record;
-    console.log(`Account: ${moved.account}`);
-    console.log(`Device: ${moved.deviceID}`);
-    console.log(moved.deviceKey ? `Signs in with key: ${moved.deviceKey}` : "Signs in with a credential; `arbor device move-to-key` moves it to a key");
+    console.log(`Account: ${record.account}`);
+    console.log(`Device: ${record.deviceID}`);
+    console.log(`Signs in with key: ${record.deviceKey}`);
     return;
   }
   if (command === "daemon") {

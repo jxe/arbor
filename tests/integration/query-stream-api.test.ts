@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serveHost } from "@overstory/canopyd";
 import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@overstory/protocol";
+import { deviceSession, testAccount } from "../helpers/devices.ts";
 
 const request: QueryStreamRequest = {
   document: { tree: "tr_source", path: "/index", version: "doc-v1" },
@@ -68,17 +69,18 @@ describe("stateless query stream HTTP contract", () => {
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
-      accounts: [{ handle: "owner", token, communityWriter: true }],
+      accounts: [testAccount("owner", token, { communityWriter: true })],
       queryRuntime: runtime,
       mutationRuntime: mutations,
     });
     try {
-      const account = await fetch(`${running.url}/.arbor/account`, { headers: { authorization: `Bearer ${token}` } }).then((response) => response.json()) as any;
+      const session = await deviceSession(running.url, token);
+      const account = await fetch(`${running.url}/.arbor/account`, { headers: { authorization: `Bearer ${session}` } }).then((response) => response.json()) as any;
       const tree = account.account.profileTree as string;
       const wireRequest = requestFor(tree);
       const response = await fetch(`${running.url}/.arbor/trees/${tree}/queries`, {
         method: "QUERY",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
         body: JSON.stringify(wireRequest),
       });
       expect(response.status).toBe(200);
@@ -92,7 +94,7 @@ describe("stateless query stream HTTP contract", () => {
       };
       const mutationResponse = await fetch(`${running.url}/.arbor/trees/${tree}/mutate`, {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
         body: JSON.stringify(mutation),
       });
       expect(mutationResponse.status).toBe(200);

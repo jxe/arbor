@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { stableJSONString } from "@overstory/protocol";
 
-export const CLOUD_BUNDLE_PREFIX = "arbor-cloud-v1";
+export const CLOUD_BUNDLE_PREFIX = "arbor-cloud-v2";
 export const MAX_CLOUD_BUNDLE_LENGTH = 32 * 1024;
 
 export interface CloudBundlePlacement {
@@ -13,8 +13,9 @@ export interface CloudBundlePlacement {
   relativePath: string;
 }
 
+/** What `arbor cloud start` needs to act as the bundle's own key device. */
 export interface CloudBundlePayload {
-  version: 1;
+  version: 2;
   bundleID: string;
   label: string;
   createdAt: string;
@@ -24,7 +25,8 @@ export interface CloudBundlePayload {
   configurationTree: string;
   profileTree: string;
   deviceID: string;
-  credential: string;
+  /** The Ed25519 seed of the bundle device's key, in unpadded base64url. */
+  deviceKeySeed: string;
   placements: CloudBundlePlacement[];
 }
 
@@ -140,9 +142,9 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
   const payload = record(value, "cloud bundle");
   exactFields(payload, [
     "version", "bundleID", "label", "createdAt", "origin", "account", "accountID",
-    "configurationTree", "profileTree", "deviceID", "credential", "placements",
+    "configurationTree", "profileTree", "deviceID", "deviceKeySeed", "placements",
   ], "cloud bundle");
-  if (payload.version !== 1) throw new Error("Cloud bundle version is unsupported");
+  if (payload.version !== 2) throw new Error("Cloud bundle version is unsupported");
   const bundleID = cloudBundleID(payload.bundleID);
   const origin = normalizedOrigin(payload.origin, "cloud bundle origin");
   const account = nonempty(payload.account, "cloud bundle account");
@@ -151,8 +153,8 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
   const profileTree = treeID(payload.profileTree, "cloud bundle profile tree");
   const deviceID = nonempty(payload.deviceID, "cloud bundle device ID");
   if (!/^dv_[a-z2-7]{26}$/.test(deviceID)) throw new Error("Cloud bundle device ID is invalid");
-  const credential = nonempty(payload.credential, "cloud bundle credential");
-  if (!/^arb_[a-f0-9]{64}$/.test(credential)) throw new Error("Cloud bundle credential is invalid");
+  const deviceKeySeed = nonempty(payload.deviceKeySeed, "cloud bundle device key");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(deviceKeySeed)) throw new Error("Cloud bundle device key is invalid");
   if (!Array.isArray(payload.placements) || !payload.placements.length) throw new Error("Cloud bundle requires at least one placement");
   const placements = payload.placements.map((candidate, index): CloudBundlePlacement => {
     const placement = record(candidate, `cloud bundle placement ${index + 1}`);
@@ -171,7 +173,7 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
     throw new Error("Cloud bundle places the same tree more than once");
   }
   return {
-    version: 1,
+    version: 2,
     bundleID,
     label: nonempty(payload.label, "cloud bundle label"),
     createdAt: nonempty(payload.createdAt, "cloud bundle creation time"),
@@ -181,7 +183,7 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
     configurationTree,
     profileTree,
     deviceID,
-    credential,
+    deviceKeySeed,
     placements,
   };
 }
@@ -198,7 +200,7 @@ export function encodeCloudBundle(payloadInput: CloudBundlePayload): string {
 
 export function decodeCloudBundle(input: string): CloudBundlePayload {
   if (input.length > MAX_CLOUD_BUNDLE_LENGTH) throw new Error("Cloud bundle exceeds the supported size limit");
-  const match = /^arbor-cloud-v1\.(cb_[a-z0-9]{20,64})\.([A-Za-z0-9_-]+)$/.exec(input);
+  const match = /^arbor-cloud-v2\.(cb_[a-z0-9]{20,64})\.([A-Za-z0-9_-]+)$/.exec(input);
   if (!match) throw new Error("Cloud bundle is malformed or uses an unsupported version");
   let decoded: unknown;
   try {
