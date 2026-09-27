@@ -119,6 +119,12 @@ const directoryOf = (bytes: Uint8Array): ProtocolDirectory => {
     return fail(error instanceof Error ? error.message : "Invalid directory object");
   }
 };
+/** Decisions by key, the first of a key winning, as `find` by key would. */
+const byKey = <T extends { key: string }>(decisions: readonly T[]): Map<string, T> => {
+  const keyed = new Map<string, T>();
+  for (const decision of decisions) if (!keyed.has(decision.key)) keyed.set(decision.key, decision);
+  return keyed;
+};
 const components = (path: string): string[] => {
   if (
     !path.startsWith("/") ||
@@ -1317,11 +1323,13 @@ class Engine {
     let added: Array<readonly [key: "origins" | "effects" | "outputs", records: Array<[string, unknown]>]> | undefined;
     const addedHistory = () => (added ??= (["origins", "effects", "outputs"] as const)
       .map((map) => [map, Object.entries(since(authored[map], base[map]))] as const));
+    // Neither list gains, loses or replaces a decision below.
+    const baseDecisions = byKey(base.decisions), authoredDecisions = byKey(authored.decisions);
     for (const decision of authored.decisions) {
       if (
         same(
           decision,
-          base.decisions.find((d) => d.key === decision.key)
+          baseDecisions.get(decision.key)
         )
       )
         continue;
@@ -1425,7 +1433,7 @@ class Engine {
             );
           context.decisions[context.decisions.indexOf(retained)] = updated;
           for (const [index, child] of context.decisions.entries()) {
-            const latest = authored.decisions.find((d) => d.key === child.key);
+            const latest = authoredDecisions.get(child.key);
             if (latest?.context && child.key !== updated.key)
               context.decisions[index] = clone(latest);
           }
@@ -2125,12 +2133,18 @@ class Engine {
       // Merging edits `merged` only, so the candidate records once as well.
       let candidateRecord: Promise<{ object: string; state: string }> | undefined;
       const recordCandidate = () => (candidateRecord ??= this.record(authored));
+      // Each key's first index in `merged.decisions`, kept as it grows.
+      const baseDecisions = byKey(base.decisions), mergedIndex = new Map<string, number>();
+      for (const [index, decision] of merged.decisions.entries())
+        if (!mergedIndex.has(decision.key)) mergedIndex.set(decision.key, index);
       for (const decision of authored.decisions) {
-        const before = base.decisions.find((d) => d.key === decision.key),
-          index = merged.decisions.findIndex((d) => d.key === decision.key);
+        const before = baseDecisions.get(decision.key),
+          index = mergedIndex.get(decision.key) ?? -1;
         if (!same(before, decision)) {
-          if (index < 0 && !before) merged.decisions.push(clone(decision));
-          else if (index < 0 || !same(merged.decisions[index], before))
+          if (index < 0 && !before) {
+            merged.decisions.push(clone(decision));
+            mergedIndex.set(decision.key, merged.decisions.length - 1);
+          } else if (index < 0 || !same(merged.decisions[index], before))
             affected.push(...decision.affected);
           else merged.decisions[index] = clone(decision);
         }
@@ -2734,10 +2748,12 @@ class Engine {
           "alternatives",
         ] as const)
           resultState[map] = union(current[map], resultState[map]) as never;
+        // Replacing a decision keeps its key at its index.
+        const resultIndex = new Map<string, number>();
+        for (const [index, decision] of resultState.decisions.entries())
+          if (!resultIndex.has(decision.key)) resultIndex.set(decision.key, index);
         for (const old of current.decisions) {
-          const index = resultState.decisions.findIndex(
-            (d) => d.key === old.key
-          );
+          const index = resultIndex.get(old.key) ?? -1;
           if (index >= 0) resultState.decisions[index] = clone(old);
         }
         await this.declineDeletions(resultState, rootChoice,
@@ -2795,12 +2811,14 @@ class Engine {
     }
     // Resolution moves placements, never nodes.
     const realm = this.realms(resultState);
+    // Resolution edits decisions' placements, never the list.
+    const resultDecisions = byKey(resultState.decisions);
     for (const key of resolved) {
-      const enclosing = resultState.decisions.find((d) => d.key === key);
+      const enclosing = resultDecisions.get(key);
       if (!enclosing) continue;
       for (const dependency of enclosing.dependencies) {
         if (resolved.has(dependency)) continue;
-        const child = resultState.decisions.find((d) => d.key === dependency);
+        const child = resultDecisions.get(dependency);
         if (!child?.placement)
           return fail("Coupled decisions require one guarded resolution");
         const matches: Array<{ node: Node; range: [number, number] }> = [];
@@ -3271,8 +3289,14 @@ export async function checkpointIntent(
     decision.context = (await previousRecord()).state;
     wrapped.push(decision.key);
   }
+  // The keys of `state.decisions`, kept as each input adds its decision.
+  const stateKeys = new Set(state.decisions.map((d) => d.key));
+  const addDecision = (decision: IntentDecision) => {
+    state.decisions.push(decision);
+    stateKeys.add(decision.key);
+  };
   for (const input of request.decisions) {
-    if (state.decisions.some((d) => d.key === input.key)) continue;
+    if (stateKeys.has(input.key)) continue;
     if (input.path && input.range) {
       // A source choice: alternatives are each version's bytes for the range.
       let node = state.nodes[state.root]!;
@@ -3290,7 +3314,7 @@ export async function checkpointIntent(
         alternatives.push({ state: context, object: a.object, node: id, contributions: a.contributions });
       }
       const shown = await engine.project(state, node.id);
-      state.decisions.push({
+      addDecision({
         key: input.key,
         kind: "content",
         affected: [node.id],
@@ -3347,7 +3371,7 @@ export async function checkpointIntent(
           state.nodes[material.id] = material;
           alternatives.push({ ...recorded, object: await engine.project(state, material.id), node: material.id, contributions: a.contributions });
         }
-        state.decisions.push({
+        addDecision({
           key: input.key,
           kind: "existence",
           affected: [target.id],
@@ -3379,7 +3403,7 @@ export async function checkpointIntent(
             contributions: a.contributions,
           });
         }
-        state.decisions.push({
+        addDecision({
           key: input.key,
           kind: "directory",
           affected: [selected.id],
@@ -3410,7 +3434,7 @@ export async function checkpointIntent(
           contributions: a.contributions,
         });
       }
-      state.decisions.push({
+      addDecision({
         key: input.key,
         kind: "content",
         affected: [selected.id],
@@ -3442,7 +3466,7 @@ export async function checkpointIntent(
         contributions: a.contributions,
       });
     }
-    state.decisions.push({
+    addDecision({
       key: input.key,
       kind: "directory",
       affected: [state.root],
@@ -3466,8 +3490,9 @@ export async function checkpointIntent(
     if (request.conflictProjection === "current") {
       state.nodes = clone(previous.nodes);
       state.root = previous.root;
+      const previousDecisions = byKey(previous.decisions);
       for (const decision of state.decisions) {
-        const prior = previous.decisions.find((d) => d.key === decision.key);
+        const prior = previousDecisions.get(decision.key);
         if (prior) {
           if (prior.context) decision.context = prior.context;
           else delete decision.context;
