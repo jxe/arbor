@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@overstory/protocol";
-import { HostAccountStore, canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@overstory/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@overstory/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -60,6 +60,11 @@ export interface ArborSyncDaemonOptions {
 }
 
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
+
+/** One account at one host: the profile's home account, or one of its placement accounts (accounts §1.3). */
+function accountKeyOf(placement: SharedTreePlacement): string {
+  return `${placement.configurationTree} ${placement.endpoint}`;
+}
 
 /** A tree that an explicit synchronization could not bring current: offline, stopped, or without credentials. */
 class UnsynchronizedTreeError extends ProtocolError {
@@ -512,7 +517,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (existing?.root === workspace.root) return existing.sync;
     await existing?.sync.close();
     const tree = placement.tree;
-    const accountKey = placement.configurationTree;
+    const accountKey = accountKeyOf(placement);
     const sync = new FolderSync(tree, folderStateRoot(tree), {
       placement: () => this.trees.placementFor(tree),
       client: (current) => this.accountClient(current),
@@ -525,12 +530,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
-      forgetSession: async (current) => {
-        const store = new HostAccountStore(current.configurationTree);
-        if (!await store.hasDeviceKey()) return false;
-        await store.forgetSession();
-        return true;
-      },
+      // A 401 ends the session at the host that sent it: the home's, or a placement host's.
+      forgetSession: (current) => this.connections.forgetSession(current),
     }, { pollIntervalMs: this.syncIntervalMs });
     this.folders.set(tree, { root: workspace.root, sync });
     // The folder's object reads and audits follow the root it last held, and
@@ -609,7 +610,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
             const client = await this.accountClient(placement);
             const workspace = await this.trees.workspaceByTree(placement.tree);
             if (!workspace) continue;
-            const accountKey = placement.configurationTree;
+            const accountKey = accountKeyOf(placement);
             let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
               listed = client.list().then((value) => value.snapshot);

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
-import { ProtocolError, HostAccountStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
+import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore } from "@overstory/client";
 import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
 import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
@@ -16,10 +16,27 @@ export class LocalAccountService {
    * any local process with the user's filesystem access can already read the
    * credential store and write the placed folders, so this exposes no new
    * authority (documented in `docs/architecture/arborsync/data-home.md`).
+   * With `origin`, the token is for that host: the home account's when it is
+   * the home host, else the account's placement connection there.
    */
-  async credentialToken(configurationTree?: string): Promise<string> {
+  async credentialToken(configurationTree?: string, origin?: string): Promise<string> {
     let token: string | undefined;
-    if (configurationTree) {
+    if (origin !== undefined) {
+      if (!configurationTree) throw new ProtocolError("invalid-request", "credential for an origin requires a configurationTree", 400);
+      let placement: HostPlacementStore;
+      try { placement = new HostPlacementStore(configurationTree, origin); }
+      catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID and origin a canonical origin", 400); }
+      const home = await new HostAccountStore(configurationTree).safe();
+      try {
+        token = home?.origin === origin
+          ? (await new HostAccountStore(configurationTree).get())?.accountToken
+          : (await placement.get())?.accountToken;
+      } catch (error) {
+        // The host refused to open a session for this device: it is not listed there any more.
+        if (error instanceof ProtocolHTTPError) throw new ProtocolError("credential-unavailable", `${origin} refused this device: ${error.message}`, 409);
+        throw error;
+      }
+    } else if (configurationTree) {
       let store: HostAccountStore;
       try { store = new HostAccountStore(configurationTree); }
       catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }

@@ -32,6 +32,12 @@ test("account handler takes only account bootstrap ports and leaves sync routes 
   expect(await handler(new Request(sync, { method: "POST" }), sync)).toBeUndefined();
   const invalid = new URL("http://127.0.0.1/v1/credential?configurationTree=invalid");
   await expect(handler(new Request(invalid), invalid)).rejects.toMatchObject({ code: "invalid-request" });
+  // A placement host's session names an exact origin, and the account it belongs to.
+  const cfg = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+  for (const query of [`origin=${encodeURIComponent("https://orchard.example")}`, `configurationTree=${cfg}&origin=${encodeURIComponent("https://orchard.example/~joe")}`]) {
+    const url = new URL(`http://127.0.0.1/v1/credential?${query}`);
+    await expect(handler(new Request(url), url)).rejects.toMatchObject({ code: "invalid-request" });
+  }
 });
 
 test("bootstrap classifies unavailable placeholder content without exposing a path", async () => {

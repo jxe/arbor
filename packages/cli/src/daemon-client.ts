@@ -150,10 +150,17 @@ export class ArborSyncRESTClient {
     return value;
   }
 
-  /** A session of the device for a configuration tree's account (or the only connected account when omitted). */
-  credential(configurationTree?: string): Promise<TreeCredential> {
-    const query = configurationTree ? `?configurationTree=${encodeURIComponent(configurationTree)}` : "";
-    return this.request(`/v1/credential${query}`);
+  /**
+   * A session of the device for a configuration tree's account (or the only
+   * connected account when omitted); with `origin`, the session at that host,
+   * the home's or a placement account's.
+   */
+  credential(configurationTree?: string, origin?: string): Promise<TreeCredential> {
+    const parameters = new URLSearchParams({
+      ...(configurationTree ? { configurationTree } : {}),
+      ...(origin ? { origin } : {}),
+    }).toString();
+    return this.request(`/v1/credential${parameters ? `?${parameters}` : ""}`);
   }
 
   resolve(locator: string): Promise<LocatorResolution> {

@@ -51,6 +51,11 @@ export async function accountProtocolClient(
     if (selector.origin && home && home.origin !== selector.origin) {
       const placement = await placed(selector.configurationTree, selector.origin);
       if (placement) return placement;
+      // Another host than the home, with no placement connection there: never send the home's session to it.
+      if (options.required || await new HostPlacementStore(selector.configurationTree, selector.origin).safe()) {
+        throw new ProtocolError("credential-unavailable", `Credential unavailable for account ${selector.configurationTree} at ${selector.origin}`, 409);
+      }
+      return { client: new ProtocolClient(selector.origin, undefined, clientOptions), origin: selector.origin, authenticated: false };
     }
     // The configuration tree names the home account, as it always has.
     const configured = await new HostAccountStore(selector.configurationTree).get();

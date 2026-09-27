@@ -232,7 +232,7 @@ row can at worst produce a 404 or a slower answer, never wrong bytes.
 
 ```text
 GET /v1/bootstrap?tree={TreeID}
-GET /v1/credential[?configurationTree={TreeID}]
+GET /v1/credential[?configurationTree={TreeID}[&origin={origin}]]
 ```
 
 `GET /v1/bootstrap` gives a loopback client everything it needs to open a
@@ -291,7 +291,16 @@ local clients on one installation share the daemon's device identity and
 request-digest scope without ever holding the key. Without the parameter it
 answers for the only connected account; with several accounts connected the
 parameter is required (`400 invalid-request`). An account with no usable key
-is `404 not-found`.
+is `404 not-found`. With `origin` as well, the token is for that host: the home
+account's session when it is the account's home host, else a session the same
+device key opened on the account's placement connection there
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+A tree placed on a placement host names that host as its descriptor's
+`canonical.endpoint`, which is the `origin` a working-tree client passes. An
+`origin` without `configurationTree`, or one that is not an exact origin, is
+`400 invalid-request`; no placement connection there is `404 not-found`, and a
+host that refuses to open a session for the device (it is no longer listed) is
+`409` with error `unauthenticated`.
 Serving the token over loopback is deliberate and adds no authority: any
 local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records

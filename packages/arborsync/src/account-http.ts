@@ -7,7 +7,8 @@ export function accountHandler(service: LocalAccountService) {
     if (request.method === "GET" && url.pathname === "/v1/credential") {
       // Deliberate loopback exposure (see docs/architecture/arborsync/data-home.md).
       const configurationTree = url.searchParams.get("configurationTree") ?? undefined;
-      return json({ token: await service.credentialToken(configurationTree) });
+      const origin = url.searchParams.get("origin") ?? undefined;
+      return json({ token: await service.credentialToken(configurationTree, origin) });
     }
     if (request.method === "GET" && url.pathname === "/v1/accounts") {
       const [accounts, identity, pendingClaim, pendingPairing] = await Promise.all([service.accountList(), service.profileIdentity(), service.pendingClaim(), service.pendingPairing()]);
