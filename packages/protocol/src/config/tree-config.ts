@@ -12,6 +12,7 @@ import { sha256 } from "../model/hash.ts";
 import { isDeviceKey } from "../model/device-keys.ts";
 import { stableJSONString } from "../model/protocol.ts";
 import {
+  checkHomeHosts,
   intersectResourceRules,
   isTreeID,
   parseAppRule,
@@ -176,6 +177,8 @@ export function parseAppsYAML(source: string, kind: "person" | "group"): Record<
     if (new Set(rules.map(appRuleKey)).size !== rules.length) throw new Error(`apps.yaml ${app} has duplicate rules`);
     apps[app] = rules;
   }
+  // As in access.yaml, one file names one home host for a profile it lends to.
+  checkHomeHosts(Object.values(apps).flat());
   return apps;
 }
 

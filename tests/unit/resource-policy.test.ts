@@ -142,3 +142,12 @@ test("a lapsed lender's grant cannot borrow identical caller coverage", () => {
   expect(authority.covered(context)).toBe(false);
   expect(authority.run(context, () => authority.canSubmit("tr_notes"))).toBe(false);
 });
+
+test("apps.yaml names one home host for a profile it lends to", async () => {
+  const { parseAppsYAML } = await import("@overstory/protocol");
+  const lend = (homeHost: string) => `  - resource: tr_calendar\n    who: { profile: tr_club, homeHost: "${homeHost}" }\n    allow: [read]\n`;
+  const agreeing = `tr_planner:\n${lend("https://club.example")}tr_notes:\n${lend("https://club.example")}`;
+  expect(parseAppsYAML(agreeing, "person").tr_planner![0]!.who).toEqual({ profile: "tr_club", homeHost: "https://club.example" });
+  const disagreeing = `tr_planner:\n${lend("https://club.example")}tr_notes:\n${lend("https://other.example")}`;
+  expect(() => parseAppsYAML(disagreeing, "person")).toThrow("disagree about its home host");
+});
