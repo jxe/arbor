@@ -22,3 +22,19 @@ test("a new pairing prunes expired unclaimed pairings and keeps claimed ones for
     db.close();
   }
 });
+
+test("a challenge issued for one purpose is neither found nor consumed as another", () => {
+  const db = new Database(":memory:");
+  try {
+    createHostSchema(db);
+    const directory = new AccountDirectory(db);
+    const now = Date.now();
+    directory.insertChallenge("account-claim", "ax_one", "{}", now + 60_000, now);
+    expect(directory.challenge("device-session", "ax_one")).toBeNull();
+    expect(directory.consumeChallenge("device-session", "ax_one", "{}", now)).toBe(false);
+    expect(directory.consumeChallenge("account-claim", "ax_one", "{}", now)).toBe(true);
+    expect(directory.consumeChallenge("account-claim", "ax_one", "{}", now)).toBe(false);
+  } finally {
+    db.close();
+  }
+});

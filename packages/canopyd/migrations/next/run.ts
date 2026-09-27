@@ -1,5 +1,7 @@
+import { assertCurrentHostSchema, assertHostData } from "../../src/schema.ts";
 import { runBatch, type BatchReport } from "../tools/batch.ts";
 import { dropProfileResets } from "./steps/024-drop-profile-resets.ts";
+import { oneChallengeTable } from "./steps/025-one-challenge-table.ts";
 
 /**
  * The next migration batch: every schema step ready since the last cutover,
@@ -7,12 +9,13 @@ import { dropProfileResets } from "./steps/024-drop-profile-resets.ts";
  * see README.md for the list, the product changes each one brings at
  * cutover, and the runbook.
  */
-export const steps = [dropProfileResets];
+export const steps = [dropProfileResets, oneChallengeTable];
 
 export function migrateNextBatch(dataRoot: string): BatchReport {
-  // At cutover, pass `(db) => { assertCurrentHostSchema(db); assertHostData(db); }`
-  // from packages/canopyd/src/schema.ts, once the product serves the new schema.
-  return runBatch(dataRoot, steps);
+  return runBatch(dataRoot, steps, (db) => {
+    assertCurrentHostSchema(db);
+    assertHostData(db);
+  });
 }
 
 if (import.meta.main) {

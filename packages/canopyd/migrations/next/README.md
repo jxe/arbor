@@ -19,7 +19,8 @@ the batch, a failed `quick_check` or a dangling foreign key; a rerun reports
 
 | Step | Change | Product change at cutover |
 |---|---|---|
-| [024-drop-profile-resets](steps/024-drop-profile-resets.ts) | Drop `profile_resets`, unused since the profile-key reset was withdrawn (Security 006, 2026-09-27). Refuses if it holds a row. | `schema.ts`: remove the table from `createDeviceKeyTables` and `TABLE_COLUMNS`. |
+| [024-drop-profile-resets](steps/024-drop-profile-resets.ts) | Drop `profile_resets`, unused since the profile-key reset was withdrawn (Security 006, 2026-09-27). Refuses if it holds a row. | `schema.ts`: the table is gone. |
+| [025-one-challenge-table](steps/025-one-challenge-table.ts) | `account_challenges` and `device_challenges` become one `challenges` table with `purpose` (`account-claim` or `device-session`); only unexpired, unconsumed rows are copied. | `AccountDirectory`'s challenge helpers take a purpose and filter every read and consume on it. |
 
 At cutover the batch's last schema becomes `CANOPY_SCHEMA_VERSION`, and
 `run.ts` passes `assertCurrentHostSchema` and `assertHostData` as `finish`.
@@ -56,4 +57,4 @@ rename.
 
 ## Rehearsal log
 
-- 2026-09-27: synthetic schema-23 host only (`migrate.test.ts`, 3 tests).
+- 2026-09-27: synthetic schema-23 host only (`migrate.test.ts`).

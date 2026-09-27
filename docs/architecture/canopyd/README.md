@@ -93,13 +93,13 @@ configurations have their shape, and the tests for each refused case, are in
   credential digest or a key device's public key, never both; the key is
   also in `devices.yaml`, which is authoritative, and accepting a device's
   first `key` replaces its digest in the same transaction. Session challenges
-  are `device_challenges` rows, consumed exactly as issued; a session is a
+  are `challenges` rows of purpose `device-session` (account claims' are
+  `account-claim`), consumed exactly as issued; a session is a
   random `ars_` token whose digest `device_sessions` holds for at most an hour
   (`sessionLifetimeMs`). Deleting a device or claiming a recovery pairing
   deletes its sessions, and a watch rechecks its session's expiry outside the
   cached authorization. A request whose bearer token authenticates nothing is
-  refused with 401 on every route. The `profile_resets` table is unused since
-  the profile-key reset was withdrawn and goes in the next migration batch.
+  refused with 401 on every route.
   Unauthenticated challenge requests are limited to 30 per caller and profile
   per ten minutes, and pairing claims to 10 per caller and pairing; the
   limiter keeps at most 10,000 keys, and its caller address comes from proxy

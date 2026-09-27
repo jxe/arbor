@@ -634,7 +634,7 @@ export class HostDaemon implements AsyncDisposable {
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
     };
-    this.accounts.insertChallenge("account_challenges", challenge.id, stableJSONString(challenge), challenge.expiresAt, issuedAt);
+    this.accounts.insertChallenge("account-claim", challenge.id, stableJSONString(challenge), challenge.expiresAt, issuedAt);
     return challenge;
   }
 
@@ -763,7 +763,7 @@ export class HostDaemon implements AsyncDisposable {
       issuedAt,
       expiresAt: issuedAt + 2 * 60 * 1000,
     };
-    this.accounts.insertChallenge("device_challenges", challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
+    this.accounts.insertChallenge("device-session", challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
     return challenge;
   }
 
@@ -779,7 +779,7 @@ export class HostDaemon implements AsyncDisposable {
     const token = `ars_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex")}`;
     const expiresAt = now + this.sessionLifetimeMs;
     this.db.transaction(() => {
-      if (!this.accounts.consumeChallenge("device_challenges", challenge.id, stableJSONString(challenge), now)) {
+      if (!this.accounts.consumeChallenge("device-session", challenge.id, stableJSONString(challenge), now)) {
         throw new Error("Device session challenge is invalid, expired, or already used");
       }
       this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
@@ -1226,7 +1226,7 @@ export class HostDaemon implements AsyncDisposable {
       throw new AlreadyClaimedError(input.handle);
     }
     const challengeJSON = stableJSONString(proof.challenge);
-    const issued = this.accounts.challenge("account_challenges", proof.challenge.id);
+    const issued = this.accounts.challenge("account-claim", proof.challenge.id);
     if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
     if (issued.expiresAt <= Date.now()) throw new ExpiredChallengeError("Account challenge is expired");
     if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
@@ -1258,7 +1258,7 @@ export class HostDaemon implements AsyncDisposable {
     const community = this.community();
     const now = Date.now();
     this.db.transaction(() => {
-      if (!this.accounts.consumeChallenge("account_challenges", proof.challenge.id, challengeJSON, now)) {
+      if (!this.accounts.consumeChallenge("account-claim", proof.challenge.id, challengeJSON, now)) {
         throw new Error("Account challenge was already consumed or expired");
       }
       this.db.run(

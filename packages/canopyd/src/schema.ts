@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "23";
+export const CANOPY_SCHEMA_VERSION = "25";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "governs"],
@@ -20,10 +20,8 @@ export const AUTHORITY_SCHEMA = {
   accounts: ["id", "handle", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "public_key", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
-  account_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
-  device_challenges: ["id", "challenge_json", "expires_at", "consumed_at"],
+  challenges: ["id", "purpose", "challenge_json", "expires_at", "consumed_at"],
   device_sessions: ["token_digest", "device_id", "created_at", "expires_at"],
-  profile_resets: ["profile_tree", "device_id", "label", "public_key", "requested_at", "effective_at", "proof_digest"],
   tree_policy: ["tree_id", "rules_json"],
   tree_admins: ["tree_id", "profile_tree"],
   app_policy: ["profile_tree", "app_tree", "rules_json"],
@@ -78,18 +76,23 @@ export function createDevicesTable(db: Database): void {
 }
 
 /**
- * Key devices' single-use challenges (sessions and profile resets alike),
- * their open sessions by token digest, and each profile's pending reset.
+ * Single-use challenges, told apart by purpose: an account claim's, signed by
+ * the profile key, or a device session's, signed by a device key.
  */
-export function createDeviceKeyTables(db: Database): void {
+export function createChallengesTable(db: Database): void {
   db.run(`
-    CREATE TABLE device_challenges (
+    CREATE TABLE challenges (
       id TEXT PRIMARY KEY,
+      purpose TEXT NOT NULL CHECK (purpose IN ('account-claim', 'device-session')),
       challenge_json TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       consumed_at INTEGER
     )
   `);
+}
+
+/** Key devices' open sessions, by token digest. */
+export function createDeviceSessionsTable(db: Database): void {
   db.run(`
     CREATE TABLE device_sessions (
       token_digest TEXT PRIMARY KEY,
@@ -99,17 +102,6 @@ export function createDeviceKeyTables(db: Database): void {
     )
   `);
   db.run(`CREATE INDEX device_sessions_device ON device_sessions(device_id)`);
-  db.run(`
-    CREATE TABLE profile_resets (
-      profile_tree TEXT PRIMARY KEY REFERENCES accounts(id),
-      device_id TEXT NOT NULL,
-      label TEXT NOT NULL,
-      public_key TEXT NOT NULL,
-      requested_at INTEGER NOT NULL,
-      effective_at INTEGER NOT NULL,
-      proof_digest TEXT NOT NULL
-    )
-  `);
 }
 
 export function createHostSchema(db: Database): void {
@@ -151,15 +143,8 @@ export function createHostSchema(db: Database): void {
       claimed_device TEXT
     )
   `);
-  db.run(`
-    CREATE TABLE account_challenges (
-      id TEXT PRIMARY KEY,
-      challenge_json TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      consumed_at INTEGER
-    )
-  `);
-  createDeviceKeyTables(db);
+  createChallengesTable(db);
+  createDeviceSessionsTable(db);
   createTreeConfigIndex(db);
   createProfileFactsTable(db);
   db.run(`

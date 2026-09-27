@@ -10,7 +10,8 @@ const LAST_USED_RESOLUTION_MS = 60_000;
 /** A digest device's credential digest, or a key device's public key. */
 export type DeviceBinding = { tokenDigest: string } | { publicKey: string };
 
-type ChallengeTable = "device_challenges" | "account_challenges";
+/** What a challenge is for; one purpose's challenge is never redeemed by another. */
+export type ChallengePurpose = "account-claim" | "device-session";
 
 export interface PairingRecord {
   id: string;
@@ -148,27 +149,26 @@ export class AccountDirectory {
     this.db.run("DELETE FROM device_sessions WHERE device_id = ?", [deviceID]);
   }
 
-  /** Device challenges (sessions, resets) and account challenges (claims)
-   * share one shape in separate tables. */
-  insertChallenge(table: ChallengeTable, id: string, challengeJSON: string, expiresAt: number, now: number): void {
+  /** Account claims and device sessions share one challenge table, apart by purpose. */
+  insertChallenge(purpose: ChallengePurpose, id: string, challengeJSON: string, expiresAt: number, now: number): void {
     // An expired challenge can never be used, consumed or not.
-    this.db.run(`DELETE FROM ${table} WHERE expires_at <= ?`, [now]);
-    this.db.run(`INSERT INTO ${table} (id, challenge_json, expires_at) VALUES (?, ?, ?)`, [id, challengeJSON, expiresAt]);
+    this.db.run("DELETE FROM challenges WHERE expires_at <= ?", [now]);
+    this.db.run("INSERT INTO challenges (id, purpose, challenge_json, expires_at) VALUES (?, ?, ?, ?)", [id, purpose, challengeJSON, expiresAt]);
   }
 
   /** An issued challenge as stored, to say why it cannot be consumed. */
-  challenge(table: ChallengeTable, id: string): { challengeJSON: string; expiresAt: number; consumedAt: number | null } | null {
-    const row = this.db.query(`SELECT challenge_json, expires_at, consumed_at FROM ${table} WHERE id = ?`).get(id) as
+  challenge(purpose: ChallengePurpose, id: string): { challengeJSON: string; expiresAt: number; consumedAt: number | null } | null {
+    const row = this.db.query("SELECT challenge_json, expires_at, consumed_at FROM challenges WHERE id = ? AND purpose = ?").get(id, purpose) as
       { challenge_json: string; expires_at: number; consumed_at: number | null } | null;
     return row ? { challengeJSON: row.challenge_json, expiresAt: row.expires_at, consumedAt: row.consumed_at } : null;
   }
 
   /** Consume a challenge exactly as issued; false when it is unknown, altered,
    * expired or already used. */
-  consumeChallenge(table: ChallengeTable, id: string, challengeJSON: string, now: number): boolean {
+  consumeChallenge(purpose: ChallengePurpose, id: string, challengeJSON: string, now: number): boolean {
     return this.db.run(
-      `UPDATE ${table} SET consumed_at = ? WHERE id = ? AND challenge_json = ? AND consumed_at IS NULL AND expires_at > ?`,
-      [now, id, challengeJSON, now],
+      "UPDATE challenges SET consumed_at = ? WHERE id = ? AND purpose = ? AND challenge_json = ? AND consumed_at IS NULL AND expires_at > ?",
+      [now, id, purpose, challengeJSON, now],
     ).changes === 1;
   }
 
