@@ -162,7 +162,10 @@ write them. A state loaded against its recorded root starts with the projections
 root's directories establish. Recording after a small edit therefore walks the paths from
 the edited nodes to the root, not the whole tree. A reused subtree is one this evaluation
 already projected, so the objects it generates, their order and the byte budgets are those
-of the full walk; `eager` keeps nothing.
+of the full walk; `eager` keeps nothing. Decoded directory objects are kept across
+evaluations by hash, least recently used first, up to 16 MB of their encoded bytes and
+outside `ARBOR_MERGE_CACHE_MB`; each is still read through the evaluation, so the read
+budget counts it as before.
 
 A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
 start, and chains only grow: about 10 ms an entry at 120 files (15 ms with a choice

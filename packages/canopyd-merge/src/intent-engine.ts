@@ -112,14 +112,41 @@ const gapAt = (base: Piece[], current: Piece[], offset: number): { pieces: Piece
 const absent = (error: unknown): boolean =>
   (error instanceof MergeRefusal && error.code === "missing-context") ||
   (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+/** Decoded directory objects by hash, shared by every evaluation in this
+ * process: a hash fixes its bytes, so its contents never change. Least
+ * recently used first; bounded by the encoded bytes they were decoded from.
+ * Values are frozen, since every caller shares them. The caller still reads
+ * the object through the engine, so the read budget counts it as before. */
+const DECODED_DIRECTORY_BYTES = 16 * 1024 * 1024;
+const decodedDirectories = new Map<string, { directory: ProtocolDirectory; size: number }>();
+let decodedDirectoryBytes = 0;
 /** A directory object's contents. Bytes that are not one are invalid
  * material (a candidate can name any object), not an evaluator failure. */
-const directoryOf = (bytes: Uint8Array): ProtocolDirectory => {
+const directoryOf = (hash: string, bytes: Uint8Array): ProtocolDirectory => {
+  const known = decodedDirectories.get(hash);
+  if (known) {
+    decodedDirectories.delete(hash);
+    decodedDirectories.set(hash, known);
+    return known.directory;
+  }
+  let directory: ProtocolDirectory;
   try {
-    return decodeProtocolDirectory(bytes);
+    directory = decodeProtocolDirectory(bytes);
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Invalid directory object");
   }
+  for (const entry of directory.entries) Object.freeze(entry);
+  Object.freeze(directory.entries);
+  if (directory.childrenSource) Object.freeze(directory.childrenSource);
+  Object.freeze(directory);
+  decodedDirectories.set(hash, { directory, size: bytes.length });
+  decodedDirectoryBytes += bytes.length;
+  for (const [oldest, { size }] of decodedDirectories) {
+    if (decodedDirectoryBytes <= DECODED_DIRECTORY_BYTES) break;
+    decodedDirectories.delete(oldest);
+    decodedDirectoryBytes -= size;
+  }
+  return directory;
 };
 /** Decisions by key, the first of a key winning, as `find` by key would. */
 const byKey = <T extends { key: string }>(decisions: readonly T[]): Map<string, T> => {
@@ -368,7 +395,7 @@ class Engine {
         : []);
     }
     if (kind === "directory") {
-      const directory = directoryOf(await this.read(object));
+      const directory = directoryOf(object, await this.read(object));
       this.assign(view, node, "directory", { ...directory, entries: [] });
       for (const entry of directory.entries) {
         await this.importNode(
@@ -2993,7 +3020,7 @@ class Engine {
       const node = state.nodes[id] ?? fail("Missing validated node");
       if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
-      const directory = directoryOf(await this.read(hash));
+      const directory = directoryOf(hash, await this.read(hash));
       const entries = new Map(directory.entries.map(e => [e.name, e]));
       const children = this.children(state, id, index);
       for (const child of children) {
