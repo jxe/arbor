@@ -146,8 +146,7 @@ clients talk, and the fixes it led to:
   `PRAGMA quick_check` over the whole database.
 
 Client-side legacy readers are in [Cleanup 007](plans/soon/007-remove-legacy-compatibility.md).
-`test:protocol` had pointed at a deleted test directory and ran 2 of its 8
-suites; it runs all 8. Evidence: `bun run typecheck`, `bun run test`,
+Evidence: `bun run typecheck`, `bun run test`,
 `bun run test:protocol` (TypeScript half), `bun run build`, `bun run check:links`,
 new tests in `tests/unit/transport-errors.test.ts`, `reconnecting-stream.test.ts`,
 `coordinator-poll.test.ts`, `device-key-store.test.ts` and the Swift packages'
