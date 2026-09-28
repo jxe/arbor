@@ -177,15 +177,14 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       "event: revoked"
     );
     expect((await reader.read()).done).toBe(true);
+    // The revoked watch closes without resync-required.
     const revoked = await Promise.race([
       watchReader.read(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Watch did not revoke")), 2000)
       ),
     ]);
-    expect(new TextDecoder().decode(revoked.value)).toContain(
-      "Authorization was revoked"
-    );
+    expect(revoked.done).toBe(true);
   } finally {
     abort.abort();
     running.server.stop(true);

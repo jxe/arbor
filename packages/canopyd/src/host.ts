@@ -771,7 +771,10 @@ export async function serveHost(options: {
           let frames: string[] = [];
           let wake: (() => void) | undefined;
           let stop = () => {};
-          let resync = (_reason: string) => {};
+          // Ends the stream: with `resync-required` when retained history cannot
+          // serve the catch-up, or silently for a revoked caller, whose
+          // reconnect is refused as any request is (401 or 404).
+          let end = (_resyncReason?: string) => {};
           const readable = cachedAuthorization(canopy, () => {
             const active = !authentication || canopy.authenticationIsActive(authentication);
             // By ID: a recheck reads the tree as it is now.
@@ -783,14 +786,14 @@ export async function serveHost(options: {
             && (!authentication || canopy.authenticationIsCurrent(authentication)) && readable(epoch);
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
-              resync = (reason: string) => {
+              end = (resyncReason?: string) => {
                 if (closed) return;
                 closed = true;
-                controller.enqueue(encoder.encode(encodeSSEFrame({event: "resync-required", data: {reason}})));
+                if (resyncReason !== undefined) controller.enqueue(encoder.encode(encodeSSEFrame({event: "resync-required", data: {reason: resyncReason}})));
                 stop(); controller.close();
               };
               const stopObserving = canopy.subscribeObservations(tree.id, () => { wake?.(); wake = undefined; });
-              const stopTicks = onAuthorizationTick((epoch) => { if (!authorized(epoch)) resync("Authorization was revoked"); });
+              const stopTicks = onAuthorizationTick((epoch) => { if (!authorized(epoch)) end(); });
               // Comments flush headers through proxies at once, then keep an
               // idle stream alive through their timeouts; clients skip them.
               const keepalive = setInterval(() => {
@@ -811,14 +814,14 @@ export async function serveHost(options: {
               request.signal.addEventListener("abort", abort, {once: true});
               if (request.signal.aborted) return abort();
               const position = canopy.observationPosition(tree.id, after);
-              if (!position.retained) return resync("The requested cursor is no longer retained");
+              if (!position.retained) return end("The requested cursor is no longer retained");
               delivered = position.through;
               controller.enqueue(encoder.encode(execution ? ": authorized\n\n" : ": ready\n\n"));
             },
             async pull(controller) {
               try {
                 while (!closed) {
-                  if (!authorized()) return resync("Authorization was revoked");
+                  if (!authorized()) return end();
                   if (frames.length) { controller.enqueue(encoder.encode(frames.shift()!)); return; }
                   const records = canopy.observationPage(tree.id, delivered);
                   if (!records.length) {
@@ -831,13 +834,13 @@ export async function serveHost(options: {
                   // transition from the last delivered update to the head.
                   const single = records.length === 1 ? await canopy.acceptedTransition(records[0]!.id, credentialSubject) : null;
                   if (closed) return;
-                  if (!authorized()) return resync("Authorization was revoked");
+                  if (!authorized()) return end();
                   const next = single
                     ? {record: records[0]!, transition: single}
                     : await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject);
                   if (closed) return;
-                  if (!authorized()) return resync("Authorization was revoked");
-                  if (!next) return resync("The requested accepted basis is no longer retained");
+                  if (!authorized()) return end();
+                  if (!next) return end("The requested accepted basis is no longer retained");
                   delivered = next.record.ordinal;
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
                     data: watchFrame(publicOrigin, canopy.get(tree.id) ?? tree, next.transition, access)})];

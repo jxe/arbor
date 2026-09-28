@@ -455,14 +455,22 @@ them; advancing a watch cursor alone never acknowledges those requests.
 
 When retained context cannot support either net catch-up or ordinary replay,
 for example because the event cursor or its basis graph is no longer retained,
-or the caller's authorization is revoked, the server produces one terminal
-`resync-required` event, with no `id` and `data` of `{ "reason": string }`,
-and closes. The client reads a new current descriptor,
+or when catch-up would cost more than a snapshot, the server produces one
+terminal `resync-required` event, with no `id` and `data` of
+`{ "reason": string }`, and closes. `resync-required` means only that: a
+snapshot will serve where catch-up does not. The client reads a new current descriptor,
 obtains its addressed snapshot, and resumes strictly after the descriptor's
 `observedThrough` cursor. This catch-up path does not acknowledge or discard
 unconfirmed local edits: clients retain and reconcile them through the ordinary
 update/retry path. Retained accepted history need not be deleted merely because
 a watch uses snapshot catch-up.
+
+When the caller's authorization is revoked (a session that expires or whose
+device is revoked, or access to the tree withdrawn), the server closes the
+stream without an event. The client reconnects as after any lost connection,
+and the host refuses that request as it would any other: `401` for a
+credential that no longer authenticates, `404` for a tree the caller can no
+longer read.
 
 #### Accepted unresolved state
 

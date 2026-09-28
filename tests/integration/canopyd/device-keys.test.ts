@@ -179,13 +179,14 @@ describe("key devices (accounts §5.1, §5.2)", () => {
       // A watch opened with the session ends with it (access control §3.2).
       const ended = (async () => {
         for await (const event of short.watch(profileTree, null)) if (event.kind === "resync-required") return event;
-        return null;
+        return "ended";
       })();
       await Bun.sleep(80);
       await expect(short.account()).rejects.toThrow("unauthenticated");
       // Every route refuses it, so a client knows to open a new session rather than seeing "not found".
       await expect(short.descriptor(profileTree)).rejects.toThrow("unauthenticated");
-      expect(await ended).toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
+      // It closes without resync-required: a snapshot would not help.
+      expect(await ended).toBe("ended");
     } finally {
       running.canopy.sessionLifetimeMs = lifetime;
     }

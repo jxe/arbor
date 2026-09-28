@@ -308,7 +308,7 @@ describe("sessions and trees on a placement host", () => {
     phoneAtB = await openSession(b.url, alice.profileTree, phoneID, phone);
     const watching = (async () => {
       for await (const event of phoneAtB.watch(notes, null)) if (event.kind === "resync-required") return event;
-      return null;
+      return "ended";
     })();
     await Bun.sleep(100);
     const macAtA = await openSession(a.url, alice.profileTree, macID, mac);
@@ -318,7 +318,7 @@ describe("sessions and trees on a placement host", () => {
     });
     const deleted = Date.now();
     expect(await Promise.race([watching, Bun.sleep(LIFETIME_MS + 1_000).then(() => "still open")]))
-      .toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
+      .toBe("ended");
     expect(Date.now() - deleted).toBeLessThan(LIFETIME_MS + 500);
     await expect(phoneAtB.descriptor(notes)).rejects.toThrow("unauthenticated");
     await expect(openSession(b.url, alice.profileTree, phoneID, phone)).rejects.toThrow("not-found");
@@ -431,13 +431,13 @@ describe("a rule on B naming a group A holds by its locator (access control §3.
     const watcher = await aliceAtB();
     const watching = (async () => {
       for await (const event of watcher.watch(orchard, null)) if (event.kind === "resync-required") return event;
-      return null;
+      return "ended";
     })();
     await Bun.sleep(100);
     await setMembers(club, []);
     const removed = Date.now();
     expect(await Promise.race([watching, Bun.sleep(LIFETIME_MS + 1_000).then(() => "still open")]))
-      .toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
+      .toBe("ended");
     expect(Date.now() - removed).toBeLessThan(LIFETIME_MS + 500);
     expect(await aliceAccess()).toBeNull();
     await setMembers(club, [alice.profileTree]);

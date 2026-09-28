@@ -239,7 +239,7 @@ describe("Arbor Sync places folders under a placement root", () => {
     const phoneDevice = (await new HostAccountStore(configurationTree).safe())!.deviceID;
     const watching = (async () => {
       for await (const event of new ProtocolClient(bOrigin, phoneToken).watch(research, null)) if (event.kind === "resync-required") return event;
-      return null;
+      return "ended";
     })();
     await Bun.sleep(100);
 
@@ -250,7 +250,7 @@ describe("Arbor Sync places folders under a placement root", () => {
     await mac.client.synchronizeNow(configurationTree);
     const revoked = Date.now();
     expect(await Promise.race([watching, Bun.sleep(LIFETIME_MS + 1_500).then(() => "still open")]))
-      .toMatchObject({ kind: "resync-required", reason: "Authorization was revoked" });
+      .toBe("ended");
     const refused = await new ProtocolClient(bOrigin, phoneToken).descriptor(research).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ProtocolHTTPError);
     expect((refused as ProtocolHTTPError).status).toBe(401);

@@ -750,11 +750,15 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const peerWatch = await peerWatchPromise;
       expect(peerWatch.status).toBe(200);
       const peerWatchReader = peerWatch.body!.getReader();
-      const revokedFrame = await Promise.race([
-        peerWatchReader.read(),
+      // A revoked watch closes without resync-required; the reconnect is refused.
+      const rest = await Promise.race([
+        new Response(new ReadableStream({ pull: async (controller) => {
+          const { done, value } = await peerWatchReader.read();
+          if (done) controller.close(); else controller.enqueue(value);
+        } })).text(),
         Bun.sleep(2_000).then(() => { throw new Error("Revoked watch did not close"); }),
       ]);
-      expect(new TextDecoder().decode(revokedFrame.value)).toContain("Authorization was revoked");
+      expect(rest).not.toContain("resync-required");
       await expect(new ProtocolClient(running.url, peerCredential).account()).rejects.toThrow("unauthenticated");
       expect((await fetch(
         `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/snapshots/${peerConfiguration.tree.root}`,
