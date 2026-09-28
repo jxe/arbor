@@ -394,7 +394,7 @@ export class HostDaemon implements AsyncDisposable {
       rootProfileType: (tree) => this.rootProfileType(tree.id),
       isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
       pinnedProfile: (tree, locator) => this.locatorPins.pinned(tree, locator),
-    });
+    }, this.accounts);
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
     this.deviceKeys = new PlacementDeviceKeys(
       () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
@@ -500,7 +500,7 @@ export class HostDaemon implements AsyncDisposable {
       await this.insertTree(directSnapshot(profileSource("person", account.name ?? account.handle)), {
         id: profileTree,
         withinTransaction: () => {
-          this.db.run("INSERT INTO accounts (id, handle, enabled) VALUES (?, ?, 1)", [profileTree, account.handle]);
+          this.accounts.insertAccount(profileTree, account.handle);
           this.accounts.insertDevice(deviceID, profileTree, label, account.device.key, Date.now());
           this.insertConfig(profileConfig, Date.now(), null);
         },
@@ -695,9 +695,8 @@ export class HostDaemon implements AsyncDisposable {
    * host does not hold because it is a placement account's profile's. */
   refusePlacementConfigurationID(treeID: string): void {
     if (this.get(treeID)) return;
-    const placed = this.db.query("SELECT id FROM accounts WHERE home_host IS NOT NULL").all() as Array<{ id: string }>;
-    const profile = placed.find(({ id }) => treeConfigurationID(id) === treeID);
-    if (profile) this.refuseOwnConfigurationOf(profile.id);
+    const profile = this.accounts.placementAccountIDs().find((id) => treeConfigurationID(id) === treeID);
+    if (profile) this.refuseOwnConfigurationOf(profile);
   }
 
   createAccountChallenge(input: {
@@ -903,7 +902,7 @@ export class HostDaemon implements AsyncDisposable {
     this.db.transaction(() => {
       for (const id of this.accounts.activeDeviceIDs(account.id)) {
         const listed = copy.devices.get(id);
-        if (!listed || listed.key !== this.accounts.deviceBinding(id, account.id)?.publicKey) this.accounts.revokeDevice(id, now);
+        if (!listed || listed.key !== this.accounts.deviceBinding(id, account.id)?.publicKey) this.accounts.revokeDevice(id, account.id, now);
       }
     })();
   }
@@ -1076,7 +1075,7 @@ export class HostDaemon implements AsyncDisposable {
   accountReservation(locator: string): { handle: string; profileTree?: string; inviteDigest?: string } | null {
     let url: URL;
     try { url = new URL(locator); } catch { return null; }
-    const host = (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value;
+    const host = this.accounts.communityHost();
     const handle = handleOfPath(url.pathname);
     if (!handle || !host || url.host.toLowerCase() !== host) return null;
     const reservation = this.communityReservations().get(handle);
@@ -1241,8 +1240,7 @@ export class HostDaemon implements AsyncDisposable {
       const now = Date.now();
       for (const id of Object.keys(previous?.devices ?? {})) {
         if (!next.devices?.[id]) {
-          this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, tree]);
-          this.accounts.endSessions(id);
+          this.accounts.revokeDevice(id, tree, now);
         }
       }
       for (const [id, device] of Object.entries(next.devices ?? {})) {
@@ -1276,12 +1274,10 @@ export class HostDaemon implements AsyncDisposable {
   /** When a pin stops holding, the placement account it named opens no
    * sessions, and those open end, as a device deletion ends them. */
   private endUnpinnedPlacementSessions(): void {
-    for (const row of this.db.query("SELECT id FROM accounts WHERE home_host IS NOT NULL").all() as Array<{ id: string }>) {
-      const account = this.account(row.id);
+    for (const id of this.accounts.placementAccountIDs()) {
+      const account = this.account(id);
       if (!account || this.placementPinHolds(account)) continue;
-      for (const device of this.db.query("SELECT id FROM devices WHERE account_id = ?").all(account.id) as Array<{ id: string }>) {
-        this.accounts.endSessions(device.id);
-      }
+      for (const device of this.accounts.devices(account)) this.accounts.endSessions(device.id);
     }
   }
 
@@ -1541,8 +1537,7 @@ export class HostDaemon implements AsyncDisposable {
     parseDeviceKey(input.key);
     const prior = this.accountByHandle(input.handle);
     if (prior) {
-      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
-      if (row.claim_digest === claimDigest) {
+      if (this.accounts.claimDigest(prior.id) === claimDigest) {
         return { account: prior, configuration: this.get(input.configurationTree)! };
       }
       throw new AlreadyClaimedError(input.handle);
@@ -1583,10 +1578,7 @@ export class HostDaemon implements AsyncDisposable {
       if (!this.accounts.consumeChallenge("account-claim", proof.challenge.id, challengeJSON, now)) {
         throw new Error("Account challenge was already consumed or expired");
       }
-      this.db.run(
-        "INSERT INTO accounts (id, handle, claim_digest, enabled) VALUES (?, ?, ?, 1)",
-        [input.profileTree, input.handle, claimDigest],
-      );
+      this.accounts.insertAccount(input.profileTree, input.handle, { claimDigest });
       this.accounts.insertDevice(input.deviceID, input.profileTree, input.deviceLabel, input.key, now);
       this.insertConfig(prepared, now, `device:${input.deviceID}`, undefined, input.configurationChange);
       this.insertMemberMount(community.id, input.handle, input.profileTree);
@@ -2763,8 +2755,7 @@ export class HostDaemon implements AsyncDisposable {
       // A new placement account and its root, which the community mounts at
       // its /~handle; the person's first snapshot activates the root.
       for (const account of placements.accounts) {
-        this.db.run("INSERT INTO accounts (id, handle, claim_digest, enabled, home_host) VALUES (?, ?, NULL, 1, ?)",
-          [account.profileTree, account.handle, account.homeHost]);
+        this.accounts.insertAccount(account.profileTree, account.handle, { homeHost: account.homeHost });
         this.insertConfig(account.root, now, null);
         this.insertMemberMount(tree, account.handle, account.root.tree);
       }
@@ -2843,11 +2834,7 @@ export class HostDaemon implements AsyncDisposable {
       handle,
       profileTree: reservation.profileTree ?? (reservation.locator ? this.locatorPins.pinnedUnlessChanged(communityTree, reservation.locator) : null),
     }));
-    this.db.run(`UPDATE accounts SET enabled = EXISTS (
-      SELECT 1 FROM json_each(?) AS member
-      WHERE json_extract(member.value, '$.handle') = accounts.handle
-      AND json_extract(member.value, '$.profileTree') = accounts.id
-    )`, [JSON.stringify(members)]);
+    this.accounts.enableMembers(members);
   }
 
   private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>, acceptedBasis?: ObjectHash): Promise<void> {

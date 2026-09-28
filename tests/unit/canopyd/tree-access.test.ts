@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { AppAccessRule, ObjectHash, ResourceAccessRule } from "@overstory/protocol";
 import { AccessControl, type AccessHost } from "../../../packages/canopyd/src/access.ts";
+import { AccountDirectory } from "../../../packages/canopyd/src/accounts.ts";
 import type { ExecutionContext, ExecutionGrant } from "../../../packages/canopyd/src/execution-authority.ts";
 import type { HostAccount, HostTree } from "../../../packages/canopyd/src/model.ts";
 import { createHostSchema } from "../../../packages/canopyd/src/schema.ts";
@@ -60,7 +61,7 @@ beforeEach(() => {
   db = new Database(":memory:");
   createHostSchema(db);
   for (const a of [joe, alice, carol, bob]) db.run("INSERT INTO accounts (id, handle, enabled) VALUES (?, ?, 1)", [a.id, a.handle]);
-  access = new AccessControl(db, host);
+  access = new AccessControl(db, host, new AccountDirectory(db));
 });
 
 describe("administrators and rules", () => {

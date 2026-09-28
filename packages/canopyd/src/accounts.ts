@@ -134,10 +134,39 @@ export class AccountDirectory {
       .map((row) => row.id);
   }
 
-  /** Revoke one device and end its sessions; callers run this inside their transaction. */
-  revokeDevice(deviceID: string, at: number): void {
-    this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?", [at, deviceID]);
+  /** Revoke one of an account's devices and end its sessions; callers run
+   * this inside their transaction. A DeviceID another account holds is left
+   * alone. */
+  revokeDevice(deviceID: string, accountID: string, at: number): void {
+    this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [at, deviceID, accountID]);
     this.endSessions(deviceID);
+  }
+
+  /** Insert an account: a home account, claimed or bootstrapped, or a
+   * placement account naming its home host. */
+  insertAccount(id: string, handle: string, options: { claimDigest?: string; homeHost?: string } = {}): void {
+    this.db.run("INSERT INTO accounts (id, handle, claim_digest, enabled, home_host) VALUES (?, ?, ?, 1, ?)",
+      [id, handle, options.claimDigest ?? null, options.homeHost ?? null]);
+  }
+
+  /** The digest of the claim that created an account, or null for one bootstrapped or placed. */
+  claimDigest(id: string): string | null {
+    return (this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(id) as { claim_digest: string | null } | null)?.claim_digest ?? null;
+  }
+
+  /** Enable exactly the accounts whose handle and profile a community member
+   * names, and disable every other; callers run this inside their transaction. */
+  enableMembers(members: ReadonlyArray<{ handle: string; profileTree: string | null }>): void {
+    this.db.run(`UPDATE accounts SET enabled = EXISTS (
+      SELECT 1 FROM json_each(?) AS member
+      WHERE json_extract(member.value, '$.handle') = accounts.handle
+      AND json_extract(member.value, '$.profileTree') = accounts.id
+    )`, [JSON.stringify(members)]);
+  }
+
+  /** Every placement account's profile TreeID. */
+  placementAccountIDs(): string[] {
+    return (this.db.query("SELECT id FROM accounts WHERE home_host IS NOT NULL ORDER BY id").all() as Array<{ id: string }>).map(({ id }) => id);
   }
 
   /** Placement accounts with at least one unexpired session, and their home hosts. */
@@ -263,12 +292,16 @@ export class AccountDirectory {
     return row?.value ?? "community";
   }
 
+  /** The host the community is served at, recorded at its first serve. */
+  communityHost(): string | null {
+    return (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value ?? null;
+  }
+
   setCommunityHost(host: string, allowTestPortChange = false): void {
     const normalized = host.toLowerCase();
-    const existing = this.db.query("SELECT value FROM meta WHERE key = 'community_host'")
-      .get() as { value: string } | null;
-    if (existing && existing.value !== normalized && !allowTestPortChange) {
-      throw new Error(`Community canonical host is ${existing.value}, not ${normalized}`);
+    const existing = this.communityHost();
+    if (existing && existing !== normalized && !allowTestPortChange) {
+      throw new Error(`Community canonical host is ${existing}, not ${normalized}`);
     }
     this.db.run(
       "INSERT INTO meta (key, value) VALUES ('community_host', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",

@@ -13,7 +13,7 @@ import {
 } from "@overstory/protocol";
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
-import { AccountDirectory } from "./accounts.ts";
+import type { AccountDirectory } from "./accounts.ts";
 import { isTreeConfigPolicy, type HostAccount, type HostTree } from "./model.ts";
 
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
@@ -44,11 +44,7 @@ export interface AccessHost {
  */
 export class AccessControl {
   private readonly parsed = new Map<string, unknown[]>();
-  private readonly accounts: AccountDirectory;
-
-  constructor(private readonly db: Database, private readonly host: AccessHost) {
-    this.accounts = new AccountDirectory(db);
-  }
+  constructor(private readonly db: Database, private readonly host: AccessHost, private readonly accounts: AccountDirectory) {}
 
   private parse<T>(json: string, parse: (value: unknown) => T[]): T[] {
     let rules = this.parsed.get(json) as T[] | undefined;
