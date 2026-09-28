@@ -611,11 +611,11 @@ export class HostDaemon implements AsyncDisposable {
 
   /** The time-dependent half of `authenticationIsActive`: the session has not expired. */
   authenticationIsCurrent(authentication: HostAuthentication): boolean {
-    return authentication.expiresAt === undefined || authentication.expiresAt > Date.now();
+    return authentication.expiresAt > Date.now();
   }
 
   authenticationIsActive(authentication: HostAuthentication): boolean {
-    if (!authentication.device || !this.authenticationIsCurrent(authentication)) return false;
+    if (!this.authenticationIsCurrent(authentication)) return false;
     const device = this.accounts.device(authentication.device);
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
   }
@@ -1102,8 +1102,7 @@ export class HostDaemon implements AsyncDisposable {
    * profile: its flag in the accepted `devices.yaml` at the home host, or in
    * the home host's published keys at a placement host.
    */
-  private async isAdministratorDevice(account: HostAccount, device: string | null): Promise<boolean> {
-    if (!device) return false;
+  private async isAdministratorDevice(account: HostAccount, device: string): Promise<boolean> {
     if (account.homeHost) return (await this.listedDevice(account, device)).administrator;
     return (await this.treeConfig(account.id))?.devices?.[device]?.administrator === true;
   }
@@ -1276,7 +1275,7 @@ export class HostDaemon implements AsyncDisposable {
    * `awaiting-initialization` until an administrator activates it.
    */
   async declareTree(tree: string, request: UpdateRequest, authentication: HostAuthentication | null): Promise<StoredUpdateResponse> {
-    if (!authentication?.device) throw new AuthenticationRequiredError("A device is required to declare a tree");
+    if (!authentication) throw new AuthenticationRequiredError("A device is required to declare a tree");
     validateUpdateRequestIntent(request);
     if (request.base !== null || request.updates.length !== 1 || request.updates[0]!.trace !== null || request.updates[0]!.resolves.length) {
       throw new Error("Declaring a tree is one snapshot update of its configuration with a null base");
@@ -2366,11 +2365,13 @@ export class HostDaemon implements AsyncDisposable {
    * Changes whenever anything an authorization decision reads may have
    * changed: an execution invalidation, a write through this connection, or a
    * commit by any other connection to the database. Equal values mean an
-   * earlier decision over database state still holds.
+   * earlier decision over database state still holds. A device's last-use
+   * time is written as requests authenticate and no decision reads it, so
+   * those writes are discounted rather than rechecking every open stream.
    */
   authorizationEpoch(): string {
     const row = this.db.query("SELECT total_changes() AS local, (SELECT data_version FROM pragma_data_version) AS shared").get() as { local: number; shared: number };
-    return `${this.execution.epoch}:${row.local}:${row.shared}`;
+    return `${this.execution.epoch}:${row.local - this.accounts.advisoryChanges}:${row.shared}`;
   }
 
   /** Live observation records for one tree, delivered after each durable append. */

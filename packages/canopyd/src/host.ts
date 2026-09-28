@@ -472,9 +472,7 @@ export async function serveHost(options: {
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
           const authenticated = requireAccount(authentication);
-          const currentDevice = authentication?.device
-            ? canopy.devices(authenticated).find((device) => device.id === authentication.device)
-            : undefined;
+          const currentDevice = canopy.devices(authenticated).find((device) => device.id === authentication!.device);
           return json({
             account: {
               ...accountDescriptor(publicOrigin, canopy, authenticated),

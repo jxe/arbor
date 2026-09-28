@@ -30,6 +30,10 @@ export function isRecoveryPairing(id: string): boolean {
 }
 
 export class AccountDirectory {
+  /** Rows this directory changed that no authorization decision reads (a
+   * device's last-use time), so the authorization epoch can discount them. */
+  advisoryChanges = 0;
+
   constructor(private readonly db: Database) {}
 
   account(id: string): HostAccount | null {
@@ -70,9 +74,9 @@ export class AccountDirectory {
     if (!device) return null;
     // Skip the write on the hot path while the stored time is recent enough.
     if (device.last_used_at === null || now - device.last_used_at >= LAST_USED_RESOLUTION_MS) {
-      this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [now, device.device_id]);
+      this.advisoryChanges += this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [now, device.device_id]).changes;
     }
-    return { account: this.account(device.account_id)!, subject: `device:${device.device_id}`, device: device.device_id, expiresAt: device.expires_at };
+    return { account: this.account(device.account_id)!, subject: `device:${device.device_id}` as const, device: device.device_id, expiresAt: device.expires_at };
   }
 
   private deviceRow(value: unknown): ServerDevice | null {

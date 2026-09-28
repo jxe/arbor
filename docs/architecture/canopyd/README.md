@@ -233,8 +233,9 @@ acceptance rather than committing a reference to a missing object.
 A tree watch reauthorizes before every event it sends and every 250 ms while
 idle, and an execution authority watch every 250 ms; revocation closes the
 stream within that interval. Between checks canopyd reuses the previous
-decision until the database changes (a write through its connection, or a
-commit by any other) or execution authority is invalidated, so an idle
+decision until the database changes (a write through its connection other
+than a device's last-use time, or a commit by any other) or execution
+authority is invalidated, so an idle
 check costs one trivial query. Execution token revocation, expiry, and its
 host validity callback are checked every time.
 
