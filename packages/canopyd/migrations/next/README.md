@@ -10,11 +10,12 @@ cutover commit. The previous batch is
 
 ## Steps
 
-The live schema is 27; the batch ends at 28.
+The live schema is 27; the batch ends at 29.
 
 | Step | Change | Product change at cutover |
 |---|---|---|
 | [028](steps/028-profile-locator-pins.ts) | `profile_locator_pins` (empty): the Profile TreeID each profile locator first resolved to. | Qualified profile locators ([Security 011](../../../../plans/soon/011-placement-by-reservation.md)): members and rules may name a profile on another host by its locator there, pinned to its first TreeID; a member naming another host's locator is a placement account with its root declared on accept; the placement claim and `homeHost` go. |
+| [029](steps/029-drop-tree-status.ts) | `trees.status` dropped. Nothing ever wrote `retired`; the step refuses (and the batch rolls back) if a live tree is anything but `active`. **Before cutover:** confirm `SELECT COUNT(*) FROM trees WHERE status <> 'active'` is 0 on the live host. | Every `status = 'active'` test goes, and `HostTree.status` with them: `access.ts`, `directory.ts`, `schema.ts` (the column list and the integrity queries), `recomputeBoundaries`, `groupProfiles`, `insertTree`, `prepareMountRewrite`, `validateReservedBoundaries` and the `/.arbor/trees` listing in `host.ts`. |
 
 ## Adding a step
 

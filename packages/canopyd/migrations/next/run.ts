@@ -1,5 +1,6 @@
 import { runBatch, type BatchReport } from "../tools/batch.ts";
 import { profileLocatorPins } from "./steps/028-profile-locator-pins.ts";
+import { dropTreeStatus } from "./steps/029-drop-tree-status.ts";
 
 /**
  * The next migration batch: every schema step ready since the last cutover,
@@ -7,7 +8,7 @@ import { profileLocatorPins } from "./steps/028-profile-locator-pins.ts";
  * see README.md for the list, the product changes each one brings at
  * cutover, and the runbook.
  */
-export const steps = [profileLocatorPins];
+export const steps = [profileLocatorPins, dropTreeStatus];
 
 export function migrateNextBatch(dataRoot: string): BatchReport {
   // At cutover, pass `(db) => { assertCurrentHostSchema(db); assertHostData(db); }`
