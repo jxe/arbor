@@ -251,14 +251,23 @@ struct CanopyProfileDocument: Equatable {
         let tree = profileTree.trimmingCharacters(in: .whitespacesAndNewlines)
         var localHandle = handle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if localHandle.hasPrefix("~") { localHandle.removeFirst() }
-        guard TreeID.isWellFormed(tree) else {
-            throw ProtocolValidationError.invalidValue("Enter a TreeID such as tr_abc234")
+        // A profile another host holds is a member by its URL there, which
+        // this host pins to the profile it names (locators §1); in the
+        // community, with a handle, it is a placement account (accounts §1.3).
+        let remote = TreeID.isWellFormed(tree) ? nil : ProfileLocator(tree)
+        guard TreeID.isWellFormed(tree) || remote != nil else {
+            throw ProtocolValidationError.invalidValue("Enter a TreeID such as tr_abc234, or a profile URL such as https://example.org/~alice")
         }
-        if reservesHostHandle,
+        if reservesHostHandle, remote == nil,
            tree.range(of: #"^tr_[a-z2-7]{52}$"#, options: .regularExpression) == nil {
             throw ProtocolValidationError.invalidValue(
                 "A Canopy member must use a self-certifying person Profile TreeID"
             )
+        }
+        if reservesHostHandle, localHandle.isEmpty, let remote {
+            // The handle defaults to the name the profile has at its home host.
+            let last = remote.locator.split(separator: "/").last.map(String.init) ?? ""
+            localHandle = (last.hasPrefix("~") ? String(last.dropFirst()) : last).removingPercentEncoding?.lowercased() ?? ""
         }
         guard !reservesHostHandle || localHandle.range(
             of: #"^[a-z0-9](?:[a-z0-9-]{0,62})$"#,
@@ -268,7 +277,7 @@ struct CanopyProfileDocument: Equatable {
                 "Enter a handle using lowercase letters, numbers, and hyphens"
             )
         }
-        let locator = "arbor://\(tree)/"
+        let locator = remote?.locator ?? "arbor://\(tree)/"
         guard !profile.memberProfiles.contains(locator) else {
             let label = localHandle.isEmpty ? tree : "~\(localHandle)"
             throw ProtocolValidationError.invalidValue("\(label) is already a member")

@@ -5034,25 +5034,26 @@ private struct CanopyProfileMembersSheet: View {
                         Toggle("Invite with a code", isOn: $inviteByCode)
                     }
                     if !inviteByCode || !reservesHostHandle {
-                        TextField("TreeID (tr_…)", text: $treeID)
+                        TextField("TreeID or profile URL", text: $treeID)
                     }
                     if reservesHostHandle {
                         HStack(spacing: 4) {
                             Text("~").foregroundStyle(.secondary)
-                            TextField("Canopy handle", text: $handle)
+                            TextField(ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ? "Canopy handle" : "Canopy handle (optional)", text: $handle)
                         }
                     }
                     Text(reservesHostHandle
                         ? (inviteByCode
                             ? "The person can claim this handle with the code, without sending you their Profile TreeID. The code is shown once."
-                            : "This reserves the handle on this Canopy for the person’s Profile TreeID; it does not copy or relocate their profile.")
-                        : "The TreeID is the member’s stable profile identity.")
+                            : "This reserves the handle on this Canopy for the person’s Profile TreeID, or for their profile URL on another Canopy, which lets them keep trees here; it does not copy or relocate their profile.")
+                        : "A TreeID, or the URL of a profile on another Canopy, which this Canopy ties to the profile it names.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button(inviteByCode && reservesHostHandle ? "Create Invitation" : reservesHostHandle ? "Add Person" : "Add Member") { Task { await submit() } }
                         .disabled(busy || issuedCode != nil || (!inviteByCode && treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             || (reservesHostHandle
-                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                && ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil))
                 }
                 if let issuedCode {
                     Section("Invitation code") {

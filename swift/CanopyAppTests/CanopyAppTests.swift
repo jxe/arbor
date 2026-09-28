@@ -83,6 +83,21 @@ struct CanopyAppTests {
         #expect(throws: (any Error).self) {
             try CanopyProfileDocument.addingMember(profileTree: "not-a-tree", handle: nil, to: groupSource)
         }
+        // A profile on another host is a member by its URL there, spelled canonically.
+        let remote = try CanopyProfileDocument.addingMember(profileTree: "arbor://Garden.example/~alice/", handle: nil, to: groupSource)
+        #expect(remote.contains("  - profile: \"https://garden.example/~alice\"\n"))
+        #expect(CanopyProfileDocument.parse(remote)?.memberProfiles.contains("https://garden.example/~alice") == true)
+        #expect(throws: (any Error).self) {
+            try CanopyProfileDocument.addingMember(profileTree: "https://garden.example/~alice", handle: nil, to: remote)
+        }
+        // In the community it reserves a handle, by default the name it has at its home host.
+        let placed = try CanopyProfileDocument.addingMember(profileTree: "https://garden.example/~alice", handle: nil, reservesHostHandle: true, to: groupSource)
+        #expect(placed.contains("  - profile: \"https://garden.example/~alice\"\n    handle: \"alice\"\n"))
+        let renamed = try CanopyProfileDocument.addingMember(profileTree: "https://garden.example/~alice", handle: "ali", reservesHostHandle: true, to: groupSource)
+        #expect(renamed.contains("    handle: \"ali\"\n"))
+        #expect(throws: (any Error).self) {
+            try CanopyProfileDocument.addingMember(profileTree: "http://garden.example/~alice", handle: nil, to: groupSource)
+        }
         #expect(throws: (any Error).self) {
             try CanopyProfileDocument.addingMember(
                 profileTree: personTree,
