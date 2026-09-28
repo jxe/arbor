@@ -1283,6 +1283,7 @@ struct CanopyAppTests {
         ))
         #expect(placement.hostName == "place.example")
         #expect(placement.homeHostName == "home.example")
+        #expect(CanopyPlacement.hostName("http://127.0.0.1:47102") == "127.0.0.1:47102")
         #expect(placement.handle == "joe")
         #expect(placement.id == "tr_config/" + NativePlacementAccount.directoryName(origin: "https://place.example"))
         #expect(CanopyAccountServiceError.unsupported(.placeAccount).errorDescription?.contains("place") == true)

@@ -45,7 +45,7 @@ struct CanopyShareAccount: Identifiable, Hashable, Sendable {
 
     /// "~joe · orchard.example": the handle there and the host.
     var destinationLabel: String {
-        let host = URL(string: origin)?.host ?? origin
+        let host = CanopyPlacement.hostName(origin)
         return handle.map { "~\($0) · \(host)" } ?? origin
     }
 

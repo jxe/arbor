@@ -36,8 +36,15 @@ struct CanopyPlacement: Identifiable, Hashable, Sendable {
     var id: String { NativePlacementAccount.key(configurationTree: configurationTree, origin: origin) }
 
     /// The placement host's name, as a person reads it.
-    var hostName: String { URL(string: origin)?.host() ?? origin }
-    var homeHostName: String { URL(string: homeHost)?.host() ?? homeHost }
+    var hostName: String { Self.hostName(origin) }
+    var homeHostName: String { Self.hostName(homeHost) }
+
+    /// An origin's host, with its port when it names one, so two hosts on
+    /// one machine stay apart.
+    static func hostName(_ origin: String) -> String {
+        guard let url = URL(string: origin), let host = url.host() else { return origin }
+        return url.port.map { "\(host):\($0)" } ?? host
+    }
 }
 
 extension CanopyPlacement {
