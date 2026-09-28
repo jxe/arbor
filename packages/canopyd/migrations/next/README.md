@@ -10,15 +10,19 @@ cutover commit. The previous batch is
 
 ## Steps
 
-The live schema is 29. No step is pending.
+The live schema is 29; the batch ends at 32. Each step removes something
+the product stores and never needs; none changes the wire.
 
 | Step | Change | Product change at cutover |
 |---|---|---|
+| [030](steps/030-drop-tree-policy.ts) | `trees.policy` dropped: it is `tree-config-v1` exactly when `governs` is set. The step refuses (and the batch rolls back) a row where the two disagree. | `HostTree.policy` and `isTreeConfigPolicy` go; readers test `governs !== null` or `kind`: `model.ts`, `access.ts` (`accessLevel`, `canWrite`, `canAdminister`), `canopy.ts` (the tree select, `writableProfiles`, the mount query and mount checks, `submitCandidateLocked` and `submitSemanticCandidate`'s policy choice, `subjectFor`, the remote-group prefetch, `insertTree` and `insertConfig`) and `schema.ts` (`AUTHORITY_SCHEMA`, `createHostSchema`, `assertHostData`'s ordinary-tree test). |
+| [031](steps/031-drop-unread-times.ts) | `profile_locator_pins.pinned_at`, `pairings.created_at` and `device_sessions.created_at` dropped; each is written and never read. | Their inserts in `locator-pins.ts` (`write`) and `accounts.ts` (`insertSession`, `createPairing`) stop writing them; `AUTHORITY_SCHEMA`, `createHostSchema`, `createDeviceSessionsTable` and `tests/unit/canopyd/locator-pins.test.ts`'s table lose them. |
+| [032](steps/032-profile-facts-unversioned.ts) | Each `profile_facts.facts` loses `version: 3`, which nothing reads; the step refuses any other version. | `RootProfileFacts.version` goes from `profile.ts` (the type, the empty read and `readRootProfile`) and `canopy.ts` (`profileCard`'s default). |
 
 ## Adding a step
 
 1. Write `steps/NNN-<name>.ts` exporting a `MigrationStep` whose `from` is
-   the previous step's plus one (the first is 030 from 29), with a `verify`
+   the previous step's plus one (030 was the first, from 29), with a `verify`
    for what it promises.
 2. Add it to `steps` in `run.ts` and a case to `migrate.test.ts`.
 3. Add its row above, with the product change it brings at cutover.
