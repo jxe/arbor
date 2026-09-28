@@ -187,5 +187,8 @@ The Mac build, `CanopyAppTests` and the hand checks passed 2026-09-28
 - Making a folder into a tree from the Mac app, onto a placement host as
   anywhere else, waits on
   [Filesystem 024](../filesystem/024-disk-editors-for-non-tree-folders.md).
+- [Security 011](011-placement-by-reservation.md) replaces the placement
+  claim: B's administrator names the person's qualified profile and devices
+  connect on first use.
 - A live placement host needs a second canopyd, which is Joe's decision.
 - When these are done, record them in `status.md` and delete this plan.
