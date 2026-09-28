@@ -40,14 +40,13 @@ describe("profile presentation facts", () => {
       "images/me.webp": new Uint8Array([1, 2, 3]),
     });
     const facts = await rootProfileFacts(source.root, source.load);
-    expect(facts).toMatchObject({ version: 3, type: "person", displayName: "José Arbor", description: "Builder", avatar: { path: "images/me.webp" } });
+    expect(facts).toMatchObject({ type: "person", displayName: "José Arbor", description: "Builder", avatar: { path: "images/me.webp" } });
   });
 
   test("drops malformed and unavailable card fields without rejecting identity", async () => {
     for (const avatar of ["../x.png", "/x.png", "https://example/x.png", "missing.png"]) {
       const source = fixture(`type: group\ndisplayName: "${"x".repeat(81)}"\ndescription: "${"y".repeat(501)}"\navatar: ${avatar}`);
       expect(await rootProfileFacts(source.root, source.load)).toEqual({
-        version: 3,
         type: "group",
         members: [],
         headingTitle: "Profile",
@@ -88,7 +87,7 @@ describe("stored profile rows", () => {
 
   test("only _index.md and the row's declared avatar path decide a recompute", () => {
     const sha = `sha256:${"0".repeat(64)}` as ObjectHash;
-    const row = { indexHash: sha, avatarPath: "images/me.png", facts: { version: 3 as const, type: "person" as const, members: [] } };
+    const row = { indexHash: sha, avatarPath: "images/me.png", facts: { type: "person" as const, members: [] } };
     const set = (path: string) => ({ set: [{ path, hash: sha }], removed: [] });
     const removed = (path: string) => ({ set: [], removed: [path] });
     expect(profileChanged(row, set("/_index.md"))).toBe(true);

@@ -9,19 +9,19 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "29";
+export const CANOPY_SCHEMA_VERSION = "32";
 
 export const AUTHORITY_SCHEMA = {
-  trees: ["id", "ref", "policy", "governs"],
+  trees: ["id", "ref", "governs"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
   accounts: ["id", "handle", "enabled", "claim_digest", "home_host"],
   devices: ["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at"],
-  pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
+  pairings: ["id", "account_id", "secret_digest", "confirmation_code", "expires_at", "claimed_at", "claimed_device"],
   challenges: ["id", "purpose", "challenge_json", "expires_at", "consumed_at"],
-  device_sessions: ["token_digest", "device_id", "created_at", "expires_at"],
+  device_sessions: ["token_digest", "device_id", "expires_at"],
   tree_policy: ["tree_id", "rules_json"],
   tree_admins: ["tree_id", "profile_tree"],
   app_policy: ["profile_tree", "app_tree", "rules_json"],
@@ -29,7 +29,7 @@ export const AUTHORITY_SCHEMA = {
   entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   profile_facts: ["tree_id", "index_hash", "avatar_path", "facts"],
-  profile_locator_pins: ["tree_id", "locator", "profile_tree", "pinned_at"],
+  profile_locator_pins: ["tree_id", "locator", "profile_tree"],
   meta: ["key", "value"],
 } as const;
 
@@ -98,7 +98,6 @@ export function createDeviceSessionsTable(db: Database): void {
     CREATE TABLE device_sessions (
       token_digest TEXT PRIMARY KEY,
       device_id TEXT NOT NULL REFERENCES devices(id),
-      created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     )
   `);
@@ -110,7 +109,6 @@ export function createHostSchema(db: Database): void {
     CREATE TABLE trees (
       id TEXT PRIMARY KEY,
       ref TEXT NOT NULL,
-      policy TEXT NOT NULL DEFAULT 'ordinary',
       governs TEXT
     )
   `);
@@ -138,7 +136,6 @@ export function createHostSchema(db: Database): void {
       account_id TEXT NOT NULL REFERENCES accounts(id),
       secret_digest TEXT NOT NULL,
       confirmation_code TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
       claimed_at INTEGER,
       claimed_device TEXT
@@ -156,7 +153,6 @@ export function createHostSchema(db: Database): void {
       tree_id TEXT NOT NULL,
       locator TEXT NOT NULL,
       profile_tree TEXT NOT NULL,
-      pinned_at INTEGER NOT NULL,
       PRIMARY KEY(tree_id, locator)
     )
   `);
@@ -234,7 +230,7 @@ export function assertHostData(db: Database): void {
   `).get() as { count: number };
   const missingConfigurations = db.query(`
     SELECT COUNT(*) AS count FROM trees t
-    WHERE t.policy = 'ordinary'
+    WHERE t.governs IS NULL
       AND NOT EXISTS (SELECT 1 FROM trees c WHERE c.governs = t.id)
   `).get() as { count: number };
   const unindexed = db.query(`

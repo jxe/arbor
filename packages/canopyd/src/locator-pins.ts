@@ -126,15 +126,15 @@ export class LocatorPins {
    * Write `tree`'s pins inside its accept's transaction: `fresh` from
    * `prepare`, and every pin for a locator the tree no longer names removed.
    */
-  write(tree: string, fresh: ReadonlyMap<string, string>, named: Iterable<string>, now = Date.now()): void {
+  write(tree: string, fresh: ReadonlyMap<string, string>, named: Iterable<string>): void {
     const keep = new Set(named);
     for (const row of this.db.query("SELECT locator FROM profile_locator_pins WHERE tree_id = ?").all(tree) as Array<{ locator: string }>) {
       if (!keep.has(row.locator)) this.db.run("DELETE FROM profile_locator_pins WHERE tree_id = ? AND locator = ?", [tree, row.locator]);
     }
     for (const [locator, profile] of fresh) {
-      this.db.run(`INSERT INTO profile_locator_pins (tree_id, locator, profile_tree, pinned_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT(tree_id, locator) DO UPDATE SET profile_tree = excluded.profile_tree, pinned_at = excluded.pinned_at`,
-        [tree, locator, profile, now]);
+      this.db.run(`INSERT INTO profile_locator_pins (tree_id, locator, profile_tree) VALUES (?, ?, ?)
+        ON CONFLICT(tree_id, locator) DO UPDATE SET profile_tree = excluded.profile_tree`,
+        [tree, locator, profile]);
     }
   }
 

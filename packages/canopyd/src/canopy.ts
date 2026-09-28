@@ -82,7 +82,7 @@ import {
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
   type MemberReservation,
 } from "./profile.ts";
-import { isTreeConfigPolicy, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
+import { type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
@@ -515,16 +515,14 @@ export class HostDaemon implements AsyncDisposable {
       ref: string;
       path: string | null;
       parent_tree: string | null;
-      policy: HostTree["policy"];
       governs: string | null;
     };
     return {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: isTreeConfigPolicy(row.policy) ? "tree-configuration" : "ordinary",
+      kind: row.governs === null ? "ordinary" : "tree-configuration",
       ref: row.ref,
-      policy: row.policy,
       governs: row.governs,
     };
   }
@@ -1095,7 +1093,7 @@ export class HostDaemon implements AsyncDisposable {
   writableProfiles(account: HostAccount): HostTree[] {
     return this.list().filter((tree) =>
       tree.canonicalPath !== null
-      && tree.policy === "ordinary"
+      && tree.kind === "ordinary"
       && this.rootProfileType(tree.id) !== null
       && this.canWrite(account, tree)
     );
@@ -1152,13 +1150,13 @@ export class HostDaemon implements AsyncDisposable {
   /** Insert a prepared configuration and its index; callers run this inside their transaction. */
   private insertConfig(prepared: PreparedConfig, acceptedAt: number, subject: string | null, requestDigest?: ObjectHash, change?: string): AcceptedUpdate {
     const id = treeConfigurationID(prepared.tree);
-    this.db.run("INSERT INTO trees (id, ref, policy, governs) VALUES (?, ?, 'tree-config-v1', ?)", [id, prepared.root, prepared.tree]);
+    this.db.run("INSERT INTO trees (id, ref, governs) VALUES (?, ?, ?)", [id, prepared.root, prepared.tree]);
     const accepted = this.acceptedStore.insert({
       tree: id, root: prepared.root, previousRoot: null, acceptedAt, subject, requestDigest, change,
       entryChanges: prepared.entryChanges, entry: prepared.entry,
     });
     this.indexTreeConfig(prepared.tree, prepared.kind, null, prepared.values);
-    this.locatorPins.write(prepared.tree, prepared.pins, configLocators(prepared.values), acceptedAt);
+    this.locatorPins.write(prepared.tree, prepared.pins, configLocators(prepared.values));
     return accepted;
   }
 
@@ -1311,7 +1309,7 @@ export class HostDaemon implements AsyncDisposable {
     if (!root) return;
     const mounts = this.db.query(`
       SELECT m.parent_tree, m.path, m.tree_id FROM mounts m JOIN trees t ON t.id = m.tree_id
-      WHERE t.policy = 'ordinary' ORDER BY m.parent_tree, m.path
+      WHERE t.governs IS NULL ORDER BY m.parent_tree, m.path
     `).all() as Array<{ parent_tree: string; path: string; tree_id: string }>;
     const byParent = new Map<string, typeof mounts>();
     for (const mount of mounts) byParent.set(mount.parent_tree, [...byParent.get(mount.parent_tree) ?? [], mount]);
@@ -1398,7 +1396,7 @@ export class HostDaemon implements AsyncDisposable {
       if (held.has(child)) continue;
       if (child === community || child === parent) throw new Error(`Tree ${child} cannot be mounted here`);
       const existing = this.get(child);
-      if (existing && existing.policy !== "ordinary") throw new Error("A tree configuration cannot be mounted");
+      if (existing && existing.kind !== "ordinary") throw new Error("A tree configuration cannot be mounted");
       if (!existing && !this.get(treeConfigurationID(child))) throw new Error(`Unknown tree: ${child}`);
       if (!this.access.administers(account.id, child)) {
         throw new PermissionDeniedError(`Mounting ${child} requires administering it`);
@@ -1459,7 +1457,7 @@ export class HostDaemon implements AsyncDisposable {
   /** A tree's complete profile facts, card fields included, from its stored
    * row. A tree without a row is not a profile. */
   profileCard(tree: string | HostTree): RootProfileFacts {
-    return this.treeProfile(idOf(tree)).stored?.facts ?? { version: 3, type: null, members: [] };
+    return this.treeProfile(idOf(tree)).stored?.facts ?? { type: null, members: [] };
   }
 
   /** Every tree whose head declares `type: group`, with its facts: one query. */
@@ -1686,7 +1684,7 @@ export class HostDaemon implements AsyncDisposable {
     for (const [index, update] of request.updates.entries()) {
       if (
         (request.base === null ||
-          isTreeConfigPolicy(retainedTree?.policy ?? "ordinary")) &&
+          retainedTree?.kind === "tree-configuration") &&
         update.trace !== null
       ) {
         throw new UpdateProtocolError(
@@ -1922,7 +1920,7 @@ export class HostDaemon implements AsyncDisposable {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
     if (!(this.canWrite(caller.account, tree, caller.linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
-    const policy = isTreeConfigPolicy(tree.policy)
+    const policy = tree.kind === "tree-configuration"
       ? this.treeConfigPolicy(tree, request, baseRoot, caller, proposed)
       : this.ordinaryPolicy(tree, request, caller);
     const { subject } = policy;
@@ -1989,7 +1987,7 @@ export class HostDaemon implements AsyncDisposable {
     basis: AuthoredBasis,
     prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
-    const governed = isTreeConfigPolicy(tree.policy);
+    const governed = tree.kind === "tree-configuration";
     for (let race = 0; race < 3; race++) {
       const current = this.currentUpdate(tree.id)!;
       if (current.root !== this.get(tree.id)!.ref) {
@@ -2183,7 +2181,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** The subject an update to `tree` is recorded and replayed under. */
   private subjectFor(tree: HostTree, caller: UpdateCaller): string {
-    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, caller).subject;
+    if (tree.kind === "tree-configuration") return this.configurationCaller(tree, caller).subject;
     const execution = this.execution.current;
     const { account, linkDigest, authentication } = caller;
     return execution?.code ? `execution:${execution.subject}:${execution.code}` : authentication?.subject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
@@ -2308,7 +2306,7 @@ export class HostDaemon implements AsyncDisposable {
         return {
           withinTransaction: () => {
             this.indexTreeConfig(governed, kind, currentGraph, nextGraph);
-            this.locatorPins.write(governed, pins, locators, now);
+            this.locatorPins.write(governed, pins, locators);
             if (prepared) boundaryUpdate = this.advanceParent(prepared, now, credentialSubject);
           },
           afterCommit: () => {
@@ -2352,7 +2350,7 @@ export class HostDaemon implements AsyncDisposable {
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
-    if (isTreeConfigPolicy(this.get(update.tree)?.policy ?? "ordinary")) void this.remoteGroups.prefetch(this.namedRemoteGroups());
+    if (this.get(update.tree)?.kind === "tree-configuration") void this.remoteGroups.prefetch(this.namedRemoteGroups());
   }
 
   async object(hash: ObjectHash): Promise<Uint8Array> {
@@ -2453,7 +2451,7 @@ export class HostDaemon implements AsyncDisposable {
     const parent = mount ? this.get(mount.parent) : null;
     // Attaching a fresh tree is the single-addition boundary rewrite; a plain
     // entry already at that name is replaced by the nested-tree entry.
-    const attachment = parent?.policy === "ordinary"
+    const attachment = parent?.kind === "ordinary"
       ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parent.id, [], [{ path: mountBelow("/", mount!.path), tree: id }], { replaceEntries: true }))
       : null;
     const staged = new Map(snapshot.objects);
@@ -2555,7 +2553,7 @@ export class HostDaemon implements AsyncDisposable {
     options: BoundaryRewriteOptions = {},
   ): Promise<{ parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
     const parent = this.get(parentTreeID);
-    if (!parent || parent.policy !== "ordinary") throw new Error(`Unknown parent tree: ${parentTreeID}`);
+    if (!parent || parent.kind !== "ordinary") throw new Error(`Unknown parent tree: ${parentTreeID}`);
     const rewrite = await rewriteBoundaries(
       { ref: parent.ref, canonicalPath: "/" },
       removals,
@@ -2751,7 +2749,7 @@ export class HostDaemon implements AsyncDisposable {
     this.treeProfiles.delete(tree);
     if (placements) {
       const now = Date.now();
-      this.locatorPins.write(tree, placements.pins, placements.locators, now);
+      this.locatorPins.write(tree, placements.pins, placements.locators);
       // A new placement account and its root, which the community mounts at
       // its /~handle; the person's first snapshot activates the root.
       for (const account of placements.accounts) {

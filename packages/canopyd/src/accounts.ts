@@ -209,7 +209,7 @@ export class AccountDirectory {
 
   insertSession(tokenDigest: string, deviceID: string, now: number, expiresAt: number): void {
     this.db.run("DELETE FROM device_sessions WHERE expires_at <= ?", [now]);
-    this.db.run("INSERT INTO device_sessions (token_digest, device_id, created_at, expires_at) VALUES (?, ?, ?, ?)", [tokenDigest, deviceID, now, expiresAt]);
+    this.db.run("INSERT INTO device_sessions (token_digest, device_id, expires_at) VALUES (?, ?, ?)", [tokenDigest, deviceID, expiresAt]);
   }
 
   /**
@@ -235,9 +235,9 @@ export class AccountDirectory {
     // An expired unclaimed pairing can never be claimed; a claimed one stays for exact replay.
     this.db.run("DELETE FROM pairings WHERE claimed_at IS NULL AND expires_at <= ?", [now]);
     this.db.run(`
-      INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [id, account.id, sha256(secret), confirmationCode, now, expiresAt]);
+      INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, account.id, sha256(secret), confirmationCode, expiresAt]);
     return { id, secret, confirmationCode, expiresAt };
   }
 

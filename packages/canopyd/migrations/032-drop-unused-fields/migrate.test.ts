@@ -29,8 +29,26 @@ const tables = (path: string) => {
   } finally { db.close(); }
 };
 
-/** A data root as the live host holds it before the batch: schema 29, which
- * this build still writes, with a session, a pairing and profile facts. */
+/** Rewrite a data root this build wrote into the layout the live host holds
+ * at schema 29: `trees.policy` beside `governs`, the three times, and
+ * `version: 3` in every profile's facts. */
+function toSchema29(path: string): void {
+  const db = new Database(join(path, "canopy.sqlite3"));
+  try {
+    db.transaction(() => {
+      db.run("ALTER TABLE trees ADD COLUMN policy TEXT NOT NULL DEFAULT 'ordinary'");
+      db.run("UPDATE trees SET policy = 'tree-config-v1' WHERE governs IS NOT NULL");
+      db.run("ALTER TABLE profile_locator_pins ADD COLUMN pinned_at INTEGER NOT NULL DEFAULT 1");
+      db.run("ALTER TABLE pairings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 1");
+      db.run("ALTER TABLE device_sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 1");
+      db.run("UPDATE profile_facts SET facts = json_set(facts, '$.version', 3)");
+      db.run("UPDATE meta SET value = '29' WHERE key = 'schema_version'");
+    })();
+  } finally { db.close(); }
+}
+
+/** A data root as the live host holds it before the batch: schema 29, with a
+ * session, a pairing, a locator pin and profile facts. */
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-migration-next-"));
   schema29 = join(sandbox, "schema29");
@@ -44,8 +62,9 @@ beforeAll(async () => {
   host.server.stop(true);
   await host.canopy[Symbol.asyncDispose]();
   const db = new Database(join(schema29, "canopy.sqlite3"));
-  db.run("INSERT INTO profile_locator_pins VALUES ((SELECT id FROM trees WHERE governs IS NULL LIMIT 1), 'https://home.example/~joe', 'tr_joe', 1)");
+  db.run("INSERT INTO profile_locator_pins VALUES ((SELECT id FROM trees WHERE governs IS NULL LIMIT 1), 'https://home.example/~joe', 'tr_joe')");
   db.close();
+  toSchema29(schema29);
 });
 
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });

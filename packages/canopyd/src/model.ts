@@ -7,14 +7,8 @@ export interface HostTree {
   parentTree: string | null;
   kind: TreeKind;
   ref: ObjectHash;
-  policy: "ordinary" | "tree-config-v1";
   /** For a tree configuration, the TreeID of the tree it configures. */
   governs: string | null;
-}
-
-/** Whether a tree holds another tree's configuration rather than ordinary content. */
-export function isTreeConfigPolicy(policy: HostTree["policy"]): boolean {
-  return policy === "tree-config-v1";
 }
 
 /**

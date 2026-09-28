@@ -14,7 +14,7 @@ import {
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import type { AccountDirectory } from "./accounts.ts";
-import { isTreeConfigPolicy, type HostAccount, type HostTree } from "./model.ts";
+import { type HostAccount, type HostTree } from "./model.ts";
 
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
@@ -129,7 +129,7 @@ export class AccessControl {
 
   directExecution(account: HostAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
     const tree = this.host.tree(treeID);
-    if (!tree || tree.policy !== "ordinary") return undefined;
+    if (!tree || tree.kind !== "ordinary") return undefined;
     const rules = this.rules(treeID).filter((rule) => !rule.app && !rule.allow.includes("admin") && ruleMatches(rule, {
       callerProfile: account?.id ?? null, linkDigest, isGroupMember: this.isGroupMember, ...this.pins(treeID),
     }));
@@ -150,7 +150,7 @@ export class AccessControl {
    */
   executionAllows(context: ExecutionContext, grant: ExecutionGrant, path: string, operation: AccessOperation): boolean {
     const tree = this.host.tree(grant.tree);
-    if (!tree || tree.policy !== "ordinary") return false;
+    if (!tree || tree.kind !== "ordinary") return false;
     const caller = context.caller ? this.accounts.enabledAccount(context.caller) : null;
     if (context.caller && !caller) return false;
     const callerProfile = caller?.id ?? null;
@@ -197,7 +197,7 @@ export class AccessControl {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return null;
     const profile = account?.id ?? null;
-    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(profile, tree.governs) ? "write" : null;
+    if (tree.kind === "tree-configuration") return !!account && !!tree.governs && this.administers(profile, tree.governs) ? "write" : null;
     if (this.administers(profile, tree.id)) return "write";
     const rules = this.rules(tree.id);
     const context = { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember, ...this.pins(tree.id) };
@@ -208,13 +208,13 @@ export class AccessControl {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
     if (!tree) return false;
     // Only a tree's administrators see its configuration.
-    if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(account.id, tree.governs);
+    if (tree.kind === "tree-configuration") return !!account && !!tree.governs && this.administers(account.id, tree.governs);
     return this.holds(account?.id ?? null, tree.id, "/", operation, linkDigest);
   }
 
   canAdminister(account: HostAccount, treeOrID: string | HostTree): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree || isTreeConfigPolicy(tree.policy)) return false;
+    if (!tree || tree.kind === "tree-configuration") return false;
     return this.administers(account.id, tree.id);
   }
 }

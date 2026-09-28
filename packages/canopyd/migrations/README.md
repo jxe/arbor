@@ -190,6 +190,9 @@ than it understands. The stamps that have shipped:
 | 27 | Placement accounts (batch 027, Security 007): `accounts.home_host` names the profile's home host on a placement host, NULL on its home. No wire break: placement claims, the placement descriptor, and sessions from the home host's published device keys are additive, and Security 009's grace and remote groups need no schema. |
 | 28 | Profile locator pins (batch 029, step 028, Security 011): `profile_locator_pins` holds, per tree, the Profile TreeID each profile locator its configuration names first resolved to. |
 | 29 | `trees.status` dropped (batch 029, step 029); the one retired tree live held is deleted. Wire change with the batch: the placement claim and `homeHost` go, the update response requires `head`, a watch frame carries one transition with its cursor in the SSE `id`, watches resume from `after` alone, host-wide reads carry no cursor, and `/access` answers `{ policy, locators }`; Mac, CLI, Arbor Sync and iPhone clients are replaced together. |
+| 30 | `trees.policy` dropped (batch 032, step 030): `governs` alone says a tree is a configuration. |
+| 31 | `profile_locator_pins.pinned_at`, `pairings.created_at` and `device_sessions.created_at` dropped (batch 032, step 031); nothing read them. |
+| 32 | `profile_facts.facts` loses `version: 3` (batch 032, step 032). No wire change in the batch. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local

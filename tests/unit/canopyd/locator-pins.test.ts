@@ -13,7 +13,7 @@ let pins: LocatorPins;
 
 beforeEach(() => {
   db = new Database(":memory:");
-  db.run(`CREATE TABLE profile_locator_pins (tree_id TEXT NOT NULL, locator TEXT NOT NULL, profile_tree TEXT NOT NULL, pinned_at INTEGER NOT NULL, PRIMARY KEY(tree_id, locator))`);
+  db.run(`CREATE TABLE profile_locator_pins (tree_id TEXT NOT NULL, locator TEXT NOT NULL, profile_tree TEXT NOT NULL, PRIMARY KEY(tree_id, locator))`);
   answers = new Map([[CLUB, "tr_club"]]);
   changes = 0;
   lifetimes = { lifetimeMs: 0, refetchMs: 0, staleMs: 60_000 };

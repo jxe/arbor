@@ -45,7 +45,6 @@ export function memberReservations(members: RootProfileFacts["members"]): Map<st
 }
 
 export interface RootProfileFacts {
-  version: 3;
   type: "person" | "group" | null;
   members: Array<{ profile?: string; handle?: string; inviteDigest?: string }>;
   displayName?: string;
@@ -122,7 +121,7 @@ export function structuredMembers(declared: unknown): RootProfileFacts["members"
 /** A root's profile facts with its `_index.md` hash and the declared avatar
  * path. It parses `_index.md` once. */
 export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileRead> {
-  const none: RootProfileRead = { facts: { version: 3, type: null, members: [] }, indexHash: null, avatarPath: null };
+  const none: RootProfileRead = { facts: { type: null, members: [] }, indexHash: null, avatarPath: null };
   const directory = decodeProtocolDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
@@ -158,7 +157,6 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
   }
   return {
     facts: {
-      version: 3,
       type,
       members,
       ...(displayName ? { displayName } : {}),

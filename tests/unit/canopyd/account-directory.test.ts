@@ -10,7 +10,7 @@ test("a new pairing prunes expired unclaimed pairings and keeps claimed ones for
     createHostSchema(db);
     db.run("INSERT INTO accounts (id, handle, enabled) VALUES ('ac_owner', 'owner', 1)");
     const insert = (id: string, claimedAt: number | null) => db.run(
-      "INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, created_at, expires_at, claimed_at) VALUES (?, 'ac_owner', 'digest', '000000', 0, 1, ?)",
+      "INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, expires_at, claimed_at) VALUES (?, 'ac_owner', 'digest', '000000', 1, ?)",
       [id, claimedAt],
     );
     insert("pa_expired", null);
