@@ -16,7 +16,7 @@ failed `quick_check` or a dangling foreign key; a rerun reports
 
 | Step | Change | Product change at cutover |
 |---|---|---|
-| [028](steps/028-profile-locator-pins.ts) | `profile_locator_pins` (empty): per tree, the Profile TreeID each profile locator its configuration names first resolved to. | Qualified profile locators ([Security 011](../../../../plans/soon/011-placement-by-reservation.md)): members and rules may name a profile on another host by its locator there, pinned to its first TreeID; a member naming another host's locator is a placement account with its root declared on accept; the placement claim and `homeHost` go. |
+| [028](steps/028-profile-locator-pins.ts) | `profile_locator_pins` (empty): per tree, the Profile TreeID each profile locator its configuration names first resolved to. | Qualified profile locators ([Security 011](../../../../status.md#profiles-on-other-hosts-by-locator--2026-09-28)): members and rules may name a profile on another host by its locator there, pinned to its first TreeID; a member naming another host's locator is a placement account with its root declared on accept; the placement claim and `homeHost` go. |
 | [029](steps/029-drop-tree-status.ts) | `trees.status` dropped. Code before canopyd 005 retired trees, and live holds one, `tr_unkaimbksfitula6i5n4acid6y` (ordinary, one accepted update, unmounted, unconfigured). At Joe's decision (2026-09-28) the step deletes a retired tree nothing points at, with its rows, and names it in the report's `notes`; it refuses (and the batch rolls back) a retired tree that a mount, boundary, configuration or app rule still names. | Every `status = 'active'` test goes, and `HostTree.status` with them: `access.ts`, `directory.ts`, `schema.ts` (the column list and the integrity queries), `recomputeBoundaries`, `groupProfiles`, `insertTree`, `prepareMountRewrite`, `validateReservedBoundaries` and the `/.arbor/trees` listing in `host.ts`. |
 
 ## Wire changes at cutover
@@ -70,4 +70,15 @@ bun run packages/canopyd/migrations/tools/compare-canopy-roots.ts before migrate
 
 ## Cutover log
 
-(Filled in at cutover.)
+- 2026-09-28, `d2b26575`: Canopy quit on the Mac and iPhone; authored
+  manifest (112 files over 3 placements) and `cp -a ~/.arbor` taken; Arbor
+  Sync stopped; pushed `main`, which deployed into maintenance mode;
+  `railway ssh -- bun run
+  packages/canopyd/migrations/029-profile-locators/run.ts /data` reported
+  `migrated: true`, 27 → 29 through 028 and 029, deleting
+  `tr_unkaimbksfitula6i5n4acid6y`, as rehearsed; `railway redeploy
+  --from-source -y`. Then `verify.ts --sync` ok on the 6 roots with the
+  authored manifest unchanged, `/.arbor/integrity` ok (once), Arbor Sync
+  started from the new checkout with every placement idle at its old
+  update, a file-system round trip (5316/5317), and the Mac app and the
+  iPhone (Warthog) rebuilt and installed.

@@ -12,8 +12,11 @@
   (published device keys) is live since 2026-09-26 (`8448a63f`); the
   placement role, the clients and batch 027 (schema 27) deployed and installed
   2026-09-28 at `02689859` (see
-  [status](../../status.md#trees-on-other-hosts--2026-09-28)). Two app flows
-  remain, and no live placement host exists yet.
+  [status](../../status.md#trees-on-other-hosts--2026-09-28)). Security 011
+  replaced the placement claim with placement by reservation at schema 29
+  (2026-09-28, `d2b26575`; see
+  [status](../../status.md#profiles-on-other-hosts-by-locator--2026-09-28)).
+  Two app flows remain, and no live placement host exists yet.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   key devices and sessions opened by signing a host challenge
@@ -183,16 +186,13 @@ The Mac build, `CanopyAppTests` and the hand checks passed 2026-09-28
 
 - The iPhone opening trees on a placement host (its Place a Tree list; the
   Mac has no such list and places existing trees with `arbor place <url>
-  <folder>`, which already works on a placement host) is implemented on branch
-  `claude/security-011` (Place a Tree lists the account's other hosts and
-  their trees; `place(tree:from:)` uses this device's session at the tree's
-  host), with the Security 011 cutover. It has not been tried by hand: the
-  iPhone pairs only with an HTTPS home host, so it needs the live host.
+  <folder>`, which already works on a placement host) is deployed and
+  installed with Security 011 at schema 29 (Place a Tree lists the account's
+  other hosts and their trees; `place(tree:from:)` uses this device's session
+  at the tree's host). It has not been tried by hand: the iPhone pairs only
+  with an HTTPS home host, so it needs a live second host.
 - Making a folder into a tree from the Mac app, onto a placement host as
   anywhere else, waits on
   [Filesystem 024](../filesystem/024-disk-editors-for-non-tree-folders.md).
-- [Security 011](011-placement-by-reservation.md) replaces the placement
-  claim: B's administrator names the person's qualified profile and devices
-  connect on first use.
 - A live placement host needs a second canopyd, which is Joe's decision.
 - When these are done, record them in `status.md` and delete this plan.

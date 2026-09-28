@@ -72,8 +72,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Canopy presentation, canopyd hosting | [Apps 001, 003, 005 and 006](plans/catalog.md#product-completion) |
 | Group management | implemented, not deployed or installed | Deploy canopyd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing) and top-level `/~name` trees for administrators; install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
 
-| Profile locators and placement by reservation (Security 011) | implemented on branch `claude/security-011` (schema 29, with batch 029's wire changes), rehearsed, not merged or deployed | A profile on another host is named by its canonical locator there (`https://A/~joe`), pinned per tree to the TreeID it first resolved to; a community member so named is a placement account with its root declared on accept, and devices connect on first use (`arbor place`, Add another host…); the placement claim and `homeHost` are gone. Remaining: cut batch 029 over with the merge | [Security 011](plans/soon/011-placement-by-reservation.md) |
-| Trees on other hosts (Security 007, 009) | deployed and installed at schema 27, 2026-09-28 ([cutover](#trees-on-other-hosts--2026-09-28)); no live placement host yet | The iPhone opening trees on a placement host (on branch `claude/security-011`, untried by hand); making a folder into a tree from the Mac app waits on [Filesystem 024](plans/filesystem/024-disk-editors-for-non-tree-folders.md). A live second canopyd is Joe's decision | [Security 007](plans/soon/007-placement-hosts.md) |
+| Profile locators and placement by reservation (Security 011) | deployed and installed at schema 29, 2026-09-28 ([cutover](#profiles-on-other-hosts-by-locator--2026-09-28)); no live placement host yet | A profile on another host is named by its canonical locator there (`https://A/~joe`), pinned per tree to the TreeID it first resolved to; a community member so named is a placement account with its root declared on accept, and devices connect on first use (`arbor place`, Add another host…); the placement claim and `homeHost` are gone. Remaining with Security 007: the iPhone flow untried by hand | [cutover](#profiles-on-other-hosts-by-locator--2026-09-28), [Security 007](plans/soon/007-placement-hosts.md) |
+| Trees on other hosts (Security 007, 009) | deployed and installed at schema 27, 2026-09-28 ([cutover](#trees-on-other-hosts--2026-09-28)); no live placement host yet | The iPhone opening trees on a placement host (installed at schema 29, untried by hand); making a folder into a tree from the Mac app waits on [Filesystem 024](plans/filesystem/024-disk-editors-for-non-tree-folders.md). A live second canopyd is Joe's decision | [Security 007](plans/soon/007-placement-hosts.md) |
 
 ## Specified but not implemented
 
@@ -142,6 +142,50 @@ review of canopyd for legacy and redundant surface, and the fixes it led to:
   007](plans/canopyd/007-document-history-routes-and-restore.md)); the
   well-known resolution's `historical` and `stableKey`, and the error
   envelope's `tree` and `path`, which the spec defines.
+
+## Profiles on other hosts by locator — 2026-09-28
+
+Security 011 and batch 028–029 (schema 27 to 29) deployed at `d2b26575`;
+the Mac app, Arbor Sync and the iPhone (Warthog) were rebuilt from it the
+same day. The runbook, rehearsal and live logs are in the
+[029-profile-locators README](packages/canopyd/migrations/029-profile-locators/README.md).
+
+- **Profiles by locator.** A group's member or a rule's subject names a
+  profile on another host by its canonical locator (`https://A/~joe`),
+  pinned per tree to the TreeID it first resolved to
+  (`profile_locator_pins`, step 028); a community member so named is a
+  placement account whose root is declared on accept. Devices connect on
+  first use (`arbor place`, Add another host… on the Mac); the profile-key
+  placement claim and `homeHost` are gone. The iPhone's Place a Tree lists
+  the account's other hosts and their trees.
+- **`trees.status` dropped (step 029).** Code before canopyd 005 had
+  retired one live tree, `tr_unkaimbksfitula6i5n4acid6y` (ordinary, one
+  accepted update, unmounted, unconfigured); at Joe's decision the step
+  deleted it, and the backup keeps it.
+- **Wire changes with the batch.** The update response requires `head` and
+  drops its top-level `observedThrough`; a `tree.update` watch frame is
+  `{ transition, access, canonical }` with the cursor in the SSE `id`, and
+  `resync-required` is `{ reason }` with no `id`; watches resume from
+  `after` alone (hosts and Arbor Sync's local watch ignore `Last-Event-ID`);
+  `/account`, `/trees` and `/directory` carry no cursor; `/access` answers
+  administrators with `{ policy, locators }`.
+- **Verification.** The full gate and both Canopy builds; the batch
+  rehearsed on the live backup (6 roots unchanged, the retired tree the one
+  expected difference), then live: the same report, `verify.ts --sync` ok,
+  `/.arbor/integrity` ok (once), the authored manifest (112 files over 3
+  placements) unchanged, a file-system round trip (5316/5317). Hand checks
+  against local hosts A and B with scratch data homes: the Mac Add a person
+  sheet takes `http://127.0.0.1:<A>/~joe`, derives the handle and B records
+  the placement account and its root (after a fix: the URL field was not
+  drawn when Invite with a code was cleared); `arbor place` names the URL to
+  reserve before the reservation, then connects on first use for the root
+  and a subfolder, which sync, and `arbor account` lists them; the Mac's
+  Add another host… reconnects, and editing both ways and B's restart work;
+  the sharing field takes a profile URL at another host and that person
+  then reads the tree; a group on B listing a member by URL gives her its
+  access. Not checked by hand: a remounted name making a rule match nobody
+  (covered by `placement-hosts.test.ts`), and the iPhone flow, which pairs
+  only with an HTTPS home host and needs a live second host.
 
 ## Trees on other hosts — 2026-09-28
 
