@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { parseProfileLocator } from "@overstory/protocol";
 import { HomeHostUnavailableError } from "./errors.ts";
+import { otherHost, refusedByHost } from "./other-host.ts";
 
 /**
  * How this host keeps its pins honest (locators §1): each pinned locator is
@@ -19,8 +20,6 @@ export interface LocatorPinLifetimes {
  * read, which a pin survives until the grace runs out. */
 export type ProfileLocatorResolver = (locator: string, origin: string) => Promise<string | null>;
 
-/** The longest one resolution waits. */
-const FETCH_TIMEOUT_MS = 5_000;
 const TREE_ID = /^tr_[a-z2-7]+$/;
 
 /**
@@ -29,18 +28,19 @@ const TREE_ID = /^tr_[a-z2-7]+$/;
  * root of a readable tree there. Anything else names no profile.
  */
 export const resolveProfileLocator: ProfileLocatorResolver = async (locator, origin) => {
-  const path = locator.slice(origin.length);
-  let response: Response;
+  // The locator's path is percent-encoded; the client encodes each segment itself.
+  const path = locator.slice(origin.length).split("/").map(decodeURIComponent).join("/") || "/";
+  let resolution: { ref?: { tree?: unknown; path?: unknown } } | null;
   try {
-    response = await fetch(`${origin}/.well-known/arbor${path}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: "error" });
+    resolution = await otherHost(origin).resolve(path);
   } catch (error) {
+    if (refusedByHost(error)) return null;
+    // An unreadable body is the host's answer, naming no profile.
+    if (error instanceof SyntaxError) return null;
     throw new Error(`${origin} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (response.status >= 400 && response.status < 500) return null;
-  if (!response.ok) throw new Error(`${origin} answered ${response.status}`);
-  const body = await response.json().catch(() => null) as { ref?: { tree?: unknown; path?: unknown } } | null;
-  const tree = body?.ref?.tree;
-  return typeof tree === "string" && TREE_ID.test(tree) && body?.ref?.path === "/" ? tree : null;
+  const tree = resolution?.ref?.tree;
+  return typeof tree === "string" && TREE_ID.test(tree) && resolution?.ref?.path === "/" ? tree : null;
 };
 
 /** What a locator's host said last, in memory: the TreeID (or null), and

@@ -257,15 +257,18 @@ export class ProtocolTransportError extends TypeError {
 export class ProtocolClient {
   private readonly timeoutMs: number;
   private readonly watchIdleTimeoutMs: number;
+  private readonly redirect: RequestRedirect | undefined;
   /** How requests that carry objects travel unless a call says otherwise (tree operations §4.4). */
   readonly encoding: WireEncoding;
 
   constructor(
     readonly origin: string,
     private accountToken?: string,
-    options: { timeoutMs?: number; watchIdleTimeoutMs?: number; encoding?: WireEncoding } = {},
+    /** `redirect: "error"` keeps a host reading another host from following it elsewhere. */
+    options: { timeoutMs?: number; watchIdleTimeoutMs?: number; encoding?: WireEncoding; redirect?: RequestRedirect } = {},
   ) {
     this.timeoutMs = options.timeoutMs ?? 5_000;
+    this.redirect = options.redirect;
     this.watchIdleTimeoutMs = options.watchIdleTimeoutMs ?? WATCH_IDLE_TIMEOUT_MS;
     this.encoding = options.encoding ?? "cbor";
   }
@@ -285,6 +288,7 @@ export class ProtocolClient {
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     try {
       return await fetch(`${this.origin}${path}`, {
+        ...(this.redirect ? { redirect: this.redirect } : {}),
         ...init,
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });

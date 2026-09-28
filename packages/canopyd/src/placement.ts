@@ -1,5 +1,6 @@
 import { decodePublishedDeviceKeys } from "@overstory/protocol";
 import { HomeHostUnavailableError } from "./errors.ts";
+import { otherHost } from "./other-host.ts";
 
 /** A device a home host lists for a profile, as a placement host reads it. */
 export interface ListedDevice {
@@ -29,18 +30,9 @@ export interface DeviceKeyLifetimes {
 /** Reads a home host's published device keys: the JSON body, or a throw. */
 export type DeviceKeyLoader = (homeHost: string, profileTree: string) => Promise<unknown>;
 
-/** The longest one fetch of a home host's device keys waits. */
-const FETCH_TIMEOUT_MS = 5_000;
-
-/** The published device-keys route (accounts §5.4), read over HTTPS without following redirects. */
-export const fetchPublishedDeviceKeys: DeviceKeyLoader = async (homeHost, profileTree) => {
-  const response = await fetch(`${homeHost}/.arbor/profiles/${encodeURIComponent(profileTree)}/device-keys`, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    redirect: "error",
-  });
-  if (!response.ok) throw new Error(`${homeHost} answered ${response.status} for the profile's device keys`);
-  return response.json();
-};
+/** The published device-keys route (accounts §5.4), read without following redirects. */
+export const fetchPublishedDeviceKeys: DeviceKeyLoader = (homeHost, profileTree) =>
+  otherHost(homeHost).publishedDeviceKeys(profileTree);
 
 /** A published device-key list, checked before a placement host trusts any of it. */
 function validPublishedKeys(value: unknown, profileTree: string): Map<string, ListedDevice> {

@@ -1,4 +1,5 @@
-import { decodeProtocolDirectory, hashObject, parseMarkdown, type ObjectHash } from "@overstory/protocol";
+import { decodeProtocolDirectory, parseMarkdown, type ObjectHash } from "@overstory/protocol";
+import { otherHost, refusedByHost } from "./other-host.ts";
 import { profileLocatorTree, structuredMembers } from "./profile.ts";
 
 /**
@@ -18,26 +19,13 @@ export interface RemoteGroupLifetimes {
  * readable or not a group. */
 export type RemoteGroupLoader = (homeHost: string, group: string) => Promise<ReadonlySet<string>>;
 
-/** The longest one request to a group's host waits. */
-const FETCH_TIMEOUT_MS = 5_000;
-
 const NOBODY: ReadonlySet<string> = new Set();
 
 /** The host answered, but not with something to keep: tried again after `refetchMs`. */
 class TransientFailure extends Error {}
 
-async function get(url: string): Promise<Response | null> {
-  let response: Response;
-  try {
-    response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: "error" });
-  } catch (error) {
-    throw new TransientFailure(error instanceof Error ? error.message : String(error));
-  }
-  if (response.ok) return response;
-  // A refusal (the tree is private, unknown or gone) is the host's answer;
-  // anything else, such as a 5xx, is an outage.
-  if (response.status >= 400 && response.status < 500) return null;
-  throw new TransientFailure(`${url} answered ${response.status}`);
+function transient(error: unknown): TransientFailure {
+  return new TransientFailure(error instanceof Error ? error.message : String(error));
 }
 
 /**
@@ -47,21 +35,19 @@ async function get(url: string): Promise<Response | null> {
  * HTTPS, as a placement host trusts a home host for device keys.
  */
 export const fetchRemoteGroupMembers: RemoteGroupLoader = async (homeHost, group) => {
-  const base = `${homeHost}/.arbor/trees/${encodeURIComponent(group)}`;
-  const described = await get(base);
-  if (!described) return NOBODY;
-  const body = await described.json().catch(() => null) as { tree?: { id?: unknown; root?: unknown } } | null;
-  const root = body?.tree?.root;
-  if (body?.tree?.id !== group || typeof root !== "string" || !/^sha256:[a-f0-9]{64}$/.test(root)) {
-    throw new TransientFailure(`${homeHost} described ${group} unreadably`);
+  const host = otherHost(homeHost);
+  let root: string;
+  try {
+    root = (await host.descriptor(group)).tree.root;
+  } catch (error) {
+    // A refusal (the tree is private, unknown or gone) is the host's answer;
+    // anything else, such as a 5xx or an unreadable descriptor, is an outage.
+    if (refusedByHost(error)) return NOBODY;
+    throw transient(error);
   }
-  const load = async (hash: ObjectHash): Promise<Uint8Array> => {
-    const response = await get(`${base}/objects/${hash}`);
-    if (!response) throw new TransientFailure(`${homeHost} did not serve an object of ${group}`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (hashObject(bytes) !== hash) throw new TransientFailure(`${homeHost} served an object of ${group} that does not match its hash`);
-    return bytes;
-  };
+  if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new TransientFailure(`${homeHost} described ${group} unreadably`);
+  // Every object the descriptor's root reaches is served and matches its hash.
+  const load = (hash: ObjectHash): Promise<Uint8Array> => host.object(group, hash).catch((error: unknown) => { throw transient(error); });
   const directory = decodeProtocolDirectory(await load(root as ObjectHash));
   if (directory.type !== "directory") return NOBODY;
   const index = directory.entries.find((entry) => entry.name === "_index.md")?.file;
