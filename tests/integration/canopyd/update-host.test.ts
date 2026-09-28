@@ -310,14 +310,15 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
 
     test("returns shared descriptor snapshots and authorizes immutable objects through a named tree", async () => {
       const account = await client.account();
-      expect(account.observedThrough).toBeTruthy();
+      // Host-wide reads carry no observation cursor: only a tree's own resumes its watch.
+      expect(Object.keys(account)).toEqual(["account"]);
       expect(account.account.configuration).toMatchObject({
         kind: "tree-configuration",
         access: "write",
         canonical: null,
       });
       const trees = await client.list();
-      expect(trees.observedThrough).toBeTruthy();
+      expect(Object.keys(trees)).toEqual(["snapshot"]);
       expect(trees.snapshot.some((tree) => tree.id === account.account.configuration.id)).toBe(true);
       const configuration = await client.descriptor(account.account.configuration.id);
       const snapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);
@@ -539,11 +540,10 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const replayed = await client.submitUpdate(treeID, null, initial, { change: activationChange });
       expect(replayed.outcome).toBe("accepted");
       expect(replayed.update).toEqual(activated.update);
-      expect((await client.access(treeID)).snapshot).toContainEqual({
-        id: expect.any(String),
-        subject: { kind: "link" },
-        access: "read",
-      });
+      const access = await client.access(treeID);
+      expect(Object.keys(access).sort()).toEqual(["locators", "policy"]);
+      // A link subject is redacted.
+      expect(access.policy).toContainEqual({ who: { link: true }, allow: ["read"] });
       const refURL = `${running.url}/.arbor/trees/${treeID}`;
       expect((await fetch(refURL)).status).toBe(404);
       expect((await fetch(refURL, { headers: { "X-Arbor-Access": linkSecret } })).status).toBe(404);
@@ -681,8 +681,6 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       await writeFile(join(changedPath, "note.md"), "Different\n");
       await expect(client.submitUpdate(treeID, null, await resolveSnapshot(await snapshotDirectory(changedPath)))).rejects.toThrow("conflict");
 
-      const later = await client.account();
-      expect(later.observedThrough).not.toBe(accepted.update.id);
     });
 
     test("coalesces accepted updates across another tree activation", async () => {

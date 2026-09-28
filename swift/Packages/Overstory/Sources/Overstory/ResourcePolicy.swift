@@ -257,8 +257,9 @@ public struct ProtocolSafeResourceAccessRule: Codable, Sendable, Hashable {
     public var allow: [ProtocolResourceOperation]
     public var within: String?
 }
-public struct ProtocolTreeAccessSnapshot: Codable, Sendable {
-    public var snapshot: [ProtocolAccessEntry]
-    public var policy: [ProtocolSafeResourceAccessRule]?
-    public var observedThrough: String
+/// `GET /.arbor/trees/{TreeID}/access` (access control §4): the tree's rules,
+/// and the `arbor://` locator of each profile a rule names by TreeID.
+public struct ProtocolTreeAccess: Codable, Sendable {
+    public var policy: [ProtocolSafeResourceAccessRule]
+    public var locators: [String: String]
 }

@@ -2,9 +2,9 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@overstory/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@overstory/protocol";
-import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
+import type { AccountChallenge, AccessLevel, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
   HostDaemon,
@@ -492,7 +492,6 @@ export async function serveHost(options: {
               ...accountDescriptor(publicOrigin, canopy, authenticated),
               ...(currentDevice ? { device: { id: currentDevice.id, label: currentDevice.label } } : {}),
             },
-            observedThrough: canopy.observedThrough(),
           });
         }
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
@@ -560,7 +559,6 @@ export async function serveHost(options: {
                 const level = canopy.accessLevel(account, tree, link);
                 return level ? [descriptorWithUpdate(publicOrigin, canopy, tree, level)] : [];
               }),
-              observedThrough: canopy.observedThrough(),
             });
           }
           return methodNotAllowed();
@@ -570,7 +568,6 @@ export async function serveHost(options: {
           const authenticated = requireAccount(authentication);
           return json({
             snapshot: buildDirectory(canopy, authenticated, publicOrigin),
-            observedThrough: canopy.observedThrough(),
           });
         }
         if (url.pathname === "/.arbor/accounts" && request.method === "PUT") {
@@ -623,25 +620,17 @@ export async function serveHost(options: {
         if (access) {
           const treeID = hostedReference(access[1]!).id;
           if (request.method === "GET") {
-            const authenticated = requireAccount(authentication);
-            const administer = canopy.canAdminister(authenticated, treeID);
-            const policy = canopy.resourcePolicy(authenticated, treeID);
-            if (!administer && !policy) return protocolError("not-found", "Tree not found", 404);
-            const snapshot: AccessEntry[] = !administer ? [] : canopy.accessEntries(treeID)
-              .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.id)
-              .map((entry) => {
-              if (entry.subjectKind === "profile") {
-                const profile = canopy.get(entry.subject);
-                const locator = profile ? arborLocator(publicOrigin, profile) : null;
-                return {
-                  id: entry.id,
-                  subject: { kind: "profile" as const, tree: entry.subject, ...(locator ? { locator } : {}) },
-                  access: entry.access,
-                };
-              }
-              return { id: entry.id, subject: { kind: entry.subjectKind } as AccessEntry["subject"], access: entry.access };
-              });
-            return json({ snapshot, ...(policy ? { policy } : {}), observedThrough: canopy.observedThrough(treeID) });
+            // Only administrators read a tree's rules (access control §4),
+            // with each profile a rule names by TreeID shown by its locator.
+            const policy = canopy.resourcePolicy(requireAccount(authentication), treeID);
+            if (!policy) return protocolError("not-found", "Tree not found", 404);
+            const locators: Record<string, string> = {};
+            for (const profile of canopy.ruleProfiles(treeID)) {
+              const tree = isTreeID(profile) ? canopy.get(profile) : null;
+              const locator = tree ? arborLocator(publicOrigin, tree) : null;
+              if (locator) locators[profile] = locator;
+            }
+            return json({ policy, locators });
           }
           return methodNotAllowed();
         }

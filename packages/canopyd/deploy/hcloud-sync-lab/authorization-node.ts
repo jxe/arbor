@@ -146,11 +146,11 @@ async function create(): Promise<void> {
   });
   const current = await client.descriptor(tree);
   if (current.tree.access !== "write" || !current.tree.canonical) throw new Error("Alice did not receive administrator write access");
-  const access = (await client.access(tree)).snapshot;
-  if (access.some((entry) => entry.subject.kind !== "profile")) throw new Error("Private authorization tree grants a non-profile subject");
-  const granted = (profile: string) => access.find((entry) => entry.subject.kind === "profile" && entry.subject.tree === profile)?.access;
-  if (granted(value.bob) !== "read") throw new Error("Bob read access is missing");
-  if (granted(value.carol) !== "write") throw new Error("Carol write access is missing");
+  const { policy } = await client.access(tree);
+  if (policy.some((rule) => typeof rule.who !== "object" || !("profile" in rule.who))) throw new Error("Private authorization tree grants a non-profile subject");
+  const granted = (profile: string) => policy.find((rule) => typeof rule.who === "object" && "profile" in rule.who && rule.who.profile === profile)?.allow;
+  if (!granted(value.bob)?.includes("read")) throw new Error("Bob read access is missing");
+  if (!granted(value.carol)?.includes("write")) throw new Error("Carol write access is missing");
   output({ tree, root: current.tree.root, update: current.tree.update, canonical: canonicalHTTPURL(current.tree.canonical) });
 }
 

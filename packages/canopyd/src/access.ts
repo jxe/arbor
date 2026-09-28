@@ -5,7 +5,6 @@ import {
   rulesAllow,
   safeResourceRule,
   scopeContains,
-  sha256,
   subjectProfile,
   type AccessOperation,
   type AppAccessRule,
@@ -15,7 +14,7 @@ import {
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import { AccountDirectory } from "./accounts.ts";
-import { isTreeConfigPolicy, type HostAccessEntry, type HostAccount, type HostTree } from "./model.ts";
+import { isTreeConfigPolicy, type HostAccount, type HostTree } from "./model.ts";
 
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
 const PARSED_RULES_LIMIT = 256;
@@ -126,20 +125,6 @@ export class AccessControl {
     return this.rules(tree).some((rule) => !rule.app && typeof rule.who === "object" && "profile" in rule.who
       && subjectProfile(rule.who.profile, this.pins(tree))?.tree === profile
       && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation));
-  }
-
-  /** A tree's whole-tree rules as access entries: rules scoped below the root
-   * or through an app have no entry, and administrators have `write`. */
-  entries(tree: string): HostAccessEntry[] {
-    return this.rules(tree).flatMap((rule): HostAccessEntry[] => {
-      if (rule.app || (rule.within ?? "/") !== "/" || typeof rule.who === "string" && rule.who !== "everyone") return [];
-      const access = operationAllowed(rule.allow, "write") ? "write" : rule.allow.includes("read") ? "read" : null;
-      if (!access) return [];
-      const [subjectKind, subject]: [HostAccessEntry["subjectKind"], string] = rule.who === "everyone" ? ["everyone", "everyone"]
-        : typeof rule.who === "object" && "profile" in rule.who ? ["profile", rule.who.profile] : ["link", (rule.who as { link: string }).link];
-      // A stable id per tree and subject.
-      return [{ id: `ax_${sha256(`${tree}\n${subjectKind}\n${subject}`).slice(0, 26)}`, tree, subjectKind, subject, access }];
-    });
   }
 
   safePolicy(tree: string) {

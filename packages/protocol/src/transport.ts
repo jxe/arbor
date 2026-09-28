@@ -12,12 +12,11 @@ import type {
 import {
   parseSSEStream,
   decodePublishedDeviceKeys,
-  type AccessEntry,
+  type SafeResourceAccessRule,
   type OverstoryError,
   type EventCursor,
   type LocatorResolution,
   type RemoteTreeDescriptor,
-  type SnapshotEnvelope,
   type TreeID,
   type AccountChallenge,
   type PairingOffer,
@@ -104,14 +103,26 @@ export interface RemotePlacementAccountDescriptor extends Omit<RemoteAccountDesc
   placementRoot: RemotePlacementRoot;
 }
 
+/** `/.arbor/account`. Like the tree and directory lists it carries no
+ * observation cursor: a cursor spanning the whole host resumes no watch. */
 export interface RemoteAccountSnapshot {
   account: RemoteAccountDescriptor;
-  observedThrough: EventCursor;
 }
 
 export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
-  observedThrough: EventCursor;
+}
+
+/** A host list read: `/.arbor/trees` and `/.arbor/directory`. */
+export interface RemoteSnapshot<T> {
+  snapshot: T;
+}
+
+/** `/.arbor/trees/{TreeID}/access` (access control §4): the tree's rules, and
+ * the `arbor://` locator of each profile a rule names by TreeID. */
+export interface RemoteTreeAccess {
+  policy: SafeResourceAccessRule[];
+  locators: Record<TreeID, string>;
 }
 
 /** Whether an account descriptor is a placement host's. */
@@ -162,8 +173,6 @@ export interface PairingClaimResult {
   device: ServerDevice;
   confirmationCode: string;
 }
-
-export type RemoteAccessEntry = AccessEntry;
 
 export interface RemoteDirectoryEntry {
   profile: TreeID;
@@ -387,12 +396,12 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async list(): Promise<SnapshotEnvelope<RemoteTreeDescriptor[]>> {
+  async list(): Promise<RemoteSnapshot<RemoteTreeDescriptor[]>> {
     const response = await this.checked(await this.request("/.arbor/trees", { headers: this.headers() }));
     return response.json();
   }
 
-  async directory(): Promise<SnapshotEnvelope<RemoteDirectoryEntry[]>> {
+  async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
     const response = await this.checked(await this.request("/.arbor/directory", { headers: this.headers() }));
     return response.json();
   }
@@ -561,7 +570,7 @@ export class ProtocolClient {
     return result;
   }
 
-  async access(tree: string): Promise<SnapshotEnvelope<RemoteAccessEntry[]> & { policy?: import("./index.ts").SafeResourceAccessRule[] }> {
+  async access(tree: string): Promise<RemoteTreeAccess> {
     const response = await this.checked(await this.request(
       `/.arbor/trees/${encodeURIComponent(tree)}/access`,
       { headers: this.headers() },

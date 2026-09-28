@@ -74,7 +74,7 @@ public actor ProtocolClient {
         let value = try await anyAccount()
         switch value.account {
         case let .home(account):
-            return ProtocolAccountSnapshot(account: account, observedThrough: value.observedThrough)
+            return ProtocolAccountSnapshot(account: account)
         case let .placement(account):
             throw ProtocolValidationError.invalidValue("\(canonicalOrigin) is a placement host for this profile; its home host is \(account.homeHost)")
         }
@@ -86,7 +86,7 @@ public actor ProtocolClient {
         guard case let .placement(account) = value.account else {
             throw ProtocolValidationError.invalidValue("\(canonicalOrigin) is this profile's home host, not a placement host")
         }
-        return ProtocolPlacementAccountSnapshot(account: account, observedThrough: value.observedThrough)
+        return ProtocolPlacementAccountSnapshot(account: account)
     }
 
     /// The account descriptor as the host sent it, home or placement.
@@ -100,15 +100,15 @@ public actor ProtocolClient {
         case let .placement(account):
             _ = try account.validated()
         }
-        guard !value.account.id.isEmpty, !value.observedThrough.isEmpty else {
+        guard !value.account.id.isEmpty else {
             throw ProtocolValidationError.invalidValue("Malformed account snapshot")
         }
         return value
     }
 
-    public func trees() async throws -> ProtocolSnapshotEnvelope<[ProtocolTreeDescriptor]> {
-        let value: ProtocolSnapshotEnvelope<[ProtocolTreeDescriptor]> = try await get(path: "/.arbor/trees")
-        return ProtocolSnapshotEnvelope(snapshot: try value.snapshot.map { try $0.validated() }, observedThrough: value.observedThrough)
+    public func trees() async throws -> ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> {
+        let value: ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> = try await get(path: "/.arbor/trees")
+        return ProtocolRemoteSnapshot(snapshot: try value.snapshot.map { try $0.validated() })
     }
 
     /// The tree resource itself: its current descriptor and the cursor to watch after.
@@ -358,11 +358,11 @@ public actor ProtocolClient {
         )
     }
 
-    public func access(tree: String) async throws -> ProtocolTreeAccessSnapshot {
+    public func access(tree: String) async throws -> ProtocolTreeAccess {
         try await get(path: "/.arbor/trees/\(component(tree))/access")
     }
 
-    public func directory() async throws -> ProtocolSnapshotEnvelope<[ProtocolProfileDirectoryEntry]> {
+    public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> {
         try await get(path: "/.arbor/directory")
     }
 

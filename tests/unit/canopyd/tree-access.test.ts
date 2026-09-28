@@ -126,20 +126,6 @@ describe("administrators and rules", () => {
     db.run("UPDATE accounts SET enabled = 0 WHERE id = 'tr_alice'");
     expect(access.canRead(alice, "tr_plants")).toBe(false);
   });
-
-  test("entries are the whole-tree rules, administrators as writers, with stable ids", () => {
-    configure("tr_todos", [
-      { who: { profile: "tr_joe" }, allow: ["admin"] },
-      { who: { profile: "tr_alice" }, allow: ["read"] },
-      { who: "everyone", app: "tr_code", allow: ["read"] },
-    ]);
-    const entries = access.entries("tr_todos");
-    expect(entries.map(({ subjectKind, subject, access }) => ({ subjectKind, subject, access }))).toEqual([
-      { subjectKind: "profile", subject: "tr_joe", access: "write" },
-      { subjectKind: "profile", subject: "tr_alice", access: "read" },
-    ]);
-    expect(access.entries("tr_todos").map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
-  });
 });
 
 describe("code runs as its caller, with access only its named subjects lend", () => {

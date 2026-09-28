@@ -40,11 +40,3 @@ export interface HostAuthentication {
   /** The session's expiry. */
   expiresAt: number;
 }
-
-export interface HostAccessEntry {
-  id: string;
-  tree: string;
-  subjectKind: "everyone" | "profile" | "link";
-  subject: string;
-  access: "read" | "write";
-}

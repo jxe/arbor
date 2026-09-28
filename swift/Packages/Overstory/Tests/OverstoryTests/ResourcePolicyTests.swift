@@ -23,9 +23,9 @@ struct ResourcePolicyTests {
         }
         for vector in fixture["safe"] ?? [] {
             let redacted = try #require(vector["redacted"] as? [String: Any])
-            let response: [String: Any] = ["snapshot": [], "policy": [redacted], "observedThrough": "cursor"]
+            let response: [String: Any] = ["policy": [redacted], "locators": [:] as [String: String]]
             let bytes = try JSONSerialization.data(withJSONObject: response)
-            let projection = try #require(JSONDecoder().decode(ProtocolTreeAccessSnapshot.self, from: bytes).policy?.first)
+            let projection = try #require(JSONDecoder().decode(ProtocolTreeAccess.self, from: bytes).policy.first)
             #expect(try sameJSON(JSONEncoder().encode(projection), redacted), "\(vector["name"]!)")
             let rule = try JSONDecoder().decode(ProtocolResourceAccessRule.self, from: JSONSerialization.data(withJSONObject: vector["rule"]!))
             switch (rule.who, projection.who) {

@@ -82,12 +82,12 @@ import {
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
   type MemberReservation,
 } from "./profile.ts";
-import { isTreeConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
+import { isTreeConfigPolicy, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
-export type { HostAccessEntry, HostAccount, HostAuthentication, HostTree } from "./model.ts";
+export type { HostAccount, HostAuthentication, HostTree } from "./model.ts";
 export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, UpdateProtocolError } from "./errors.ts";
 
 /** Who submits an update: the account it acts for (an execution's caller
@@ -1450,10 +1450,6 @@ export class HostDaemon implements AsyncDisposable {
   ruleProfiles(tree: string): string[] {
     return [...new Set(this.access.rules(tree).flatMap((rule) =>
       typeof rule.who === "object" && "profile" in rule.who ? [rule.who.profile] : []))];
-  }
-
-  accessEntries(tree: string): HostAccessEntry[] {
-    return this.access.entries(tree);
   }
 
   communityMembers(): RootProfileFacts["members"] {

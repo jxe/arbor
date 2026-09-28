@@ -176,9 +176,18 @@ public struct ProtocolAccountDescriptor: Codable, Sendable, Equatable {
     public var device: Device? = nil
 }
 
+/// `GET /.arbor/account` at a home host. Like the tree and directory lists it
+/// carries no observation cursor: a cursor spanning the whole host resumes no
+/// watch.
 public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
-    public var observedThrough: String
+}
+
+/// A host list read, `/.arbor/trees` or `/.arbor/directory`: no observation
+/// cursor, unlike Arbor Sync's local `ProtocolSnapshotEnvelope`.
+public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    public var snapshot: Value
+    public init(snapshot: Value) { self.snapshot = snapshot }
 }
 
 public struct ProtocolResolvedNodeRef: Codable, Sendable, Equatable {
@@ -1062,7 +1071,6 @@ public struct ProtocolPlacementAccountDescriptor: Codable, Sendable, Equatable {
 
 public struct ProtocolPlacementAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolPlacementAccountDescriptor
-    public var observedThrough: String
 }
 
 /// `GET /.arbor/account` as a host sends it: a home host's account, with its
@@ -1107,7 +1115,6 @@ public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {
 
 public struct ProtocolAnyAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAnyAccountDescriptor
-    public var observedThrough: String
 }
 
 public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable {

@@ -35,7 +35,7 @@ describe("authenticated user directory", () => {
     const client = await deviceClient(running.url, "alice-directory-token");
     const own = (await client.account()).account.profileTree;
     const directory = await client.directory();
-    expect(directory.observedThrough).toBeTruthy();
+    expect(Object.keys(directory)).toEqual(["snapshot"]);
     const alice = directory.snapshot.find((entry) => entry.profile === own);
     expect(alice).toMatchObject({
       kind: "person",

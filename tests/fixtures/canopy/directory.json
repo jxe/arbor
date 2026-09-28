@@ -12,6 +12,5 @@
       "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "sources": ["community", "access"]
-  }],
-  "observedThrough": "42"
+  }]
 }

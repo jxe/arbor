@@ -54,12 +54,7 @@ public struct TreeConfigurationClient: Sendable {
         let accessSource = try utf8(snapshot.rootFile(named: "access.yaml"), name: "access.yaml")
         let canonical = (try? await wire.descriptor(tree: tree).tree.httpURL) ?? nil
         let declaration = try TreeConfigurationYAML.declaration(canonical: canonical ?? "", source: accessSource)
-        let safe = (try? await wire.access(tree: tree).snapshot) ?? []
-        let locators = Dictionary(safe.compactMap { entry -> (String, String)? in
-            guard case let .profile(profileTree, locator?) = entry.subject else { return nil }
-            return (profileTree, locator)
-        }, uniquingKeysWith: { first, _ in first })
-        var profileLocators = locators
+        var profileLocators = (try? await wire.access(tree: tree).locators) ?? [:]
         if let profileTree = account.profileTree, let profileURL = account.profileURL {
             profileLocators[profileTree] = profileURL
         }
