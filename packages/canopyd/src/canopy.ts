@@ -86,6 +86,15 @@ import { markPhase, phaseTimer } from "./updates/timing.ts";
 export type { HostAccessEntry, HostAccount, HostAuthentication, HostTree } from "./model.ts";
 export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, UpdateProtocolError } from "./errors.ts";
 
+/** Who submits an update: the account it acts for (an execution's caller
+ * under execution authority), the access link it presents, and the device
+ * session that authenticated it, if any. */
+export interface UpdateCaller {
+  account: HostAccount | null;
+  linkDigest?: string;
+  authentication?: HostAuthentication;
+}
+
 export interface StoredUpdateResponse {
   status: number;
   result: UpdateResponse | UpdateConflictResult;
@@ -1142,6 +1151,15 @@ export class HostDaemon implements AsyncDisposable {
     change: (values: TreeConfigValues) => TreeConfigValues,
     withinTransaction: () => void,
   ): Promise<AcceptedUpdate> {
+    return this.withTreeLock(treeConfigurationID(tree), () => this.advanceConfigLocked(tree, subject, change, withinTransaction));
+  }
+
+  private async advanceConfigLocked(
+    tree: string,
+    subject: string,
+    change: (values: TreeConfigValues) => TreeConfigValues,
+    withinTransaction: () => void,
+  ): Promise<AcceptedUpdate> {
     const configuration = this.get(treeConfigurationID(tree));
     const from = configuration ? this.currentUpdate(configuration.id) : null;
     if (!configuration || !from) throw new Error("Tree configuration is missing");
@@ -1276,6 +1294,11 @@ export class HostDaemon implements AsyncDisposable {
    */
   async declareTree(tree: string, request: UpdateRequest, authentication: HostAuthentication | null): Promise<StoredUpdateResponse> {
     if (!authentication) throw new AuthenticationRequiredError("A device is required to declare a tree");
+    // Two declarations of one TreeID take turns: the second replays or is refused.
+    return this.withTreeLock(treeConfigurationID(tree), () => this.declareTreeLocked(tree, request, authentication));
+  }
+
+  private async declareTreeLocked(tree: string, request: UpdateRequest, authentication: HostAuthentication): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
     if (request.base !== null || request.updates.length !== 1 || request.updates[0]!.trace !== null || request.updates[0]!.resolves.length) {
       throw new Error("Declaring a tree is one snapshot update of its configuration with a null base");
@@ -1512,6 +1535,7 @@ export class HostDaemon implements AsyncDisposable {
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
     })();
+    this.notifyAccepted(this.currentUpdate(input.configurationTree)!);
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
@@ -1606,6 +1630,7 @@ export class HostDaemon implements AsyncDisposable {
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
     })();
+    this.notifyAccepted(this.currentUpdate(treeConfigurationID(placementRoot))!);
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(input.profileTree)!, placementRoot };
   }
@@ -1672,14 +1697,12 @@ export class HostDaemon implements AsyncDisposable {
     return new TreeReader((hash) => this.object(hash), { verified: true });
   }
 
-  async submitUpdate(
-    treeID: string,
-    request: UpdateRequest,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
-    authentication?: HostAuthentication,
-  ): Promise<StoredUpdateResponse> {
+  /**
+   * Run `work` as the only acceptance on `treeID`: client updates, a
+   * tree's declaration and canopyd's own configuration edits take turns
+   * per tree. Nothing holding a tree's turn waits for another's.
+   */
+  private async withTreeLock<T>(treeID: string, work: () => Promise<T>): Promise<T> {
     const previous = this.updateLocks.get(treeID) ?? Promise.resolve();
     let release!: () => void;
     const turn = new Promise<void>((resolve) => { release = resolve; });
@@ -1688,28 +1711,19 @@ export class HostDaemon implements AsyncDisposable {
     await previous;
     markPhase("lock-wait");
     try {
-      return await this.submitUpdatesLocked(
-        treeID,
-        request,
-        account,
-        linkDigest,
-        credentialSubject,
-        authentication,
-      );
+      return await work();
     } finally {
       release();
       if (this.updateLocks.get(treeID) === queued) this.updateLocks.delete(treeID);
     }
   }
 
-  private async submitUpdatesLocked(
-    treeID: string,
-    request: UpdateRequest,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
-    authentication?: HostAuthentication
-  ): Promise<StoredUpdateResponse> {
+  async submitUpdate(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+    return this.withTreeLock(treeID, () => this.submitUpdatesLocked(treeID, request, caller));
+  }
+
+  private async submitUpdatesLocked(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+    const { account, linkDigest, authentication } = caller;
     validateUpdateRequestIntent(request);
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
     const retainedTree = this.get(treeID);
@@ -1741,7 +1755,7 @@ export class HostDaemon implements AsyncDisposable {
     // without accepted rows. Those elements must not recheck a now-stale guard.
     let recordedThrough = -1;
     const writable = retainedTree !== null && (this.canWrite(account, retainedTree, linkDigest) || this.execution.canSubmit(treeID));
-    const subject = writable ? this.subjectFor(retainedTree, account, linkDigest, credentialSubject) : null;
+    const subject = writable ? this.subjectFor(retainedTree, caller) : null;
     if (subject !== null) {
       for (let index = digests.length - 1; index >= 0; index--) {
         if (this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!)) { recordedThrough = index; break; }
@@ -1858,9 +1872,7 @@ export class HostDaemon implements AsyncDisposable {
         requestDigest,
         proposed,
         basis!,
-        account,
-        linkDigest,
-        credentialSubject,
+        caller,
         index < recordedThrough,
         index === 0 ? prepared : undefined,
       );
@@ -1951,18 +1963,16 @@ export class HostDaemon implements AsyncDisposable {
     requestDigest: ObjectHash,
     proposed: Map<ObjectHash, Uint8Array>,
     basis: AuthoredBasis,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
+    caller: UpdateCaller,
     provenAcceptedPrefix = false,
     prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
-    if (!(this.canWrite(account, tree, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    if (!(this.canWrite(caller.account, tree, caller.linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
     const policy = isTreeConfigPolicy(tree.policy)
-      ? this.treeConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
-      : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
+      ? this.treeConfigPolicy(tree, request, baseRoot, caller, proposed)
+      : this.ordinaryPolicy(tree, request, caller);
     const { subject } = policy;
     const execution = this.execution.current;
     if (execution) {
@@ -2220,28 +2230,23 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** The subject an update to `tree` is recorded and replayed under. */
-  private subjectFor(tree: HostTree, account: HostAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
-    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
+  private subjectFor(tree: HostTree, caller: UpdateCaller): string {
+    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, caller).subject;
     const execution = this.execution.current;
-    return execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
+    const { account, linkDigest, authentication } = caller;
+    return execution?.code ? `execution:${execution.subject}:${execution.code}` : authentication?.subject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
   }
 
   /** Only a device of an administering profile may update a tree configuration. */
-  private configurationCaller(tree: HostTree, account: HostAccount | null, credentialSubject: string | undefined): { account: HostAccount; subject: string } {
-    if (!account || !tree.governs || !this.access.administers(account.id, tree.governs) || credentialSubject?.startsWith("device:") !== true) {
+  private configurationCaller(tree: HostTree, { account, authentication }: UpdateCaller): { account: HostAccount; device: string; subject: string } {
+    if (!account || !authentication || !tree.governs || !this.access.administers(account.id, tree.governs)) {
       throw new PermissionDeniedError("An administrator's device is required for configuration updates");
     }
-    return { account, subject: credentialSubject };
+    return { account, device: authentication.device, subject: authentication.subject };
   }
 
   /** Ordinary trees: graph and boundary validation, the protocol three-way merge, and community reconciliation. */
-  private ordinaryPolicy(
-    tree: HostTree,
-    request: CandidateUpdate,
-    account: HostAccount | null,
-    linkDigest: string | undefined,
-    credentialSubject: string | undefined,
-  ): UpdatePolicy {
+  private ordinaryPolicy(tree: HostTree, request: CandidateUpdate, caller: UpdateCaller): UpdatePolicy {
     const execution = this.execution.current;
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
@@ -2252,7 +2257,7 @@ export class HostDaemon implements AsyncDisposable {
     };
     const profiles = this.profileReader();
     return {
-      subject: this.subjectFor(tree, account, linkDigest, credentialSubject),
+      subject: this.subjectFor(tree, caller),
       profiles,
       validateCandidate: async (root, objects) => {
         if (execution && !request.ifCurrent) throw new Error("Execution updates require an exact-state guard");
@@ -2301,12 +2306,10 @@ export class HostDaemon implements AsyncDisposable {
     tree: HostTree,
     request: CandidateUpdate,
     baseRoot: ObjectHash,
-    caller: HostAccount | null,
-    credential: string | undefined,
+    caller: UpdateCaller,
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
-    const { account, subject: credentialSubject } = this.configurationCaller(tree, caller, credential);
-    const deviceID = credentialSubject.slice("device:".length);
+    const { account, device: deviceID, subject: credentialSubject } = this.configurationCaller(tree, caller);
     const governed = tree.governs!;
     const kind = this.treeConfigKind(governed);
     // A person's own configuration governs itself: its devices.yaml names the
@@ -2522,6 +2525,7 @@ export class HostDaemon implements AsyncDisposable {
       if (attachment) this.advanceParent(attachment, now, options.subject ?? null);
       this.recomputeBoundaries();
     })();
+    this.notifyAccepted(this.currentUpdate(id)!);
     if (attachment) this.notifyAccepted(this.currentUpdate(attachment.tree)!);
     return this.get(id)!;
   }

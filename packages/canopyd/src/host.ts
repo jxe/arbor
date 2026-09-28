@@ -760,14 +760,11 @@ export async function serveHost(options: {
             timer.mark("parse-auth");
             let result: Awaited<ReturnType<typeof canopy.submitUpdate>>;
             try {
-              result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(
-                treeID,
-                update,
+              result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(treeID, update, {
                 account,
-                link,
-                authentication?.subject,
-                authentication ?? undefined,
-              ));
+                ...(link ? { linkDigest: link } : {}),
+                ...(authentication ? { authentication } : {}),
+              }));
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               logUpdate({ event: "update", tree: treeID, status: "error", error: message, updates: update.updates.length, ...timer.summary() });
