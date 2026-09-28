@@ -1198,13 +1198,13 @@ final class CanopyWorkspaceState {
         // The tree's host is its canonical endpoint: the account's home host,
         // or one of its placement hosts (accounts §1.3). The account's Canopy
         // is the origin only for a tree without a canonical endpoint.
-        let home = try await client.accounts().first { $0.configurationTree == configurationTree }?.canopy
-        guard let rawOrigin = placed.canonical?.endpoint ?? home, let origin = URL(string: rawOrigin) else {
+        let homeHost = try await client.accounts().first { $0.configurationTree == configurationTree }?.canopy
+        guard let rawOrigin = placed.canonical?.endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no Canopy origin")
         }
         // A placement host has its own session, which the daemon opens there
         // with the same device key; the home session never goes to it.
-        let placementOrigin = Self.placementOrigin(endpoint: rawOrigin, home: home)
+        let placementOrigin = Self.placementOrigin(endpoint: rawOrigin, home: homeHost)
         let descriptor = try ProtocolTreeDescriptor(
             id: placed.id,
             kind: placed.kind,
