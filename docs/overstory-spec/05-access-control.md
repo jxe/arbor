@@ -36,7 +36,9 @@ type AccessRule = {
 ```
 
 A profile subject matches that profile, or the current membership of a group
-profile; person-profile fields never create a group. A profile this host holds
+profile, whose members may themselves be named by locator at other hosts and
+count by their pins ([locators §1](03-locators.md#1-forms)); person-profile
+fields never create a group. A profile this host holds
 is named by its TreeID. A profile another host holds is named by its canonical
 locator there (`ProfileLocator`, e.g. `https://home.example/~crew`), pinned to
 the TreeID it first resolved to

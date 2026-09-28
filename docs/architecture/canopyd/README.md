@@ -163,12 +163,14 @@ configurations have their shape, and the tests for each refused case, are in
   trees' `app` rules: the caller lends nothing, since its `apps.yaml` is at
   its home (`executionAllows` in `access.ts`).
 - **Pinned locators.** A profile another host holds is named by its
-  canonical locator there, in a rule's `who.profile` or a community member
+  canonical locator there, in a rule's `who.profile` or a group's member
   ([locators §1](../../overstory-spec/03-locators.md#1-forms);
   `parseProfileLocator` in `@overstory/protocol`). `LocatorPins` in
   `locator-pins.ts` keeps, per tree whose configuration names a locator,
   the Profile TreeID it first resolved to (`profile_locator_pins`, schema
-  28): an accept resolves each locator the tree has no honoured pin for,
+  28; for a group's members, the group's own tree, and `isProfileMember`
+  counts a member by its pin): an accept resolves each locator the tree has
+  no honoured pin for,
   anonymously through `GET <origin>/.well-known/arbor<path>` (the locator
   must be the root of a readable tree there), refuses the accept when it
   cannot, and writes the pin in its transaction, dropping pins for locators

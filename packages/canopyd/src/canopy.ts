@@ -2722,23 +2722,32 @@ export class HostDaemon implements AsyncDisposable {
   ): Promise<PreparedProfile> {
     if (!profileChanged(this.treeProfile(tree).stored, changes)) return { update: undefined };
     const update = storedProfileOf(await profiles(root, objects));
-    if (tree !== this.boundary("/")?.id) return { update };
-    return { update, placements: await this.preparePlacements(tree, update?.facts.members ?? []) };
+    // A group's members may name profiles other hosts hold, by locator: each
+    // is pinned with the accept (locators §1), and a group that drops one
+    // drops its pin. The community's reserve handles too.
+    const group = update?.facts.type === "group" || this.treeProfile(tree).stored?.facts.type === "group";
+    if (!group) return { update };
+    return { update, placements: await this.preparePlacements(tree, update?.facts.members ?? [], tree === this.boundary("/")?.id) };
   }
 
   /**
-   * The placement accounts a community's members name (accounts §1.3): each
-   * member naming a profile by its locator at another host is resolved and
-   * pinned, and a profile new to this host must be a person whose home host
-   * publishes its device keys; its account and placement root are prepared
-   * here and written in the accept's transaction. A member this host cannot
-   * resolve refuses the update, naming the host.
+   * The pins a group's members need, and for the community the placement
+   * accounts they name (accounts §1.3): each member naming a profile by its
+   * locator at another host is resolved and pinned for the group, so it
+   * counts as a member by that TreeID (`isProfileMember`). In the community,
+   * such a member with a handle is a placement account: a profile new to
+   * this host must be a person whose home host publishes its device keys,
+   * and its account and placement root are prepared here and written in the
+   * accept's transaction. A member this host cannot resolve refuses the
+   * update, naming the host.
    */
-  private async preparePlacements(community: string, members: RootProfileFacts["members"]): Promise<NonNullable<PreparedProfile["placements"]>> {
+  private async preparePlacements(tree: string, members: RootProfileFacts["members"], isCommunity: boolean): Promise<NonNullable<PreparedProfile["placements"]>> {
+    const community = tree;
+    const locators = [...new Set(members.flatMap((member) => member.profile && isProfileLocator(member.profile) ? [member.profile] : []))];
+    const pins = await this.locatorPins.prepare(tree, locators);
+    if (!isCommunity) return { pins, locators, accounts: [] };
     const reservations = [...memberReservations(members)].flatMap(([handle, reservation]) =>
       reservation.locator ? [{ handle, locator: reservation.locator }] : []);
-    const locators = reservations.map(({ locator }) => locator);
-    const pins = await this.locatorPins.prepare(community, locators);
     const accounts: PreparedPlacementAccount[] = [];
     for (const { handle, locator } of reservations) {
       const homeHost = parseProfileLocator(locator)!.origin;

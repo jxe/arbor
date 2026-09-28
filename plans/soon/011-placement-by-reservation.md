@@ -33,8 +33,8 @@ knows exactly whom they mean.
 ## The design
 
 **A profile on another host is named by its locator there.** Wherever a
-profile or group is named (a community member, an `access.yaml` or `apps.yaml`
-rule's `who.profile`), the value is either a bare TreeID (or `arbor://tr_…/`),
+profile or group is named (a group's member, the community's included, an
+`access.yaml` or `apps.yaml` rule's `who.profile`), the value is either a bare TreeID (or `arbor://tr_…/`),
 a profile this host holds, or a canonical locator at another host,
 `https://A/~joe` or `arbor://A/~joe` ([locators §1](../../docs/overstory-spec/03-locators.md#1-forms)).
 There is no `homeHost` field anywhere: the locator's authority says where to

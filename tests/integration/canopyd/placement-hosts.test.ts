@@ -482,6 +482,22 @@ test("the placement root's configuration is B's own, readable by its administrat
   expect(root.apps).toBeUndefined();
 });
 
+test("a group B holds may list a member by her profile's locator at A, who then counts as a member by her pinned TreeID", async () => {
+  const ownerB = await deviceClient(b.url, "placement-owner-b");
+  const crew = await hostTree(ownerB, await snapshotOf({
+    "_index.md": ["---", "type: group", "members:", "  -", `    profile: "${homeHost}/~alice"`, "---", "", "# Crew", ""].join("\n"),
+  }));
+  expect(b.canopy.pinnedProfile(crew, `${homeHost}/~alice`)).toBe(alice.profileTree);
+  const shed = await hostTree(ownerB, await snapshotOf({ "_index.md": "# Shed\n" }), { access: [{ who: { profile: crew }, allow: ["read"] }] });
+  const macAtB = await openSession(b.url, alice.profileTree, macID, mac);
+  expect((await macAtB.descriptor(shed)).tree.access).toBe("read");
+  // A member URL B cannot resolve refuses the group's update.
+  const head = await ownerB.descriptor(crew);
+  await expect(ownerB.submitUpdate(crew, head.tree.update, await snapshotOf({
+    "_index.md": ["---", "type: group", "members:", "  -", `    profile: "${homeHost}/~nobody"`, "---", "", "# Crew", ""].join("\n"),
+  }))).rejects.toThrow("does not name a readable profile");
+});
+
 test("removing ~alice from B's members disables her placement account and ends its sessions; restoring it re-enables her", async () => {
   const macAtB = await openSession(b.url, alice.profileTree, macID, mac);
   await reserve(b.url, "placement-owner-b", { bob: bob.profileTree });
