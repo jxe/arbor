@@ -46,7 +46,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Canopy block moves (Native 008): a generation that only rearranges blocks (reorder, drag, indent, outdent, move under another parent, several blocks at once) publishes `moveSource` of each relocated block's exact source plus edits to re-indented leading spaces, instead of a retyped replacement; a peer's concurrent edit to a moved paragraph follows it. Shared vectors in `source-moves.json` (Swift and TypeScript executors and change logs); codec tests in `CanopyEditorTests`; live acceptance, restart replay and a peer edit in `LiveEditorAdmissionTests`. A final block moved up gains the blank line it needs, where it used to run into its new successor | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [Native 008](plans/swift/008-copies-with-changes-and-compound-undo.md) |
 | Canopy Move to Document as one change (Native 008): moving blocks to another page of the same tree appends one record over both pages whose frame moves their exact source (`moveSource` into the destination, plus re-indentation and separators), with a `transfer` capture of the destination beside the record's document; its basis is decided from record ancestry, and diverged local work is published and retried once before an exact copy. Blocks apart from each other are copied (canopyd 014). Tested by `TransferPlanTests`, the live `Move to Document publishes one change over both pages` (restart replay, a peer edit to the moved paragraph arriving in the destination, diverged local work, the destination open in a second editor), and the cross-page fast-path engine tests | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [local system](docs/architecture/canopy-browser/local-state.md#change-logs) |
 | Canopy conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [client design](docs/implementing-editors/design.md#synchronization-conflicts-and-devices), [accepted-state review](docs/overstory-spec/09-client-synchronization.md#accepted-state-review) |
-| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16) and served by `/entry-metadata`; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/canopyd/migrations/README.md#schema-history) |
+| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16); `/entry-metadata` serves the dates, and the versions wait for [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md)'s history routes; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/canopyd/migrations/README.md#schema-history) |
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `arbor me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/canopyd/deploy/README.md) |
@@ -102,6 +102,46 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## canopyd cleanup review — 2026-09-28
+
+Implemented on `main` (`3861dfa`), not installed or deployed; the Swift gate
+has not run (the one Swift change is the descriptor access check below). A
+review of canopyd for legacy and redundant surface, and the fixes it led to:
+
+- **Unknown update base.** A base the host does not hold for the tree, or a
+  stale execution guard, is a non-retryable 409 `conflict` with
+  `server-update` details (tree operations §4.2), no longer a retryable
+  `resync-required`, which a retry met again. Tested in `update-host.test.ts`.
+- **`resync-required` means one thing.** It ends a watch only when a snapshot
+  will serve where catch-up does not (an unretained cursor or basis). A
+  revoked caller's watch closes without an event; the reconnect is refused
+  with 401 or 404 (tree operations §1.1.3). Both clients already reconnect on
+  a clean end, so neither changed.
+- **Descriptor access is `read` or `write`.** An unreadable tree is 404, never
+  a descriptor with `none`: spec, TypeScript model, canopyd and Swift
+  validation. Arbor Sync's mapping of `none` to `read` is gone.
+- **Other hosts through `ProtocolClient`.** Published device keys, remote
+  groups and profile-locator resolution use one anonymous, no-redirect
+  client (`other-host.ts`) instead of three hand-built fetchers; each keeps
+  its 4xx-versus-outage rule. `ProtocolClient` gained a `redirect` option.
+- **Account SQL in one place.** Account inserts, the claim digest, member
+  enabling, placement accounts, the community host and account-guarded device
+  revocation are `AccountDirectory` methods; `AccessControl` shares the
+  daemon's directory.
+- **Smaller fixes.** The CLI reads a reserved profile from
+  `x-arbor-profile-state` only, not the page text; the canopyd README and
+  host doc were corrected (`reconcile.ts`, opt-in rate limits).
+- **Queued, not cut over.** Batch steps 030–032 in
+  [`migrations/next`](packages/canopyd/migrations/next/README.md) drop
+  `trees.policy`, three unread timestamps and the profile facts version; the
+  product still serves schema 29.
+- **Left as they are.** The execution-token and app-runtime routes (dormant
+  until [Apps 005](plans/apps/005-source-resolution-and-sidecar.md));
+  `document_versions`, whose history columns nothing reads yet ([canopyd
+  007](plans/canopyd/007-document-history-routes-and-restore.md)); the
+  well-known resolution's `historical` and `stableKey`, and the error
+  envelope's `tree` and `path`, which the spec defines.
 
 ## Trees on other hosts — 2026-09-28
 
