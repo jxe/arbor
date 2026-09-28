@@ -13,7 +13,7 @@ struct ArborSyncAccountService: CanopyAccountService {
     let connect: @Sendable () async throws -> ArborSyncRESTClient
 
     var capabilities: Set<CanopyAccountCapability> {
-        [.restoreIdentity, .backupIdentity, .cancelPendingClaim, .resumePairing, .placeAccount]
+        [.restoreIdentity, .backupIdentity, .cancelPendingClaim, .resumePairing, .connectPlacement]
     }
 
     func state() async throws -> CanopyAccountState {
@@ -96,10 +96,10 @@ struct ArborSyncAccountService: CanopyAccountService {
             .map { CanopyPlacement($0) }
     }
 
-    /// The data home holds the profile key, so the daemon claims (Security
-    /// 007): the same claim as `arbor account place <host>`.
-    func placeAccount(configurationTree _: String, host: String, inviteCode: String?) async throws {
-        try await connect().placeAccount(host: host, inviteCode: inviteCode)
+    /// The daemon connects with the data home's device key, as `arbor place`
+    /// does on first use (Security 011).
+    func connectPlacement(configurationTree _: String, host: String) async throws {
+        try await connect().connectPlacement(host: host)
     }
 
     /// Remove the connection's directory, as `HostPlacementStore.remove()` does.

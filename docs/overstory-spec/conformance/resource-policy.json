@@ -644,6 +644,31 @@
       "input": "http://[::1]:4000/~club",
       "locator": "http://[::1]:4000/~club",
       "origin": "http://[::1]:4000"
+    },
+    {
+      "input": "arbor://Club.EXAMPLE/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "arbor://club.example:443/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "arbor://club.example:8443/~club",
+      "locator": "https://club.example:8443/~club",
+      "origin": "https://club.example:8443"
+    },
+    {
+      "input": "http://127.0.0.1:80/~club",
+      "locator": "http://127.0.0.1/~club",
+      "origin": "http://127.0.0.1"
+    },
+    {
+      "input": "https://club.example/groups/the%20club",
+      "locator": "https://club.example/groups/the%20club",
+      "origin": "https://club.example"
     }
   ]
 }

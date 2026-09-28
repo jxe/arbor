@@ -1277,7 +1277,7 @@ struct CanopyAppTests {
     @Test("The iPhone account store reports what it cannot do instead of pretending")
     func keychainAccountServiceCapabilities() async throws {
         let service = KeychainAccountService()
-        #expect(service.capabilities == [.forget, .placeAccount])
+        #expect(service.capabilities == [.forget, .connectPlacement])
         await #expect(throws: CanopyAccountServiceError.unsupported(.restoreIdentity)) {
             try await service.restoreIdentity(backup: Data(), passphrase: nil)
         }
@@ -1301,7 +1301,7 @@ struct CanopyAppTests {
         #expect(CanopyPlacement.hostName("http://127.0.0.1:47102") == "127.0.0.1:47102")
         #expect(placement.handle == "joe")
         #expect(placement.id == "tr_config/" + NativePlacementAccount.directoryName(origin: "https://place.example"))
-        #expect(CanopyAccountServiceError.unsupported(.placeAccount).errorDescription?.contains("place") == true)
+        #expect(CanopyAccountServiceError.unsupported(.connectPlacement).errorDescription?.contains("another host") == true)
     }
 
     @Test("A placement host's refusals name the home host")
@@ -1310,9 +1310,9 @@ struct CanopyAppTests {
         #expect(refused.localizedDescription.contains("home.example"))
         let stale = ProtocolHTTPError(status: 503, code: "internal-error", message: "home unreachable", retryable: true, homeHost: "https://home.example")
         #expect(stale.localizedDescription.contains("home.example"))
-        #expect(NativePlacementError.profileKeyUnavailable(host: "https://place.example").localizedDescription.contains("Mac"))
+        #expect(NativePlacementError.notReserved(host: "https://place.example", account: "https://home.example/~joe").localizedDescription.contains("reserve https://home.example/~joe"))
 #if os(macOS)
-        #expect(ArborSyncPlacementUnavailable(host: "https://place.example").localizedDescription.contains("arbor account place https://place.example"))
+        #expect(ArborSyncPlacementUnavailable(host: "https://place.example").localizedDescription.contains("arbor place"))
 #endif
     }
 
@@ -1484,8 +1484,8 @@ private actor RecordingAccountService: CanopyAccountService {
     func placements(configurationTree: String) -> [CanopyPlacement] {
         fixedPlacements.filter { $0.configurationTree == configurationTree }
     }
-    func placeAccount(configurationTree _: String, host _: String, inviteCode _: String?) throws {
-        throw CanopyAccountServiceError.unsupported(.placeAccount)
+    func connectPlacement(configurationTree _: String, host _: String) throws {
+        throw CanopyAccountServiceError.unsupported(.connectPlacement)
     }
     func forgetPlacement(_: CanopyPlacement) {}
 }

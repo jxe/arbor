@@ -2,31 +2,31 @@ import Foundation
 import Overstory
 import Yams
 
-/// Who an ordinary sharing rule names. A profile may carry the `homeHost` of a
-/// group another host holds (access control §3.3), which every rewrite keeps.
+/// Who an ordinary sharing rule names. A profile is a TreeID this host holds,
+/// or the canonical locator of a profile another host holds
+/// (`https://home.example/~crew`, access control §1), which that host pins.
 public enum AccountAccessSubject: Hashable, Sendable {
     case everyone
-    case profile(tree: String, homeHost: String? = nil)
+    case profile(tree: String)
     case link(digest: String)
 
-    /// The subject as a rule's merge key compares it: a profile by its TreeID alone.
-    public func sameSubject(as other: AccountAccessSubject) -> Bool {
-        switch (self, other) {
-        case let (.profile(tree, _), .profile(otherTree, _)): tree == otherTree
-        default: self == other
-        }
+    /// The subject as a rule's merge key compares it.
+    public func sameSubject(as other: AccountAccessSubject) -> Bool { self == other }
+
+    /// A locator subject's locator, for a profile another host holds.
+    public var profileLocator: ProfileLocator? {
+        if case .profile(let tree) = self { ProfileLocator(tree) } else { nil }
     }
 }
 
 extension AccountAccessSubject: Codable {
-    private enum CodingKeys: String, CodingKey { case kind, tree, homeHost, digest }
+    private enum CodingKeys: String, CodingKey { case kind, tree, digest }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         switch try values.decode(String.self, forKey: .kind) {
         case "everyone": self = .everyone
-        case "profile": self = .profile(tree: try values.decode(String.self, forKey: .tree),
-                                        homeHost: try values.decodeIfPresent(String.self, forKey: .homeHost))
+        case "profile": self = .profile(tree: try values.decode(String.self, forKey: .tree))
         case "link": self = .link(digest: try values.decode(String.self, forKey: .digest))
         default:
             throw DecodingError.dataCorruptedError(
@@ -42,10 +42,9 @@ extension AccountAccessSubject: Codable {
         switch self {
         case .everyone:
             try values.encode("everyone", forKey: .kind)
-        case .profile(let tree, let homeHost):
+        case .profile(let tree):
             try values.encode("profile", forKey: .kind)
             try values.encode(tree, forKey: .tree)
-            try values.encodeIfPresent(homeHost, forKey: .homeHost)
         case .link(let digest):
             try values.encode("link", forKey: .kind)
             try values.encode(digest, forKey: .digest)
@@ -85,8 +84,7 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
         if resourceAccess.compactMap(Self.ordinaryRule) == ordinaryAccess { return resourceAccess }
         var retained = resourceAccess.filter { Self.ordinaryRule($0) == nil }
         for ordinary in try ordinaryAccess.map(Self.resourceRule) {
-            // A profile added by TreeID keeps the home host the file gives it.
-            let rule = try ProtocolResourceAccessRule(who: ordinary.who.adoptingHomeHost(from: resourceAccess.map(\.who)), allow: ordinary.allow)
+            let rule = ordinary
             if let index = retained.firstIndex(where: { $0.sameConsentKey(as: rule) }) {
                 let previous = retained[index]
                 let combined = ProtocolResourceOperation.allCases.filter { previous.allow.contains($0) || rule.allow.contains($0) }
@@ -109,7 +107,7 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
         let subject: AccountAccessSubject
         switch rule.who {
         case .everyone: subject = .everyone
-        case .profile(let tree, let homeHost): subject = .profile(tree: tree, homeHost: homeHost)
+        case .profile(let tree): subject = .profile(tree: tree)
         case .link(let digest): subject = .link(digest: digest)
         case .me, .members: return nil
         }
@@ -120,7 +118,7 @@ public struct HostedTreeDeclaration: Hashable, Sendable {
         let who: ProtocolResourceWho
         switch rule.subject {
         case .everyone: who = .everyone
-        case .profile(let tree, let homeHost): who = .profile(tree, homeHost: homeHost)
+        case .profile(let tree): who = .profile(tree)
         case .link(let digest): who = .link(digest)
         }
         // Rules produced by the sharing controls have validated subjects/access.
@@ -167,7 +165,7 @@ public struct NativeTreeAccessEntry: Identifiable, Hashable, Sendable {
     public var id: String {
         switch subject {
         case .everyone: "everyone"
-        case .profile(let tree, _): "profile:\(tree)"
+        case .profile(let tree): "profile:\(tree)"
         case .link(let digest): "link:\(digest)"
         }
     }
@@ -458,8 +456,9 @@ public enum ProfileConfigurationYAML {
         currentHandle: String?
     ) -> [NativeTreeAccessEntry] {
         var entries = rules.map { rule in
-            let profileTree: String? = if case let .profile(tree, _) = rule.subject { tree } else { nil }
-            let locator = profileTree.flatMap { profileLocators[$0] }
+            let profileTree: String? = if case let .profile(tree) = rule.subject { tree } else { nil }
+            // A profile another host holds is named by its own locator.
+            let locator = profileTree.flatMap { profileLocators[$0] ?? ProfileLocator($0)?.locator }
             let isCurrentUser = profileTree != nil && profileTree == currentProfileTree
             return NativeTreeAccessEntry(
                 subject: rule.subject,
@@ -497,7 +496,7 @@ public enum ProfileConfigurationYAML {
             throw ProtocolValidationError.invalidValue("Unknown access level")
         }
         if access == "none",
-           case let .profile(tree, _) = subject,
+           case let .profile(tree) = subject,
            tree == currentProfileTree {
             throw ProtocolValidationError.invalidValue("You cannot remove your own access")
         }

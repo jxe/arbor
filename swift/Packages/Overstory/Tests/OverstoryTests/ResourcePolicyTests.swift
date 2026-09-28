@@ -30,7 +30,7 @@ struct ResourcePolicyTests {
             let rule = try JSONDecoder().decode(ProtocolResourceAccessRule.self, from: JSONSerialization.data(withJSONObject: vector["rule"]!))
             switch (rule.who, projection.who) {
             case (.link, .link): break
-            case let (.profile(id, host), .profile(safeID, safeHost)): #expect(id == safeID && host == safeHost)
+            case let (.profile(id), .profile(safeID)): #expect(id == safeID)
             default: Issue.record("\(vector["name"]!): the projection names another subject")
             }
         }
@@ -45,6 +45,13 @@ struct ResourcePolicyTests {
                 try ProtocolAppAccessRule.validateFile(JSONDecoder().decode([String: [ProtocolAppAccessRule]].self, from: JSONSerialization.data(withJSONObject: vector["apps"]!)))
             }
         }
+        // A locator's canonical spelling and origin, exactly as the reference implementation gives them.
+        for vector in fixture["locators"] ?? [] {
+            let input = try #require(vector["input"] as? String)
+            let parsed = try #require(ProfileLocator(input), "\(input)")
+            #expect(parsed.locator == vector["locator"] as? String, "\(input)")
+            #expect(parsed.origin == vector["origin"] as? String, "\(input)")
+        }
         for vector in fixture["validFiles"] ?? [] {
             #expect(throws: Never.self, "\(vector["name"]!)") { try validateFile(vector) }
         }
@@ -53,20 +60,19 @@ struct ResourcePolicyTests {
         }
     }
 
-    @Test func homeHostIsWhereToLookNotWho() throws {
-        let remote = ProtocolResourceWho.profile("tr_club", homeHost: "https://club.example")
-        // `==` compares the subject as written; the merge key compares the TreeID.
-        #expect(remote != .profile("tr_club"))
-        #expect(remote.mergeSubject == .profile("tr_club"))
-        #expect(remote.homeHost == "https://club.example")
-        let read = try ProtocolResourceAccessRule(who: remote, allow: [.read])
-        #expect(read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("tr_club"), allow: [.write])))
-        #expect(!read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("tr_club"), allow: [.write], within: "/notes")))
-        // An edit that respells the subject by TreeID keeps the file's host.
-        #expect(ProtocolResourceWho.profile("tr_club").adoptingHomeHost(from: [.everyone, remote]) == remote)
-        #expect(ProtocolResourceWho.profile("tr_alice").adoptingHomeHost(from: [remote]) == .profile("tr_alice"))
-        #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("tr_club", homeHost: "http://club.example"), allow: [.read]) }
-        #expect(throws: (any Error).self) { try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("tr_club", homeHost: "https://club.example/"), allow: [.read]) }
+    @Test func aProfileAnotherHostHoldsIsNamedByItsLocator() throws {
+        // Decoding spells a locator canonically, which is its merge key.
+        let decoded = try JSONDecoder().decode(ProtocolResourceWho.self, from: Data(#"{"profile":"arbor://club.example/~club/"}"#.utf8))
+        #expect(decoded == .profile("https://club.example/~club"))
+        #expect(decoded.profileLocator?.origin == "https://club.example")
+        #expect(ProtocolResourceWho.profile("tr_club").profileLocator == nil)
+        let read = try ProtocolResourceAccessRule(who: decoded, allow: [.read])
+        #expect(read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("https://club.example/~club"), allow: [.write])))
+        #expect(!read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("tr_club"), allow: [.write])))
+        // A rule is built only from a subject in its canonical spelling.
+        #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("arbor://club.example/~club"), allow: [.read]) }
+        #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("http://club.example/~club"), allow: [.read]) }
+        #expect(throws: (any Error).self) { try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("https://club.example/"), allow: [.read]) }
     }
 }
 

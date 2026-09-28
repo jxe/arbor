@@ -86,7 +86,10 @@ export function parseProfileLocator(value: unknown): { locator: string; origin: 
     : url.protocol === "arbor:" ? (loopback ? "http:" : "https:")
     : null;
   if (!scheme) return null;
-  const origin = `${scheme}//${url.host}`;
+  // Spelled out rather than left to URL parsing, which leaves an arbor: host's
+  // case and port alone: a lowercase host, and no port the scheme implies.
+  const port = url.port && url.port !== (scheme === "https:" ? "443" : "80") ? `:${url.port}` : "";
+  const origin = `${scheme}//${url.hostname.toLowerCase()}${port}`;
   const path = url.pathname.replace(/\/+$/, "");
   if (!path || path === "/" || /[\x00-\x1f\x7f]/.test(path) || path.split("/").slice(1).some((part) => !part || part === "." || part === "..")) return null;
   return { locator: `${origin}${path}`, origin };

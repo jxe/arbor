@@ -197,6 +197,9 @@ public struct TreeConfigurationClient: Sendable {
     private func resolveProfile(_ input: String) async throws -> String {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if TreeID.isWellFormed(value) { return value }
+        // A profile URL at another host is the subject itself, its locator,
+        // which the tree's host pins when it accepts the rule (locators §1).
+        if let locator = ProfileLocator(value), locator.origin != wire.canonicalOrigin { return locator.locator }
         let path: String
         if value.hasPrefix("~") {
             path = "/\(value)"

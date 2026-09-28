@@ -763,30 +763,24 @@ public actor NativeAccountService {
         )
     }
 
-    /// Remove a placement connection from this device. The account stays
-    /// claimed at the placement host; placing it again reconnects.
+    /// Remove a placement connection from this device. The account stays at
+    /// the placement host; connecting again restores it.
     public func forgetPlacement(origin placementOrigin: String) async throws {
         guard let configurationTree else { return }
         try await placementStore.forgetPlacement(configurationTree: configurationTree, origin: placementOrigin)
     }
 
-    /// Place this home account on another host (accounts §1.3), mirroring
-    /// `claimPlacementAccount` in `@overstory/client`.
-    ///
-    /// A device that holds the profile key claims the placement account: the
-    /// key signs a challenge naming this account's home host. Every device
-    /// then signs in at the placement host with its own home device key,
-    /// because the placement host accepts every device the home host lists.
-    /// So a device without the profile key (a paired iPhone) connects to a
-    /// placement account already claimed from another device, and fails with
-    /// `NativePlacementError.profileKeyUnavailable` when there is none.
-    /// Running it again after a claim that landed reconnects rather than
-    /// claiming twice.
-    public func placeAccount(
-        on host: String,
-        inviteCode: String? = nil,
-        identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
-    ) async throws -> NativePlacementResult {
+    /// Connect this home account to its placement account at another host
+    /// (accounts §1.3), mirroring `connectPlacementAccount` in
+    /// `@overstory/client`. The host's community created the account by
+    /// reserving the profile's locator at its home host; there is no claim.
+    /// This device opens a session there with its own home device key, since
+    /// the placement host accepts every device the home host lists, so any
+    /// device can do it, a paired iPhone included. A host with no such
+    /// reservation throws `NativePlacementError.notReserved`, naming what to
+    /// reserve; one that cannot check the device now (its home host is
+    /// unreachable) throws its own error, naming the home host.
+    public func connectPlacement(on host: String) async throws -> NativePlacementResult {
         let target = try placementTarget(host)
         guard let configurationTree,
               let home = try await credentials.accounts().first(where: { $0.configurationTree == configurationTree }),
@@ -798,101 +792,30 @@ public actor NativeAccountService {
         }
         guard target.origin != homeHost else { throw NativePlacementError.homeHost(target.origin) }
         guard let targetURL = URL(string: target.origin) else { throw NativePlacementError.invalidHost }
-        let existing = try await placementStore.placements(configurationTree: configurationTree).first { $0.origin == target.origin }
-
-        /// Record the connection, then open a session with the device key and check the account it names.
-        func connect(_ account: ProtocolPlacementAccountDescriptor, accountURL: String) async throws -> NativePlacementAccount {
-            guard account.profileTree == profileTree, account.homeHost == homeHost else {
-                throw NativePlacementError.mismatch("The account at \(target.origin) names another profile or home host")
-            }
-            let placement = NativePlacementAccount(
-                configurationTree: configurationTree,
-                origin: target.origin,
-                account: accountURL,
-                accountID: account.id,
-                handle: account.handle,
-                profileTree: profileTree,
-                homeHost: homeHost,
-                placementRoot: account.placementRoot.id
-            )
-            try await placementStore.savePlacement(placement)
-            let opened = try await placementClient(origin: target.origin).placementAccount().account
-            guard opened.profileTree == profileTree, opened.placementRoot.id == account.placementRoot.id else {
-                throw NativePlacementError.mismatch("The account at \(target.origin) changed while it was being connected")
-            }
-            return placement
-        }
-
-        /// The placement account the host already holds for the profile, read
-        /// with a session this device's key opens; nil when the host opens no
-        /// session for it. A host that holds the account but cannot check this
-        /// device now says so, with a 5xx or by naming the home host
-        /// (`details.homeHost`); that is reported, since claiming again would
-        /// only hide it.
-        func adopt() async throws -> NativePlacementResult? {
-            let token: String
-            do {
-                token = try await ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
-                    .openDeviceSession(profileTree: profileTree, device: home.deviceID, key: key).token
-            } catch let error as ProtocolHTTPError where error.status < 500 && error.homeHost == nil {
-                return nil
-            }
-            let account = try await ProtocolClient(origin: targetURL, credential: token, session: session, retryDelay: retryDelay)
-                .placementAccount().account
-            let accountURL = existing?.account ?? target.account ?? target.origin + account.placementRoot.path
-            return NativePlacementResult(placement: try await connect(account, accountURL: accountURL), account: account, claimed: false)
-        }
-
-        if existing != nil, let adopted = try await adopt() { return adopted }
-        guard let identity = try await identityStore.identity(), identity.profileTree == profileTree else {
-            // No profile key here: only a placement claimed elsewhere can be used.
-            if existing == nil, let adopted = try await adopt() { return adopted }
-            throw NativePlacementError.profileKeyUnavailable(host: target.origin)
-        }
-
-        let wire = ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
-        func submit() async throws -> (ProtocolPlacementClaimResult, String) {
-            let challenge = try await wire.createAccountChallenge(
-                account: target.account,
-                profileTree: profileTree,
-                configurationTree: configurationTree,
-                inviteCode: inviteCode,
-                homeHost: homeHost
-            )
-            // What the profile key signs: this host, this profile, and this home host.
-            guard challenge.origin == target.origin, challenge.profileTree == profileTree,
-                  challenge.configurationTree == configurationTree, challenge.homeHost == homeHost,
-                  target.account.map({ $0 == challenge.account }) != false else {
-                throw NativePlacementError.mismatch("The placement host's challenge disagrees with the requested claim")
-            }
-            let signed = try await identityStore.sign(challenge)
-            let result = try await wire.claimPlacementAccount(ProtocolPlacementClaimRequest(
-                account: challenge.account,
-                profileTree: profileTree,
-                configurationTree: configurationTree,
-                challenge: challenge,
-                publicKey: signed.identity.publicKey,
-                signature: signed.signature,
-                inviteCode: inviteCode
-            ))
-            return (result, challenge.account)
-        }
-        let claimed: (ProtocolPlacementClaimResult, String)
+        let token: String
         do {
-            do {
-                claimed = try await submit()
-            } catch let error as ProtocolHTTPError
-                where error.code == "invalid-request" && error.message?.localizedCaseInsensitiveContains("challenge is expired") == true {
-                claimed = try await submit()
-            }
-        } catch let error as ProtocolHTTPError
-            where error.code == "already-claimed" || error.message?.localizedCaseInsensitiveContains("already claimed") == true {
-            // A claim that landed before its answer was lost: the host already knows the profile.
-            if let adopted = try await adopt() { return adopted }
-            throw error
+            token = try await ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
+                .openDeviceSession(profileTree: profileTree, device: home.deviceID, key: key).token
+        } catch let error as ProtocolHTTPError where error.status < 500 && error.homeHost == nil {
+            throw NativePlacementError.notReserved(host: target.origin, account: home.handle.map { "\(homeHost)/~\($0)" } ?? "this profile's URL at \(homeHost)")
         }
-        let (result, accountURL) = claimed
-        return NativePlacementResult(placement: try await connect(result.account, accountURL: accountURL), account: result.account, claimed: true)
+        let account = try await ProtocolClient(origin: targetURL, credential: token, session: session, retryDelay: retryDelay)
+            .placementAccount().account
+        guard account.profileTree == profileTree, account.homeHost == homeHost else {
+            throw NativePlacementError.mismatch("The account at \(target.origin) names another profile or home host")
+        }
+        let placement = NativePlacementAccount(
+            configurationTree: configurationTree,
+            origin: target.origin,
+            account: target.origin + account.placementRoot.path,
+            accountID: account.id,
+            handle: account.handle,
+            profileTree: profileTree,
+            homeHost: homeHost,
+            placementRoot: account.placementRoot.id
+        )
+        try await placementStore.savePlacement(placement)
+        return NativePlacementResult(placement: placement, account: account)
     }
 
     private func client() async throws -> ProtocolClient {

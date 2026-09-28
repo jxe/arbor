@@ -29,17 +29,14 @@ private func signingVectors() throws -> AccountChallengeSigningVectors.Signing {
 
 private func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 
-@Suite("Account challenge signing (accounts §1.2, §1.3)")
+@Suite("Account challenge signing (accounts §1.2)")
 struct AccountChallengeSigningTests {
-    @Test("A home and a placement challenge sign different bytes, and neither signature stands in for the other")
-    func homeAndPlacementSigningBytes() throws {
+    @Test("A challenge's signature covers its canonical CBOR")
+    func homeSigningBytes() throws {
         let vectors = try signingVectors()
         let home = try #require(vectors.challenges.first { $0.name == "home" })
-        let placement = try #require(vectors.challenges.first { $0.name == "placement" })
-        var stripped = placement.challenge
-        stripped.homeHost = nil
-        #expect(stripped == home.challenge)
-        #expect(placement.challenge.homeHost == "https://home.example")
+        // Placement accounts come from reservations (accounts §1.3): no challenge names a home host.
+        #expect(!vectors.challenges.contains { $0.name == "placement" })
 
         let seed = Data(stride(from: 0, to: vectors.seedHex.count, by: 2).map { offset -> UInt8 in
             let start = vectors.seedHex.index(vectors.seedHex.startIndex, offsetBy: offset)
@@ -50,29 +47,7 @@ struct AccountChallengeSigningTests {
         #expect(key.value == "ed25519:\(vectors.publicKey)")
 
         let homeBytes = try accountChallengeSigningBytes(home.challenge)
-        let placementBytes = try accountChallengeSigningBytes(placement.challenge)
         #expect(hex(homeBytes) == home.canonicalCBORHex)
-        #expect(hex(placementBytes) == placement.canonicalCBORHex)
-        #expect(homeBytes != placementBytes)
         #expect(key.verifies(home.signature, over: homeBytes))
-        #expect(key.verifies(placement.signature, over: placementBytes))
-        #expect(!key.verifies(home.signature, over: placementBytes))
-        #expect(!key.verifies(placement.signature, over: homeBytes))
-    }
-
-    @Test("A challenge's home host is an HTTPS origin other than the challenging host")
-    func homeHostValidation() throws {
-        let placement = try #require(try signingVectors().challenges.first { $0.name == "placement" }).challenge
-        _ = try placement.validated()
-        for invalid in [placement.origin, "http://home.example", "https://home.example/", "https://home.example/path", "home.example"] {
-            var challenge = placement
-            challenge.homeHost = invalid
-            #expect(throws: ProtocolValidationError.self, "\(invalid)") { try challenge.validated() }
-        }
-        for local in ["http://127.0.0.1:4318", "http://localhost:4318"] {
-            var challenge = placement
-            challenge.homeHost = local
-            #expect(throws: Never.self, "\(local)") { try challenge.validated() }
-        }
     }
 }

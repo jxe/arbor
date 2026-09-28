@@ -12,13 +12,12 @@ public enum ProtocolResourceOperation: String, Codable, Sendable, CaseIterable {
 /// holds the rule (`me` for a person, `members` for a group) and are invalid
 /// in `access.yaml`.
 ///
-/// A profile subject may carry `homeHost`, the origin of the host that holds a
-/// group profile's tree (access control §3.3). It says where to look, not who:
-/// the TreeID alone is the subject and its merge key (`mergeSubject`), while
-/// `==` compares the subject as written, so an edit that changes only the
-/// host is still a change.
+/// A profile subject names a profile this host holds by its TreeID, or a
+/// profile another host holds by its canonical locator there
+/// (`https://home.example/~crew`, `ProfileLocator`), which the host pins to
+/// the TreeID it first resolved to (locators §1, access control §1).
 public enum ProtocolResourceWho: Hashable, Sendable, Codable {
-    case everyone, me, members, profile(String, homeHost: String? = nil), link(String)
+    case everyone, me, members, profile(String), link(String)
 
     public init(from decoder: Decoder) throws {
         let single = try decoder.singleValueContainer()
@@ -32,59 +31,70 @@ public enum ProtocolResourceWho: Hashable, Sendable, Codable {
             return
         }
         let value = try single.decode([String: String].self)
-        if value.count == 2, let profile = value["profile"], let host = value["homeHost"] {
-            guard validResourceTree(profile), isHomeHostOrigin(host) else { throw ResourcePolicyError.invalid }
-            self = .profile(profile, homeHost: host)
-            return
-        }
         guard value.count == 1 else { throw ResourcePolicyError.invalid }
-        if let profile = value["profile"], validResourceTree(profile) { self = .profile(profile) }
+        if let profile = value["profile"], let subject = validResourceProfile(profile) { self = .profile(subject) }
         else if let link = value["link"], link.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil { self = .link(link) }
         else { throw ResourcePolicyError.invalid }
     }
     public func encode(to encoder: Encoder) throws {
-        if case .profile(let id, let host?) = self {
-            // Keyed, so the subject is written `profile` then `homeHost`, as the reference implementation writes it.
-            var subject = encoder.container(keyedBy: ResourceKey.self)
-            try subject.encode(id, forKey: ResourceKey(stringValue: "profile")!)
-            try subject.encode(host, forKey: ResourceKey(stringValue: "homeHost")!)
-            return
-        }
         var value = encoder.singleValueContainer()
         switch self {
         case .everyone: try value.encode("everyone")
         case .me: try value.encode("me")
         case .members: try value.encode("members")
-        case .profile(let id, _): try value.encode(["profile": id])
+        case .profile(let id): try value.encode(["profile": id])
         case .link(let hash): try value.encode(["link": hash])
         }
     }
 
-    /// The home host a profile subject names, if any.
-    public var homeHost: String? {
-        if case .profile(_, let host) = self { host } else { nil }
-    }
-    /// The subject a rule's merge key compares: a profile without its home host.
-    public var mergeSubject: ProtocolResourceWho {
-        if case .profile(let id, _) = self { .profile(id) } else { self }
-    }
-    /// This subject with the home host `subjects` give its profile, when it
-    /// names none itself, so an edit that respells a rule keeps the file's host.
-    public func adoptingHomeHost(from subjects: some Sequence<ProtocolResourceWho>) -> ProtocolResourceWho {
-        guard case .profile(let id, nil) = self else { return self }
-        for case .profile(id, let host?) in subjects { return .profile(id, homeHost: host) }
-        return self
+    /// A locator subject's locator, for a profile another host holds.
+    public var profileLocator: ProfileLocator? {
+        if case .profile(let id) = self { ProfileLocator(id) } else { nil }
     }
 }
 
-/// Every rule of one file naming a profile gives it the same `homeHost`, or
-/// none does, so one host is asked for one group's members.
-public func checkResourceHomeHosts(_ subjects: some Sequence<ProtocolResourceWho>) throws {
-    var hosts: [String: String?] = [:]
-    for case .profile(let id, let host) in subjects {
-        if let seen = hosts[id], seen != host { throw ResourcePolicyError.invalid }
-        hosts[id] = host
+/// A profile named by its canonical locator at another host (locators §1):
+/// `https://host/path`, `arbor://host/path`, or `http://` for a loopback
+/// host. `locator` is its canonical spelling, the subject's merge key
+/// (`arbor://` becomes the HTTP locator it resolves through, the host is
+/// lowercase, and no port the scheme implies is written); `origin` is where
+/// the profile is read. Nil for anything else, a TreeID included.
+public struct ProfileLocator: Hashable, Sendable {
+    public let locator: String
+    public let origin: String
+
+    public init?(_ value: String) {
+        guard !value.hasPrefix("tr_"),
+              value.range(of: #"/\.{1,2}(/|$)"#, options: .regularExpression) == nil,
+              let components = URLComponents(string: value), let scheme = components.scheme?.lowercased(),
+              components.user == nil, components.password == nil,
+              components.percentEncodedQuery == nil, components.fragment == nil,
+              var host = components.percentEncodedHost?.lowercased(), !host.isEmpty else { return nil }
+        if host.contains(":") && !host.hasPrefix("[") { host = "[\(host)]" }
+        guard !host.hasPrefix("tr_") else { return nil }
+        let loopback = ["127.0.0.1", "localhost", "[::1]"].contains(host)
+        let output: String
+        switch scheme {
+        case "https": output = "https"
+        case "http" where loopback: output = "http"
+        case "arbor": output = loopback ? "http" : "https"
+        default: return nil
+        }
+        let implied = output == "https" ? 443 : 80
+        let port = components.port.flatMap { $0 == implied ? nil : ":\($0)" } ?? ""
+        var path = components.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        guard !path.isEmpty, !path.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
+              path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
+        else { return nil }
+        origin = "\(output)://\(host)\(port)"
+        locator = origin + path
     }
+}
+
+/// A profile subject as written, validated: a TreeID, or a locator in its canonical spelling.
+func validResourceProfile(_ value: String) -> String? {
+    validResourceTree(value) ? value : ProfileLocator(value)?.locator
 }
 
 public enum ResourcePolicyError: Error { case invalid }
@@ -117,7 +127,7 @@ public struct ProtocolResourceAccessRule: Codable, Sendable, Hashable {
         guard !allow.isEmpty, Set(allow).count == allow.count,
               app.map(validResourceTree) ?? true else { throw ResourcePolicyError.invalid }
         switch who {
-        case .profile(let id, let host): guard validResourceTree(id), host.map(isHomeHostOrigin) ?? true else { throw ResourcePolicyError.invalid }
+        case .profile(let id): guard validResourceProfile(id) == id else { throw ResourcePolicyError.invalid }
         case .link(let digest): guard digest.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else { throw ResourcePolicyError.invalid }
         case .me, .members: throw ResourcePolicyError.invalid
         case .everyone: break
@@ -158,7 +168,7 @@ public struct ProtocolAppAccessRule: Codable, Sendable, Hashable {
 
     public init(resource: String, who: ProtocolResourceWho, allow: [ProtocolResourceOperation], within: String? = nil) throws {
         guard validResourceTree(resource), !allow.isEmpty, Set(allow).count == allow.count, !allow.contains(.admin) else { throw ResourcePolicyError.invalid }
-        if case .profile(let id, let host) = who, !validResourceTree(id) || !(host.map(isHomeHostOrigin) ?? true) { throw ResourcePolicyError.invalid }
+        if case .profile(let id) = who, validResourceProfile(id) != id { throw ResourcePolicyError.invalid }
         if let within { guard validResourcePath(within) else { throw ResourcePolicyError.invalid } }
         self.resource = resource; self.who = who; self.allow = allow; self.within = within
     }
@@ -185,43 +195,39 @@ public struct ProtocolAppAccessRule: Codable, Sendable, Hashable {
 }
 
 public extension ProtocolResourceAccessRule {
-    /// Whether two rules share the merge key `(who, app, within)`, a profile
-    /// subject compared by its TreeID alone.
+    /// Whether two rules share the merge key `(who, app, within)`, a locator
+    /// subject compared in its canonical spelling.
     func sameMergeKey(as other: ProtocolResourceAccessRule) -> Bool {
-        who.mergeSubject == other.who.mergeSubject && app == other.app && (within ?? "/") == (other.within ?? "/")
+        who == other.who && app == other.app && (within ?? "/") == (other.within ?? "/")
     }
-    /// One `access.yaml`'s rules: no two share a merge key, and each profile
-    /// is given one home host or none.
+    /// One `access.yaml`'s rules: no two share a merge key.
     static func validateFile(_ rules: [ProtocolResourceAccessRule]) throws {
         for (index, rule) in rules.enumerated() where rules.prefix(index).contains(where: { $0.sameMergeKey(as: rule) }) {
             throw ResourcePolicyError.invalid
         }
-        try checkResourceHomeHosts(rules.map(\.who))
     }
 }
 
 public extension ProtocolAppAccessRule {
     /// Whether two rules of one app share the merge key `(resource, who,
-    /// within)`, a profile subject compared by its TreeID alone.
+    /// within)`, a locator subject compared in its canonical spelling.
     func sameMergeKey(as other: ProtocolAppAccessRule) -> Bool {
-        resource == other.resource && who.mergeSubject == other.who.mergeSubject && (within ?? "/") == (other.within ?? "/")
+        resource == other.resource && who == other.who && (within ?? "/") == (other.within ?? "/")
     }
-    /// One `apps.yaml`'s rules by app: no two rules of an app share a merge
-    /// key, and the whole file gives each profile one home host or none.
+    /// One `apps.yaml`'s rules by app: no two rules of an app share a merge key.
     static func validateFile(_ apps: [String: [ProtocolAppAccessRule]]) throws {
         for rules in apps.values {
             for (index, rule) in rules.enumerated() where rules.prefix(index).contains(where: { $0.sameMergeKey(as: rule) }) {
                 throw ResourcePolicyError.invalid
             }
         }
-        try checkResourceHomeHosts(apps.values.joined().map(\.who))
     }
 }
 
 /// Administrative policy projection; a link is redacted rather than a usable
-/// digest. A profile's `homeHost` is not secret and is kept.
+/// digest. A profile's locator is not secret and is kept.
 public enum ProtocolSafeResourceWho: Hashable, Sendable, Codable {
-    case everyone, me, members, profile(String, homeHost: String? = nil), link
+    case everyone, me, members, profile(String), link
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()
         if let redacted = try? value.decode([String: Bool].self), redacted == ["link": true] { self = .link; return }
@@ -229,7 +235,7 @@ public enum ProtocolSafeResourceWho: Hashable, Sendable, Codable {
         case .everyone: self = .everyone
         case .me: self = .me
         case .members: self = .members
-        case .profile(let id, let host): self = .profile(id, homeHost: host)
+        case .profile(let id): self = .profile(id)
         case .link: throw ResourcePolicyError.invalid
         }
     }
@@ -238,7 +244,7 @@ public enum ProtocolSafeResourceWho: Hashable, Sendable, Codable {
         case .everyone: try ProtocolResourceWho.everyone.encode(to: encoder)
         case .me: try ProtocolResourceWho.me.encode(to: encoder)
         case .members: try ProtocolResourceWho.members.encode(to: encoder)
-        case .profile(let id, let host): try ProtocolResourceWho.profile(id, homeHost: host).encode(to: encoder)
+        case .profile(let id): try ProtocolResourceWho.profile(id).encode(to: encoder)
         case .link:
             var value = encoder.singleValueContainer()
             try value.encode(["link": true])

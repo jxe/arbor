@@ -2889,7 +2889,7 @@ private struct CanopySharePanel: View {
                 query: $profileLocator,
                 people: workspace.directory,
                 workspace: workspace,
-                excluding: Set(access.entries.compactMap { entry in if case .profile(let tree, _) = entry.subject { tree } else { nil } }),
+                excluding: Set(access.entries.compactMap { entry in if case .profile(let tree) = entry.subject { tree } else { nil } }),
                 disabled: busy || !access.canEdit,
                 onPick: { person in Task { await addProfiles([person.entry.profile], to: access) } },
                 onRawSubmit: { shareInvites(access) },
@@ -2927,7 +2927,7 @@ private struct CanopySharePanel: View {
                     let entries = groupableEntries(access)
                     newGroupAccess = entries.allSatisfy { $0.access == CanopyTreeAccess.write.rawValue } ? .write : .read
                     newGroup = CanopyNewGroupRequest(members: entries.compactMap { entry in
-                        if case .profile(let tree, _) = entry.subject { tree } else { nil }
+                        if case .profile(let tree) = entry.subject { tree } else { nil }
                     })
                 }
 #if os(macOS)
@@ -3001,7 +3001,7 @@ private struct CanopySharePanel: View {
     /// People (not groups, not you) listed individually on this tree.
     private func groupableEntries(_ access: NativeTreeAccessPresentation) -> [NativeTreeAccessEntry] {
         access.entries.filter { entry in
-            guard case .profile(let tree, _) = entry.subject, !entry.isCurrentUser else { return false }
+            guard case .profile(let tree) = entry.subject, !entry.isCurrentUser else { return false }
             return workspace.directory.first { $0.id == tree }?.entry.kind != "group"
         }
     }
@@ -3077,7 +3077,7 @@ private struct CanopySharePanel: View {
         switch entry.subject {
         case .everyone:
             accessIcon(systemName: "globe", tint: .blue)
-        case let .profile(tree, _):
+        case let .profile(tree):
             if let person = workspace.directory.first(where: { $0.id == tree }) {
                 CanopyAvatarView(person: person, workspace: workspace)
             } else {
@@ -3161,14 +3161,15 @@ private struct CanopySharePanel: View {
     private func label(for entry: NativeTreeAccessEntry) -> String {
         switch entry.subject {
         case .everyone: "Everyone"
-        case .profile(let tree, let homeHost):
+        case .profile(let tree):
+            // A profile another host holds is named by its locator there, and shows that host.
             (workspace.directory.first(where: { $0.id == tree })?.title ?? entry.displayName ?? "Person or group")
-                + (homeHost.map { " (\(Self.hostLabel($0)))" } ?? "")
+                + (entry.subject.profileLocator.map { " (\(Self.hostLabel($0.origin)))" } ?? "")
         case .link: "Private link"
         }
     }
 
-    /// A remote group's home host as its label shows it: the origin without its scheme.
+    /// A remote profile's host as its label shows it: the origin without its scheme.
     private static func hostLabel(_ origin: String) -> String {
         origin.range(of: "://").map { String(origin[$0.upperBound...]) } ?? origin
     }
@@ -3178,7 +3179,7 @@ private struct CanopySharePanel: View {
         switch entry.subject {
         case .everyone: return "Anyone who can find this tree"
         case .link: return "Existing access-link grant"
-        case .profile(let tree, _): return workspace.directory.first(where: { $0.id == tree })?.subtitle ?? entry.locator ?? (entry.displayName == nil ? tree : "Person or group")
+        case .profile(let tree): return workspace.directory.first(where: { $0.id == tree })?.subtitle ?? entry.locator ?? (entry.displayName == nil ? tree : "Person or group")
         }
     }
 
@@ -3486,7 +3487,7 @@ private struct CanopyPlacementsSection: View {
     @State private var message: String?
     @State private var removal: CanopyPlacement?
 
-    private var canPlace: Bool { workspace.accountService.capabilities.contains(.placeAccount) }
+    private var canPlace: Bool { workspace.accountService.capabilities.contains(.connectPlacement) }
 
     var body: some View {
         Section {
@@ -3511,7 +3512,7 @@ private struct CanopyPlacementsSection: View {
                 }
             }
             if placements.isEmpty {
-                Text("This account is not placed on another host.").foregroundStyle(.secondary)
+                Text("This account is on no other host.").foregroundStyle(.secondary)
             }
             if working { ProgressView() }
             if let message {
@@ -3521,7 +3522,7 @@ private struct CanopyPlacementsSection: View {
             Text(title).textCase(nil)
         } footer: {
             if canPlace {
-                Button("Place on another host…") {
+                Button("Add another host…") {
                     host = ""
                     hostPromptPresented = true
                 }
@@ -3533,18 +3534,18 @@ private struct CanopyPlacementsSection: View {
             }
         }
         .task(id: configurationTree) { await load() }
-        .alert("Place on another host", isPresented: $hostPromptPresented) {
+        .alert("Add another host", isPresented: $hostPromptPresented) {
             TextField("https://canopy.example", text: $host)
 #if os(iOS)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 #endif
-            Button("Place") { Task { await place() } }
+            Button("Add") { Task { await place() } }
                 .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your trees can then live under that host's addresses. It signs your devices in through your home host.")
+            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through your home host.")
         }
         .confirmationDialog(
             "Remove \(removal?.hostName ?? "this host") from this device?",
@@ -3554,7 +3555,7 @@ private struct CanopyPlacementsSection: View {
             Button("Remove", role: .destructive) { Task { await forget(placement) } }
             Button("Cancel", role: .cancel) {}
         } message: { placement in
-            Text("The account stays on \(placement.hostName); placing it there again reconnects this device.")
+            Text("The account stays on \(placement.hostName); adding the host again reconnects this device.")
         }
     }
 
@@ -3571,7 +3572,7 @@ private struct CanopyPlacementsSection: View {
 #if os(macOS)
             try await workspace.ensureArborSync()
 #endif
-            try await workspace.accountService.placeAccount(configurationTree: configurationTree, host: host, inviteCode: nil)
+            try await workspace.accountService.connectPlacement(configurationTree: configurationTree, host: host)
             message = nil
         } catch {
             // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
@@ -5212,7 +5213,6 @@ private struct CanopyResourcePermissionPanel: View {
     let applied: (NativeTreeAccessPresentation) -> Void
     @State private var caller = "me"
     /// The home host of the remote group a selected rule names, kept while `caller` still names that group.
-    @State private var callerHomeHost: (tree: String, host: String)?
     /// Whose `apps.yaml` an approval goes in: "" for this person, else a group's TreeID.
     @State private var approveFor = ""
     @State private var app = ""
@@ -5270,7 +5270,7 @@ private struct CanopyResourcePermissionPanel: View {
                                 ForEach(access.approvalGroups) { group in Text(group.label).tag(group.tree) }
                             }
                         }
-                        TextField(approveFor.isEmpty ? "Caller: me, everyone, or profile TreeID" : "Caller: me (the group's members), everyone, or profile TreeID", text: $caller)
+                        TextField(approveFor.isEmpty ? "Caller: me, everyone, or a profile TreeID or URL" : "Caller: me (the group's members), everyone, or a profile TreeID or URL", text: $caller)
                         TextField("App TreeID", text: $app)
                         TextField("Within", text: $scope)
                         ForEach(ProtocolResourceOperation.allCases.filter { $0 != .admin }, id: \.self) { operation in
@@ -5309,10 +5309,9 @@ private struct CanopyResourcePermissionPanel: View {
         switch rule.who {
         case .me, .members: caller = "me"
         case .everyone: caller = "everyone"
-        case .profile(let tree, _): caller = tree
+        case .profile(let tree): caller = tree
         case .link: error = "Edit access-link rules in the tree's configuration."; return
         }
-        callerHomeHost = rule.who.homeHost.map { (tree: caller, host: $0) }
         app = rule.app ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow.filter { $0 != .admin })
     }
 
@@ -5327,10 +5326,9 @@ private struct CanopyResourcePermissionPanel: View {
         switch approval.rule.who {
         case .me, .members: caller = "me"
         case .everyone: caller = "everyone"
-        case .profile(let tree, _): caller = tree
+        case .profile(let tree): caller = tree
         case .link: error = "Edit access-link rules in the tree's configuration."; return
         }
-        callerHomeHost = approval.rule.who.homeHost.map { (tree: caller, host: $0) }
         app = approval.app; scope = approval.rule.within ?? "/"; operations = Set(approval.rule.allow)
     }
 
@@ -5341,9 +5339,10 @@ private struct CanopyResourcePermissionPanel: View {
             guard !app.isEmpty else { throw ProtocolValidationError.invalidValue("Enter the app's TreeID") }
             let group = approveFor.isEmpty ? nil : approveFor
             // A group's own use is spelled `members` in its file, a person's `me`.
-            // A remote group keeps the home host of the rule it was selected from.
+            // A profile another host holds is named by its URL there, spelled canonically.
+            let trimmed = caller.trimmingCharacters(in: .whitespaces)
             let who: ProtocolResourceWho = caller == "me" ? (group == nil ? .me : .members) : caller == "everyone" ? .everyone
-                : .profile(caller, homeHost: callerHomeHost?.tree == caller ? callerHomeHost?.host : nil)
+                : .profile(ProfileLocator(trimmed)?.locator ?? trimmed)
             let rule = try ProtocolAppAccessRule(resource: access.tree, who: who,
                 allow: ProtocolResourceOperation.allCases.filter { operations.contains($0) && $0 != .admin }, within: scope)
             review = try await workspace.prepareResourceConsent(tree: access.tree, app: app, rule: rule, removing: removing, group: group)

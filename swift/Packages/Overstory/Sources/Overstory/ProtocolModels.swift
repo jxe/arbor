@@ -996,19 +996,11 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var nonce: String
     public var issuedAt: Int
     public var expiresAt: Int
-    /// A placement claim's home host (accounts §1.3): the origin whose
-    /// published device keys the placement host will trust for this profile.
-    /// The profile key signs it with the rest of the challenge; a home
-    /// claim's challenge has none, so neither stands in for the other.
-    public var homeHost: String? = nil
 
     public func validated() throws -> Self {
         guard version == 1, !id.isEmpty, !origin.isEmpty, !account.isEmpty,
               !profileTree.isEmpty, !configurationTree.isEmpty, !nonce.isEmpty,
               expiresAt > issuedAt else {
-            throw ProtocolValidationError.invalidValue("Malformed account challenge")
-        }
-        if let homeHost, !isHomeHostOrigin(homeHost) || homeHost == origin {
             throw ProtocolValidationError.invalidValue("Malformed account challenge")
         }
         return self
@@ -1119,40 +1111,6 @@ public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {
 public struct ProtocolAnyAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAnyAccountDescriptor
     public var observedThrough: String
-}
-
-/// A placement claim (accounts §1.3): the profile-key proof, with no device
-/// and no configuration. Its challenge names `homeHost`.
-public struct ProtocolPlacementClaimRequest: Codable, Sendable, Equatable {
-    public var account: String
-    public var profileTree: String
-    public var configurationTree: String
-    public var challenge: ProtocolAccountChallenge
-    public var publicKey: String
-    public var signature: String
-    public var inviteCode: String?
-
-    public init(
-        account: String,
-        profileTree: String,
-        configurationTree: String,
-        challenge: ProtocolAccountChallenge,
-        publicKey: String,
-        signature: String,
-        inviteCode: String? = nil
-    ) {
-        self.account = account
-        self.profileTree = profileTree
-        self.configurationTree = configurationTree
-        self.challenge = challenge
-        self.publicKey = publicKey
-        self.signature = signature
-        self.inviteCode = inviteCode
-    }
-}
-
-public struct ProtocolPlacementClaimResult: Codable, Sendable, Equatable {
-    public var account: ProtocolPlacementAccountDescriptor
 }
 
 public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable {

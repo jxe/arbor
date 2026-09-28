@@ -38,11 +38,11 @@ private struct PlacementCapturedRequest: Sendable {
 }
 
 /// A placement host at https://place.test for a profile whose home is
-/// https://home.test: it claims with the profile key's proof and opens
-/// sessions for the home host's devices.
+/// https://home.test: once its community reserves the profile, it opens
+/// sessions for the home host's devices (accounts §1.3).
 private actor PlacementHostState {
     private(set) var requests: [PlacementCapturedRequest] = []
-    var claimed = false
+    var reserved = false
     var homeUnreachable = false
     /// Refuse sessions with a 403 naming the home host, as a placement host
     /// does for a route that is the home host's.
@@ -51,13 +51,13 @@ private actor PlacementHostState {
 
     func reset(profileTree: String) {
         requests = []
-        claimed = false
+        reserved = false
         homeUnreachable = false
         homeRefuses = false
         self.profileTree = profileTree
     }
 
-    func setClaimed(_ value: Bool) { claimed = value }
+    func setReserved(_ value: Bool) { reserved = value }
     func setHomeUnreachable(_ value: Bool) { homeUnreachable = value }
     func setHomeRefuses(_ value: Bool) { homeRefuses = value }
 
@@ -82,28 +82,8 @@ private actor PlacementHostState {
         requests.append(.init(method: method, url: url, authorization: request.value(forHTTPHeaderField: "Authorization"), body: body))
         let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
         switch (method, url) {
-        case ("POST", "https://place.test/.arbor/account-challenges"):
-            return (201, jsonData([
-                "version": 1, "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://place.test", "account": "https://place.test/~joe",
-                "profileTree": fields["profileTree"] ?? "", "configurationTree": fields["configurationTree"] ?? "",
-                "nonce": String(repeating: "A", count: 43), "issuedAt": 1, "expiresAt": 300_001,
-                "homeHost": fields["homeHost"] ?? NSNull(),
-            ]))
-        case ("PUT", "https://place.test/.arbor/accounts"):
-            if claimed { return (409, Data(#"{"error":"already-claimed","message":"Profile already claimed","retryable":false}"#.utf8)) }
-            guard fields["device"] == nil, fields["configuration"] == nil,
-                  let challengeData = try? JSONSerialization.data(withJSONObject: fields["challenge"] ?? [:]),
-                  let challenge = try? JSONDecoder().decode(ProtocolAccountChallenge.self, from: challengeData),
-                  let publicKey = fields["publicKey"] as? String, let signature = fields["signature"] as? String,
-                  let key = try? ProtocolDeviceKey("ed25519:\(publicKey)"),
-                  let bytes = try? accountChallengeSigningBytes(challenge),
-                  key.verifies(signature, over: bytes) else {
-                return (400, Data(#"{"error":"invalid-request","message":"bad placement claim","retryable":false}"#.utf8))
-            }
-            claimed = true
-            return (201, jsonData(["account": account]))
         case ("POST", "https://place.test/.arbor/device-sessions/challenges"):
-            guard claimed else { return (404, Data(#"{"error":"not-found","message":"No such account","retryable":false}"#.utf8)) }
+            guard reserved else { return (404, Data(#"{"error":"not-found","message":"No such account","retryable":false}"#.utf8)) }
             if homeUnreachable {
                 return (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.test"}}"#.utf8))
             }
@@ -193,74 +173,44 @@ struct PlacementAccountTests {
         return configurationTree
     }
 
-    @Test("A device holding the profile key claims a placement, signing the home host, and connects with its device key")
-    func claimWithProfileKey() async throws {
-        let identityStore = KeychainProfileIdentityStore(service: "org.nxhx.Arbor.test.profile.\(UUID().uuidString)")
-        let identity = try await identityStore.create()
-        await PlacementHostProtocol.state.reset(profileTree: identity.profileTree)
+    @Test("A device connects to the placement account a host reserved for its profile, with its own device key")
+    func connectToReservation() async throws {
+        let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
+        await PlacementHostProtocol.state.reset(profileTree: profileTree)
         let store = PlacementTestCredentialStore()
-        let configurationTree = try await homeAccount(profileTree: identity.profileTree, in: store)
+        let configurationTree = try await homeAccount(profileTree: profileTree, in: store)
         let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
 
-        let placed = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
-        #expect(placed.claimed)
-        #expect(placed.placement == NativePlacementAccount(
+        // Nothing reserved yet: the error says what the host's administrators should reserve.
+        await #expect(throws: NativePlacementError.notReserved(host: "https://place.test", account: "https://home.test/~joe")) {
+            _ = try await service.connectPlacement(on: "https://place.test")
+        }
+        #expect(try await service.placements().isEmpty)
+
+        await PlacementHostProtocol.state.setReserved(true)
+        let connected = try await service.connectPlacement(on: "https://place.test")
+        #expect(connected.placement == NativePlacementAccount(
             configurationTree: configurationTree, origin: "https://place.test", account: "https://place.test/~joe",
-            accountID: identity.profileTree, handle: "joe", profileTree: identity.profileTree,
+            accountID: profileTree, handle: "joe", profileTree: profileTree,
             homeHost: "https://home.test", placementRoot: "tr_placementroot"
         ))
-        #expect(try await service.placements() == [placed.placement])
-
+        #expect(try await service.placements() == [connected.placement])
         let requests = await PlacementHostProtocol.state.requests
-        let challengeRequest = try #require(requests.first { $0.url.hasSuffix("/.arbor/account-challenges") })
-        let asked = try #require(try JSONSerialization.jsonObject(with: challengeRequest.body) as? [String: Any])
-        #expect(asked["homeHost"] as? String == "https://home.test")
-        #expect(asked["configurationTree"] as? String == configurationTree)
-        let claim = try #require(requests.first { $0.method == "PUT" })
-        let claimFields = try #require(try JSONSerialization.jsonObject(with: claim.body) as? [String: Any])
-        #expect(Set(claimFields.keys) == ["account", "profileTree", "configurationTree", "challenge", "publicKey", "signature"])
+        // No claim: only a session this device's key opens, and the account it reads.
+        #expect(!requests.contains { $0.url.hasSuffix("/.arbor/account-challenges") || $0.method == "PUT" })
         #expect(requests.allSatisfy { !$0.url.hasPrefix("https://home.test") })
-        // The connection's reads carry the session its home device key opened there.
         #expect(requests.last { $0.url.hasSuffix("/.arbor/account") }?.authorization == "Bearer ars_place")
         let sessionChallenge = try #require(requests.first { $0.url.hasSuffix("/device-sessions/challenges") })
         #expect((try JSONSerialization.jsonObject(with: sessionChallenge.body) as? [String: Any])?["device"] as? String == "dv_phone")
 
-        // Placing it again reconnects instead of claiming twice.
-        let again = try await service.placeAccount(on: "https://place.test/", identityStore: identityStore)
-        #expect(!again.claimed)
-        #expect(again.placement == placed.placement)
-        #expect(await PlacementHostProtocol.state.requests.filter { $0.method == "PUT" }.count == 1)
-
+        // Connecting again finds the same account.
+        #expect(try await service.connectPlacement(on: "https://place.test/").placement == connected.placement)
         let client = try await service.placementClient(origin: "https://place.test")
         #expect(try await client.placementAccount().account.placementRoot.path == "/~joe")
 
         try await service.forgetPlacement(origin: "https://place.test")
         #expect(try await service.placements().isEmpty)
-    }
-
-    @Test("A device without the profile key connects to a placement claimed elsewhere, and says why when there is none")
-    func connectWithoutProfileKey() async throws {
-        let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
-        await PlacementHostProtocol.state.reset(profileTree: profileTree)
-        let store = PlacementTestCredentialStore()
-        let configurationTree = try await homeAccount(profileTree: profileTree, in: store)
-        let identityStore = KeychainProfileIdentityStore(service: "org.nxhx.Arbor.test.profile.\(UUID().uuidString)")
-        let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
-
-        await #expect(throws: NativePlacementError.profileKeyUnavailable(host: "https://place.test")) {
-            _ = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
-        }
-        #expect(try await service.placements().isEmpty)
-
-        // Claimed from the Mac: the iPhone's own device key is listed at home, so the placement host accepts it.
-        await PlacementHostProtocol.state.setClaimed(true)
-        let connected = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
-        #expect(!connected.claimed)
-        #expect(connected.placement.account == "https://place.test/~joe")
-        #expect(connected.placement.homeHost == "https://home.test")
-        let requests = await PlacementHostProtocol.state.requests
-        #expect(!requests.contains { $0.url.hasSuffix("/.arbor/account-challenges") || $0.method == "PUT" })
-
+        _ = try await service.connectPlacement(on: "https://place.test")
         // Forgetting the home account forgets the placements that sign in with its key.
         try await service.forget()
         #expect(await store.placements(configurationTree: nil).isEmpty)
@@ -270,16 +220,13 @@ struct PlacementAccountTests {
     func homeHostUnavailable() async throws {
         let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
         await PlacementHostProtocol.state.reset(profileTree: profileTree)
-        await PlacementHostProtocol.state.setClaimed(true)
+        await PlacementHostProtocol.state.setReserved(true)
         await PlacementHostProtocol.state.setHomeUnreachable(true)
         let store = PlacementTestCredentialStore()
         let configurationTree = try await homeAccount(profileTree: profileTree, in: store)
         let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
         do {
-            _ = try await service.placeAccount(
-                on: "https://place.test",
-                identityStore: KeychainProfileIdentityStore(service: "org.nxhx.Arbor.test.profile.\(UUID().uuidString)")
-            )
+            _ = try await service.connectPlacement(on: "https://place.test")
             Issue.record("A stale placement host opens no session")
         } catch let error as ProtocolHTTPError {
             #expect(error.status == 503)
@@ -288,27 +235,22 @@ struct PlacementAccountTests {
         }
     }
 
-    @Test("Reconnecting reports a refusal that names the home host instead of claiming again")
-    func adoptReportsHomeHostRefusal() async throws {
-        let identityStore = KeychainProfileIdentityStore(service: "org.nxhx.Arbor.test.profile.\(UUID().uuidString)")
-        let identity = try await identityStore.create()
-        await PlacementHostProtocol.state.reset(profileTree: identity.profileTree)
-        let store = PlacementTestCredentialStore()
-        let configurationTree = try await homeAccount(profileTree: identity.profileTree, in: store)
-        let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
-        _ = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
-
-        // A 4xx without `details.homeHost` would mean "no account here"; this one names the home host.
+    @Test("A refusal that names the home host is reported as the host's, not as a missing reservation")
+    func refusalNamingHomeHost() async throws {
+        let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
+        await PlacementHostProtocol.state.reset(profileTree: profileTree)
+        await PlacementHostProtocol.state.setReserved(true)
         await PlacementHostProtocol.state.setHomeRefuses(true)
+        let store = PlacementTestCredentialStore()
+        let configurationTree = try await homeAccount(profileTree: profileTree, in: store)
+        let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session(), retryDelay: { _ in })
         do {
-            _ = try await service.placeAccount(on: "https://place.test", identityStore: identityStore)
+            _ = try await service.connectPlacement(on: "https://place.test")
             Issue.record("A refusal naming the home host is reported")
         } catch let error as ProtocolHTTPError {
             #expect(error.status == 403)
             #expect(error.homeHost == "https://home.test")
         }
-        #expect(await PlacementHostProtocol.state.requests.filter { $0.method == "PUT" }.count == 1)
-        #expect(await PlacementHostProtocol.state.requests.filter { $0.url.hasSuffix("/.arbor/account-challenges") }.count == 1)
     }
 
     @Test("Placement targets are HTTPS Canopy URLs other than the home host")
@@ -323,11 +265,11 @@ struct PlacementAccountTests {
         let configurationTree = try await homeAccount(profileTree: "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq", in: store)
         let service = NativeAccountService(origin: home, configurationTree: configurationTree, credentials: store, session: session())
         await #expect(throws: NativePlacementError.homeHost("https://home.test")) {
-            _ = try await service.placeAccount(on: "https://home.test/~joe")
+            _ = try await service.connectPlacement(on: "https://home.test/~joe")
         }
         let unconnected = NativeAccountService(origin: home, credentials: store, session: session())
         await #expect(throws: NativePlacementError.noHomeAccount) {
-            _ = try await unconnected.placeAccount(on: "https://place.test")
+            _ = try await unconnected.connectPlacement(on: "https://place.test")
         }
     }
 

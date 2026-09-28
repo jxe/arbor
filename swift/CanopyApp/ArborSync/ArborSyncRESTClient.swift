@@ -31,7 +31,7 @@ struct ArborSyncServerError: Error, LocalizedError, Sendable {
 struct ArborSyncPlacementUnavailable: Error, LocalizedError, Equatable, Sendable {
     var host: String
     var errorDescription: String? {
-        "This version of Arbor Sync can't place accounts yet. Run `arbor account place \(host)` in Terminal; the placement then appears here."
+        "This version of Arbor Sync can't add hosts yet. Place a folder on \(host) with `arbor place` in Terminal; the host then appears here."
     }
 }
 
@@ -72,11 +72,9 @@ struct LocalHostAccountsEnvelope: Codable, Sendable {
 }
 
 /// `POST /v1/bootstrap/placements`'s answer: the placement connection the data
-/// home now holds (`HostPlacementRecord`), and whether this call claimed the
-/// account (201) rather than connecting to one already claimed (200).
-struct LocalPlacementClaim: Codable, Sendable, Equatable {
+/// home now holds (`HostPlacementRecord`).
+struct LocalPlacementConnection: Codable, Sendable, Equatable {
     var placement: NativePlacementAccount
-    var claimed: Bool
 }
 
 /// The daemon's control surface as the Mac app sees it: status, trees,
@@ -156,18 +154,16 @@ actor ArborSyncRESTClient {
         try await onboardingPost("/v1/bootstrap/accounts", body: body)
     }
 
-    /// `POST /v1/bootstrap/placements {host, inviteCode?}`: claim a placement
-    /// account for the data home's profile at `host` (accounts §1.3), as
-    /// `arbor account place <host>` does (`claimPlacementAccount` in
-    /// `@overstory/client`), or connect to one the profile already holds
-    /// there. The profile key and the device key are the data home's, so only
-    /// the daemon can do this for the Mac. It answers the connection record
-    /// the data home now holds. A daemon without the route sends the POST to
-    /// its browser surface, which answers 405.
+    /// `POST /v1/bootstrap/placements {host}`: connect the data home's profile
+    /// to its placement account at `host` (accounts §1.3), which the host's
+    /// community created by reserving the profile's URL at its home host, as
+    /// `arbor place` does on first use (`connectPlacementAccount` in
+    /// `@overstory/client`). It answers the connection record the data home
+    /// now holds. A daemon without the route sends the POST to its browser
+    /// surface, which answers 405.
     @discardableResult
-    func placeAccount(host: String, inviteCode: String? = nil) async throws -> LocalPlacementClaim {
-        var body = ["host": host]
-        if let inviteCode { body["inviteCode"] = inviteCode }
+    func connectPlacement(host: String) async throws -> LocalPlacementConnection {
+        let body = ["host": host]
         var request = URLRequest(url: url("/v1/bootstrap/placements"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

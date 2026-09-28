@@ -105,8 +105,8 @@ enum CanopyAccountCapability: Sendable, Hashable {
     case resumePairing
     /// Remove an account's credential from this device.
     case forget
-    /// Place an account on another host from the app (accounts §1.3).
-    case placeAccount
+    /// Connect an account to its placement account at another host from the app (accounts §1.3).
+    case connectPlacement
 }
 
 enum CanopyAccountServiceError: Error, LocalizedError, Equatable {
@@ -120,7 +120,7 @@ enum CanopyAccountServiceError: Error, LocalizedError, Equatable {
         case .unsupported(.cancelPendingClaim): "This device keeps no cancellable account claim"
         case .unsupported(.resumePairing): "Scan the pairing code again to finish pairing"
         case .unsupported(.forget): "This device cannot forget an account here"
-        case .unsupported(.placeAccount): "This device cannot place an account on another host"
+        case .unsupported(.connectPlacement): "This device cannot add another host"
         case .invalidAccount(let message): message
         }
     }
@@ -171,12 +171,12 @@ protocol CanopyAccountService: Sendable {
 
     /// The account's placement connections on this device (accounts §1.3).
     func placements(configurationTree: String) async throws -> [CanopyPlacement]
-    /// Place the account on `host`, a Canopy URL: claim a placement account
-    /// there with the profile key, or, on a device without it, connect to
-    /// one claimed from another device.
-    func placeAccount(configurationTree: String, host: String, inviteCode: String?) async throws
-    /// Remove a placement connection from this device. The account stays
-    /// claimed at its host; placing it again reconnects.
+    /// Connect the account to its placement account at `host`, a Canopy URL,
+    /// which the host's community created by reserving the profile's URL at
+    /// its home host; this device signs in there with its own device key.
+    func connectPlacement(configurationTree: String, host: String) async throws
+    /// Remove a placement connection from this device. The account stays at
+    /// its host; adding the host again reconnects.
     func forgetPlacement(_ placement: CanopyPlacement) async throws
 }
 
@@ -201,7 +201,7 @@ extension CanopyAccountService {
 /// The iPhone's accounts: the app's keychain, exactly as `NativeAccountService`
 /// keeps it. Compiles on both platforms; the Mac chooses the data home instead.
 struct KeychainAccountService: CanopyAccountService {
-    var capabilities: Set<CanopyAccountCapability> { [.forget, .placeAccount] }
+    var capabilities: Set<CanopyAccountCapability> { [.forget, .connectPlacement] }
 
     func state() async throws -> CanopyAccountState {
         let identity = try await KeychainProfileIdentityStore().identity()
@@ -273,15 +273,14 @@ struct KeychainAccountService: CanopyAccountService {
         try await KeychainDeviceCredentialStore().placements(configurationTree: configurationTree).map { CanopyPlacement($0) }
     }
 
-    /// The profile key claims where this iPhone holds it; otherwise the
-    /// iPhone's own device key connects to a placement claimed from the Mac,
-    /// which the placement host accepts because the home host lists it.
-    func placeAccount(configurationTree: String, host: String, inviteCode: String?) async throws {
+    /// The iPhone's own device key signs in at the host, which accepts it
+    /// because the home host lists it.
+    func connectPlacement(configurationTree: String, host: String) async throws {
         guard let account = try await KeychainDeviceCredentialStore().accounts().first(where: { $0.configurationTree == configurationTree }) else {
             throw CanopyAccountServiceError.invalidAccount("This account is not on this device")
         }
         _ = try await NativeAccountService(origin: account.origin, configurationTree: configurationTree)
-            .placeAccount(on: host, inviteCode: inviteCode)
+            .connectPlacement(on: host)
     }
 
     func forgetPlacement(_ placement: CanopyPlacement) async throws {

@@ -312,25 +312,14 @@ public actor ProtocolClient {
     }
 
     /// A challenge for claiming an account with the profile key (accounts
-    /// §1.2). `homeHost` asks for a placement claim's challenge (§1.3).
-    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil, homeHost: String? = nil) async throws -> ProtocolAccountChallenge {
+    /// §1.2). Placement accounts have none: they come from reservations (§1.3).
+    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
             path: "/.arbor/account-challenges",
-            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode, homeHost: homeHost),
+            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode),
             authorized: false
         )
         return try value.validated()
-    }
-
-    /// Claim a placement account (accounts §1.3): the profile-key proof alone,
-    /// answered with the placement account.
-    public func claimPlacementAccount(_ value: ProtocolPlacementClaimRequest) async throws -> ProtocolPlacementClaimResult {
-        guard try value.challenge.validated().homeHost != nil else {
-            throw ProtocolValidationError.invalidValue("A placement claim's challenge names its home host")
-        }
-        let result: ProtocolPlacementClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false)
-        _ = try result.account.validated()
-        return result
     }
 
     public func joinAccount(_ value: ProtocolExistingProfileClaimRequest) async throws -> ProtocolAccountClaimResult {
@@ -596,7 +585,7 @@ public actor ProtocolClient {
     }
 
     /// This client's origin as a challenge spells it: `scheme://host[:port]`.
-    private var canonicalOrigin: String { webOrigin(origin) ?? "" }
+    public nonisolated var canonicalOrigin: String { webOrigin(origin) ?? "" }
 
     private func component(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/")))!
@@ -690,7 +679,6 @@ private struct AccountChallengeRequest: Encodable {
     var profileTree: String
     var configurationTree: String
     var inviteCode: String?
-    var homeHost: String?
 }
 private struct DeviceSessionChallengeRequest: Encodable {
     var profileTree: String

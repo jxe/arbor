@@ -51,8 +51,8 @@ private func caller(_ who: ProtocolResourceWho) -> String {
     case .me: "Me"
     case .members: "The group's members"
     case .everyone: "Everyone"
-    case .profile(let tree, nil): "Profile or group \(tree)"
-    case .profile(let tree, let host?): "Group \(tree), held at \(host)"
+    case .profile(let tree):
+        if let locator = ProfileLocator(tree) { "Profile or group \(locator.locator)" } else { "Profile or group \(tree)" }
     case .link: "Access-link holders"
     }
 }
@@ -95,9 +95,6 @@ public extension ProfileConfigurationYAML {
         guard TreeID.isWellFormed(app), TreeID.isWellFormed(profile) else { throw ResourcePolicyError.invalid }
         guard rule.who != (group ? .me : .members) else { throw ResourcePolicyError.invalid }
         let file = try TreeConfigurationYAML.apps(from: source, group: group)
-        // A remote group keeps the home host the file already gives it.
-        let rule = try ProtocolAppAccessRule(resource: rule.resource, who: rule.who.adoptingHomeHost(from: file.values.joined().map(\.who)),
-                                             allow: rule.allow, within: rule.within)
         let prior = file[app] ?? []
         let previous = prior.first { $0.sameConsentKey(as: rule) }
         let after = try TreeConfigurationYAML.replacingApps(in: source, group: group) { apps in
@@ -116,9 +113,6 @@ public extension ProfileConfigurationYAML {
     ) throws -> NativeResourceConsent {
         guard TreeID.isWellFormed(app), rule.resource == tree, rule.who != .me, rule.who != .members else { throw ResourcePolicyError.invalid }
         let rules = try TreeConfigurationYAML.access(from: source)
-        // A remote group keeps the home host the file already gives it.
-        let rule = try ProtocolAppAccessRule(resource: rule.resource, who: rule.who.adoptingHomeHost(from: rules.map(\.who)),
-                                             allow: rule.allow, within: rule.within)
         let accessRule = try ProtocolResourceAccessRule(who: rule.who, app: app, allow: rule.allow, within: rule.within)
         let previous = rules.first { $0.sameConsentKey(as: accessRule) }
         var next = rules.filter { !$0.sameConsentKey(as: accessRule) }

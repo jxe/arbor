@@ -77,9 +77,9 @@ public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
     case noHomeAccount
     /// The host named is the profile's home host.
     case homeHost(String)
-    /// The device holds no profile key, and the host has no placement
-    /// account for the profile that its device key could connect to.
-    case profileKeyUnavailable(host: String)
+    /// The host has no placement account for the profile: its community has
+    /// not reserved the profile's locator (`account`, at the home host).
+    case notReserved(host: String, account: String)
     /// The placement host answered for another profile, home host or root.
     case mismatch(String)
 
@@ -88,20 +88,18 @@ public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
         case .invalidHost: "Enter the placement host as an https:// Canopy URL"
         case .noHomeAccount: "This profile has no connected home account on this device; claim or pair one first"
         case let .homeHost(host): "\(host) is this profile's home host; a placement is made at another host"
-        case let .profileKeyUnavailable(host):
-            "This device doesn't hold your profile key, and \(host) has no placement of this account yet. Place it from the device that holds the key, such as your Mac; this device then connects with its own device key."
+        case let .notReserved(host, account):
+            "\(host) has no account for this profile. Ask its administrators to reserve \(account) as a member; then add the host again."
         case let .mismatch(message): message
         }
     }
 }
 
-/// The outcome of placing an account: the connection this device stored, the
-/// host's descriptor, and whether this call claimed it rather than finding
-/// it already claimed.
+/// The outcome of connecting a placement account: the connection this device
+/// stored and the host's descriptor.
 public struct NativePlacementResult: Sendable, Equatable {
     public var placement: NativePlacementAccount
     public var account: ProtocolPlacementAccountDescriptor
-    public var claimed: Bool
 }
 
 /// The scheme, host and port of `url`, as `new URL(...).origin` spells them.

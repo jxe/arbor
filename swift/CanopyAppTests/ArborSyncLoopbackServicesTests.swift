@@ -219,12 +219,11 @@ struct LoopbackServicesTests {
         ])
     }
 
-    @Test("Placing an account posts to the placement route and decodes the connection it recorded")
-    func placeAccountRoute() async throws {
-        let body = Data(#"{"claimed":true,"placement":{"configurationTree":"tr_cfg","origin":"https://orchard.example","account":"https://orchard.example/~joe","accountID":"ac_joe","handle":"joe","profileTree":"tr_profile","homeHost":"https://garden.example","placementRoot":"tr_root","placed":true}}"#.utf8)
-        await LoopbackStub.state.install { _, _ in (201, body, "application/json") }
-        let claim = try await stubbedClient().placeAccount(host: "https://orchard.example", inviteCode: "invite")
-        #expect(claim.claimed)
+    @Test("Adding a host posts to the placement route and decodes the connection it recorded")
+    func connectPlacementRoute() async throws {
+        let body = Data(#"{"placement":{"configurationTree":"tr_cfg","origin":"https://orchard.example","account":"https://orchard.example/~joe","accountID":"ac_joe","handle":"joe","profileTree":"tr_profile","homeHost":"https://garden.example","placementRoot":"tr_root","placed":true}}"#.utf8)
+        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
+        let claim = try await stubbedClient().connectPlacement(host: "https://orchard.example")
         #expect(claim.placement.origin == "https://orchard.example")
         #expect(claim.placement.placementRoot == "tr_root")
         #expect(claim.placement.isWellFormed)
@@ -234,7 +233,7 @@ struct LoopbackServicesTests {
         let refused = Data(#"{"error":"internal-error","message":"The home host cannot be read","retryable":true,"details":{"homeHost":"https://garden.example"}}"#.utf8)
         await LoopbackStub.state.install { _, _ in (503, refused, "application/json") }
         do {
-            _ = try await stubbedClient().placeAccount(host: "https://orchard.example")
+            _ = try await stubbedClient().connectPlacement(host: "https://orchard.example")
             Issue.record("expected a 503")
         } catch let error as ArborSyncServerError {
             #expect(error.status == 503)
@@ -246,7 +245,7 @@ struct LoopbackServicesTests {
             (405, Data(#"{"error":"unsupported-operation","message":"Method not allowed","retryable":false}"#.utf8), "application/json")
         }
         await #expect(throws: ArborSyncPlacementUnavailable(host: "https://orchard.example")) {
-            _ = try await stubbedClient().placeAccount(host: "https://orchard.example")
+            _ = try await stubbedClient().connectPlacement(host: "https://orchard.example")
         }
     }
 

@@ -545,29 +545,28 @@ struct UpdateProtocolTests {
         #expect(throws: ProtocolValidationError.self) { _ = try invalid.append(Data([0x64, 0x61, 0x74, 0x61, 0x3a, 0x20, 0xff, 0x0a, 0x0a])) }
     }
 
-    @Test("Community-address, exact-account and placement requests share the account-bound challenge")
+    @Test("Community-address and exact-account requests share the account-bound challenge")
     func accountChallengeFixtures() async throws {
         struct Case: Decodable { var name: String; var request: Request; var response: ProtocolAccountChallenge }
-        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String; var inviteCode: String?; var homeHost: String? }
+        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String; var inviteCode: String? }
         struct Fixture: Decodable { var cases: [Case] }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
-        #expect(fixture.cases.first { $0.name == "placement" }?.response.homeHost == "https://home.example")
+        #expect(!fixture.cases.contains { $0.name == "placement" })
         for item in fixture.cases {
             let response = try JSONEncoder().encode(item.response)
             await HostURLProtocolStub.state.install { _, _ in (201, response) }
             let client = ProtocolClient(origin: URL(string: item.response.origin)!, session: protocolStubSession())
-            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree, inviteCode: item.request.inviteCode, homeHost: item.request.homeHost)
+            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree, inviteCode: item.request.inviteCode)
             #expect(challenge == item.response)
             let captured = await HostURLProtocolStub.state.snapshot()
             let sent = try JSONDecoder().decode(Request.self, from: #require(captured.bodies.first))
             #expect(sent.account == item.request.account)
             #expect(sent.profileTree == item.request.profileTree)
             #expect(sent.inviteCode == item.request.inviteCode)
-            #expect(sent.homeHost == item.request.homeHost)
         }
     }
 
-    @Test("A placement host's account, claim, and errors naming the home host")
+    @Test("A placement host's account and errors naming the home host")
     func placementAccountTransport() async throws {
         let zero = "sha256:" + String(repeating: "0", count: 64)
         let placementAccount = """
@@ -575,15 +574,9 @@ struct UpdateProtocolTests {
         "community":{"id":"tr_community","kind":"ordinary","access":"read","root":"\(zero)","update":"up_community","conflicted":false,"canonical":{"path":"/","endpoint":"https://community.example"}},\
         "writableProfiles":[],"device":{"id":"dv_mac","label":"Mac"},"homeHost":"https://home.example","placementRoot":{"id":"tr_placementroot","path":"/~alice","tree":null}}
         """
-        struct Challenges: Decodable {
-            struct Case: Decodable { var name: String; var response: ProtocolAccountChallenge }
-            var cases: [Case]
-        }
-        let challenge = try #require(try JSONDecoder().decode(Challenges.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
-            .cases.first { $0.name == "placement" }?.response)
+        let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
         await HostURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
-            case ("PUT", "/.arbor/accounts"): (201, Data(#"{"account":\#(placementAccount)}"#.utf8))
             case ("GET", "/.arbor/account"): (200, Data(#"{"account":\#(placementAccount),"observedThrough":"up_1"}"#.utf8))
             case ("POST", "/.arbor/pairings"):
                 (403, Data(#"{"error":"permission-denied","message":"Pairing is the home host's","retryable":false,"details":{"homeHost":"https://home.example"}}"#.utf8))
@@ -593,31 +586,11 @@ struct UpdateProtocolTests {
             }
         }
         let client = ProtocolClient(origin: URL(string: "https://community.example")!, credential: "ars_b", session: protocolStubSession())
-        let claimed = try await client.claimPlacementAccount(ProtocolPlacementClaimRequest(
-            account: challenge.account, profileTree: challenge.profileTree, configurationTree: challenge.configurationTree,
-            challenge: challenge, publicKey: String(repeating: "A", count: 43), signature: String(repeating: "A", count: 86)
-        ))
-        #expect(claimed.account.homeHost == "https://home.example")
-        #expect(claimed.account.placementRoot == ProtocolPlacementRoot(id: "tr_placementroot", path: "/~alice"))
-        let body = try #require(await HostURLProtocolStub.state.snapshot().bodies.first)
-        let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        // No device and no configuration (accounts §1.3).
-        #expect(Set(fields.keys) == ["account", "profileTree", "configurationTree", "challenge", "publicKey", "signature"])
-        #expect((fields["challenge"] as? [String: Any])?["homeHost"] as? String == "https://home.example")
-
-        var home = challenge
-        home.homeHost = nil
-        await #expect(throws: ProtocolValidationError.self) {
-            _ = try await client.claimPlacementAccount(ProtocolPlacementClaimRequest(
-                account: home.account, profileTree: home.profileTree, configurationTree: home.configurationTree,
-                challenge: home, publicKey: "", signature: ""
-            ))
-        }
-
         guard case .placement(let described) = try await client.anyAccount().account else {
             Issue.record("A descriptor with homeHost is a placement account"); return
         }
-        #expect(described == claimed.account)
+        #expect(described.homeHost == "https://home.example")
+        #expect(described.placementRoot == ProtocolPlacementRoot(id: "tr_placementroot", path: "/~alice"))
         #expect(try await client.placementAccount().account.placementRoot.path == "/~alice")
         await #expect(throws: ProtocolValidationError.self) { _ = try await client.account() }
 
@@ -631,7 +604,7 @@ struct UpdateProtocolTests {
             #expect(error.localizedDescription == error.placementDescription)
         }
         do {
-            _ = try await client.createDeviceSessionChallenge(profileTree: challenge.profileTree, device: "dv_mac")
+            _ = try await client.createDeviceSessionChallenge(profileTree: profileTree, device: "dv_mac")
             Issue.record("A stale placement host refuses a session")
         } catch let error as ProtocolHTTPError {
             #expect(error.status == 503)
