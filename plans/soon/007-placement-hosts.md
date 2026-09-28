@@ -181,9 +181,9 @@ The Mac build, `CanopyAppTests` and the hand checks passed 2026-09-28
 
 ## Remaining
 
-- Placing an existing tree on a placement host from the Mac app's "Available
-  trees" list.
-- The iPhone opening trees on a placement host is implemented on branch
+- The iPhone opening trees on a placement host (its Place a Tree list; the
+  Mac has no such list and places existing trees with `arbor place <url>
+  <folder>`, which already works on a placement host) is implemented on branch
   `claude/security-011` (Place a Tree lists the account's other hosts and
   their trees; `place(tree:from:)` uses this device's session at the tree's
   host), with the Security 011 cutover. It has not been tried by hand: the
