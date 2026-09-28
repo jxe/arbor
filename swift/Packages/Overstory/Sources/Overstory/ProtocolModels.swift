@@ -854,44 +854,41 @@ public struct ProtocolUpdateHead: Sendable, Equatable, Codable {
 
 public struct ProtocolUpdateResponse: Sendable, Equatable, Codable {
     public var results: [ProtocolUpdateElementResult]
-    public var observedThrough: String
-    /// Present when the server reported its head; lets the client skip a descriptor read.
-    public var head: ProtocolUpdateHead?
+    /// The tree's current accepted state as the response was written; the
+    /// client installs it without a descriptor read.
+    public var head: ProtocolUpdateHead
 
     public var result: ProtocolUpdateResult { results[0].result }
     public var requestDigest: String { results[0].requestDigest }
     public var reconciliation: ProtocolTransitionPayload? { results[0].reconciliation }
 
-    public init(result: ProtocolUpdateResult, requestDigest: String, reconciliation: ProtocolTransitionPayload? = nil, observedThrough: String) {
+    public init(result: ProtocolUpdateResult, requestDigest: String, reconciliation: ProtocolTransitionPayload? = nil, head: ProtocolUpdateHead) {
         self.results = [ProtocolUpdateElementResult(result: result, requestDigest: requestDigest, reconciliation: reconciliation)]
-        self.observedThrough = observedThrough
+        self.head = head
     }
 
-    public init(results: [ProtocolUpdateElementResult], observedThrough: String) {
+    public init(results: [ProtocolUpdateElementResult], head: ProtocolUpdateHead) {
         self.results = results
-        self.observedThrough = observedThrough
+        self.head = head
     }
 
-    private enum CodingKeys: String, CodingKey { case results, observedThrough, head }
+    private enum CodingKeys: String, CodingKey { case results, head }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         results = try values.decode([ProtocolUpdateElementResult].self, forKey: .results)
         guard !results.isEmpty else { throw ProtocolValidationError.invalidValue("Update response has no results") }
-        observedThrough = try values.decode(String.self, forKey: .observedThrough)
-        guard !observedThrough.isEmpty else { throw ProtocolValidationError.invalidValue("Missing observation boundary") }
-        head = try values.decodeIfPresent(ProtocolUpdateHead.self, forKey: .head)
-        if let head {
-            guard !head.update.isEmpty, !head.observedThrough.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid update head") }
-            try validateObjectHash(head.root)
+        head = try values.decode(ProtocolUpdateHead.self, forKey: .head)
+        guard !head.update.isEmpty, !head.observedThrough.isEmpty, head.observedThrough.utf8.count <= 1024 else {
+            throw ProtocolValidationError.invalidValue("Invalid update head")
         }
+        try validateObjectHash(head.root)
     }
 
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(results, forKey: .results)
-        try values.encode(observedThrough, forKey: .observedThrough)
-        try values.encodeIfPresent(head, forKey: .head)
+        try values.encode(head, forKey: .head)
     }
 }
 

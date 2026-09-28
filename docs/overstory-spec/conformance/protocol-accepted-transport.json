@@ -231,7 +231,12 @@
             }
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids"
+        "head": {
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "observedThrough": "cursor-independent-of-accepted-ids"
+        }
       },
       "valid": true
     },
@@ -270,7 +275,6 @@
             }
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids",
         "head": {
           "update": "opaque-final",
           "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
@@ -315,13 +319,50 @@
             }
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids",
         "head": {
           "update": "opaque-final",
           "root": "not-a-hash",
           "conflicted": true,
           "observedThrough": "cursor-independent-of-accepted-ids"
         }
+      },
+      "valid": false
+    },
+    {
+      "name": "an update response must report the head",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": {
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": []
+            }
+          }
+        ]
       },
       "valid": false
     },
@@ -376,7 +417,12 @@
             "requestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids"
+        "head": {
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "observedThrough": "cursor-independent-of-accepted-ids"
+        }
       },
       "valid": true
     },
@@ -1314,7 +1360,12 @@
             }
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids"
+        "head": {
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "observedThrough": "cursor-independent-of-accepted-ids"
+        }
       },
       "valid": false
     },
@@ -1341,7 +1392,12 @@
             "reconciliation": null
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids"
+        "head": {
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "observedThrough": "cursor-independent-of-accepted-ids"
+        }
       },
       "valid": false
     },
@@ -1380,7 +1436,12 @@
             }
           }
         ],
-        "observedThrough": "cursor-independent-of-accepted-ids"
+        "head": {
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "observedThrough": "cursor-independent-of-accepted-ids"
+        }
       },
       "valid": false
     },

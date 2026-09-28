@@ -195,7 +195,7 @@ private actor VectorHost: UpdateTransport {
             currentUpdate = update.id
         }
         if action == "acceptThenFail" { throw URLError(.networkConnectionLost) }
-        return ProtocolUpdateResponse(results: results, observedThrough: currentUpdate)
+        return ProtocolUpdateResponse(results: results, head: .init(update: currentUpdate, root: current.root, conflicted: false, observedThrough: currentUpdate))
     }
 
     func descriptor(tree: String) async throws -> ProtocolCurrentTree {

@@ -454,8 +454,7 @@ export function decodeUpdateResultJSON(value: unknown, encoding: WireEncoding = 
 export function encodeUpdateResponseJSON<E extends WireEncoding = "json">(response: UpdateResponse, encoding: E = "json" as E): UpdateResponseJSON<WireBytes<E>> {
   return {
     results: response.results.map(result => encodeUpdateResultJSON(result, encoding)),
-    observedThrough: response.observedThrough,
-    ...(response.head ? { head: response.head } : {}),
+    head: response.head,
   };
 }
 
@@ -463,7 +462,8 @@ function decodeUpdateHead(value: unknown): UpdateHead {
   const head = value as Partial<UpdateHead> | null;
   if (!head || typeof head !== "object" || typeof head.update !== "string" || !head.update
     || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean"
-    || typeof head.observedThrough !== "string" || !head.observedThrough) {
+    || typeof head.observedThrough !== "string" || !head.observedThrough
+    || new TextEncoder().encode(head.observedThrough).length > 1024) {
     throw new Error("Invalid update head");
   }
   return { update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough };
@@ -471,14 +471,10 @@ function decodeUpdateHead(value: unknown): UpdateHead {
 
 export function decodeUpdateResponseJSON(value: unknown, encoding: WireEncoding = "json"): UpdateResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Update response must be an object");
-  const record = value as { results?: unknown; observedThrough?: unknown; head?: unknown };
-  if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough
-    || new TextEncoder().encode(record.observedThrough).length > 1024) {
-    throw new Error("Invalid update response");
-  }
+  const record = value as { results?: unknown; head?: unknown };
+  if (!Array.isArray(record.results) || record.results.length === 0) throw new Error("Invalid update response");
   return {
     results: record.results.map(result => decodeUpdateResultJSON(result, encoding)),
-    observedThrough: record.observedThrough,
-    ...(record.head === undefined ? {} : { head: decodeUpdateHead(record.head) }),
+    head: decodeUpdateHead(record.head),
   };
 }

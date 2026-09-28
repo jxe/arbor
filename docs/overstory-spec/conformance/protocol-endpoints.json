@@ -105,7 +105,12 @@
               }
             }
           ],
-          "observedThrough": "1"
+          "head": {
+            "update": "1",
+            "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+            "conflicted": false,
+            "observedThrough": "1"
+          }
         }
       }
     },
@@ -155,7 +160,12 @@
               }
             }
           ],
-          "observedThrough": "3"
+          "head": {
+            "update": "3",
+            "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+            "conflicted": false,
+            "observedThrough": "3"
+          }
         }
       }
     },

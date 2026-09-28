@@ -656,7 +656,7 @@ struct UpdateProtocolTests {
         )
         let requestDigest = prepared.requestDigest
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -689,7 +689,7 @@ struct UpdateProtocolTests {
             snapshot: ProtocolSnapshot(root: root.hash, objects: [file, root])
         )
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (201, response) }
         await #expect(throws: ProtocolValidationError.invalidValue("Server response update-string identity mismatch")) {

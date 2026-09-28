@@ -539,7 +539,12 @@
             "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           }
         ],
-        "observedThrough": "batch-cursor-900"
+        "head": {
+          "update": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "conflicted": true,
+          "observedThrough": "batch-cursor-900"
+        }
       },
       "valid": true
     },
@@ -562,7 +567,12 @@
             "requestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
           }
         ],
-        "observedThrough": "batch-cursor-900"
+        "head": {
+          "update": "state-initial",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "conflicted": false,
+          "observedThrough": "batch-cursor-900"
+        }
       },
       "valid": true
     },
@@ -667,7 +677,12 @@
             "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           }
         ],
-        "observedThrough": "batch-cursor-900"
+        "head": {
+          "update": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "conflicted": true,
+          "observedThrough": "batch-cursor-900"
+        }
       },
       "valid": false
     },
@@ -706,7 +721,12 @@
             "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           }
         ],
-        "observedThrough": "batch-cursor-900"
+        "head": {
+          "update": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "conflicted": true,
+          "observedThrough": "batch-cursor-900"
+        }
       },
       "valid": false
     },

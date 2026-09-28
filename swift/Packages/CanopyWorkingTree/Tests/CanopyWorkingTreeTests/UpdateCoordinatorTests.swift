@@ -1022,7 +1022,8 @@ struct UpdateCoordinatorTests {
                         previous: .init(id: "up_initial", root: initial.root),
                         acceptedAt: 1_800_000_000_000
                     )
-                    return ProtocolUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigests.last!, reconciliation: ProtocolTransitionPayload(objects: merged.objects), observedThrough: update.id)
+                    return ProtocolUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigests.last!, reconciliation: ProtocolTransitionPayload(objects: merged.objects),
+                        head: .init(update: update.id, root: merged.root, conflicted: false, observedThrough: update.id))
                 }
                 let workingTree = try await placeWorkingTree(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -1228,14 +1229,12 @@ struct UpdateCoordinatorPhase3Tests {
                 id: "up_merged", tree: tree, root: mergedRoot.hash, previous: .init(id: "up_initial", root: rootDirectory.hash),
                 acceptedAt: 1_800_000_000_000
             )
-            var result = ProtocolUpdateResponse(
+            return ProtocolUpdateResponse(
                 result: .accepted(update),
                 requestDigest: prepared.requestDigests.last!,
                 reconciliation: ProtocolTransitionPayload(objects: [mergedRoot], deltas: [delta]),
-                observedThrough: update.id
+                head: .init(update: update.id, root: mergedRoot.hash, conflicted: false, observedThrough: update.id)
             )
-            result.head = .init(update: update.id, root: mergedRoot.hash, conflicted: false, observedThrough: update.id)
-            return result
         }
         try await withTemporaryRoot { root in
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
@@ -1327,7 +1326,7 @@ private func acceptingTransport(tree: String, initial: ProtocolSnapshot, before:
             previous = element.candidate
             return ProtocolUpdateElementResult(result: .accepted(update), requestDigest: prepared.requestDigests[index])
         }
-        return ProtocolUpdateResponse(results: results, observedThrough: "up_\(number)")
+        return ProtocolUpdateResponse(results: results, head: .init(update: "up_\(number)", root: previous, conflicted: false, observedThrough: "up_\(number)"))
     }
 }
 
@@ -1628,7 +1627,8 @@ private actor SourceModeTransport: UpdateTransport {
             receipts[digest] = result; results.append(result)
             current = selected; currentID = update.id
         }
-        return ProtocolUpdateResponse(results: results, observedThrough: "cursor_\(currentID)")
+        return ProtocolUpdateResponse(results: results,
+            head: .init(update: currentID, root: current.root, conflicted: !receipts.isEmpty, observedThrough: "cursor_\(currentID)"))
     }
     func descriptor(tree: String) throws -> ProtocolCurrentTree {
         ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",

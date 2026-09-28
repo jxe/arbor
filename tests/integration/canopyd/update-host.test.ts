@@ -179,7 +179,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       });
       expect(response.results.map(({ outcome }) => outcome)).toEqual(["accepted", "accepted"]);
       expect(response.results[1]!.update.previous?.root).toBe(response.results[0]!.update.root);
-      expect(response.observedThrough).toBe(response.results[1]!.update.id);
+      expect(response.head.observedThrough).toBe(response.results[1]!.update.id);
+      expect(response.head.update).toBe(response.results[1]!.update.id);
       expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
 
       const replay = await client.submitUpdates(baseline.current.tree.id, {

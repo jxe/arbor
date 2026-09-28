@@ -338,8 +338,8 @@ public actor UpdateCoordinator {
     }
 
     /// Check that `response` answers `attempt` exactly and select the host's
-    /// current head to install. Receipts prove acceptance, not the current
-    /// observation boundary; a response that reports its head saves a read.
+    /// current head to install, the head the response reports. Receipts prove
+    /// acceptance, not the current observation boundary.
     private func validate(_ response: ProtocolUpdateResponse, for attempt: UpdateAttempt) async throws -> CurrentHead {
         guard response.results.map(\.requestDigest) == attempt.allRequestDigests else { throw UpdateError.returnedRequestDigestMismatch }
         for result in response.results {
@@ -347,15 +347,8 @@ public actor UpdateCoordinator {
             switch result.result { case let .accepted(value), let .unchanged(value): update = try value.validated() }
             guard update.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
         }
-        let current: CurrentHead
-        if let head = response.head {
-            current = .init(update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough)
-        } else {
-            let descriptor = try await transport.descriptor(tree: attempt.tree)
-            guard descriptor.tree.id == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
-            current = .init(update: descriptor.tree.update, root: descriptor.tree.root,
-                            conflicted: descriptor.tree.conflicted, observedThrough: descriptor.observedThrough)
-        }
+        let head = response.head
+        let current = CurrentHead(update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough)
         guard !current.update.isEmpty else { throw UpdateError.returnedSnapshotMismatch }
         return current
     }

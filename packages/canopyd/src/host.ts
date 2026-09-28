@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateConflictResult, type UpdateHead, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
+import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
@@ -13,6 +13,7 @@ import {
   type HostTree,
   type HostBootstrapAccount,
   type HostDaemonOptions,
+  type StoredUpdateResponse,
 } from "./canopy.ts";
 import { handleOfPath } from "./profile.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
@@ -175,10 +176,17 @@ function watchDescriptor(
 }
 
 
-/** An update answer: a success in the requested encoding, a conflict always as its JSON envelope. */
-function updateResponse(value: UpdateResponse | UpdateConflictResult, encoding: WireEncoding, status: number, headers: Record<string, string> = {}): Response {
+/**
+ * An update answer: a success in the requested encoding with the tree's
+ * current head, which the client installs without a descriptor read (the
+ * watch still delivers anything newer); a conflict always as its JSON envelope.
+ */
+function updateResponse(canopy: HostDaemon, treeID: string, value: StoredUpdateResponse["result"], encoding: WireEncoding, status: number, headers: Record<string, string> = {}): Response {
   if ("error" in value) return json(encodeUpdateConflictJSON(value), status, headers);
-  return wire(encodeUpdateResponseJSON(value, encoding), encoding, status, headers);
+  const tree = canopy.get(treeID), update = tree ? canopy.currentUpdate(treeID) : null;
+  if (!tree || !update) throw new Error(`An accepted update left no head for ${treeID}`);
+  const head: UpdateHead = { update: update.id, root: tree.ref as ObjectHash, conflicted: update.conflicted, observedThrough: canopy.observedThrough(treeID) };
+  return wire(encodeUpdateResponseJSON({ ...value, head }, encoding), encoding, status, headers);
 }
 
 function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAccount): RemoteAccountDescriptor | RemotePlacementAccountDescriptor {
@@ -732,7 +740,7 @@ export async function serveHost(options: {
             // Declaring a tree is the null-base first update of its configuration.
             if (!tree && reference.governs && update.base === null && !execution) {
               const declared = await canopy.declareTree(reference.governs, update, authentication);
-              return updateResponse(declared.result, answer, declared.status);
+              return updateResponse(canopy, treeID, declared.result, answer, declared.status);
             }
             const writable = tree ? canopy.canWrite(account, tree, link) : false;
             // A null base activates a reserved tree, which has no descriptor yet;
@@ -757,14 +765,7 @@ export async function serveHost(options: {
               throw error;
             }
             if (direct && !canopy.execution.covered(direct)) return protocolError("permission-denied", "Authorization changed before receipt disclosure", 403);
-            // The current head lets the client skip a descriptor read after
-            // acceptance; the watch still delivers anything newer.
-            const headTree = canopy.get(treeID), headUpdate = headTree ? canopy.currentUpdate(treeID) : null;
-            const head: UpdateHead | undefined = headTree && headUpdate
-              ? { update: headUpdate.id, root: headTree.ref as ObjectHash, conflicted: headUpdate.conflicted, observedThrough: canopy.observedThrough(treeID) }
-              : undefined;
-            const payload = "error" in result.result ? result.result : { ...result.result, ...(head ? { head } : {}) };
-            const response = updateResponse(payload, answer, result.status, { "server-timing": timer.serverTiming() });
+            const response = updateResponse(canopy, treeID, result.result, answer, result.status, { "server-timing": timer.serverTiming() });
             timer.mark("respond");
             const counters = canopy.objectCounters();
             for (const key of Object.keys(counters)) timer.count(key, Math.round((counters[key]! - countersBefore[key]!) * 10) / 10);

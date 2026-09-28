@@ -99,9 +99,10 @@ export interface UpdateCaller {
   authentication?: HostAuthentication;
 }
 
+/** Canopy's answer to an update; the route adds the tree's `head` as it writes the response. */
 export interface StoredUpdateResponse {
   status: number;
-  result: UpdateResponse | UpdateConflictResult;
+  result: Omit<UpdateResponse, "head"> | UpdateConflictResult;
 }
 
 /**
@@ -1357,7 +1358,7 @@ export class HostDaemon implements AsyncDisposable {
     const update = request.updates[0]!;
     const [requestDigest] = updateRequestDigests(configurationID, request);
     const replay = this.acceptedStore.acceptedRequest(configurationID, authentication.subject, requestDigest!);
-    if (replay) return { status: replay.status, result: { results: [replay.result], observedThrough: this.observedThrough(configurationID) } };
+    if (replay) return { status: replay.status, result: { results: [replay.result] } };
     this.refuseOwnConfigurationOf(tree);
     if (!isGeneratedArborID(tree, "tr")) throw new Error("A declared tree requires a generated TreeID");
     if (this.get(tree) || this.get(configurationID)) throw new UpdateProtocolError("activation-conflict", `TreeID is already declared: ${tree}`);
@@ -1379,7 +1380,7 @@ export class HostDaemon implements AsyncDisposable {
       accepted = this.insertConfig(prepared, Date.now(), authentication.subject, requestDigest, update.change);
     })();
     this.notifyAccepted(accepted);
-    return { status: 201, result: { results: [{ outcome: "accepted", update: accepted, requestDigest: requestDigest! }], observedThrough: this.observedThrough(configurationID) } };
+    return { status: 201, result: { results: [{ outcome: "accepted", update: accepted, requestDigest: requestDigest! }] } };
   }
 
   /**
@@ -1756,7 +1757,7 @@ export class HostDaemon implements AsyncDisposable {
         if (results.length === request.updates.length)
           return {
             status: 201,
-            result: { results, observedThrough: this.observedThrough(treeID) },
+            result: { results },
           };
       }
       // Check every traced element against the request's base before any is
@@ -1859,10 +1860,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     return {
       status: accepted ? 201 : 200,
-      result: {
-        results: completed,
-        observedThrough: this.observedThrough(treeID),
-      },
+      result: { results: completed },
     };
   }
 

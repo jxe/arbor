@@ -83,7 +83,7 @@ export interface UpdateRequest {
 }
 
 /** One element's acceptance receipt. Observation progress is the enclosing
- * response's `observedThrough`, never derived from the receipt's update id.
+ * response's `head.observedThrough`, never derived from the receipt's update id.
  * Reconciliation transforms the authored candidate into the returned projection.
  */
 export interface UpdateResult {
@@ -95,9 +95,8 @@ export interface UpdateResult {
 
 export interface UpdateResponse {
   results: UpdateResult[];
-  observedThrough: string;
-  /** The tree's current accepted state as the response was written; saves a descriptor read. */
-  head?: UpdateHead;
+  /** The tree's current accepted state as the response was written; the client installs it without a descriptor read. */
+  head: UpdateHead;
 }
 
 export interface UpdateHead {

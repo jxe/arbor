@@ -367,8 +367,8 @@ export class UpdateCoordinator {
 
   /**
    * Check that `response` answers `attempt` exactly and select the host's
-   * current head to install: the head the response reports, or else the
-   * descriptor. Receipts prove acceptance, not the current boundary.
+   * current head to install, the head the response reports. Receipts prove
+   * acceptance, not the current boundary.
    */
   private async validate(response: UpdateResponse, attempt: UpdateAttempt): Promise<Current> {
     if (response.results.length !== attempt.requestDigests.length
@@ -377,8 +377,7 @@ export class UpdateCoordinator {
     }
     if (response.results.some(result => result.update.tree !== attempt.tree)) throw new UpdateValidationError("The host answered for another tree");
     const head = response.head;
-    if (head) return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.observedThrough };
-    return this.current(await this.transport.descriptor(this.tree));
+    return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.observedThrough };
   }
 
   private current(descriptor: CurrentTree): Current {

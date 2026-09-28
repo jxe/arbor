@@ -67,7 +67,7 @@ class VectorHost implements UpdateTransport {
       this.update = update.id;
     }
     if (action === "acceptThenFail") throw new ProtocolTransportError("response lost", undefined);
-    return { results, observedThrough: this.update };
+    return { results, head: { update: this.update, root: this.root as never, conflicted: false, observedThrough: this.update } };
   }
 
   async descriptor(tree: string): Promise<CurrentTree> {
