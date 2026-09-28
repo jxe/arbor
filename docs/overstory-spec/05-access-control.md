@@ -11,7 +11,7 @@ a list of rules of this shape:
 
 ```ts
 type AccessWho = "everyone"
-  | { profile: TreeID; homeHost?: Origin }
+  | { profile: TreeID | ProfileLocator }
   | { link: Hash };
 type AccessOperation = "read" | "write" | "create-child" | "update-content"
   | "update-properties" | "delete" | "admin";
@@ -36,11 +36,12 @@ type AccessRule = {
 ```
 
 A profile subject matches that profile, or the current membership of a group
-profile; person-profile fields never create a group. A group profile whose
-tree another host holds names that host's origin as `homeHost`, where its
-membership is read (§3.3); `homeHost` says where to look, not who, so the
-TreeID alone is the subject and its merge key, and every rule of one file
-naming a profile gives it the same `homeHost` or none. A link subject matches a
+profile; person-profile fields never create a group. A profile this host holds
+is named by its TreeID. A profile another host holds is named by its canonical
+locator there (`ProfileLocator`, e.g. `https://home.example/~crew`), pinned to
+the TreeID it first resolved to
+([locators §1](03-locators.md#1-forms)); a group named so has its membership
+read there (§3.3). The pinned TreeID is the subject and its merge key. A link subject matches a
 valid presented secret's digest. `me` and `members` name the profile whose
 `apps.yaml` holds a rule (§1.1) and are invalid in `access.yaml`.
 
@@ -151,7 +152,7 @@ and cross-server delegation transport is not defined
 ([Apps 009](../../plans/apps/009-cross-host-delegation.md)).
 
 **On a placement host**
-([accounts §1.3](04-accounts-and-devices.md#13-claiming-a-placement-account)),
+([accounts §1.3](04-accounts-and-devices.md#13-placement-accounts)),
 which cannot read the caller's `apps.yaml`, code has only `everyone` grants
 and the `app` rules of that host's own trees: no grant without a lender is the
 caller's own access, and nothing is lent. A tree's administrators there
@@ -288,10 +289,10 @@ creation is insufficient. Cached public bytes cannot be recalled.
 
 ### 3.3 Groups another host holds
 
-A rule's group profile may live on another host H, named by the subject's
-`homeHost` (§1): a group's TreeID says who it is, not where, and nothing else
-in a rule locates it. A host B that holds no tree with that TreeID decides the
-group's membership from H:
+A rule's group profile may live on another host H, named by its canonical
+locator there (§1), whose authority is H and whose pinned TreeID says which
+group it is. A host B that holds no tree with that TreeID decides the group's
+membership from H:
 
 - B reads the group's root `_index.md` from H without authentication,
   through the ordinary tree routes, and only while H lets anyone read the
@@ -308,11 +309,11 @@ group's membership from H:
   than a grace of one hour, then treats the group as having no members. A
   failed fetch is retried at most once every five seconds per group.
 - A group B cannot read matches nobody: a group H refuses to disclose, one
-  that is not a group, one whose copy is past the grace, and one named without
-  a `homeHost` that B does not hold. Failing closed never grants access.
+  that is not a group, one whose copy is past the grace, one whose locator now
+  resolves to another TreeID than its pin, and a bare TreeID that B does not
+  hold. Failing closed never grants access.
 
-A group B holds is decided from B's own tree, whatever `homeHost` a rule
-names for it. Only a profile holding an account on B can be a caller there,
+A group B holds is decided from B's own tree. Only a profile holding an account on B can be a caller there,
 so a remote group widens nothing beyond B's accounts. Everything else about
 the rule, including `admin` granted to a group, is as for a group B holds.
 

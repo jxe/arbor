@@ -44,7 +44,21 @@ policy ([canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-pat
 hosts implies no relationship, and one profile `TreeID` may be associated with
 differently shaped account locators at several hosts. An account locator may
 also exist before any tree is registered at it. Profile identity equality comes only from the profile `TreeID` recorded by the
-account, never from a handle or canonical URL. A new person-profile TreeID is
+account, never from a handle or canonical URL.
+
+A profile on another host may be named by its canonical locator there
+(`https://home.example/~alice` or `arbor://home.example/~alice`) wherever a
+host's configuration names a profile: a community member
+([accounts §1.3](04-accounts-and-devices.md#13-placement-accounts)) or a rule's
+subject ([access control §1](05-access-control.md#1-subjects-and-rules)). The
+locator's authority is where the host reads that profile. The host resolves it
+there when an entry naming it is first accepted and **pins** the Profile
+TreeID it resolved to, as host state outside any configuration file; the entry
+then names that TreeID. If a later resolution yields another TreeID, the entry
+matches nobody until it is edited, which pins afresh, so a renamed or reused
+handle at the other host never moves a reservation or a rule to another
+profile. A locator naming the host itself resolves locally, like a bare
+TreeID. A new person-profile TreeID is
 self-certifying as defined by [accounts §1.1](04-accounts-and-devices.md#11-beginning-a-person-identity);
 ordinary and group-profile TreeIDs remain opaque identifiers.
 

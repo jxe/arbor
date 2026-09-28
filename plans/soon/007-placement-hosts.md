@@ -6,7 +6,7 @@
 - **Effort:** M
 - **Risk:** HIGH. A host accepts devices from a list another host publishes.
 - **State:** PHASE 1 DONE 2026-09-26: the spec is written
-  ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
+  ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-placement-accounts),
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
   The decisions are recorded below. PHASES 2–4 DONE: the home role
   (published device keys) is live since 2026-09-26 (`8448a63f`); the

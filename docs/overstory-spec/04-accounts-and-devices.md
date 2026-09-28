@@ -139,6 +139,8 @@ PUT /.arbor/accounts
 The community administrator first records an exact structured member containing
 the person's public profile TreeID and the host's local allocation for it
 (canopyd's `handle`), or a pending invitation with a code digest and handle.
+A reservation that names a profile on another host by its locator there is a
+placement account instead, with no claim (§1.3).
 The person may send that public TreeID by any ordinary channel. An invited
 person instead receives the code and creates their profile identity locally. A
 host founder supplies the same public TreeID as bootstrap configuration, so
@@ -233,30 +235,42 @@ are removed rather than retained as new-account compatibility. A host using
 this generation accepts new person accounts only for self-certifying Profile
 TreeIDs with valid local signatures.
 
-### 1.3 Claiming a placement account
+### 1.3 Placement accounts
 
-A placement account is claimed with the same two routes and the same
-profile-key proof as §1.2, with two differences:
+A host's community may reserve an allocation for a profile whose home is
+another host, by naming the profile's canonical locator there
+([locators §1](03-locators.md#1-forms)):
 
-- The challenge request adds `homeHost`, the HTTPS origin of the profile's
-  home host, and the returned challenge carries it, so the profile key signs
-  which host the placement host will trust for the profile's devices. The
-  placement host refuses a `homeHost` equal to its own origin. A home claim's
-  challenge has no `homeHost`, and neither kind of claim accepts the other's
-  challenge.
-- The claim body carries no device and no configuration. The placement host
-  fetches the home host's device keys (§5.4) and refuses the claim unless it
-  can read them.
+```yaml
+type: group
+members:
+  - profile: https://home.example/~alice
+    handle: alice
+```
 
-The placement host records the account (profile TreeID, its local allocation
-such as a handle, and the home host), which is host state like a handle, not
-authored per-account data. The profile tree lives at the home host, so the
-claim instead declares, on the placement host, the profile's **placement
-root**: an ordinary tree with a fresh random TreeID, mounted where the host
-allocates the account (canopyd: `/~handle`), whose configuration grants the
-profile `admin` and mounts nothing. It is the parent of the person's trees on
-that host. Every tree on the placement host has its tree configuration there,
-with rules that name the profile as on any host.
+When the host accepts a community update that adds such a member, it
+resolves the locator at its authority, the profile's **home host**, and in the
+same commit pins the Profile TreeID, records a **placement account** (profile
+TreeID, its local allocation such as a handle, and the home host's origin),
+and declares the account's placement root (below). If the locator cannot be
+resolved, or resolves to a profile the host already holds, it refuses the
+update with a retryable error naming the home host in `details.homeHost`,
+changing nothing. There is no placement claim and no proof from the profile
+key: the community's administrators say whom they mean, and the profile's
+devices then open sessions (§5.4) with no further step. Removing the member
+disables the placement account, ending its sessions and watches as a device
+deletion does; its placement root and the trees under it stay. If the locator
+later resolves to another TreeID, the account opens no sessions until the
+member is edited.
+
+The account is host state like a handle, not authored per-account data. The
+profile tree lives at the home host, so the host declares, on the placement
+host, the profile's **placement root**: an ordinary tree with a fresh random
+TreeID, mounted where the host allocates the account (canopyd: `/~handle`),
+whose configuration grants the profile `admin` and mounts nothing. It is the
+parent of the person's trees on that host. Every tree on the placement host
+has its tree configuration there, with rules that name the profile as on any
+host.
 
 On a placement host the profile's devices may read, update and watch as
 the profile, edit tree configurations from administrator devices, and declare,
@@ -266,9 +280,9 @@ gives code on a placement host. Routes about the profile's own configuration,
 its devices and pairing, are the home host's: a placement host refuses them
 with `permission-denied`, naming the home host in `details.homeHost`.
 
-The claim's response, and the authenticated account descriptor
-(`GET /.arbor/account`) on a placement host, carry two fields a home host's
-descriptor omits, and no `configuration`:
+The authenticated account descriptor (`GET /.arbor/account`) on a placement
+host carries two fields a home host's descriptor omits, and no
+`configuration`:
 
 ```json
 {
@@ -283,10 +297,12 @@ descriptor omits, and no `configuration`:
 `placementRoot.tree` is the root's tree descriptor once its first snapshot
 has activated it, and `null` until then.
 
-The placement host trusts the home host, over HTTPS, for the device keys of
-the profiles whose profile key named that home host, and for nothing else. A
-compromised home host can act as those profiles on the placement host, which
-is no more than it holds already.
+The placement host trusts its community's administrators for which host is
+each placement account's home, and that home host, over HTTPS, for the
+profile's device keys and for nothing else. A compromised home host can act as
+those profiles on the placement host, which is no more than it holds already;
+an administrator can reserve any public profile, whose devices can then act
+there, and nobody else's.
 
 ## 2. Tree configuration graph
 
@@ -357,7 +373,7 @@ are complete top-level shapes: there is no `version` or other wrapper key.
   allow: [admin]
 - who: {profile: tr_alice}
   allow: [read, create-child]
-- who: {profile: tr_bookclub, homeHost: "https://club.example"}  # a group another host holds
+- who: {profile: "https://club.example/~bookclub"}  # a group another host holds
   allow: [read]
 - who: everyone
   app: tr_supplies

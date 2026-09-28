@@ -116,7 +116,7 @@ configurations have their shape, and the tests for each refused case, are in
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
 - **Placement role.** canopyd is also a placement host
-  ([accounts §1.3, §5.4](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+  ([accounts §1.3, §5.4](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
   A placement account is an `accounts` row whose `home_host` names the
   profile's home origin (NULL for a home account, [schema 27](../../../packages/canopyd/migrations/027-placement-accounts/README.md)).
   The claim (`claimPlacementAccount`) takes the same reservation and

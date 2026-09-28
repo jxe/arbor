@@ -7,7 +7,8 @@
 - **Risk:** MEDIUM. A placement host takes a profile's home host from its
   own administrator's word instead of the profile key's signature, and a
   profile on another host is named by its canonical locator there.
-- **State:** PLANNED 2026-09-28 (Joe chose it over a claim on first use).
+- **State:** PHASE 1 DONE 2026-09-28 (spec prose); batch step 028 (the pin
+  table) waits in `migrations/next/`. Joe chose this over a claim on first use.
   Replaces the placement claim of
   [Security 007](007-placement-hosts.md) and the `homeHost` field Security 009
   added to rule subjects, both deployed 2026-09-28. No live placement account
@@ -100,14 +101,17 @@ the home host over HTTPS for the device list;
 
 ## Work
 
-### Phase 1: spec
+### Phase 1: spec (done 2026-09-28)
 
-- Locators §1: profile subjects may be canonical locators at another host,
-  pinned to the TreeID first resolved. Accounts §1.3 rewritten: a placement account comes
-  from a reservation naming a locator at another host; no placement challenge
-  or claim; the placement root's creation; disabling on removal. Access
-  control §1 and §3.3: `who.profile` is a TreeID or such a locator, and
-  `homeHost` goes. Conformance: drop the placement challenge vectors and
+- [Locators §1](../../docs/overstory-spec/03-locators.md#1-forms): profile
+  locator subjects and the pin.
+  [Accounts §1.2–§1.3](../../docs/overstory-spec/04-accounts-and-devices.md#13-placement-accounts):
+  a reservation naming a locator at another host is a placement account,
+  declared with its root on accept; no placement claim; disabling on removal;
+  the trust paragraph. [Access control §1 and §3.3](../../docs/overstory-spec/05-access-control.md#1-subjects-and-rules):
+  `who.profile` is a TreeID or a locator, and `homeHost` is gone.
+- The conformance vectors change with the code (Phase 2), since the deployed
+  implementation's tests read them: drop the placement challenge vectors and
   `homeHost` from `resource-policy.json`; add locator subjects and members.
 
 ### Phase 2: canopyd

@@ -287,7 +287,7 @@ arbor account place [--invite <code>] <placement-host-url>
 `arbor account` lists this installation's home account and the profile's
 placement accounts, each with the folders placed on it. `arbor account place` claims a placement account for your
 profile at another host
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)):
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)):
 the host must have reserved an account for your Profile TreeID (or give you
 an invitation code), and your profile key signs which host is your home. The
 host then accepts every device your home host lists, with the same key, and

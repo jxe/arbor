@@ -294,7 +294,7 @@ parameter is required (`400 invalid-request`). An account with no usable key
 is `404 not-found`. With `origin` as well, the token is for that host: the home
 account's session when it is the account's home host, else a session the same
 device key opened on the account's placement connection there
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
 A tree placed on a placement host names that host as its descriptor's
 `canonical.endpoint`, which is the `origin` a working-tree client passes. An
 `origin` without `configurationTree`, or one that is not an exact origin, is
@@ -374,7 +374,7 @@ Pairing codes and device credentials must never be logged.
 
 `POST /v1/bootstrap/placements` accepts `{ host, inviteCode? }` and claims a
 placement account for the data home's profile at `host`
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)),
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)),
 exactly as `arbor account place <host>` does (`claimPlacementAccount` in
 `@overstory/client`): the profile key signs a challenge naming the profile's
 home host, and the device then opens a session there with the key it uses at

@@ -69,7 +69,7 @@ bounded.
 this data home places for it, keyed by canonical absolute path. A folder's
 value is the placed TreeID when the tree is on the profile's home host, or a
 mapping naming the placement host
-([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account))
+([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts))
 when it is on one of the profile's placement accounts:
 
 ```yaml
@@ -208,7 +208,7 @@ bearer credential was once stored, is ignored.
 A profile has one home account, whose connection record lives in
 `.state/accounts/<ConfigurationTreeID>/` as before, and at most one
 placement account per other host
-([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account)).
+([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
 Each placement connection is `connection.json` and `session.json` in
 `accounts/<ConfigurationTreeID>/placements/host-<hash>/`, where `<hash>` is
 the first 24 hex digits of the SHA-256 of the placement host's origin, so the
