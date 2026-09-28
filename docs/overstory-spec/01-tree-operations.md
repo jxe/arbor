@@ -325,25 +325,29 @@ watch correct.
 GET /.arbor/trees/{TreeID}/watch?after={cursor}
 ```
 
-The request carries `Accept: text/event-stream` and may carry
-`Last-Event-ID: {cursor}`. `after` and `Last-Event-ID` are equivalent.
-Servers may emit an explicit `from` spanning intermediate accepted updates
-without client negotiation. Adjacent transitions remain valid.
+The request carries `Accept: text/event-stream`. `after` is the only resume
+cursor: it names the observation the client last applied, and without it the
+watch starts at the tree's current head. A host ignores `Last-Event-ID`; a
+client that reconnects opens a new watch with a new `after`. Servers may emit
+an explicit `from` spanning intermediate accepted updates without client
+negotiation; a frame per accepted update remains valid.
 
 Successful state-change frames are `tree.update` events. Each represents one
 or more accepted updates; derived hosting and device status does not appear on
 this portable tree stream. `resync-required` is the terminal control event
 described below.
 
+A frame's SSE `id` is its observation cursor and its `event` is its kind; the
+`data` is the change alone, and says nothing the URL, the `id` or the
+transition already says:
+
 ```ts
-type TreeUpdateEvent = {
-  cursor: EventCursor;
-  tree: TreeID;
-  kind: "tree.update";
-  change: {
-    descriptor: RemoteTreeDescriptor;
-    transitions: AcceptedTransition[];
-  };
+// id: EventCursor
+// event: tree.update
+type TreeUpdate = {
+  transition: AcceptedTransition;
+  access: "read" | "write";
+  canonical: RemoteTreeDescriptor["canonical"];
 };
 
 type AcceptedTransition = TransitionPayload & {
@@ -414,13 +418,15 @@ or both. Its transport basis is `from` when present, otherwise `update.previous`
 updates. `update.previous` always remains the actual historical predecessor;
 coalescing delivery does not rewrite accepted history.
 
-`transitions` is nonempty and ordered. The first transport basis must match the
-client's confirmed accepted identity and root; each later transport basis must
-match the preceding transition's identity and root. Update IDs must be distinct,
-all tree IDs must match, and the final pair must match `change.descriptor.update`
-and its `root`. A mismatched basis requires resynchronization, not a successful
-root-only check. The payload must suffice to reconstruct the destination graph
-from its transport basis without fetching or applying intermediate transitions.
+A frame carries exactly one transition. Its transport basis must match the
+client's confirmed accepted identity and root, and its `update.tree` must be
+the watched tree. A mismatched basis requires resynchronization, not a
+successful root-only check. The payload must suffice to reconstruct the
+destination graph from its transport basis without fetching or applying
+intermediate transitions. The tree's new descriptor is the client's own
+(`id`, `kind`) with the frame's `access` and `canonical` and the
+transition's `update.id`, `update.root` and `update.conflicted`; nothing in a
+frame restates them.
 
 On reconnect, authorities should normally coalesce a retained backlog into one
 net transition to the captured current accepted state. Intermediate updates,
@@ -429,9 +435,11 @@ still carries its exact accepted identity and unresolved-state signal, even when
 its root equals the starting root. Clients may materialize the final state once
 and durably advance accepted metadata and the observation cursor together.
 
-The SSE `cursor` identifies the observation batch. It advances strictly in the
-observation domain and is the frame's observation boundary; it need not equal any
-accepted ID. The enclosed descriptor identifies the final accepted state. One frame can contain several accepted updates.
+The SSE `id` is the frame's cursor and identifies the observation batch. It
+advances strictly in the observation domain and is the frame's observation
+boundary; it need not equal any accepted ID. The transition's `update`
+identifies the final accepted state. One frame can span several accepted
+updates, through `from`.
 Implementations may happen to encode some IDs and cursors identically, but clients
 MUST NOT derive one from the other or compare their numeric/string values as accepted
 ordering. Replayed frames are deduplicated by observation cursor before applying the
@@ -446,8 +454,9 @@ them; advancing a watch cursor alone never acknowledges those requests.
 
 When retained context cannot support either net catch-up or ordinary replay,
 for example because the event cursor or its basis graph is no longer retained,
-the server produces one terminal
-`resync-required` event and closes. The client reads a new current descriptor,
+or the caller's authorization is revoked, the server produces one terminal
+`resync-required` event, with no `id` and `data` of `{ "reason": string }`,
+and closes. The client reads a new current descriptor,
 obtains its addressed snapshot, and resumes strictly after the descriptor's
 `observedThrough` cursor. This catch-up path does not acknowledge or discard
 unconfirmed local edits: clients retain and reconcile them through the ordinary
@@ -903,8 +912,7 @@ when the request asked for it; a rejection is always the JSON error envelope
 ```ts
 type UpdateResponse = {
   results: UpdateResult[];
-  observedThrough: EventCursor;
-  head?: UpdateHead;
+  head: UpdateHead;
 };
 
 type UpdateHead = {
@@ -930,15 +938,14 @@ and metadata-only changes. How a result was produced is recorded as provenance,
 not duplicated in an outcome enum or accepted-state kind.
 
 `update` is the accepted state standing after that element: existing state for
-`unchanged`, or the newly accepted state for `accepted`. `observedThrough` is the
-observation boundary after the whole string was processed; it is not each result's
-update ID and must not be used as a per-element accepted-state guard. Exact replay
-returns the original per-element receipt even if current has since advanced; the
-response observation boundary must not be taken as proof that its last historical
-receipt is the current head. A host should report `head`, the tree's current
-accepted state and observation boundary as the response was written, so a
-client installs it without reading the descriptor; without `head`, observe
-subsequent updates or refresh the descriptor. A rejected string carries none.
+`unchanged`, or the newly accepted state for `accepted`. `head` is the tree's
+current accepted state and observation boundary as the response was written,
+after the whole string was processed; the client installs it without reading
+the descriptor. `head.observedThrough` is not each result's update ID and must
+not be used as a per-element accepted-state guard. Exact replay returns the
+original per-element receipt even if current has since advanced, so a
+replayed string's last receipt need not be `head`. A rejected string carries
+neither.
 
 `reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
@@ -1176,11 +1183,13 @@ type ObservationEvent<TKind extends string, TChange> = {
 };
 ```
 
-This shared transport does not imply shared cursor semantics. A tree watch sets
-a replayable `id`, carries the complete `ObservationEvent`, and supports
-`Last-Event-ID`, retained history, and `resync-required`. A query stream omits
-`id`, sends the remaining event members after `type`, and establishes fresh
-derived state with `ready`; reconnection repeats the complete query.
+This shared transport does not imply shared cursor semantics. A tree watch
+carries the cursor in the SSE `id` and the kind in `event`, sends only
+`change` as `data` (its tree is the URL's), resumes from `after`, and ends with
+`resync-required` when retained history cannot serve it
+([watching](#113-watching)). A query stream omits `id`, sends the remaining
+event members after `type`, and establishes fresh derived state with `ready`;
+reconnection repeats the complete query.
 
 The shared error envelope and common codes are normative. Narrow server-only
 codes include `already-claimed`. Base/update mismatch,

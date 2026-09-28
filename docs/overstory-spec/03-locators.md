@@ -270,12 +270,16 @@ server's own database is consistent; poll it freely. `integrity` audits every
 object reachable from retained history and can take minutes on a large server;
 concurrent requests share one audit, and it is for operators, not polling.
 
-Authenticated account and tree-list reads use explicit envelopes carrying
-`observedThrough`; bare arrays and descriptors are not mutable responses. The
-same snapshot-then-observe rule as the core tree API applies. The accepted-update
-ID remains the content synchronization base; `observedThrough` independently records
-the read/watch boundary. Clients must not substitute one for the other, even if an
-implementation happens to encode them identically.
+Authenticated account and tree-list reads use explicit envelopes,
+`{ account }` and `{ snapshot: RemoteTreeDescriptor[] }`; bare arrays and
+descriptors are not mutable responses. They carry no observation cursor: a
+cursor spanning the whole host resumes no watch, which is per tree. A client
+that will watch a listed tree reads it (`GET /.arbor/trees/{TreeID}`) for
+its `observedThrough`, the same snapshot-then-observe rule as the core tree
+API. The accepted-update ID remains the content synchronization base;
+`observedThrough` independently records the read/watch boundary. Clients must
+not substitute one for the other, even if an implementation happens to encode
+them identically.
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the
 longest readable registered boundary. Inaccessible nested boundaries cannot be

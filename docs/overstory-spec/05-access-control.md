@@ -323,9 +323,22 @@ the rule, including `admin` granted to a group, is as for a group B holds.
 GET /.arbor/trees/{TreeID}/access
 ```
 
-Administrators receive a safe projection of resource rules with `who`, optional
-`app`, `allow`, and `within`. Link subjects are redacted, and other profiles'
-`apps.yaml` is not exposed. Effective permission descriptions are scoped to
+Only a tree's administrators may read it; anyone else is answered as for a
+tree they cannot read. They receive a safe projection of resource rules with
+`who`, optional `app`, `allow`, and `within`, and the `arbor://` locator of
+each profile a rule names by TreeID that the host holds at a canonical path,
+for display (a rule naming a profile by its locator already shows it):
+
+```ts
+type TreeAccess = {
+  policy: SafeResourceAccessRule[];
+  locators: Record<TreeID, string>;
+};
+```
+
+Link subjects are redacted, and other profiles' `apps.yaml` is not exposed.
+The rules are the tree's own `access.yaml`; there is no second, whole-tree
+list of entries beside them. Effective permission descriptions are scoped to
 current caller/executable context; they are advisory, never authorization proof.
 The legacy `none | read | write` descriptor remains a summary of whole-tree access,
 not a representation of scoped capabilities. Permission changes occur only through
