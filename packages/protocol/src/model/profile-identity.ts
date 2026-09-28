@@ -13,12 +13,6 @@ export interface AccountChallenge {
   nonce: string;
   issuedAt: number;
   expiresAt: number;
-  /**
-   * A placement claim's home host (accounts §1.3): the origin whose published
-   * device keys the placement host will trust for this profile. The profile
-   * key signs it with the rest of the challenge; it is never `origin`.
-   */
-  homeHost?: string;
 }
 
 export { isHomeHostOrigin };
@@ -47,10 +41,9 @@ export function validateAccountChallenge(value: unknown): AccountChallenge {
   if (origin.origin !== challenge.origin || account.origin !== challenge.origin) {
     throw new Error("Malformed account challenge");
   }
-  if (challenge.homeHost !== undefined
-    && (typeof challenge.homeHost !== "string" || !isHomeHostOrigin(challenge.homeHost) || challenge.homeHost === challenge.origin)) {
-    throw new Error("Malformed account challenge");
-  }
+  // Placement accounts come from reservations (accounts §1.3); a challenge
+  // naming a home host is from the withdrawn placement claim.
+  if ("homeHost" in challenge) throw new Error("Malformed account challenge");
   return challenge as AccountChallenge;
 }
 

@@ -6,7 +6,7 @@ import {
   safeResourceRule,
   scopeContains,
   sha256,
-  subjectHomeHost,
+  subjectProfile,
   type AccessOperation,
   type AppAccessRule,
   type ResourceAccessRule,
@@ -28,6 +28,8 @@ export interface AccessHost {
   rootProfileType(tree: HostTree): "person" | "group" | null;
   /** Whether this host's copy of a group another host holds lists this person (access control §3.3). */
   isRemoteGroupMember(group: string, homeHost: string, profileTree: string): boolean;
+  /** The TreeID a profile locator `tree`'s configuration names is pinned to, or null when it names nobody now. */
+  pinnedProfile(tree: string, locator: string): string | null;
 }
 
 /**
@@ -36,9 +38,10 @@ export interface AccessHost {
  * administrators, and `app_policy` each profile's `apps.yaml`.
  *
  * A profile administers a tree when an `admin` rule names it, or names a group
- * whose current members include it. A group this host does not hold counts
- * through its copy of the group's members at the `homeHost` the rule names. An administrator may read and edit the
- * tree configuration and has `write` on the whole tree.
+ * whose current members include it. A group another host holds, named by its
+ * locator there, counts through this host's copy of its members at that host,
+ * by the TreeID the locator is pinned to. An administrator may read and edit
+ * the tree configuration and has `write` on the whole tree.
  */
 export class AccessControl {
   private readonly parsed = new Map<string, unknown[]>();
@@ -70,7 +73,12 @@ export class AccessControl {
     return row ? this.parse(row.rules_json, (value) => value as AppAccessRule[]) : [];
   }
 
-  /** The profiles an `admin` rule of the tree names. */
+  /** How `tree`'s configuration names profiles: its locators by their pins. */
+  private pins(tree: string) {
+    return { pinnedProfile: (locator: string) => this.host.pinnedProfile(tree, locator) };
+  }
+
+  /** The profiles an `admin` rule of the tree names, TreeIDs or locators. */
   administrators(tree: string): string[] {
     return (this.db.query("SELECT profile_tree FROM tree_admins WHERE tree_id = ? ORDER BY profile_tree").all(tree) as Array<{ profile_tree: string }>)
       .map((row) => row.profile_tree);
@@ -84,9 +92,9 @@ export class AccessControl {
 
   /**
    * One-level group membership: only a profile an enabled account holds
-   * counts. A group tree this host holds decides alone; a subject naming a
-   * `homeHost` for a group this host does not hold is decided by the copy of
-   * it read there, which fails closed.
+   * counts. A group tree this host holds decides alone; a group another host
+   * holds (`homeHost`, the origin of the locator naming it) is decided by the
+   * copy of it read there, which fails closed.
    */
   readonly isGroupMember = (groupID: string, profile: string, homeHost?: string): boolean => {
     if (this.accounts.handleForProfile(profile) === undefined) return false;
@@ -98,15 +106,17 @@ export class AccessControl {
   /** Whether `profile` administers `tree`, directly or through a group it belongs to. */
   administers(profile: string | null, tree: string): boolean {
     if (!profile) return false;
-    return this.administrators(tree).some((admin) => admin === profile
-      || this.isGroupMember(admin, profile, subjectHomeHost(this.rules(tree), admin)));
+    return this.administrators(tree).some((admin) => {
+      const subject = subjectProfile(admin, this.pins(tree));
+      return !!subject && (subject.tree === profile || this.isGroupMember(subject.tree, profile, subject.homeHost));
+    });
   }
 
   /** Whether a profile holds `operation` at `path` of an ordinary tree by its
    * own access: administration or a rule without `app` that matches it. */
   private holds(profile: string | null, tree: string, path: string, operation: TreeOperation, linkDigest?: string): boolean {
     if (this.administers(profile, tree)) return true;
-    return rulesAllow(this.rules(tree), { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember }, path, operation);
+    return rulesAllow(this.rules(tree), { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember, ...this.pins(tree) }, path, operation);
   }
 
   /** Whether a rule without `app` names `profile` itself (not a group it
@@ -114,7 +124,8 @@ export class AccessControl {
    * profile's own to lend. */
   private namedDirectly(profile: string, tree: string, path: string, operation: AccessOperation): boolean {
     return this.rules(tree).some((rule) => !rule.app && typeof rule.who === "object" && "profile" in rule.who
-      && rule.who.profile === profile && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation));
+      && subjectProfile(rule.who.profile, this.pins(tree))?.tree === profile
+      && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation));
   }
 
   /** A tree's whole-tree rules as access entries: rules scoped below the root
@@ -139,7 +150,7 @@ export class AccessControl {
     const tree = this.host.tree(treeID);
     if (!tree || tree.policy !== "ordinary") return undefined;
     const rules = this.rules(treeID).filter((rule) => !rule.app && !rule.allow.includes("admin") && ruleMatches(rule, {
-      callerProfile: account?.id ?? null, linkDigest, isGroupMember: this.isGroupMember,
+      callerProfile: account?.id ?? null, linkDigest, isGroupMember: this.isGroupMember, ...this.pins(treeID),
     }));
     return { code: "", version: "direct", caller: account?.id ?? null, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
@@ -169,7 +180,7 @@ export class AccessControl {
       const own = context.code && caller?.homeHost ? null : callerProfile;
       if (this.holds(own, tree.id, path, operation, context.linkDigest)) return true;
       return !!context.code && rulesAllow(this.rules(tree.id).filter((rule) => rule.app === context.code),
-        { callerProfile, app: context.code, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember }, path, operation);
+        { callerProfile, app: context.code, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember, ...this.pins(tree.id) }, path, operation);
     }
     const lender = grant.lender;
     const lenderAccount = this.accounts.enabledAccount(lender);
@@ -181,7 +192,7 @@ export class AccessControl {
     if (!context.code) return false;
     const entries = this.appRules(lender, context.code).filter((rule) => rule.resource === tree.id
       && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation)
-      && ruleMatches(rule, { ownerProfile: lender, callerProfile, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember }));
+      && ruleMatches(rule, { ownerProfile: lender, callerProfile, linkDigest: context.linkDigest, isGroupMember: this.isGroupMember, ...this.pins(lender) }));
     if (!entries.length) return false;
     if (person && callerProfile === lender && entries.some((rule) => rule.who === "me") && this.holds(lender, tree.id, path, operation)) return true;
     return this.namedDirectly(lender, tree.id, path, operation);
@@ -208,7 +219,7 @@ export class AccessControl {
     if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(profile, tree.governs) ? "write" : null;
     if (this.administers(profile, tree.id)) return "write";
     const rules = this.rules(tree.id);
-    const context = { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember };
+    const context = { callerProfile: profile, linkDigest, isGroupMember: this.isGroupMember, ...this.pins(tree.id) };
     return rulesAllow(rules, context, "/", "write") ? "write" : rulesAllow(rules, context, "/", "read") ? "read" : null;
   }
 

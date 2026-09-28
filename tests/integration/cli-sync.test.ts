@@ -253,10 +253,10 @@ describe("plural-account CLI place", () => {
     }
   });
 
-  test("refuses canonical URLs on a Canopy with no claimed account", async () => {
+  test("refuses canonical URLs on a Canopy with no account for the profile, saying what to reserve", async () => {
     const misplaced = await source("misplaced-source");
     const error = await arborFailure(["place", misplaced, `${secondHost.url}/~someone-else/notes`]);
-    expect(error).toContain("No claimed Canopy account contains");
+    expect(error).toContain("has no account for this profile; ask its administrators to reserve");
   });
 
   test("places an existing private tree from its canonical URL", async () => {

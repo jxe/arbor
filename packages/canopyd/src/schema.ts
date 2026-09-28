@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "27";
+export const CANOPY_SCHEMA_VERSION = "28";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "policy", "status", "governs"],
@@ -29,6 +29,7 @@ export const AUTHORITY_SCHEMA = {
   entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   profile_facts: ["tree_id", "index_hash", "avatar_path", "facts"],
+  profile_locator_pins: ["tree_id", "locator", "profile_tree", "pinned_at"],
   meta: ["key", "value"],
 } as const;
 
@@ -148,6 +149,18 @@ export function createHostSchema(db: Database): void {
   createDeviceSessionsTable(db);
   createTreeConfigIndex(db);
   createProfileFactsTable(db);
+  // Host state, not derived from any configuration: per tree, the Profile
+  // TreeID each profile locator its configuration names was pinned to
+  // (locators §1). Written with the accept that first names the locator.
+  db.run(`
+    CREATE TABLE profile_locator_pins (
+      tree_id TEXT NOT NULL,
+      locator TEXT NOT NULL,
+      profile_tree TEXT NOT NULL,
+      pinned_at INTEGER NOT NULL,
+      PRIMARY KEY(tree_id, locator)
+    )
+  `);
   db.run(`
     CREATE TABLE meta (
       key TEXT PRIMARY KEY,

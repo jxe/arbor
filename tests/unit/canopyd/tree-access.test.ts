@@ -32,7 +32,10 @@ const host: AccessHost = {
   isProfileMember: (group, profile) => groups.get(group.id)?.includes(profile) ?? false,
   rootProfileType: (tree) => types.get(tree.id) ?? null,
   isRemoteGroupMember: (group, homeHost, profile) => remoteGroups.get(`${homeHost} ${group}`)?.includes(profile) ?? false,
+  pinnedProfile: (tree, locator) => pins.get(`${tree} ${locator}`) ?? null,
 };
+/** The TreeIDs this host pinned the locators each tree's configuration names to. */
+const pins = new Map<string, string>();
 /** Groups other hosts hold, as this host's copies of them list their members. */
 const FAR = "https://far.example";
 const remoteGroups = new Map<string, string[]>([[`${FAR} tr_faraway`, ["tr_alice"]], [`${FAR} tr_club`, ["tr_alice"]]]);
@@ -97,22 +100,26 @@ describe("administrators and rules", () => {
     expect(access.canAdminister(carol, "tr_plants")).toBe(false);
   });
 
-  test("a group another host holds matches through the copy read at its home host; a group held here decides alone", () => {
+  test("a group another host holds matches, by its pinned locator, through the copy read there; a group held here decides alone", () => {
+    pins.set(`tr_plants ${FAR}/~faraway`, "tr_faraway");
+    // A locator pinned to a group this host holds: its own tree decides.
+    pins.set(`tr_plants ${FAR}/~club`, "tr_club");
     configure("tr_plants", [
       { who: { profile: "tr_joe" }, allow: ["admin"] },
-      { who: { profile: "tr_faraway", homeHost: FAR }, allow: ["read"] },
-      // tr_club is held here: the home host a rule names for it is not asked.
-      { who: { profile: "tr_club", homeHost: FAR }, allow: ["write"] },
+      { who: { profile: `${FAR}/~faraway` }, allow: ["read"] },
+      { who: { profile: `${FAR}/~club` }, allow: ["write"] },
     ]);
     expect(access.canRead(alice, "tr_plants")).toBe(true);
     expect(access.canWrite(alice, "tr_plants")).toBe(false);
     expect(access.canWrite(carol, "tr_plants")).toBe(true);
     expect(access.canRead(bob, "tr_plants")).toBe(false);
-    // Without a home host, a group this host does not hold matches nobody.
-    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_faraway" }, allow: ["read"] }]);
+    // A bare TreeID this host does not hold, or a locator with no pin for
+    // this tree, matches nobody.
+    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_faraway" }, allow: ["read"] }, { who: { profile: `${FAR}/~faraway` }, allow: ["read"] }]);
     expect(access.canRead(alice, "tr_trip")).toBe(false);
     // A remote group administers through its members too.
-    configure("tr_calendar", [{ who: { profile: "tr_faraway", homeHost: FAR }, allow: ["admin"] }]);
+    pins.set(`tr_calendar ${FAR}/~faraway`, "tr_faraway");
+    configure("tr_calendar", [{ who: { profile: `${FAR}/~faraway` }, allow: ["admin"] }]);
     expect(access.canAdminister(alice, "tr_calendar")).toBe(true);
     expect(access.canAdminister(joe, "tr_calendar")).toBe(false);
     // Only a profile an enabled account holds here counts.

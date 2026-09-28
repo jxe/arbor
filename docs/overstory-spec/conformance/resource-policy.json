@@ -1,114 +1,559 @@
 {
   "valid": [
-    { "name": "public read", "rule": { "who": "everyone", "allow": ["read"] } },
-    { "name": "administrator's grant through an app", "rule": { "who": "everyone", "app": "tr_supplies", "allow": ["create-child"], "within": "/notes" } },
-    { "name": "profile", "rule": { "who": { "profile": "tr_alice" }, "allow": ["write"] } },
-    { "name": "administrator", "rule": { "who": { "profile": "tr_alice" }, "allow": ["admin"] } },
-    { "name": "administrator and reader", "rule": { "who": { "profile": "tr_alice" }, "allow": ["read", "admin"] } },
-    { "name": "link", "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["read", "update-content"] } },
-    { "name": "remote group", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"] } },
-    { "name": "remote group administrator", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["admin"] } },
-    { "name": "remote group on a port", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example:8443" }, "allow": ["read"] } },
-    { "name": "remote group on a loopback address", "rule": { "who": { "profile": "tr_club", "homeHost": "http://127.0.0.1:4000" }, "allow": ["read"] } },
-    { "name": "remote group on localhost", "rule": { "who": { "profile": "tr_club", "homeHost": "http://localhost:4000" }, "allow": ["read"] } },
-    { "name": "remote group on the IPv6 loopback address", "rule": { "who": { "profile": "tr_club", "homeHost": "http://[::1]:4000" }, "allow": ["read"] } }
+    {
+      "name": "public read",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "administrator's grant through an app",
+      "rule": {
+        "who": "everyone",
+        "app": "tr_supplies",
+        "allow": [
+          "create-child"
+        ],
+        "within": "/notes"
+      }
+    },
+    {
+      "name": "profile",
+      "rule": {
+        "who": {
+          "profile": "tr_alice"
+        },
+        "allow": [
+          "write"
+        ]
+      }
+    },
+    {
+      "name": "administrator",
+      "rule": {
+        "who": {
+          "profile": "tr_alice"
+        },
+        "allow": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "administrator and reader",
+      "rule": {
+        "who": {
+          "profile": "tr_alice"
+        },
+        "allow": [
+          "read",
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "link",
+      "rule": {
+        "who": {
+          "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "allow": [
+          "read",
+          "update-content"
+        ]
+      }
+    },
+    {
+      "name": "remote group",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "remote group administrator",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/~club"
+        },
+        "allow": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "remote group on a port",
+      "rule": {
+        "who": {
+          "profile": "https://club.example:8443/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "remote group on a loopback address",
+      "rule": {
+        "who": {
+          "profile": "http://127.0.0.1:4000/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "remote group on localhost",
+      "rule": {
+        "who": {
+          "profile": "http://localhost:4000/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "remote group on the IPv6 loopback address",
+      "rule": {
+        "who": {
+          "profile": "http://[::1]:4000/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "remote profile below a path",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/groups/club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    }
   ],
   "invalid": [
-    { "name": "unknown op", "rule": { "who": "everyone", "allow": ["share"] } },
-    { "name": "empty", "rule": { "who": "everyone", "allow": [] } },
-    { "name": "duplicates", "rule": { "who": "everyone", "allow": ["read", "read"] } },
-    { "name": "traversal", "rule": { "who": "everyone", "allow": ["read"], "within": "/a/../b" } },
-    { "name": "unknown field", "rule": { "who": "everyone", "allow": ["read"], "purpose": "consent" } },
-    { "name": "bad app", "rule": { "who": "everyone", "allow": ["read"], "app": "https://example.org" } },
-    { "name": "old via", "rule": { "who": "everyone", "allow": ["read"], "via": "tr_supplies" } },
-    { "name": "me outside apps.yaml", "rule": { "who": "me", "allow": ["read"] } },
-    { "name": "members outside apps.yaml", "rule": { "who": "members", "allow": ["read"] } },
-    { "name": "admin for everyone", "rule": { "who": "everyone", "allow": ["admin"] } },
-    { "name": "admin for a link", "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "allow": ["admin"] } },
-    { "name": "admin through an app", "rule": { "who": { "profile": "tr_alice" }, "app": "tr_supplies", "allow": ["admin"] } },
-    { "name": "admin within a subtree", "rule": { "who": { "profile": "tr_alice" }, "allow": ["admin"], "within": "/notes" } },
-    { "name": "subject union", "rule": { "who": { "profile": "tr_alice", "link": "x" }, "allow": ["read"] } },
-    { "name": "old self", "rule": { "who": "self", "allow": ["read"] } },
-    { "name": "home host over plain HTTP", "rule": { "who": { "profile": "tr_club", "homeHost": "http://club.example" }, "allow": ["read"] } },
-    { "name": "home host over plain HTTP on a non-loopback address", "rule": { "who": { "profile": "tr_club", "homeHost": "http://127.0.0.2" }, "allow": ["read"] } },
-    { "name": "home host with a path", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example/~club" }, "allow": ["read"] } },
-    { "name": "home host with a trailing slash", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example/" }, "allow": ["read"] } },
-    { "name": "home host without a scheme", "rule": { "who": { "profile": "tr_club", "homeHost": "club.example" }, "allow": ["read"] } },
-    { "name": "home host with its default port", "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example:443" }, "allow": ["read"] } },
-    { "name": "home host not in origin case", "rule": { "who": { "profile": "tr_club", "homeHost": "https://Club.example" }, "allow": ["read"] } },
-    { "name": "home host with userinfo", "rule": { "who": { "profile": "tr_club", "homeHost": "https://joe@club.example" }, "allow": ["read"] } },
-    { "name": "home host as a number", "rule": { "who": { "profile": "tr_club", "homeHost": 3 }, "allow": ["read"] } },
-    { "name": "home host as null", "rule": { "who": { "profile": "tr_club", "homeHost": null }, "allow": ["read"] } },
-    { "name": "home host on a link", "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "homeHost": "https://club.example" }, "allow": ["read"] } },
-    { "name": "home host alone", "rule": { "who": { "homeHost": "https://club.example" }, "allow": ["read"] } }
+    {
+      "name": "unknown op",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "share"
+        ]
+      }
+    },
+    {
+      "name": "empty",
+      "rule": {
+        "who": "everyone",
+        "allow": []
+      }
+    },
+    {
+      "name": "duplicates",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read",
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "traversal",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read"
+        ],
+        "within": "/a/../b"
+      }
+    },
+    {
+      "name": "unknown field",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read"
+        ],
+        "purpose": "consent"
+      }
+    },
+    {
+      "name": "bad app",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read"
+        ],
+        "app": "https://example.org"
+      }
+    },
+    {
+      "name": "old via",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "read"
+        ],
+        "via": "tr_supplies"
+      }
+    },
+    {
+      "name": "me outside apps.yaml",
+      "rule": {
+        "who": "me",
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "members outside apps.yaml",
+      "rule": {
+        "who": "members",
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "admin for everyone",
+      "rule": {
+        "who": "everyone",
+        "allow": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "admin for a link",
+      "rule": {
+        "who": {
+          "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "allow": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "admin through an app",
+      "rule": {
+        "who": {
+          "profile": "tr_alice"
+        },
+        "app": "tr_supplies",
+        "allow": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "name": "admin within a subtree",
+      "rule": {
+        "who": {
+          "profile": "tr_alice"
+        },
+        "allow": [
+          "admin"
+        ],
+        "within": "/notes"
+      }
+    },
+    {
+      "name": "subject union",
+      "rule": {
+        "who": {
+          "profile": "tr_alice",
+          "link": "x"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "old self",
+      "rule": {
+        "who": "self",
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator over plain HTTP",
+      "rule": {
+        "who": {
+          "profile": "http://club.example/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator over plain HTTP on a non-loopback address",
+      "rule": {
+        "who": {
+          "profile": "http://127.0.0.2/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator naming only a host",
+      "rule": {
+        "who": {
+          "profile": "https://club.example"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator naming the host root",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator without a scheme",
+      "rule": {
+        "who": {
+          "profile": "club.example/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator with a query",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/~club?x=1"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator with a fragment",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/~club#top"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator with userinfo",
+      "rule": {
+        "who": {
+          "profile": "https://joe@club.example/~club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "locator with a dot segment",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/a/../club"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "arbor locator naming a TreeID",
+      "rule": {
+        "who": {
+          "profile": "arbor://tr_club/"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "profile as a number",
+      "rule": {
+        "who": {
+          "profile": 3
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "the withdrawn homeHost",
+      "rule": {
+        "who": {
+          "profile": "tr_club",
+          "homeHost": "https://club.example"
+        },
+        "allow": [
+          "read"
+        ]
+      }
+    }
   ],
   "validFiles": [
     {
-      "name": "every rule gives a profile the same home host",
+      "name": "a locator and a TreeID are different subjects",
       "access": [
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "app": "tr_supplies", "allow": ["read"] }
+        {
+          "who": {
+            "profile": "tr_club"
+          },
+          "allow": [
+            "admin"
+          ]
+        },
+        {
+          "who": {
+            "profile": "https://club.example/~club"
+          },
+          "allow": [
+            "read"
+          ]
+        }
       ]
     },
     {
-      "name": "no rule gives a profile a home host",
+      "name": "one locator in several rules",
       "access": [
-        { "who": { "profile": "tr_club" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_club" }, "allow": ["write"], "within": "/notes" }
+        {
+          "who": {
+            "profile": "https://club.example/~club"
+          },
+          "allow": [
+            "admin"
+          ]
+        },
+        {
+          "who": {
+            "profile": "https://club.example/~club"
+          },
+          "app": "tr_supplies",
+          "allow": [
+            "read"
+          ]
+        }
       ]
     },
     {
-      "name": "each profile has its own home host, or none",
-      "access": [
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_alice" }, "allow": ["read"] },
-        { "who": { "profile": "tr_other", "homeHost": "https://other.example" }, "allow": ["read"] }
-      ]
-    },
-    {
-      "name": "apps.yaml lends to a remote group with one home host across apps",
+      "name": "apps.yaml lends to a remote group across apps",
       "apps": {
-        "tr_supplies": [{ "resource": "tr_notes", "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"] }],
-        "tr_other": [{ "resource": "tr_notes", "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"], "within": "/inbox" }]
+        "tr_supplies": [
+          {
+            "resource": "tr_notes",
+            "who": {
+              "profile": "https://club.example/~club"
+            },
+            "allow": [
+              "read"
+            ]
+          }
+        ],
+        "tr_other": [
+          {
+            "resource": "tr_notes",
+            "who": {
+              "profile": "https://club.example/~club"
+            },
+            "allow": [
+              "read"
+            ],
+            "within": "/inbox"
+          }
+        ]
       }
     }
   ],
   "invalidFiles": [
     {
-      "name": "one rule gives a profile a home host and another omits it",
+      "name": "a locator's canonical spelling is its merge key",
       "access": [
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_club" }, "allow": ["write"], "within": "/notes" }
+        {
+          "who": {
+            "profile": "tr_alice"
+          },
+          "allow": [
+            "admin"
+          ]
+        },
+        {
+          "who": {
+            "profile": "https://club.example/~club"
+          },
+          "allow": [
+            "read"
+          ]
+        },
+        {
+          "who": {
+            "profile": "arbor://club.example/~club/"
+          },
+          "allow": [
+            "write"
+          ]
+        }
       ]
     },
     {
-      "name": "two rules give a profile different home hosts",
-      "access": [
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_club", "homeHost": "https://other.example" }, "app": "tr_supplies", "allow": ["read"] }
-      ]
-    },
-    {
-      "name": "the home host is no part of a rule's merge key",
-      "access": [
-        { "who": { "profile": "tr_alice" }, "allow": ["admin"] },
-        { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"] },
-        { "who": { "profile": "tr_club" }, "allow": ["write"] }
-      ]
-    },
-    {
-      "name": "apps.yaml gives a profile a home host in one app and omits it in another",
-      "apps": {
-        "tr_supplies": [{ "resource": "tr_notes", "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"] }],
-        "tr_other": [{ "resource": "tr_notes", "who": { "profile": "tr_club" }, "allow": ["read"] }]
-      }
-    },
-    {
-      "name": "the home host is no part of an apps.yaml rule's merge key",
+      "name": "an apps.yaml locator's canonical spelling is its merge key",
       "apps": {
         "tr_supplies": [
-          { "resource": "tr_notes", "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "allow": ["read"] },
-          { "resource": "tr_notes", "who": { "profile": "tr_club" }, "allow": ["read", "create-child"] }
+          {
+            "resource": "tr_notes",
+            "who": {
+              "profile": "https://club.example/~club"
+            },
+            "allow": [
+              "read"
+            ]
+          },
+          {
+            "resource": "tr_notes",
+            "who": {
+              "profile": "https://Club.example:443/~club"
+            },
+            "allow": [
+              "read",
+              "create-child"
+            ]
+          }
         ]
       }
     }
@@ -116,13 +561,89 @@
   "safe": [
     {
       "name": "link secret redacted",
-      "rule": { "who": { "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "app": "tr_supplies", "allow": ["read"], "within": "/notes" },
-      "redacted": { "who": { "link": true }, "app": "tr_supplies", "allow": ["read"], "within": "/notes" }
+      "rule": {
+        "who": {
+          "link": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "app": "tr_supplies",
+        "allow": [
+          "read"
+        ],
+        "within": "/notes"
+      },
+      "redacted": {
+        "who": {
+          "link": true
+        },
+        "app": "tr_supplies",
+        "allow": [
+          "read"
+        ],
+        "within": "/notes"
+      }
     },
     {
-      "name": "a remote group's home host is kept",
-      "rule": { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "app": "tr_supplies", "allow": ["read"] },
-      "redacted": { "who": { "profile": "tr_club", "homeHost": "https://club.example" }, "app": "tr_supplies", "allow": ["read"] }
+      "name": "a remote group's locator is kept",
+      "rule": {
+        "who": {
+          "profile": "https://club.example/~club"
+        },
+        "app": "tr_supplies",
+        "allow": [
+          "read"
+        ]
+      },
+      "redacted": {
+        "who": {
+          "profile": "https://club.example/~club"
+        },
+        "app": "tr_supplies",
+        "allow": [
+          "read"
+        ]
+      }
+    }
+  ],
+  "locators": [
+    {
+      "input": "https://club.example/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "https://Club.EXAMPLE/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "https://club.example:443/~club/",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "https://club.example:8443/groups/club",
+      "locator": "https://club.example:8443/groups/club",
+      "origin": "https://club.example:8443"
+    },
+    {
+      "input": "arbor://club.example/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "arbor://127.0.0.1:4000/~club",
+      "locator": "http://127.0.0.1:4000/~club",
+      "origin": "http://127.0.0.1:4000"
+    },
+    {
+      "input": "http://localhost:4000/~club",
+      "locator": "http://localhost:4000/~club",
+      "origin": "http://localhost:4000"
+    },
+    {
+      "input": "http://[::1]:4000/~club",
+      "locator": "http://[::1]:4000/~club",
+      "origin": "http://[::1]:4000"
     }
   ]
 }

@@ -17,16 +17,16 @@ export const TREE_OPERATIONS: readonly TreeOperation[] = [...ACCESS_OPERATIONS, 
  * in a person's, `members` (the group's current members) in a group's. Neither
  * is valid in `access.yaml`.
  *
- * A profile subject may carry `homeHost`, the origin of the host that holds a
- * group profile's tree, so that another host can read the group's members
- * there (access control §3.3). It says where to look, not who: the profile
- * TreeID alone names the subject.
+ * A profile subject names a profile this host holds by its TreeID, or a
+ * profile another host holds by its canonical locator there
+ * (`https://home.example/~crew`), which the host pins to the TreeID it first
+ * resolved to (locators §1, access control §1).
  */
 export type AccessWho =
   | "everyone"
   | "me"
   | "members"
-  | { profile: string; homeHost?: string }
+  | { profile: string }
   | { link: string };
 export interface ResourceAccessRule {
   who: AccessWho;
@@ -46,8 +46,12 @@ export interface ResourcePolicyContext {
   callerProfile: string | null;
   app?: string;
   linkDigest?: string;
-  /** `homeHost` is the rule subject's, when it names one. */
+  /** `homeHost` is the origin of a locator subject's host, for a group this
+   * host does not hold (access control §3.3). */
   isGroupMember?: (group: string, profile: string, homeHost?: string) => boolean;
+  /** The TreeID a locator subject is pinned to, or null when it has no pin
+   * or its host now names another profile; such a subject matches nobody. */
+  pinnedProfile?: (locator: string) => string | null;
 }
 const treeID = /^tr_[a-z2-7]+$/;
 const hash = /^sha256:[a-f0-9]{64}$/;
@@ -63,6 +67,36 @@ export function isHomeHostOrigin(value: string): boolean {
   if (url.origin !== value) return false;
   return url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname));
 }
+/**
+ * A profile named by its canonical locator at another host (locators §1):
+ * `https://host/path`, `arbor://host/path`, or `http://` for a loopback host.
+ * `locator` is its canonical spelling, the subject's merge key and pin key
+ * (`arbor://` becomes the HTTP locator it resolves through); `origin` is
+ * where the profile is read. Null for anything else, a TreeID included.
+ */
+export function parseProfileLocator(value: unknown): { locator: string; origin: string } | null {
+  // URL parsing folds dot segments away, so they are refused as written.
+  if (typeof value !== "string" || value.startsWith("tr_") || /\/\.{1,2}(\/|$)/.test(value)) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  if (url.search || url.hash || url.username || url.password || !url.hostname || url.hostname.startsWith("tr_")) return null;
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  const scheme = url.protocol === "https:" ? "https:"
+    : url.protocol === "http:" && loopback ? "http:"
+    : url.protocol === "arbor:" ? (loopback ? "http:" : "https:")
+    : null;
+  if (!scheme) return null;
+  const origin = `${scheme}//${url.host}`;
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!path || path === "/" || /[\x00-\x1f\x7f]/.test(path) || path.split("/").slice(1).some((part) => !part || part === "." || part === "..")) return null;
+  return { locator: `${origin}${path}`, origin };
+}
+
+/** Whether a profile subject names a profile another host holds. */
+export function isProfileLocator(profile: string): boolean {
+  return parseProfileLocator(profile) !== null;
+}
+
 export function resourcePath(value: unknown): string {
   if (
     typeof value !== "string" ||
@@ -94,14 +128,11 @@ function parseWho(value: unknown, file: RuleFile): AccessWho {
     throw new Error("Invalid rule subject");
   const w = value as Record<string, unknown>;
   const keys = Object.keys(w);
-  if (keys.length === 2 && keys.includes("profile") && keys.includes("homeHost")) {
-    if (typeof w.profile === "string" && treeID.test(w.profile) && typeof w.homeHost === "string" && isHomeHostOrigin(w.homeHost))
-      return { profile: w.profile, homeHost: w.homeHost };
-    throw new Error("Invalid rule subject");
-  }
   if (keys.length !== 1) throw new Error("Invalid rule subject");
   if (typeof w.profile === "string" && treeID.test(w.profile))
     return { profile: w.profile };
+  const locator = parseProfileLocator(w.profile);
+  if (locator) return { profile: locator.locator };
   if (typeof w.link === "string" && hash.test(w.link))
     return { link: w.link };
   throw new Error("Invalid rule subject");
@@ -159,7 +190,7 @@ export function parseAppRule(value: Record<string, unknown>, file: "person-apps"
   };
 }
 
-/** A subject's merge key: `homeHost` says where to look, so it is no part of it. */
+/** A subject's merge key; a locator subject is keyed by its canonical spelling. */
 function whoKey(who: AccessWho): string {
   return typeof who === "string"
     ? who
@@ -177,29 +208,24 @@ export function parseResourceRules(value: unknown): ResourceAccessRule[] {
   const rules = value.map(parseResourceRule);
   if (new Set(rules.map(resourceRuleKey)).size !== rules.length)
     throw new Error("Duplicate resource rule");
-  checkHomeHosts(rules);
   return rules;
 }
 
-/** Every rule of one file naming a profile gives it the same `homeHost`, or
- * none does, so one host is asked for one group's members. */
-export function checkHomeHosts(rules: readonly Pick<ResourceAccessRule, "who">[]): void {
-  const hosts = new Map<string, string | null>();
-  for (const { who } of rules) {
-    if (typeof who !== "object" || !("profile" in who)) continue;
-    const host = who.homeHost ?? null;
-    if (hosts.has(who.profile) && hosts.get(who.profile) !== host)
-      throw new Error(`Rules naming ${who.profile} disagree about its home host`);
-    hosts.set(who.profile, host);
-  }
+/** The profile locators a list of rules names, in their canonical spelling. */
+export function ruleLocators(rules: readonly Pick<ResourceAccessRule, "who">[]): string[] {
+  return [...new Set(rules.flatMap(({ who }) =>
+    typeof who === "object" && "profile" in who && isProfileLocator(who.profile) ? [who.profile] : []))];
 }
 
-/** The `homeHost` rules give a profile subject, if any. */
-export function subjectHomeHost(rules: readonly Pick<ResourceAccessRule, "who">[], profile: string): string | undefined {
-  for (const { who } of rules) {
-    if (typeof who === "object" && "profile" in who && who.profile === profile && who.homeHost) return who.homeHost;
-  }
-  return undefined;
+/**
+ * A profile subject as a TreeID and, for a locator, the host it is read at:
+ * a TreeID names itself; a locator names its pin, or nothing when it has none.
+ */
+export function subjectProfile(profile: string, context: Pick<ResourcePolicyContext, "pinnedProfile">): { tree: string; homeHost?: string } | null {
+  const locator = parseProfileLocator(profile);
+  if (!locator) return { tree: profile };
+  const pinned = context.pinnedProfile?.(locator.locator) ?? null;
+  return pinned ? { tree: pinned, homeHost: locator.origin } : null;
 }
 export function scopeContains(scope: string, path: string): boolean {
   resourcePath(scope);
@@ -233,11 +259,10 @@ export function ruleMatches(
       context.isGroupMember?.(context.ownerProfile, context.callerProfile) === true
     );
   if ("link" in rule.who) return rule.who.link === context.linkDigest;
-  return (
-    context.callerProfile !== null &&
-    (rule.who.profile === context.callerProfile ||
-      context.isGroupMember?.(rule.who.profile, context.callerProfile, rule.who.homeHost) === true)
-  );
+  if (context.callerProfile === null) return false;
+  const subject = subjectProfile(rule.who.profile, context);
+  return !!subject && (subject.tree === context.callerProfile ||
+    context.isGroupMember?.(subject.tree, context.callerProfile, subject.homeHost) === true);
 }
 export function rulesAllow(
   rules: readonly Pick<ResourceAccessRule, "who" | "app" | "allow" | "within">[],

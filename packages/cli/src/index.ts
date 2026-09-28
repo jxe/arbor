@@ -7,7 +7,7 @@ import { runArborSyncDaemon } from "@overstory/arborsync/cli";
 import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
 import { listLocalAccounts } from "@overstory/arborsync/state";
-import { addLocalPlacement, backupIsEncrypted, claimPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
+import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
@@ -91,7 +91,6 @@ function usage(): never {
   arbor me restore <file> [<profile-folder>]
   arbor device [--account <ConfigurationTreeID>]
   arbor account
-  arbor account place [--invite <code>] <placement-host-url>
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor status [<locator>] [--json]
   arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
@@ -113,11 +112,11 @@ function usage(): never {
 
 Notes:
   arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
-  arbor account place  claims a placement account for your profile at another host, with the profile key; your devices
-    sign in there with the keys your home host lists.
+  arbor account  lists your home account and your placement accounts at other hosts.
   arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
-    A URL on a placement host (see arbor account place) creates or places the tree there, under the placement
-    root; placing the placement root's own URL activates it with the folder. Trees never move between hosts.
+    A URL on another host places the tree there, under your placement root, once that host's community reserves
+    your profile by its URL at your home host (such as https://<home>/~<handle>); the first place connects this
+    device there. Placing the placement root's own URL activates it with the folder. Trees never move between hosts.
   arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   arbor pending  shows exactly what Arbor Sync would send next for a placed folder.
   arbor declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
@@ -361,11 +360,15 @@ async function accountForCanonicalTarget(
   target: CanonicalTarget,
   options: { administrator: boolean },
 ): Promise<SelectedHostAccount> {
-  const [configurations, records, placements] = await Promise.all([
-    loadProfileConfigurations(),
-    HostAccountStore.list(),
-    HostPlacementStore.list(),
-  ]);
+  const [configurations, records] = await Promise.all([loadProfileConfigurations(), HostAccountStore.list()]);
+  let placements = await HostPlacementStore.list();
+  // A host that is neither home nor connected yet: connect to the placement
+  // account its community reserved for this profile (accounts §1.3).
+  if (records.length === 1 && !records.some((record) => record.origin === target.endpoint)
+    && !placements.some((record) => record.origin === target.endpoint)) {
+    await connectPlacementAccount(target.endpoint);
+    placements = await HostPlacementStore.list();
+  }
   // A profile has one account per host, its home or a placement account; any
   // tree its profile administers there may be placed.
   const homes = records.filter((record) => record.origin === target.endpoint)
@@ -1546,11 +1549,10 @@ async function statusCommand(args: string[]): Promise<void> {
 
 /**
  * `arbor account` lists the profile's connections: its home account and its
- * placement accounts (accounts §1.3). `arbor account place` claims a
- * placement account at another host and opens a session there.
+ * placement accounts (accounts §1.3), which `arbor place` connects on first use.
  */
 async function accountCommand(args: string[]): Promise<void> {
-  const [action, ...operands] = args;
+  const [action] = args;
   if (action === undefined) {
     const [homes, placements, local] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list(), loadLocalPlacements()]);
     if (!homes.length) console.log("No connected account");
@@ -1565,20 +1567,7 @@ async function accountCommand(args: string[]): Promise<void> {
     }
     return;
   }
-  if (action !== "place") usage();
-  let inviteCode: string | undefined;
-  let host: string | undefined;
-  for (let index = 0; index < operands.length; index += 1) {
-    const operand = operands[index]!;
-    if (operand === "--invite" && operands[index + 1]) inviteCode = operands[++index];
-    else if (!operand.startsWith("-") && !host) host = operand;
-    else usage();
-  }
-  if (!host) usage();
-  const result = await claimPlacementAccount(host, inviteCode ? { inviteCode } : {});
-  console.log(`${result.claimed ? "Claimed" : "Connected"} placement account ${result.record.account}`);
-  console.log(`Home host: ${result.record.homeHost}`);
-  console.log(`Placement root: ${result.record.placementRoot}${result.account.placementRoot.tree ? "" : " (not yet activated)"}`);
+  usage();
 }
 
 async function main(): Promise<void> {

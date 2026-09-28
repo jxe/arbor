@@ -54,14 +54,15 @@ test("the batch migrates schema 27 once, adding an empty pin table and keeping e
   expect(migrateNextBatch(root)).toEqual({ migrated: false, from: 28, to: 28, steps: [] });
 });
 
-test("a pin names one Profile TreeID per locator", async () => {
+test("a pin names one Profile TreeID per tree and locator", async () => {
   const root = join(sandbox, "pins");
   await cp(schema27, root, { recursive: true });
   migrateNextBatch(root);
   const db = new Database(join(root, "canopy.sqlite3"));
   try {
-    db.run("INSERT INTO profile_locator_pins VALUES ('https://home.example/~joe', 'tr_joe', 1)");
-    expect(() => db.run("INSERT INTO profile_locator_pins VALUES ('https://home.example/~joe', 'tr_other', 2)")).toThrow("UNIQUE");
+    db.run("INSERT INTO profile_locator_pins VALUES ('tr_community', 'https://home.example/~joe', 'tr_joe', 1)");
+    db.run("INSERT INTO profile_locator_pins VALUES ('tr_notes', 'https://home.example/~joe', 'tr_joe', 1)");
+    expect(() => db.run("INSERT INTO profile_locator_pins VALUES ('tr_notes', 'https://home.example/~joe', 'tr_other', 2)")).toThrow("UNIQUE");
   } finally { db.close(); }
 });
 

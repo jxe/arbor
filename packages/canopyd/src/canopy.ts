@@ -2,6 +2,7 @@ import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/e
 import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
+import { LocatorPins } from "./locator-pins.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -17,10 +18,12 @@ import { createPublicKey, verify } from "node:crypto";
 import { Database } from "bun:sqlite";
 import {
   accountChallengeBytes,
-  isHomeHostOrigin,
   personProfileTreeID,
   stableJSONString,
-  subjectHomeHost,
+  ruleLocators,
+  subjectProfile,
+  parseProfileLocator,
+  isProfileLocator,
   generateArborID,
   isGeneratedArborID,
   isPersonProfileTreeID,
@@ -77,6 +80,7 @@ import {
   HANDLE, handleOfPath, memberReservations, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
+  type MemberReservation,
 } from "./profile.ts";
 import { isTreeConfigPolicy, type HostAccessEntry, type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
@@ -138,7 +142,7 @@ interface RootProfile {
   type: "person" | "group" | null;
   members: RootProfileFacts["members"];
   /** Community reservations: each structured member's handle. */
-  reservations: ReadonlyMap<string, { profileTree?: string; inviteDigest?: string }>;
+  reservations: ReadonlyMap<string, MemberReservation>;
   /** Group membership for access: the Profile TreeID each member locator names. */
   profiles: ReadonlySet<string>;
 }
@@ -154,6 +158,22 @@ type ProfileReader = (root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Ar
 /** A profile write an accepted update makes: a row, null to delete the row,
  * or undefined when the update leaves `_index.md` and the avatar alone. */
 type ProfileUpdate = StoredProfile | null | undefined;
+
+/** A community member naming a profile another host holds, new to this host:
+ * its placement account and root, prepared before the accept (accounts §1.3). */
+interface PreparedPlacementAccount {
+  handle: string;
+  profileTree: string;
+  homeHost: string;
+  root: PreparedConfig;
+}
+
+/** A profile update and, for the community, the pins and placement accounts
+ * its members bring, all written in the accept's transaction. */
+interface PreparedProfile {
+  update: ProfileUpdate;
+  placements?: { pins: Map<string, string>; locators: string[]; accounts: PreparedPlacementAccount[] };
+}
 /** Watch replay derives each update's transition from two roots; every
  * watcher of a tree replays the same recent updates. */
 const TRANSITION_CACHE_ENTRIES = 32;
@@ -200,12 +220,19 @@ interface PreparedConfig {
   tree: string;
   kind: TreeConfigKind;
   values: TreeConfigValues;
+  /** Locators the configuration names newly (or afresh), resolved before its transaction. */
+  pins: Map<string, string>;
   root: ObjectHash;
   entry: { hash: ObjectHash; conflicted: boolean };
   entryChanges: EntryChanges;
 }
 
-/** The profiles a configuration's `admin` rules name. */
+/** The profile locators a configuration's `access.yaml` and `apps.yaml` name. */
+function configLocators(values: TreeConfigValues): string[] {
+  return ruleLocators([...values.access, ...Object.values(values.apps ?? {}).flat()]);
+}
+
+/** The profiles a configuration's `admin` rules name, TreeIDs or locators. */
 function adminProfiles(access: readonly ResourceAccessRule[]): string[] {
   return [...new Set(access.flatMap((rule) => rule.allow.includes("admin") && typeof rule.who === "object" && "profile" in rule.who ? [rule.who.profile] : []))].sort();
 }
@@ -354,6 +381,7 @@ export class HostDaemon implements AsyncDisposable {
   private deviceKeyTimer: ReturnType<typeof setTimeout> | undefined;
   /** Copies of the groups other hosts hold that this host's rules name. */
   private readonly remoteGroups: RemoteGroups;
+  private readonly locatorPins: LocatorPins;
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
 
@@ -379,6 +407,7 @@ export class HostDaemon implements AsyncDisposable {
       isProfileMember: (group, profileTree) => this.isProfileMember(group.id, profileTree),
       rootProfileType: (tree) => this.rootProfileType(tree.id),
       isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
+      pinnedProfile: (tree, locator) => this.locatorPins.pinned(tree, locator),
     });
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
     this.deviceKeys = new PlacementDeviceKeys(
@@ -390,6 +419,17 @@ export class HostDaemon implements AsyncDisposable {
     this.remoteGroups = new RemoteGroups(
       () => ({ lifetimeMs: this.remoteGroupLifetimeMs, refetchMs: this.remoteGroupRefetchMs, staleMs: this.remoteGroupStaleMs }),
       () => { if (!this.disposed) this.execution.invalidate(); },
+    );
+    // A pinned locator is checked on the remote groups' schedule; a change in
+    // what one names is an authorization change too.
+    this.locatorPins = new LocatorPins(
+      db,
+      () => ({ lifetimeMs: this.remoteGroupLifetimeMs, refetchMs: this.remoteGroupRefetchMs, staleMs: this.remoteGroupStaleMs }),
+      () => {
+        if (this.disposed) return;
+        this.endUnpinnedPlacementSessions();
+        this.execution.invalidate();
+      },
     );
   }
 
@@ -692,17 +732,7 @@ export class HostDaemon implements AsyncDisposable {
     profileTree: string;
     configurationTree: string;
     inviteCode?: string;
-    /** A placement claim's home host (accounts §1.3), signed with the challenge. */
-    homeHost?: string;
   }): AccountChallenge {
-    if (input.homeHost !== undefined) {
-      if (!isHomeHostOrigin(input.homeHost)) throw new Error("A placement claim's home host must be an HTTPS origin");
-      if (input.homeHost === input.origin) throw new Error("A placement claim names another host as the profile's home, not this one");
-      // A loopback home host is for local hosts; a public host never reads its own loopback.
-      if (new URL(input.homeHost).protocol === "http:" && new URL(input.origin).protocol !== "http:") {
-        throw new Error("A placement claim's home host must be an HTTPS origin");
-      }
-    }
     const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
     const matches = input.account === undefined
       ? [...this.communityReservations()].filter(([, value]) => inviteDigest
@@ -735,7 +765,6 @@ export class HostDaemon implements AsyncDisposable {
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
-      ...(input.homeHost !== undefined ? { homeHost: input.homeHost } : {}),
     };
     this.accounts.insertChallenge("account-claim", challenge.id, stableJSONString(challenge), challenge.expiresAt, issuedAt);
     return challenge;
@@ -748,13 +777,8 @@ export class HostDaemon implements AsyncDisposable {
     challenge: AccountChallenge;
     publicKey: string;
     signature: string;
-    /** The home host a placement claim's challenge must name; undefined for a home claim, which names none. */
-    homeHost?: string;
   }): { challenge: AccountChallenge; proofDigest: string } {
     const challenge = validateAccountChallenge(input.challenge);
-    if (challenge.homeHost !== input.homeHost) {
-      throw new Error(input.homeHost ? "A placement claim's challenge must name its home host" : "A claim with a device and configuration is a home claim; its challenge names no home host");
-    }
     if (
       challenge.account !== input.accountLocator
       || challenge.origin !== new URL(input.accountLocator).origin
@@ -882,6 +906,9 @@ export class HostDaemon implements AsyncDisposable {
    * returns.
    */
   private async listedDevice(account: HostAccount, device: string): Promise<ListedDevice> {
+    if (!this.placementPinHolds(account)) {
+      throw new PlacementAccountError(account.homeHost!, `~${account.handle}'s reservation no longer names this profile at ${account.homeHost}`);
+    }
     const listed = await this.deviceKeys.device(account.id, account.homeHost!, device);
     const row = this.accounts.deviceBinding(device, account.id);
     if (!listed || (row && (row.revokedAt !== null || row.publicKey !== listed.key)) || (!row && this.accounts.deviceExists(device))) {
@@ -941,26 +968,29 @@ export class HostDaemon implements AsyncDisposable {
   /** One refresh pass over the remote groups this host's rules name. */
   async refreshRemoteGroups(): Promise<void> {
     if (this.disposed) return;
+    await this.locatorPins.refresh();
     await this.remoteGroups.refresh(this.namedRemoteGroups());
   }
 
   /**
    * The groups other hosts hold that a rule here names: each profile subject
-   * of an `access.yaml` or `apps.yaml` with a `homeHost`, whose tree this
-   * host does not hold.
+   * of an `access.yaml` or `apps.yaml` that is a locator at another host, by
+   * the TreeID it is pinned to, when this host does not hold that tree.
    */
   private namedRemoteGroups(): Array<{ group: string; homeHost: string }> {
     const rows = this.db.query(`
-      SELECT rules_json FROM tree_policy WHERE instr(rules_json, '"homeHost"') > 0
-      UNION ALL SELECT rules_json FROM app_policy WHERE instr(rules_json, '"homeHost"') > 0
-    `).all() as Array<{ rules_json: string }>;
+      SELECT tree_id AS tree, rules_json FROM tree_policy
+      UNION ALL SELECT profile_tree AS tree, rules_json FROM app_policy
+    `).all() as Array<{ tree: string; rules_json: string }>;
     const named = new Map<string, { group: string; homeHost: string }>();
     for (const row of rows) {
       for (const rule of JSON.parse(row.rules_json) as Array<{ who?: unknown }>) {
-        const who = rule.who as { profile?: unknown; homeHost?: unknown } | undefined;
-        if (!who || typeof who !== "object" || typeof who.profile !== "string" || typeof who.homeHost !== "string") continue;
-        if (this.get(who.profile) || !this.readsGroupsAt(who.homeHost)) continue;
-        named.set(`${who.homeHost} ${who.profile}`, { group: who.profile, homeHost: who.homeHost });
+        const who = rule.who as { profile?: unknown } | undefined;
+        const locator = who && typeof who === "object" ? parseProfileLocator(who.profile) : null;
+        if (!locator || !this.readsGroupsAt(locator.origin)) continue;
+        const group = this.locatorPins.pinned(row.tree, locator.locator);
+        if (!group || this.get(group)) continue;
+        named.set(`${locator.origin} ${group}`, { group, homeHost: locator.origin });
       }
     }
     return [...named.values()];
@@ -1145,7 +1175,8 @@ export class HostDaemon implements AsyncDisposable {
     const staged = new Map(snapshot.objects);
     const entry = await this.internalEntry(id, null, snapshot.root, `initial:${id}`, staged);
     const entryChanges = await this.entryChanges(null, snapshot.root);
-    return { tree, kind, values, root: snapshot.root, entry, entryChanges };
+    const pins = await this.locatorPins.prepare(tree, configLocators(values));
+    return { tree, kind, values, pins, root: snapshot.root, entry, entryChanges };
   }
 
   /** Insert a prepared configuration and its index; callers run this inside their transaction. */
@@ -1157,6 +1188,7 @@ export class HostDaemon implements AsyncDisposable {
       entryChanges: prepared.entryChanges, entry: prepared.entry,
     });
     this.indexTreeConfig(prepared.tree, prepared.kind, null, prepared.values);
+    this.locatorPins.write(prepared.tree, prepared.pins, configLocators(prepared.values), acceptedAt);
     return accepted;
   }
 
@@ -1246,6 +1278,33 @@ export class HostDaemon implements AsyncDisposable {
     this.recomputeBoundaries();
   }
 
+  /** The TreeID a profile locator `tree`'s configuration names is pinned to,
+   * or null when it names nobody now (locators §1). */
+  pinnedProfile(tree: string, locator: string): string | null {
+    return this.locatorPins.pinned(tree, locator);
+  }
+
+  /** Whether a placement account's community member still names its profile:
+   * the locator's pin holds (accounts §1.3). */
+  private placementPinHolds(account: HostAccount): boolean {
+    const community = this.boundary("/")?.id;
+    const reservation = community ? this.communityReservations().get(account.handle) : undefined;
+    if (!community || !reservation?.locator) return reservation?.profileTree === account.id;
+    return this.locatorPins.pinnedUnlessChanged(community, reservation.locator) === account.id;
+  }
+
+  /** When a pin stops holding, the placement account it named opens no
+   * sessions, and those open end, as a device deletion ends them. */
+  private endUnpinnedPlacementSessions(): void {
+    for (const row of this.db.query("SELECT id FROM accounts WHERE home_host IS NOT NULL").all() as Array<{ id: string }>) {
+      const account = this.account(row.id);
+      if (!account || this.placementPinHolds(account)) continue;
+      for (const device of this.db.query("SELECT id FROM devices WHERE account_id = ?").all(account.id) as Array<{ id: string }>) {
+        this.accounts.endSessions(device.id);
+      }
+    }
+  }
+
   /** A placement account's placement root: the tree the community root mounts at its `/~handle`. */
   placementRootOf(account: HostAccount): string | null {
     const community = this.boundary("/")?.id;
@@ -1323,7 +1382,11 @@ export class HostDaemon implements AsyncDisposable {
     const snapshot: TreeSnapshot = { root: update.candidate, objects: new Map(update.objects.map(({ hash, bytes }) => [hash, bytes])) };
     const prepared = await this.prepareConfig(tree, "tree", snapshot);
     const admins = adminProfiles(prepared.values.access);
-    if (!admins.some((admin) => admin === account.id || this.access.isGroupMember(admin, account.id, subjectHomeHost(prepared.values.access, admin)))) {
+    const pinned = { pinnedProfile: (locator: string) => prepared.pins.get(locator) ?? null };
+    if (!admins.some((admin) => {
+      const subject = subjectProfile(admin, pinned);
+      return !!subject && (subject.tree === account.id || this.access.isGroupMember(subject.tree, account.id, subject.homeHost));
+    })) {
       throw new PermissionDeniedError("A declared tree's configuration must make the submitter an administrator");
     }
     this.checkMountAdditions(tree, account, {}, prepared.values.mounts);
@@ -1544,100 +1607,6 @@ export class HostDaemon implements AsyncDisposable {
     })();
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
-  }
-
-  /**
-   * Claim a placement account (accounts §1.3): the same reservation and
-   * profile-key proof as a home claim, with the home host signed into the
-   * challenge and no device or configuration. The home host's device keys
-   * must be readable now. The claim records the account with its home host
-   * and declares the profile's placement root, an ordinary tree with a fresh
-   * TreeID mounted at `/~handle` whose configuration makes the profile its
-   * administrator and mounts nothing; the person's first snapshot activates it.
-   */
-  async claimPlacementAccount(input: {
-    accountLocator: string;
-    handle: string;
-    origin: string;
-    profileTree: string;
-    configurationTree: string;
-    challenge: AccountChallenge;
-    publicKey: string;
-    signature: string;
-    inviteCode?: string;
-  }): Promise<{ account: HostAccount; placementRoot: string }> {
-    const homeHost = input.challenge?.homeHost;
-    if (typeof homeHost !== "string") throw new Error("A placement claim's challenge must name its home host");
-    const proof = this.verifyAccountIdentityProof({ ...input, homeHost });
-    if (homeHost === input.origin) throw new Error("A placement claim names another host as the profile's home, not this one");
-    const claimDigest = sha256(stableJSONString({
-      handle: input.handle,
-      accountLocator: input.accountLocator,
-      identityProof: proof.proofDigest,
-      profileTree: input.profileTree,
-      configurationTree: input.configurationTree,
-      homeHost,
-    }));
-    if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
-    const reservation = this.accountReservation(input.accountLocator);
-    if (!reservation || reservation.handle !== input.handle) throw new Error("Account locator is not reserved by this community");
-    if (!isPersonProfileTreeID(input.profileTree) || input.configurationTree !== treeConfigurationID(input.profileTree)) {
-      throw new Error("Account join requires a person Profile TreeID and its configuration TreeID");
-    }
-    const prior = this.accountByHandle(input.handle);
-    if (prior) {
-      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
-      const root = row.claim_digest === claimDigest ? this.placementRootOf(prior) : null;
-      if (root) return { account: prior, placementRoot: root };
-      throw new AlreadyClaimedError(input.handle);
-    }
-    const challengeJSON = stableJSONString(proof.challenge);
-    const issued = this.accounts.challenge("account-claim", proof.challenge.id);
-    if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
-    if (issued.expiresAt <= Date.now()) throw new ExpiredChallengeError("Account challenge is expired");
-    if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
-    if (this.nameHeldByTree(input.handle)) throw new AlreadyClaimedError(input.handle);
-    if (!this.communityReservations().has(input.handle)) {
-      throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
-    }
-    if (reservation.profileTree && reservation.profileTree !== input.profileTree) {
-      throw new Error("Account reservation names a different profile TreeID");
-    }
-    if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
-      throw new Error("This profile is already claimed or hosted on this Canopy");
-    }
-    const invitation = reservation.inviteDigest
-      ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
-      : null;
-    // The home host must answer for the profile's devices before this host
-    // trusts it for them.
-    try {
-      await this.deviceKeys.fetch(input.profileTree, homeHost);
-    } catch (error) {
-      throw new Error(`The profile's home host ${homeHost} does not publish its device keys: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    const placementRoot = generateArborID("tr");
-    const prepared = await this.prepareConfig(placementRoot, "tree", snapshotTreeConfig({
-      access: [{ who: { profile: input.profileTree }, allow: ["admin"] }],
-      mounts: {},
-    }));
-    const community = this.community();
-    const now = Date.now();
-    this.db.transaction(() => {
-      if (!this.accounts.consumeChallenge("account-claim", proof.challenge.id, challengeJSON, now)) {
-        throw new Error("Account challenge was already consumed or expired");
-      }
-      this.db.run(
-        "INSERT INTO accounts (id, handle, claim_digest, enabled, home_host) VALUES (?, ?, ?, 1, ?)",
-        [input.profileTree, input.handle, claimDigest, homeHost],
-      );
-      this.insertConfig(prepared, now, null);
-      this.insertMemberMount(community.id, input.handle, placementRoot);
-      if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
-      if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
-    })();
-    if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
-    return { account: this.account(input.profileTree)!, placementRoot };
   }
 
   /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
@@ -2372,10 +2341,13 @@ export class HostDaemon implements AsyncDisposable {
         const content = this.get(governed);
         const rewrite = content?.status === "active" ? await this.prepareMountRewrite(content, currentGraph.mounts, nextGraph.mounts) : null;
         const prepared = rewrite ? await this.prepareParentAdvance(rewrite) : null;
+        const locators = configLocators(nextGraph);
+        const pins = await this.locatorPins.prepare(governed, locators);
         let boundaryUpdate: AcceptedUpdate | null = null;
         return {
           withinTransaction: () => {
             this.indexTreeConfig(governed, kind, currentGraph, nextGraph);
+            this.locatorPins.write(governed, pins, locators, now);
             if (prepared) boundaryUpdate = this.advanceParent(prepared, now, credentialSubject);
           },
           afterCommit: () => {
@@ -2697,13 +2669,16 @@ export class HostDaemon implements AsyncDisposable {
     return null;
   }
 
-  /** Whether a group root lists this person by Profile TreeID. */
+  /** Whether a group root lists this person by Profile TreeID, or by a
+   * locator this host pinned to it (the community's placement accounts). */
   private isProfileMember(group: string, profileTree: string): boolean {
-    return this.rootProfile(group).profiles.has(profileTree);
+    const profile = this.rootProfile(group);
+    return profile.profiles.has(profileTree) || profile.members.some((member) =>
+      !!member.profile && isProfileLocator(member.profile) && this.locatorPins.pinned(group, member.profile) === profileTree);
   }
 
   /** Current-Canopy allocation policy: the community's member handles reserve /~handle. */
-  private communityReservations(): ReadonlyMap<string, { profileTree?: string; inviteDigest?: string }> {
+  private communityReservations(): ReadonlyMap<string, MemberReservation> {
     return this.rootProfile(this.community().id).reservations;
   }
 
@@ -2744,20 +2719,77 @@ export class HostDaemon implements AsyncDisposable {
     changes: EntryChanges,
     objects: ReadonlyMap<ObjectHash, Uint8Array>,
     profiles: ProfileReader = this.profileReader(),
-  ): Promise<ProfileUpdate> {
-    if (!profileChanged(this.treeProfile(tree).stored, changes)) return undefined;
-    return storedProfileOf(await profiles(root, objects));
+  ): Promise<PreparedProfile> {
+    if (!profileChanged(this.treeProfile(tree).stored, changes)) return { update: undefined };
+    const update = storedProfileOf(await profiles(root, objects));
+    if (tree !== this.boundary("/")?.id) return { update };
+    return { update, placements: await this.preparePlacements(tree, update?.facts.members ?? []) };
+  }
+
+  /**
+   * The placement accounts a community's members name (accounts §1.3): each
+   * member naming a profile by its locator at another host is resolved and
+   * pinned, and a profile new to this host must be a person whose home host
+   * publishes its device keys; its account and placement root are prepared
+   * here and written in the accept's transaction. A member this host cannot
+   * resolve refuses the update, naming the host.
+   */
+  private async preparePlacements(community: string, members: RootProfileFacts["members"]): Promise<NonNullable<PreparedProfile["placements"]>> {
+    const reservations = [...memberReservations(members)].flatMap(([handle, reservation]) =>
+      reservation.locator ? [{ handle, locator: reservation.locator }] : []);
+    const locators = reservations.map(({ locator }) => locator);
+    const pins = await this.locatorPins.prepare(community, locators);
+    const accounts: PreparedPlacementAccount[] = [];
+    for (const { handle, locator } of reservations) {
+      const homeHost = parseProfileLocator(locator)!.origin;
+      const profileTree = pins.get(locator) ?? this.locatorPins.pinned(community, locator);
+      if (!profileTree) throw new ServerFaultError(`${locator} has no pin after resolving it`);
+      const existing = this.accounts.account(profileTree);
+      if (existing) {
+        if (existing.handle !== handle || existing.homeHost !== homeHost) {
+          throw new Error(`${locator} names a profile this host already holds as ~${existing.handle}`);
+        }
+        continue;
+      }
+      if (this.accountByHandle(handle)) throw new AlreadyClaimedError(handle);
+      if (this.get(profileTree)) throw new Error(`${locator} names a tree this host holds`);
+      if (!isPersonProfileTreeID(profileTree)) throw new Error(`${locator} does not name a person profile`);
+      try {
+        await this.deviceKeys.fetch(profileTree, homeHost);
+      } catch (error) {
+        throw new HomeHostUnavailableError(homeHost, `${homeHost} does not publish the device keys of ${locator}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const root = await this.prepareConfig(generateArborID("tr"), "tree", snapshotTreeConfig({
+        access: [{ who: { profile: profileTree }, allow: ["admin"] }],
+        mounts: {},
+      }));
+      accounts.push({ handle, profileTree, homeHost, root });
+    }
+    return { pins, locators, accounts };
   }
 
   /** Write a profile update inside its accept transaction. When the community's
    * members change, its accounts are reconciled in the same transaction. */
-  private applyProfileUpdate(tree: string, community: boolean, update: ProfileUpdate): void {
+  private applyProfileUpdate(tree: string, community: boolean, prepared: PreparedProfile): void {
+    const { update, placements } = prepared;
     if (update === undefined) return;
     const before = readStoredProfile(this.db, tree);
     writeStoredProfile(this.db, tree, update);
     this.treeProfiles.delete(tree);
+    if (placements) {
+      const now = Date.now();
+      this.locatorPins.write(tree, placements.pins, placements.locators, now);
+      // A new placement account and its root, which the community mounts at
+      // its /~handle; the person's first snapshot activates the root.
+      for (const account of placements.accounts) {
+        this.db.run("INSERT INTO accounts (id, handle, claim_digest, enabled, home_host) VALUES (?, ?, NULL, 1, ?)",
+          [account.profileTree, account.handle, account.homeHost]);
+        this.insertConfig(account.root, now, null);
+        this.insertMemberMount(tree, account.handle, account.root.tree);
+      }
+    }
     if (community && stableJSONString(before?.facts.members ?? []) !== stableJSONString(update?.facts.members ?? [])) {
-      this.reconcileCommunityAccounts(update?.facts ?? null);
+      this.reconcileCommunityAccounts(tree, update?.facts ?? null);
     }
   }
 
@@ -2822,11 +2854,13 @@ export class HostDaemon implements AsyncDisposable {
     }
   }
 
-  /** Enable exactly the accounts the accepted community root lists; callers run this inside their transaction. */
-  private reconcileCommunityAccounts(community: RootProfileFacts | null): void {
+  /** Enable exactly the accounts the accepted community root lists, a
+   * placement account by the TreeID its member's locator is pinned to;
+   * callers run this inside their transaction. */
+  private reconcileCommunityAccounts(communityTree: string, community: RootProfileFacts | null): void {
     const members = [...memberReservations(community?.members ?? [])].map(([handle, reservation]) => ({
       handle,
-      profileTree: reservation.profileTree ?? null,
+      profileTree: reservation.profileTree ?? (reservation.locator ? this.locatorPins.pinnedUnlessChanged(communityTree, reservation.locator) : null),
     }));
     this.db.run(`UPDATE accounts SET enabled = EXISTS (
       SELECT 1 FROM json_each(?) AS member

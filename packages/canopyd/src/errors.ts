@@ -42,9 +42,10 @@ export class PlacementAccountError extends Error {
   }
 }
 
-/** 503, retryable, with `details.homeHost`: a placement host's copy of a
- * profile's device keys is too old and the home host cannot be read, so it
- * opens no session (accounts §5.4). */
+/** 503, retryable, with `details.homeHost`: another host this host must read
+ * cannot be read: a placement host's copy of a profile's device keys is too
+ * old to open a session (accounts §5.4), or a profile locator a configuration
+ * names cannot be resolved to pin it (locators §1). */
 export class HomeHostUnavailableError extends Error {
   override readonly name = "HomeHostUnavailableError";
   constructor(readonly homeHost: string, message: string) {

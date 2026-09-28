@@ -5,13 +5,16 @@ import { tmpdir } from "node:os";
 import { HostAccountStore, HostPlacementStore, ProtocolClient, treeConfigurationID } from "@overstory/protocol";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
-import { ProfileIdentityStore } from "@overstory/client";
+import { accountProtocolClient, ProfileIdentityStore } from "@overstory/client";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
+import { makeProfilePublic, reserveMembers } from "../helpers/community-reservations.ts";
+import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 /**
  * `POST /v1/bootstrap/placements`, the route a local app (the Mac's Canopy)
- * claims a placement account through, since only the data home holds the
- * profile key. Home host A, placement hosts B and C, and one Arbor Sync
+ * connects a placement account through: B's community reserved the profile by
+ * its locator at A, and the data home's device key opens a session there
+ * (accounts §1.3). Home host A, placement hosts B and C, and one Arbor Sync
  * control service in its own process.
  */
 
@@ -41,15 +44,19 @@ beforeAll(async () => {
   process.env.ARBOR_DATA_HOME = state;
   profileTree = (await new ProfileIdentityStore().create(profile)).profileTree;
   configurationTree = treeConfigurationID(profileTree);
-  const host = (name: string, handle: string, lifetimes?: Parameters<typeof serveHost>[0]["lifetimes"]) => serveHost({
+  // A is joe's home; B and C are run by their own owners.
+  a = await serveHost({
+    dataRoot: join(sandbox, "home"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+    community: { handle: "garden", name: "garden", firstWriter: { handle: "joe", profileTree } },
+  });
+  const placementHost = (name: string, handle: string, lifetimes?: Parameters<typeof serveHost>[0]["lifetimes"]) => serveHost({
     dataRoot: join(sandbox, name), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    community: { handle, name: handle, firstWriter: { handle: "joe", profileTree } },
+    community: { handle, name: handle }, accounts: [testAccount("owner", `${name}-owner`, { communityWriter: true })],
     ...(lifetimes ? { lifetimes } : {}),
   });
-  [a, b, c] = await Promise.all([
-    host("home", "garden"),
-    host("placement", "orchard"),
-    host("third", "meadow", { deviceKeyLifetimeMs: STALE_MS / 2, deviceKeyRefetchMs: STALE_MS / 4, deviceKeyStaleMs: STALE_MS }),
+  [b, c] = await Promise.all([
+    placementHost("placement", "orchard"),
+    placementHost("third", "meadow", { deviceKeyLifetimeMs: STALE_MS / 2, deviceKeyRefetchMs: STALE_MS / 4, deviceKeyStaleMs: STALE_MS }),
   ]);
   const local = await ArborSyncDaemon.open(profile);
   try {
@@ -57,6 +64,8 @@ beforeAll(async () => {
   } finally {
     await local[Symbol.asyncDispose]();
   }
+  // joe's profile is readable by anyone, so B and C can resolve its locator.
+  await makeProfilePublic((await accountProtocolClient({ configurationTree }, { required: true })).client, profileTree);
   const child = Bun.spawn(["bun", "packages/arborsync/src/cli.ts", "--control", "--port", "0"], {
     cwd: repository, env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_CREDENTIAL_STORE: "file" }, stdout: "pipe", stderr: "inherit",
   });
@@ -83,7 +92,7 @@ afterAll(async () => {
 
 describe("POST /v1/bootstrap/placements", () => {
   test("refuses a body without a host", async () => {
-    const response = await post("/v1/bootstrap/placements", { inviteCode: 7 });
+    const response = await post("/v1/bootstrap/placements", {});
     expect(response.status).toBe(400);
     expect(response.body.error).toBe("invalid-request");
   });
@@ -95,12 +104,18 @@ describe("POST /v1/bootstrap/placements", () => {
     expect(response.body.message).toContain("home host");
   });
 
-  test("claims a placement account at B, records the connection, and connects again idempotently", async () => {
+  test("a host that reserved nothing for this profile says what to reserve", async () => {
+    const response = await post("/v1/bootstrap/placements", { host: b.url });
+    expect(response.status).toBe(404);
+    expect(response.body.message).toContain(`reserve ${new URL(a.url).origin}/~joe`);
+  });
+
+  test("connects to the placement account B's community reserved, records it, and connects again idempotently", async () => {
     const bOrigin = new URL(b.url).origin;
+    await reserveMembers(await deviceClient(b.url, "placement-owner"), sandbox, { joe: `${new URL(a.url).origin}/~joe` });
     const claimed = await post("/v1/bootstrap/placements", { host: b.url });
-    expect(claimed.status).toBe(201);
+    expect(claimed.status).toBe(200);
     expect(claimed.body).toMatchObject({
-      claimed: true,
       placement: { configurationTree, origin: bOrigin, account: `${bOrigin}/~joe`, profileTree, homeHost: new URL(a.url).origin, placed: true },
     });
     process.env.ARBOR_DATA_HOME = state;
@@ -115,14 +130,15 @@ describe("POST /v1/bootstrap/placements", () => {
 
     const again = await post("/v1/bootstrap/placements", { host: `${b.url}/~joe` });
     expect(again.status).toBe(200);
-    expect(again.body).toEqual({ claimed: false, placement: claimed.body.placement });
+    expect(again.body).toEqual({ placement: claimed.body.placement });
     // The home connection is untouched.
     expect((await new HostAccountStore(configurationTree).safe())!.origin).toBe(new URL(a.url).origin);
   }, 30_000);
 
   test("keeps a placement host's error code and details.homeHost when the home host is unreachable", async () => {
     const homeOrigin = new URL(a.url).origin;
-    expect((await post("/v1/bootstrap/placements", { host: c.url })).status).toBe(201);
+    await reserveMembers(await deviceClient(c.url, "third-owner"), sandbox, { joe: `${homeOrigin}/~joe` });
+    expect((await post("/v1/bootstrap/placements", { host: c.url })).status).toBe(200);
     a.server.stop(true);
     // Once C's copy of A's device keys is too old, C cannot open this device's session.
     await Bun.sleep(STALE_MS * 2);

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { parseMarkdown, plainMarkdownTitle, decodeProtocolDirectory, type ObjectHash } from "@overstory/protocol";
+import { parseMarkdown, parseProfileLocator, plainMarkdownTitle, decodeProtocolDirectory, type ObjectHash } from "@overstory/protocol";
 import type { EntryChanges } from "./updates/entry-metadata.ts";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
@@ -18,16 +18,28 @@ export function profileLocatorTree(locator: string | undefined): string | undefi
   return locator ? PROFILE_LOCATOR.exec(locator)?.[1] : undefined;
 }
 
+/** A community reservation: a profile this host holds (its Profile TreeID),
+ * a profile another host holds (its locator there, a placement account,
+ * accounts §1.3), or a pending invitation's digest. */
+export interface MemberReservation {
+  profileTree?: string;
+  locator?: string;
+  inviteDigest?: string;
+}
+
 /** The handles a group's members reserve on this Canopy: each structured
- * handle, with the Profile TreeID its locator names or its pending
+ * handle, with the Profile TreeID its `arbor://<TreeID>/` locator names, the
+ * canonical locator of a profile another host holds, or its pending
  * invitation's digest. */
-export function memberReservations(members: RootProfileFacts["members"]): Map<string, { profileTree?: string; inviteDigest?: string }> {
-  const reservations = new Map<string, { profileTree?: string; inviteDigest?: string }>();
+export function memberReservations(members: RootProfileFacts["members"]): Map<string, MemberReservation> {
+  const reservations = new Map<string, MemberReservation>();
   for (const member of members) {
     const handle = member.handle;
     if (!handle) continue;
     const profileTree = profileLocatorTree(member.profile);
-    reservations.set(handle, profileTree ? { profileTree } : member.inviteDigest ? { inviteDigest: member.inviteDigest } : {});
+    const locator = profileTree ? null : parseProfileLocator(member.profile);
+    reservations.set(handle, profileTree ? { profileTree } : locator ? { locator: locator.locator }
+      : member.inviteDigest ? { inviteDigest: member.inviteDigest } : {});
   }
   return reservations;
 }
@@ -88,12 +100,16 @@ export async function rootIndexHash(root: ObjectHash, load: (hash: ObjectHash) =
 
 /** A root's frontmatter `members`, keeping only well-formed structured
  * entries: a profile locator (with an optional handle), or a pending
- * invitation's handle and digest. A scalar entry names no member. */
+ * invitation's handle and digest. A profile is `arbor://<TreeID>/`, or the
+ * canonical locator of a profile another host holds, which counts only where
+ * this host pinned it (the community, accounts §1.3). A scalar entry names no
+ * member. */
 export function structuredMembers(declared: unknown): RootProfileFacts["members"] {
   return (Array.isArray(declared) ? declared : []).flatMap((value): RootProfileFacts["members"] => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
     const candidate = value as Record<string, unknown>;
-    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile : undefined;
+    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile
+      : parseProfileLocator(candidate.profile)?.locator;
     const handle = typeof candidate.handle === "string" && HANDLE.test(candidate.handle) ? candidate.handle : undefined;
     const inviteDigest = typeof candidate.inviteDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(candidate.inviteDigest)
       ? candidate.inviteDigest : undefined;

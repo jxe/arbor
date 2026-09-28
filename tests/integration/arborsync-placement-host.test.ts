@@ -16,15 +16,18 @@ import { serveHost } from "@overstory/canopyd";
 import { accountProtocolClient, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
+import { makeProfilePublic, reserveMembers } from "../helpers/community-reservations.ts";
+import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 /**
- * Security 007, Phase 3 gate: two local canopyd instances, home host A and
- * placement host B, and one Arbor Sync per device. The first device claims a
- * placement account on B and places folders under its placement root; a
- * second device, paired at A as usual, places the same tree from its own data
- * home. Both edit it through B. Revoking the second device at A ends its
- * session and watch on B within B's device-key lifetime, while the first
- * device keeps syncing.
+ * Security 007 and 011 gate: two local canopyd instances, home host A and
+ * placement host B, and one Arbor Sync per device. B's community reserves the
+ * profile by its locator at A; the first device's `arbor place` connects to
+ * the placement account and places folders under its placement root; a second
+ * device, paired at A as usual, places the same tree from its own data home,
+ * connecting the same way. Both edit it through B. Revoking the second device
+ * at A ends its session and watch on B within B's device-key lifetime, while
+ * the first device keeps syncing.
  */
 
 const LIFETIME_MS = 1_000;
@@ -122,16 +125,18 @@ beforeAll(async () => {
   process.env.ARBOR_DATA_HOME = stateMac;
   profileTree = (await new ProfileIdentityStore().create(profileMac)).profileTree;
   configurationTree = treeConfigurationID(profileTree);
-  const host = (name: string, handle: string, lifetimes?: Parameters<typeof serveHost>[0]["lifetimes"]) => serveHost({
-    dataRoot: join(sandbox, name), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    community: { handle, name: handle, firstWriter: { handle: "joe", profileTree } },
-    ...(lifetimes ? { lifetimes } : {}),
+  a = await serveHost({
+    dataRoot: join(sandbox, "home"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+    community: { handle: "garden", name: "garden", firstWriter: { handle: "joe", profileTree } },
   });
-  a = await host("home", "garden");
   // A revocation reaches B through its refresh each lifetime; A stays
   // reachable, so the staleness limit (the grace, from Security 009) only
   // needs to outlast the test and never ends a session on its own.
-  b = await host("placement", "orchard", { deviceKeyLifetimeMs: LIFETIME_MS, deviceKeyRefetchMs: 400, deviceKeyStaleMs: 120_000 });
+  b = await serveHost({
+    dataRoot: join(sandbox, "placement"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+    community: { handle: "orchard", name: "orchard" }, accounts: [testAccount("owner", "orchard-owner", { communityWriter: true })],
+    lifetimes: { deviceKeyLifetimeMs: LIFETIME_MS, deviceKeyRefetchMs: 400, deviceKeyStaleMs: 120_000 },
+  });
   bOrigin = new URL(b.url).origin;
   // The first device claims the home account at A, an administrator device.
   const daemon = await ArborSyncDaemon.open(profileMac);
@@ -140,6 +145,10 @@ beforeAll(async () => {
   } finally {
     await daemon[Symbol.asyncDispose]();
   }
+  // joe's profile is public at A, and B's community reserves it by its locator there.
+  process.env.ARBOR_DATA_HOME = stateMac;
+  await makeProfilePublic((await accountProtocolClient({ configurationTree }, { required: true })).client, profileTree);
+  await reserveMembers(await deviceClient(b.url, "orchard-owner"), sandbox, { joe: `${new URL(a.url).origin}/~joe` });
   mac = await startArborSync(stateMac);
   phone = await startArborSync(statePhone);
 }, 60_000);
@@ -155,8 +164,7 @@ afterAll(async () => {
 });
 
 describe("Arbor Sync places folders under a placement root", () => {
-  test("the first device claims B and activates the placement root with a folder", async () => {
-    expect(await arbor(stateMac, mac.url, ["account", "place", b.url])).toContain(`Claimed placement account ${bOrigin}/~joe`);
+  test("the first device connects to B on first use and activates the placement root with a folder", async () => {
     rootFolder = join(sandbox, "orchard-root");
     await mkdir(rootFolder);
     await writeFile(join(rootFolder, "_index.md"), "# Joe at the orchard\n");
@@ -205,8 +213,7 @@ describe("Arbor Sync places folders under a placement root", () => {
     const profilePhone = join(sandbox, "profile-phone");
     await post(phone.url, "/v1/me/restore", { path: profilePhone, backup: JSON.parse(await readFile(backup, "utf8")), passphrase: PASSPHRASE });
     await post(phone.url, "/v1/bootstrap/pairings/claim", { payload: { version: 1, origin: new URL(a.url).origin, pairing: { id: offer.id, secret: offer.secret } } });
-    // The claim is already B's: the second device connects to it with its own key.
-    expect(await arbor(statePhone, phone.url, ["account", "place", b.url])).toContain(`Connected placement account ${bOrigin}/~joe`);
+    // The account is already B's: the second device connects to it with its own key on first use.
     researchPhone = join(sandbox, "research-phone");
     const output = await arbor(statePhone, phone.url, ["place", `${bOrigin}/~joe/research`, researchPhone]);
     expect(output).toContain(researchPhone);

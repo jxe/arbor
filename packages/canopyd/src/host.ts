@@ -501,10 +501,9 @@ export async function serveHost(options: {
           return json(await canopy.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
-          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown; homeHost?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
-            || (body.homeHost !== undefined && typeof body.homeHost !== "string")) {
-            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL and home host");
+          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
+          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
+            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
           }
           return json(canopy.createAccountChallenge({
             origin: publicOrigin,
@@ -512,7 +511,6 @@ export async function serveHost(options: {
             profileTree: body.profileTree,
             configurationTree: body.configurationTree,
             inviteCode: body.inviteCode as string | undefined,
-            ...(body.homeHost !== undefined ? { homeHost: body.homeHost as string } : {}),
           }), 201);
         }
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
@@ -579,30 +577,6 @@ export async function serveHost(options: {
           let accountURL: URL | undefined;
           try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
           const reservation = accountURL?.origin === publicOrigin ? canopy.accountReservation(body.account as string) : null;
-          // A placement claim (accounts §1.3): a challenge naming a home host, and no device or configuration.
-          if (body.challenge && typeof body.challenge === "object" && "homeHost" in body.challenge) {
-            if (
-              !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
-              || typeof body.publicKey !== "string" || typeof body.signature !== "string"
-              || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
-            ) throw new Error("A placement claim requires an exact community reservation and the profile key's signature");
-            if (body.device !== undefined || body.configuration !== undefined) throw new Error("A placement claim carries no device and no configuration");
-            if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
-              throw new Error("Account reservation names a different profile TreeID");
-            }
-            const placed = await canopy.claimPlacementAccount({
-              accountLocator: body.account as string,
-              handle: reservation.handle,
-              origin: publicOrigin,
-              profileTree: body.profileTree,
-              configurationTree: body.configurationTree,
-              challenge: body.challenge,
-              publicKey: body.publicKey,
-              signature: body.signature,
-              inviteCode: body.inviteCode as string | undefined,
-            });
-            return wire({ account: accountDescriptor(publicOrigin, canopy, placed.account) }, answerEncoding(request), 201);
-          }
           if (
             !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
             || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"

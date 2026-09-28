@@ -14,7 +14,7 @@ The live schema is 27; the batch ends at 28.
 
 | Step | Change | Product change at cutover |
 |---|---|---|
-| [028](steps/028-profile-locator-pins.ts) | `profile_locator_pins` (empty): the Profile TreeID each profile locator first resolved to. | Qualified profile locators ([Security 011](../../../../plans/soon/011-placement-by-reservation.md)): members and rules may name a profile on another host by its locator there, pinned to its first TreeID; a member naming another host's locator is a placement account with its root declared on accept; the placement claim and `homeHost` go. |
+| [028](steps/028-profile-locator-pins.ts) | `profile_locator_pins` (empty): per tree, the Profile TreeID each profile locator its configuration names first resolved to. | Qualified profile locators ([Security 011](../../../../plans/soon/011-placement-by-reservation.md)): members and rules may name a profile on another host by its locator there, pinned to its first TreeID; a member naming another host's locator is a placement account with its root declared on accept; the placement claim and `homeHost` go. |
 
 ## Adding a step
 

@@ -6,13 +6,15 @@ import { arborPrivateRoot, HostAccountStore, HostPlacementStore, treeConfigurati
 import { ArborSyncDaemon, serveArborSyncControl } from "@overstory/arborsync";
 import { serveHost } from "@overstory/canopyd";
 import { accountProtocolClient, ProfileIdentityStore } from "@overstory/client";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
+import { makeProfilePublic, reserveMembers } from "../helpers/community-reservations.ts";
+import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 /**
- * Security 007, Phase 3: `arbor account place` claims a placement account at
- * a second host with the profile key and records it beside the home
- * connection, whose device key then opens sessions there.
+ * Security 011: once a second host's community reserves the profile by its
+ * locator at the home host, `arbor place` onto that host connects to the
+ * placement account on first use (accounts §1.3) and records it beside the
+ * home connection, whose device key then opens sessions there.
  */
 
 let sandbox: string;
@@ -38,24 +40,27 @@ async function arbor(args: string[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  sandbox = await realpath(await mkdtemp(join(tmpdir(), "arbor-cli-account-place-")));
+  sandbox = await realpath(await mkdtemp(join(tmpdir(), "arbor-cli-place-connect-")));
   state = join(sandbox, "state");
   profile = join(sandbox, "profile");
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
   process.env.ARBOR_DATA_HOME = state;
   profileTree = (await new ProfileIdentityStore().create(profile)).profileTree;
-  const host = (name: string, handle: string) => serveHost({
-    dataRoot: join(sandbox, name), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    community: { handle, name: handle, firstWriter: { handle: "joe", profileTree } },
+  home = await serveHost({
+    dataRoot: join(sandbox, "home"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+    community: { handle: "garden", name: "garden", firstWriter: { handle: "joe", profileTree } },
   });
-  home = await host("home", "garden");
-  placement = await host("placement", "orchard");
+  placement = await serveHost({
+    dataRoot: join(sandbox, "placement"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+    community: { handle: "orchard", name: "orchard" }, accounts: [testAccount("owner", "orchard-owner", { communityWriter: true })],
+  });
   const daemon = await ArborSyncDaemon.open(profile);
   try {
     await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${home.url}/~joe`, profile, "Joe");
   } finally {
     await daemon[Symbol.asyncDispose]();
   }
+  await makeProfilePublic((await accountProtocolClient({ configurationTree: treeConfigurationID(profileTree) }, { required: true })).client, profileTree);
 });
 
 afterAll(async () => {
@@ -68,18 +73,24 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-describe("arbor account place", () => {
-  test("refuses the profile's own home host", async () => {
-    await expect(arbor(["account", "place", home.url])).rejects.toThrow("home host");
+describe("arbor place onto a placement host", () => {
+  test("a host that reserved nothing for the profile says what to reserve", async () => {
+    const folder = join(sandbox, "early");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "_index.md"), "# Too early\n");
+    await expect(arbor(["place", folder, `${placement.url}/~joe`])).rejects.toThrow(`reserve ${home.url}/~joe`);
+    process.env.ARBOR_DATA_HOME = state;
+    expect(await HostPlacementStore.list()).toHaveLength(0);
   });
 
-  test("claims the placement account and records it beside the home connection, which stays as it was", async () => {
+  test("connects on first use once the host's community reserves the profile's locator, and places the root", async () => {
+    await reserveMembers(await deviceClient(placement.url, "orchard-owner"), sandbox, { joe: `${home.url}/~joe` });
     const configurationTree = treeConfigurationID(profileTree);
     const before = await new HostAccountStore(configurationTree).safe();
-    const output = await arbor(["account", "place", placement.url]);
-    expect(output).toContain(`Claimed placement account ${placement.url}/~joe`);
-    expect(output).toContain(`Home host: ${home.url}`);
-    expect(output).toContain("(not yet activated)");
+    const folder = join(sandbox, "root");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "_index.md"), "# Joe at the orchard\n");
+    expect(await arbor(["place", folder, `${placement.url}/~joe`])).toContain(`${placement.url}/~joe ↔ ${folder}`);
     process.env.ARBOR_DATA_HOME = state;
     // The home connection is unchanged and is still the only one `list` returns.
     expect(await new HostAccountStore(configurationTree).safe()).toEqual(before);
@@ -91,13 +102,7 @@ describe("arbor account place", () => {
     expect(await arbor(["account"])).toContain(`Placement: ${placement.url}/~joe (root ${record!.placementRoot})`);
   });
 
-  test("running it again connects to the account instead of claiming it twice", async () => {
-    expect(await arbor(["account", "place", `${placement.url}/~joe`])).toContain(`Connected placement account ${placement.url}/~joe`);
-    process.env.ARBOR_DATA_HOME = state;
-    expect(await HostPlacementStore.list()).toHaveLength(1);
-  });
-
-  test("the home device key opens a session there, and an administrator device places a tree under the placement root", async () => {
+  test("the home device key opens a session there, and reads the activated placement root", async () => {
     process.env.ARBOR_DATA_HOME = state;
     const configurationTree = treeConfigurationID(profileTree);
     const atHome = await accountProtocolClient({ configurationTree });
@@ -110,11 +115,9 @@ describe("arbor account place", () => {
     const { account } = await selected.client.placementAccount();
     const deviceID = (await new HostAccountStore(configurationTree).safe())!.deviceID;
     expect(account).toMatchObject({ profileTree, homeHost: home.url, device: { id: deviceID } });
+  });
 
-    const folder = join(sandbox, "root");
-    await mkdir(folder, { recursive: true });
-    await writeFile(join(folder, "_index.md"), "# Joe at the orchard\n");
-    await selected.client.submitUpdate(account.placementRoot.id, null, await resolveSnapshot(await snapshotDirectory(folder)));
-    expect((await selected.client.placementAccount()).account.placementRoot.tree).toMatchObject({ canonical: { path: "/~joe" }, access: "write" });
+  test("arbor account place is gone", async () => {
+    await expect(arbor(["account", "place", placement.url])).rejects.toThrow();
   });
 });

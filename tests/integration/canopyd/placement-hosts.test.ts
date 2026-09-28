@@ -7,6 +7,7 @@ import { serveHost } from "@overstory/canopyd";
 import {
   accountChallengeBytes,
   activationElement,
+  decodeProtocolDirectory,
   deviceSessionChallengeBytes,
   generateArborID,
   initialPersonConfig,
@@ -15,7 +16,6 @@ import {
   snapshotTreeConfig,
   treeConfigurationID,
   ProtocolHTTPError,
-  type AccountChallenge,
   type TreeSnapshot,
 } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
@@ -23,13 +23,14 @@ import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-con
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 /**
- * Security 007: a profile whose home is host A claims a placement account on
- * host B, which reads A's published device keys (accounts §1.3, §5.4).
- * Security 009: B keeps serving its copy through a grace while A is down, and
- * a rule on B naming a group A holds matches that group's members (access
- * control §3.3). Both hosts are local canopyd instances; B reads A through
- * proxies the test can count and cut, with lifetimes short enough to watch
- * them run out.
+ * Security 007 and 011: B's community reserves ~alice by the locator of her
+ * profile at her home host A, which makes her a placement account on B that
+ * reads A's published device keys (accounts §1.3, §5.4). B keeps serving its
+ * copy through a grace while A is down, and a rule on B naming a group A
+ * holds, by its locator there, matches that group's members (access control
+ * §3.3); each locator is pinned to the TreeID it first resolved to (locators
+ * §1). Both hosts are local canopyd instances; B reads A through proxies the
+ * test can count and cut, with lifetimes short enough to watch them run out.
  */
 
 const LIFETIME_MS = 1_000;
@@ -84,7 +85,8 @@ let groupProxy: ReturnType<typeof Bun.serve>;
 let groupHost: string;
 let groupHostReachable = true;
 
-/** Reserve handles on a host's community for exact profiles, as its owner. */
+/** Reserve handles on a host's community, as its owner: each for a Profile
+ * TreeID, or for a profile another host holds, by its locator there. */
 async function reserve(url: string, ownerName: string, members: Record<string, string>): Promise<void> {
   const owner = await deviceClient(url, ownerName);
   const account = await owner.account();
@@ -93,10 +95,14 @@ async function reserve(url: string, ownerName: string, members: Record<string, s
   await mkdir(source, { recursive: true });
   const lines = ["---", "type: group", "members:",
     "  -", `    profile: "arbor://${account.account.profileTree!}/"`, `    handle: "owner"`,
-    ...Object.entries(members).flatMap(([handle, profile]) => ["  -", `    profile: "arbor://${profile}/"`, `    handle: "${handle}"`]),
+    ...Object.entries(members).flatMap(([handle, profile]) => ["  -", `    profile: "${profile.startsWith("tr_") ? `arbor://${profile}/` : profile}"`, `    handle: "${handle}"`]),
     "---", "", "# Garden", ""];
   await writeFile(join(source, "_index.md"), lines.join("\n"));
-  const next = await resolveSnapshot(await snapshotDirectory(source, new Map([[join(source, "~owner"), account.account.profileTree!]])));
+  // Every tree the community root mounts keeps its entry: only _index.md changes.
+  const head = await owner.snapshot(community.tree.id, community.tree.root);
+  const mounted = decodeProtocolDirectory(head.objects.get(head.root)!).entries.flatMap((entry) =>
+    entry.tree ? [[join(source, entry.name), entry.tree] as [string, string]] : []);
+  const next = await resolveSnapshot(await snapshotDirectory(source, new Map(mounted)));
   await owner.submitUpdate(community.tree.id, community.tree.update, next);
 }
 
@@ -105,20 +111,6 @@ async function openSession(url: string, profileTree: string, device: string, key
   const challenge = await anonymous.createDeviceSessionChallenge({ profileTree, device });
   const session = await anonymous.openDeviceSession(challenge, key.sign(deviceSessionChallengeBytes(challenge)));
   return new ProtocolClient(url, session.token);
-}
-
-/** A placement claim at B for `who`, signed by its profile key. */
-async function placementClaim(who: ReturnType<typeof profileIdentity>, account: string, home: string) {
-  const client = new ProtocolClient(b.url);
-  const configurationTree = treeConfigurationID(who.profileTree);
-  const challenge: AccountChallenge = await client.createAccountChallenge({ account, profileTree: who.profileTree, configurationTree, homeHost: home });
-  return {
-    challenge,
-    claim: () => client.claimPlacementAccount({
-      account, profileTree: who.profileTree, configurationTree, challenge,
-      publicKey: who.publicKey, signature: who.sign(accountChallengeBytes(challenge)),
-    }),
-  };
 }
 
 async function until<T>(check: () => Promise<T | undefined>, timeoutMs: number): Promise<T> {
@@ -178,15 +170,22 @@ beforeAll(async () => {
     account: `${origin}/~alice`, profileTree: alice.profileTree, configurationTree, challenge,
     publicKey: alice.publicKey, signature: alice.sign(accountChallengeBytes(challenge)),
     device: { id: macID, label: "Alice's Mac", key: mac.key },
-    configuration: activationElement(snapshotTreeConfig(initialPersonConfig(alice.profileTree, { id: macID, label: "Alice's Mac", key: mac.key }))),
+    configuration: activationElement(snapshotTreeConfig(publicProfile(initialPersonConfig(alice.profileTree, { id: macID, label: "Alice's Mac", key: mac.key })))),
   });
   const macAtA = await openSession(a.url, alice.profileTree, macID, mac);
+  // Her profile is readable by anyone, so another host can resolve /~alice.
+  await macAtA.submitUpdate(alice.profileTree, null, await snapshotOf({ "_index.md": "---\ntype: person\ndisplayName: Alice\n---\n" }));
   const offer = await macAtA.createPairing();
   await new ProtocolClient(a.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Alice's phone", key: phone.key });
 
-  // B reserves ~alice for her and ~bob for someone else.
-  await reserve(b.url, "placement-owner-b", { alice: alice.profileTree, bob: bob.profileTree });
+  // B reserves ~bob for a profile of its own; ~alice comes below.
+  await reserve(b.url, "placement-owner-b", { bob: bob.profileTree });
 });
+
+/** A person configuration whose profile anyone may read. */
+function publicProfile<T extends { access: unknown[] }>(config: T): T {
+  return { ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] };
+}
 
 afterAll(async () => {
   proxy?.stop(true);
@@ -200,50 +199,30 @@ afterAll(async () => {
 
 let placementRoot: string;
 
-describe("claiming a placement account (accounts §1.3)", () => {
-  test("B refuses its own origin as the home host, an unreadable home host, and another profile's reservation", async () => {
-    const bOrigin = new URL(b.url).origin;
-    await expect(placementClaim(alice, `${bOrigin}/~alice`, bOrigin)).rejects.toThrow("names another host");
-
-    // A home host that does not answer: the challenge is issued, the claim refused, and nothing recorded.
+describe("reserving a placement account (accounts §1.3)", () => {
+  test("B refuses a reservation it cannot resolve, naming the host, and records nothing", async () => {
     const closed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("gone", { status: 404 }) });
     const unreadable = closed.url.origin;
     closed.stop(true);
-    const attempt = await placementClaim(alice, `${bOrigin}/~alice`, unreadable);
-    expect(attempt.challenge.homeHost).toBe(unreadable);
-    await expect(attempt.claim()).rejects.toThrow("does not publish its device keys");
+    const refused = await reserve(b.url, "placement-owner-b", { bob: bob.profileTree, carol: `${unreadable}/~carol` }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProtocolHTTPError);
+    expect(refused).toMatchObject({ status: 503, retryable: true, details: { homeHost: unreadable } });
+    // A locator A answers but that names no readable profile is refused outright.
+    await expect(reserve(b.url, "placement-owner-b", { bob: bob.profileTree, carol: `${homeHost}/~nobody` })).rejects.toThrow("does not name a readable profile");
     expect(b.canopy.account(alice.profileTree)).toBeNull();
-
-    // ~bob is reserved for another profile.
-    await expect(placementClaim(alice, `${bOrigin}/~bob`, homeHost)).rejects.toThrow("exact profile reservation");
-
-    // A signature over a challenge whose home host was altered does not verify.
-    const honest = await placementClaim(alice, `${bOrigin}/~alice`, homeHost);
-    const client = new ProtocolClient(b.url);
-    const altered = { ...honest.challenge, homeHost: unreadable };
-    await expect(client.claimPlacementAccount({
-      account: `${bOrigin}/~alice`, profileTree: alice.profileTree, configurationTree: treeConfigurationID(alice.profileTree),
-      challenge: altered, publicKey: alice.publicKey, signature: alice.sign(accountChallengeBytes(altered)),
-    })).rejects.toThrow("invalid");
   });
 
   test("B records the placement account with its home host and declares the placement root at /~alice", async () => {
-    const bOrigin = new URL(b.url).origin;
-    const { claim } = await placementClaim(alice, `${bOrigin}/~alice`, homeHost);
     const before = keyFetches;
-    const result = await claim();
+    await reserve(b.url, "placement-owner-b", { alice: `${homeHost}/~alice`, bob: bob.profileTree });
+    // B checked that A publishes her device keys before recording her.
     expect(keyFetches).toBe(before + 1);
-    expect(result.account).toMatchObject({
-      id: alice.profileTree, handle: "alice", profileTree: alice.profileTree, profileURL: null, homeHost,
-      placementRoot: { path: "/~alice", tree: null },
-    });
-    expect(result.account).not.toHaveProperty("configuration");
-    placementRoot = result.account.placementRoot.id;
     expect(b.canopy.account(alice.profileTree)).toEqual({ id: alice.profileTree, handle: "alice", enabled: true, homeHost });
-    // An exact replay answers the same account; a home claim of the same profile is refused.
-    expect((await claim()).account.placementRoot.id).toBe(placementRoot);
-    const home = new ProtocolClient(b.url);
-    await expect(home.createAccountChallenge({ account: `${bOrigin}/~alice`, profileTree: alice.profileTree, configurationTree: treeConfigurationID(alice.profileTree) }))
+    placementRoot = b.canopy.placementRootOf(b.canopy.account(alice.profileTree)!)!;
+    expect(placementRoot).toMatch(/^tr_/);
+    // A home claim of the same profile is refused.
+    const bOrigin = new URL(b.url).origin;
+    await expect(new ProtocolClient(b.url).createAccountChallenge({ account: `${bOrigin}/~alice`, profileTree: alice.profileTree, configurationTree: treeConfigurationID(alice.profileTree) }))
       .rejects.toThrow();
     // B never republishes the keys it read.
     await expect(new ProtocolClient(b.url).publishedDeviceKeys(alice.profileTree)).rejects.toThrow("not-found");
@@ -256,8 +235,6 @@ describe("claiming a placement account (accounts §1.3)", () => {
     // for an unknown device waits out the interval of the last fetch, and
     // those waiting share the one fetch that follows.
     const from = keyFetchTimes.length;
-    // Two rounds of two, within this file's challenge budget (30 per profile
-    // per ten minutes).
     for (let round = 0; round < 2; round++) {
       await Promise.all([0, 1].map(() => expect(unknown()).rejects.toThrow("not-found")));
     }
@@ -276,7 +253,8 @@ describe("sessions and trees on a placement host", () => {
     macAtB = await openSession(b.url, alice.profileTree, macID, mac);
     phoneAtB = await openSession(b.url, alice.profileTree, phoneID, phone);
     const { account } = await macAtB.placementAccount();
-    expect(account).toMatchObject({ profileTree: alice.profileTree, homeHost, handle: "alice", device: { id: macID } });
+    expect(account).toMatchObject({ profileTree: alice.profileTree, homeHost, handle: "alice", device: { id: macID }, placementRoot: { id: placementRoot, path: "/~alice", tree: null } });
+    expect(account).not.toHaveProperty("configuration");
     await expect(macAtB.account()).rejects.toThrow("placement host");
     // A session opened on B is B's alone.
     await expect(new ProtocolClient(a.url, (await (async () => {
@@ -383,11 +361,12 @@ describe("sessions and trees on a placement host", () => {
   });
 });
 
-describe("a rule on B naming a group A holds (access control §3.3)", () => {
+describe("a rule on B naming a group A holds by its locator (access control §3.3, locators §1)", () => {
   let ownerA: ProtocolClient;
+  let ownerProfile: string;
   let club: string;
-  let secret: string;
   let orchard: string;
+  const clubAt = () => `${groupHost}/~owner/club`;
 
   let session: ProtocolClient | undefined;
   /** Alice on B: one session, opened again once it ends (a session on B
@@ -423,26 +402,29 @@ describe("a rule on B naming a group A holds (access control §3.3)", () => {
   }
 
   beforeAll(async () => {
-    // A holds two groups listing alice: the club is public, the secret is not.
+    // A holds two groups listing alice, at /~owner/club and /~owner/secret:
+    // the club is public, the secret is not.
     ownerA = await deviceClient(a.url, "placement-owner-a");
-    club = await hostTree(ownerA, await groupSource([alice.profileTree]), { access: [{ who: "everyone", allow: ["read"] }] });
-    secret = await hostTree(ownerA, await groupSource([alice.profileTree]));
-    // B's owner grants the club read and the secret write on a tree of B's.
+    ownerProfile = (await ownerA.account()).account.profileTree!;
+    club = await hostTree(ownerA, await groupSource([alice.profileTree]), {
+      access: [{ who: "everyone", allow: ["read"] }], parent: { tree: ownerProfile, name: "club", kind: "person" },
+    });
+    await hostTree(ownerA, await groupSource([alice.profileTree]), { parent: { tree: ownerProfile, name: "secret", kind: "person" } });
+    // B's owner grants the club read on a tree of B's.
     const ownerB = await deviceClient(b.url, "placement-owner-b");
     orchard = await hostTree(ownerB, await snapshotOf({ "_index.md": "# Orchard\n" }), {
-      access: [
-        { who: { profile: club, homeHost: groupHost }, allow: ["read"] },
-        { who: { profile: secret, homeHost: groupHost }, allow: ["write"] },
-      ],
+      access: [{ who: { profile: clubAt() }, allow: ["read"] }],
     });
   });
 
-  test("a public remote group's member gains its access on B; a private one matches nobody", async () => {
+  test("a public remote group's member gains its access on B; a private group cannot be named", async () => {
     expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
-    // The club's rule is read; write would have come from the secret.
+    // B could not resolve the secret's locator, so no rule names it.
+    const ownerB = await deviceClient(b.url, "placement-owner-b");
+    await expect(editTreeConfig(ownerB, orchard, "tree", (values) => ({ ...values, access: [...values.access, { who: { profile: `${groupHost}/~owner/secret` }, allow: ["write"] }] })))
+      .rejects.toThrow("does not name a readable profile");
     expect(await aliceAccess()).toBe("read");
-    const bobless = await (await deviceClient(b.url, "placement-owner-b")).descriptor(orchard);
-    expect(bobless.tree.access).toBe("write");
+    expect(b.canopy.pinnedProfile(orchard, clubAt())).toBe(club);
   });
 
   test("a member removed at A loses the access on B, and its watch ends, within the refresh", async () => {
@@ -475,6 +457,18 @@ describe("a rule on B naming a group A holds (access control §3.3)", () => {
     }
     expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
   });
+
+  test("another group at the locator makes the rule match nobody until the rule is saved again, which pins afresh", async () => {
+    const other = await hostTree(ownerA, await groupSource([alice.profileTree]), { access: [{ who: "everyone", allow: ["read"] }] });
+    await editTreeConfig(ownerA, ownerProfile, "person", (values) => ({ ...values, mounts: { ...values.mounts, club: other } }));
+    expect(await until(async () => (await aliceAccess()) === null || undefined, LIFETIME_MS + 1_000)).toBe(true);
+    expect(b.canopy.pinnedProfile(orchard, clubAt())).toBeNull();
+    // Saving the rule again pins the locator to the group A names now.
+    const ownerB = await deviceClient(b.url, "placement-owner-b");
+    await editTreeConfig(ownerB, orchard, "tree", (values) => ({ ...values, access: [...values.access, { who: { profile: clubAt() }, allow: ["read"], within: "/notes" }] }));
+    expect(b.canopy.pinnedProfile(orchard, clubAt())).toBe(other);
+    expect(await until(async () => (await aliceAccess()) ?? undefined, LIFETIME_MS + 1_000)).toBe("read");
+  });
 });
 
 test("the placement root's configuration is B's own, readable by its administrators through /~alice;arbor-config", async () => {
@@ -486,4 +480,18 @@ test("the placement root's configuration is B's own, readable by its administrat
   expect(Object.values(root.mounts)).toHaveLength(1);
   expect(root.devices).toBeUndefined();
   expect(root.apps).toBeUndefined();
+});
+
+test("removing ~alice from B's members disables her placement account and ends its sessions; restoring it re-enables her", async () => {
+  const macAtB = await openSession(b.url, alice.profileTree, macID, mac);
+  await reserve(b.url, "placement-owner-b", { bob: bob.profileTree });
+  expect(b.canopy.account(alice.profileTree)?.enabled).toBe(false);
+  await expect(macAtB.placementAccount()).rejects.toThrow("unauthenticated");
+  await expect(openSession(b.url, alice.profileTree, macID, mac)).rejects.toThrow();
+  // Her placement root and its trees stay.
+  expect(b.canopy.get(placementRoot)?.status).toBe("active");
+  await reserve(b.url, "placement-owner-b", { alice: `${homeHost}/~alice`, bob: bob.profileTree });
+  expect(b.canopy.account(alice.profileTree)?.enabled).toBe(true);
+  expect(b.canopy.placementRootOf(b.canopy.account(alice.profileTree)!)).toBe(placementRoot);
+  expect((await (await openSession(b.url, alice.profileTree, macID, mac)).placementAccount()).account.placementRoot.id).toBe(placementRoot);
 });

@@ -5,7 +5,7 @@ import type { HostPlacementRecord, MutationReceipt } from "@overstory/protocol";
 import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolHTTPError, ProtocolTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore } from "@overstory/client";
 import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { claimLocalPairing, claimPlacementAccount, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+import { claimLocalPairing, connectPlacementAccount, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -78,18 +78,18 @@ export class LocalAccountService {
   }
 
   /**
-   * Claim a placement account for the data home's profile at `host`
-   * (accounts §1.3), as `arbor account place <host>` does, or connect to one
-   * already claimed. The data home holds the profile key and the device key,
-   * so a local app claims through here. A host's refusal keeps its error code,
-   * status and details, so a 403 or 503 still names `details.homeHost`.
+   * Connect the data home to its profile's placement account at `host`
+   * (accounts §1.3), which the host's community created by reserving the
+   * profile's locator: the device key opens a session there, as `arbor place`
+   * does on first use. A host's refusal keeps its error code, status and
+   * details, so a 403 or 503 still names `details.homeHost`.
    */
-  async claimPlacementAccount(host: string, inviteCode?: string): Promise<{ placement: HostPlacementRecord; claimed: boolean }> {
+  async connectPlacementAccount(host: string): Promise<{ placement: HostPlacementRecord }> {
     try {
-      const { record, claimed } = await claimPlacementAccount(host, inviteCode ? { inviteCode } : {});
+      const { record } = await connectPlacementAccount(host);
       // The tree registry checks placements.yaml hosts against these connections.
       this.deps.trees.invalidateDescriptors();
-      return { placement: record, claimed };
+      return { placement: record };
     } catch (error) {
       if (error instanceof ProtocolHTTPError) {
         throw new ProtocolError(error.code ?? codeForStatus(error.status), error.message, error.status, {
