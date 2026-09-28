@@ -17,10 +17,13 @@ if (!originalRoot || !migratedRoot) {
   process.exit(2);
 }
 
+/** Each tree with its kind: `trees.policy` where the schema still has it
+ * (before 30), otherwise whether it governs another tree. */
 function trees(dataRoot: string): Array<{ id: string; ref: `sha256:${string}`; policy: string }> {
   const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
   try {
-    return db.query("SELECT id, ref, policy FROM trees ORDER BY id").all() as Array<{ id: string; ref: `sha256:${string}`; policy: string }>;
+    const rows = db.query("SELECT * FROM trees ORDER BY id").all() as Array<{ id: string; ref: `sha256:${string}`; policy?: string; governs?: string | null }>;
+    return rows.map(({ id, ref, policy, governs }) => ({ id, ref, policy: policy ?? (governs ? "tree-config-v1" : "ordinary") }));
   } finally { db.close(); }
 }
 

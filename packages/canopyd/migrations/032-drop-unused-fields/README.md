@@ -40,3 +40,14 @@ bun run packages/canopyd/migrations/tools/compare-canopy-roots.ts before migrate
 
 - 2026-09-28: synthetic schema-29 host (`migrate.test.ts`, 5/5), rewritten
   from a root this build wrote.
+- 2026-09-28: live read-only check: 3 ordinary trees without `governs`
+  and 3 `tree-config-v1` trees with it; both `profile_facts` rows at
+  version 3; no pins, 4 pairings, 2 sessions.
+- 2026-09-28: live backup `.backups/railway/20260928T205405Z/volume.tar`
+  (sha256 `43ea282d…`, 173 MB; live and vacuumed row counts equal). The
+  archive's imports resolve under the image's `bun install --frozen-lockfile
+  --production`. `run.ts migrated`: 29 → 32 through 030, 031 and 032; a
+  rerun reports `migrated: false`; `assertCurrentHostSchema` and
+  `assertHostData` pass. `compare-canopy-roots` (now reading `governs` where
+  `trees.policy` is gone): all 6 roots unchanged. Served with this build:
+  `verify.ts --sync` ok (6 trees), `/.arbor/integrity` ok (called once).
