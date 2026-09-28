@@ -187,6 +187,7 @@ than it understands. The stamps that have shipped:
 | 24 | `profile_resets` dropped (batch 026, step 024). |
 | 25 | One `challenges` table with `purpose` (`account-claim` or `device-session`) replaces `account_challenges` and `device_challenges`; only redeemable rows are copied (batch 026, step 025). |
 | 26 | Key devices only (batch 026, step 026, Security 006): `devices.token_digest` is dropped and `public_key` is required unless the device is revoked. Wire change: sessions are the only device authentication, update and claim bodies may be CBOR, and `/v1/bootstrap` answers CBOR only; Mac, CLI, Arbor Sync and iPhone clients are replaced together. |
+| 27 | Placement accounts (batch 027, Security 007): `accounts.home_host` names the profile's home host on a placement host, NULL on its home. No wire break: placement claims, the placement descriptor, and sessions from the home host's published device keys are additive, and Security 009's grace and remote groups need no schema. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local

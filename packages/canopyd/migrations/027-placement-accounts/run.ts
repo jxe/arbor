@@ -3,8 +3,8 @@ import { runBatch, type BatchReport } from "../tools/batch.ts";
 import { placementAccounts } from "./steps/027-placement-accounts.ts";
 
 /**
- * The next batch: schema 26 to 27 through step 027, run once against the
- * live data root. README.md lists the steps, the product change each brings,
+ * Migration 027: schema 26 to 27 through step 027, run once against the
+ * live data root. README.md lists the step, the product change it brought,
  * and the runbook.
  */
 export const steps = [placementAccounts];
