@@ -135,7 +135,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       placementsValid = false;
       diagnostics.push({
         code: "unknown-placement-host",
-        message: `Placement ${placement.path} names ${endpoint}, where account ${placement.configurationTree} has no placement connection; run \`arbor account place ${endpoint}\``,
+        message: `Placement ${placement.path} names ${endpoint}, where account ${placement.configurationTree} has no placement connection; place a folder there with \`arbor place\` to connect`,
         path: placementsFilePath(),
         severity: "warning",
       });

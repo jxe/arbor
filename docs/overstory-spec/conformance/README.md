@@ -107,7 +107,7 @@ authority for the implemented subset; the request grammar itself is in
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject's `homeHost` ([access control §1](../05-access-control.md#1-subjects-and-rules)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which leave out `homeHost`, and one home host per profile), and the safe projection, which redacts a link and keeps a `homeHost`; consumed by `@overstory/protocol` and Swift `Overstory`.
+- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject named by its locator at another host ([access control §1](../05-access-control.md#1-subjects-and-rules)), the locators' canonical spelling and origin (`locators`, [locators §1](../03-locators.md#1-forms)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which compare a locator in its canonical spelling), and the safe projection, which redacts a link and keeps a locator; consumed by `@overstory/protocol` and Swift `Overstory`.
 - `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@overstory/protocol` (derivation also by Swift `Overstory`).
 - `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@overstory/protocol`, canopyd and Swift `Overstory`.
 
@@ -128,7 +128,7 @@ authority for the implemented subset; the request grammar itself is in
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
-| `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, `homeHost`, and one file's rules |
+| `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |
 | `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |
 | `source-copy.json`, `source-preservation.json` | Source transfer and exact-byte preservation |
 | `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |
@@ -140,6 +140,6 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
 
-`protocol-account-challenges.json` covers community-address, exact-account, invitation-code and placement challenge requests. All return the same complete account-bound challenge, the placement one with `homeHost` ([accounts §1.3](../04-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a home and a placement challenge that differ only in `homeHost`, with their signatures, so that neither verifies over the other. TypeScript and Swift clients consume these cases.
+`protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts §1.3](../04-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
 
 `errors.json` includes the two errors a placement host names the home host in, as `details.homeHost`: `permission-denied` for a route that belongs to the home host, and a retryable `internal-error` when the home host's device keys cannot be refreshed ([accounts §5.4](../04-accounts-and-devices.md#54-published-device-keys)).

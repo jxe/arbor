@@ -119,15 +119,20 @@ configurations have their shape, and the tests for each refused case, are in
   ([accounts §1.3, §5.4](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
   A placement account is an `accounts` row whose `home_host` names the
   profile's home origin (NULL for a home account, [schema 27](../../../packages/canopyd/migrations/027-placement-accounts/README.md)).
-  The claim (`claimPlacementAccount`) takes the same reservation and
-  profile-key proof as a home claim, with `homeHost` in the signed challenge
-  and no device or configuration; it refuses this host's own origin, a plain
-  `http:` home unless this host is itself served over `http:` (local hosts
-  only), and a home whose device keys it cannot read now. One transaction
-  records the account and declares its **placement root**: an ordinary tree
-  with a fresh TreeID, mounted as the member mount at `/~handle`, whose
-  configuration grants the profile `admin` and mounts nothing; the person's
-  first snapshot activates it. The device-key copies are memory only
+  There is no placement claim: a community member naming a profile by its
+  locator at another host (`profile: https://home.example/~alice`) is one.
+  When an accept of the community root adds such a member,
+  `preparePlacements` in `canopy.ts` resolves and pins the locator (below),
+  refuses a profile this host already holds or a home whose device keys it
+  cannot read now, and prepares the account's **placement root**: an
+  ordinary tree with a fresh TreeID, mounted as the member mount at
+  `/~handle`, whose configuration grants the profile `admin` and mounts
+  nothing. The accept's transaction writes the pin, the account and the root
+  (`applyProfileUpdate`); the person's first snapshot activates the root.
+  Removing the member disables the account (`reconcileCommunityAccounts`)
+  and keeps its root. A plain `http:` locator is accepted only for a
+  loopback host, and read only when this host is itself served over `http:`
+  (local hosts only). The device-key copies are memory only
   (`PlacementDeviceKeys` in `placement.ts`): a copy serves for
   `deviceKeyLifetimeMs` (60 s); a challenge naming a DeviceID the copy lacks,
   or a fetch that failed, refetches at most once per `deviceKeyRefetchMs`
@@ -151,16 +156,33 @@ configurations have their shape, and the tests for each refused case, are in
   configuration tree, pairing and recovery are refused with 403
   `permission-denied` and `details.homeHost` (`PlacementAccountError`); the
   account descriptor carries `homeHost` and `placementRoot` and no
-  `configuration`. canopyd never republishes the keys it read, and code
+  `configuration`. A placement account opens no session once its member's
+  locator resolves to another profile (`placementPinHolds`), and its open
+  sessions end then; an unreachable home is left to the device keys' grace. canopyd never republishes the keys it read, and code
   acting for a placement account's caller gets only `everyone` grants and its
   trees' `app` rules: the caller lends nothing, since its `apps.yaml` is at
   its home (`executionAllows` in `access.ts`).
-- **Remote groups.** A profile subject with a `homeHost`
+- **Pinned locators.** A profile another host holds is named by its
+  canonical locator there, in a rule's `who.profile` or a community member
+  ([locators §1](../../overstory-spec/03-locators.md#1-forms);
+  `parseProfileLocator` in `@overstory/protocol`). `LocatorPins` in
+  `locator-pins.ts` keeps, per tree whose configuration names a locator,
+  the Profile TreeID it first resolved to (`profile_locator_pins`, schema
+  28): an accept resolves each locator the tree has no honoured pin for,
+  anonymously through `GET <origin>/.well-known/arbor<path>` (the locator
+  must be the root of a readable tree there), refuses the accept when it
+  cannot, and writes the pin in its transaction, dropping pins for locators
+  no longer named. Every pinned locator is resolved again on the remote
+  groups' schedule; one whose host now names another profile, or none, or
+  that has not answered for `remoteGroupStaleMs`, names nobody until an
+  accepted change of the file pins it afresh. Evaluation reads the pin
+  through `pinnedProfile` in the rule context (`subjectProfile`).
+- **Remote groups.** A locator subject whose pinned TreeID is a group
+  canopyd does not hold
   ([access control §3.3](../../overstory-spec/05-access-control.md#33-groups-another-host-holds))
-  naming a group whose tree canopyd does not hold matches through an
-  in-memory copy of that group's members (`RemoteGroups` in
-  `remote-groups.ts`, `isGroupMember` in `access.ts`). As for a placement
-  claim's home, a plain `http:` loopback `homeHost` is read only when canopyd
+  matches through an in-memory copy of that group's members at the
+  locator's origin (`RemoteGroups` in `remote-groups.ts`, `isGroupMember`
+  in `access.ts`). A plain `http:` loopback origin is read only when canopyd
   is itself served over `http:` (`servedOverHTTP`); a public host never reads
   its own loopback, and such a rule matches nobody there. canopyd reads the
   group anonymously from its host: `GET /.arbor/trees/{TreeID}`, then the
@@ -179,9 +201,9 @@ configurations have their shape, and the tests for each refused case, are in
   host: a missing copy matches nobody while its fetch runs. Any change in
   what a copy matches, including running out, invalidates the execution
   authority, which changes the authorization epoch, so watches and
-  executions check again. A group tree canopyd holds decides alone, whatever
-  `homeHost` a rule names for it, and a remote group counts only profiles
-  with an enabled account here, as a local one does.
+  executions check again. A group tree canopyd holds decides alone, and a
+  remote group counts only profiles with an enabled account here, as a local
+  one does.
 - **Errors.** A request canopyd cannot accept is a 400 with the reason; a
   failure of canopyd's own state, a component it trusts, the database, or a
   system call is a logged 500 whose detail stays in the log

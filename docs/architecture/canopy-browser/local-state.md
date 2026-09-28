@@ -87,13 +87,15 @@ A placement account ([accounts §1.3](../../overstory-spec/04-accounts-and-devic
 is a connection per (profile, placement host) that holds no key: every device
 signs in there with its own home device key, because the placement host
 accepts the devices the home host lists. The account panel lists an account's
-placements, places it on another host, and removes a connection from the
-device. On the Mac the connections are the data home's
+placements, adds another host, and removes a connection from the device. On the Mac the connections are the data home's
 (`accounts/<cfg>/placements/host-<hash>/`, see [the data home](../arborsync/data-home.md)),
-which the app reads and removes on disk (`DataHomePlacementStore`); claiming
-needs the data home's profile key, so the app asks the daemon
+which the app reads and removes on disk (`DataHomePlacementStore`); adding a
+host asks the daemon to connect with the data home's device key
 (`POST /v1/bootstrap/placements`), and an older daemon without that route
-answers 405, for which the app points to `arbor account place <url>`.
+answers 405, for which the app points to `arbor place`. On the iPhone,
+Add another host… connects with the iPhone's own device key
+(`connectPlacement(on:)`). Either way the host's community must first
+reserve the profile's URL at its home host (accounts §1.3).
 The Mac places new folders under a placement root as `arbor place` does.
 Making a folder an Overstory tree offers each placement account of an
 account this Mac administers as a destination beside the home host

@@ -7,8 +7,10 @@
 - **Risk:** MEDIUM. A placement host takes a profile's home host from its
   own administrator's word instead of the profile key's signature, and a
   profile on another host is named by its canonical locator there.
-- **State:** PHASE 1 DONE 2026-09-28 (spec prose); batch step 028 (the pin
-  table) waits in `migrations/next/`. Joe chose this over a claim on first use.
+- **State:** PHASES 1–3 DONE 2026-09-28 on branch `claude/security-011`,
+  not merged or deployed: the spec, canopyd (schema 28, batch step 028 in
+  `migrations/next/`), the CLI, Arbor Sync and Swift. Phase 4 cuts batch 028
+  over with the merge. Joe chose this over a claim on first use.
   Replaces the placement claim of
   [Security 007](007-placement-hosts.md) and the `homeHost` field Security 009
   added to rule subjects, both deployed 2026-09-28. No live placement account
@@ -114,42 +116,41 @@ the home host over HTTPS for the device list;
   implementation's tests read them: drop the placement challenge vectors and
   `homeHost` from `resource-policy.json`; add locator subjects and members.
 
-### Phase 2: canopyd
+### Phase 2: canopyd (done 2026-09-28, on the branch)
 
-- `memberReservations` (`packages/canopyd/src/profile.ts`) reads locator
-  members, and the community accept turns them into placement accounts;
-  disable removed ones.
-- Rules: `resource-policy.ts` and `remote-groups.ts` take the group's host
-  from the locator; `access.yaml` and `apps.yaml` lose `homeHost`, and the
-  one-host-per-profile check becomes one locator per profile.
-- The pin: the resolved TreeID per locator as host state (a schema step in
-  `migrations/next/` if it needs a table; the in-memory group copies are not
-  enough, since the pin must survive a restart), set when an entry is
-  accepted, cleared when it is edited or removed. Tests: a handle moved to
-  another profile at A matches nobody on B until the entry is edited; a
-  restart keeps the pin.
-- Remove the placement claim (`createAccountChallenge`'s `homeHost`,
-  `claimPlacementAccount`, `verifyAccountIdentityProof`'s placement branch).
-- Declare the placement root in the accept that adds the member; refuse the
-  update when the locator cannot be resolved.
-- Tests: `tests/integration/canopyd/placement-hosts.test.ts` reserves instead
-  of claiming; a removed member loses its sessions; a reservation naming B
-  itself is a home reservation.
+- `parseProfileLocator` and locator subjects in `@overstory/protocol`
+  (`resource-policy.ts`), with the canonical spelling in the shared vectors;
+  `homeHost` and its one-host-per-profile check are gone.
+- `LocatorPins` (`locator-pins.ts`, table `profile_locator_pins`, schema 28):
+  pinned per (tree, locator) when an accept first names it, or afresh when
+  its pin no longer holds; re-resolved on the remote groups' schedule; a
+  locator whose host names another profile, or none past the grace, names
+  nobody. A placement account's reservation waits on the device keys' grace
+  instead (`pinnedUnlessChanged`).
+- The community accept prepares and writes placement accounts, their pins
+  and roots (`preparePlacements`, `applyProfileUpdate`); removing the member
+  disables the account; a pin that stops holding ends its sessions. The
+  placement claim is gone from canopyd.
+- Tests: `tests/integration/canopyd/placement-hosts.test.ts` (reservation,
+  refusals naming the host, a remounted group name matching nobody until the
+  rule is saved again, removal and restore) and
+  `tests/unit/canopyd/locator-pins.test.ts`.
 
-### Phase 3: clients
+### Phase 3: clients (done 2026-09-28, on the branch)
 
-- CLI: `arbor place` onto a host connects on first use; `arbor account place`
-  and `POST /v1/bootstrap/placements` go; `arbor account` still lists
-  placements. A way for an administrator to reserve a qualified profile
-  (`arbor community reserve https://A/~joe` or an edit of the community page;
-  **Decide**).
-- Swift: Add another host… on the Mac and iPhone; drop the claim in
-  `PlacementAccounts.swift` and `Credentials.swift`; `homeHost` leaves
-  `ResourcePolicy.swift`, `ProfileConfigurationYAML.swift` and the sharing
-  view, which shows a locator subject's host from the locator; the group
-  member and sharing editors accept a qualified profile URL.
-- Tests: `arborsync-placement-host.test.ts` and `cli-account-place.test.ts`
-  rewritten around reservations.
+- CLI: `arbor place` onto another host connects on first use
+  (`connectPlacementAccount`), saying which profile URL to reserve when the
+  host has none; `arbor account place` is gone; Arbor Sync's
+  `POST /v1/bootstrap/placements` connects.
+- Swift: `ProfileLocator`; `connectPlacement(on:)`; Add another host… on the
+  Mac and iPhone; sharing subjects and app consents take locators, and a
+  profile URL at another host typed into the sharing field is the locator
+  subject; the app-rule editor takes a profile TreeID or URL.
+- Tests: `arborsync-placement-host.test.ts`, `arborsync-placement-route.test.ts`,
+  `cli-place-connect.test.ts`, the Swift packages and `CanopyAppTests`.
+- Left open: an administrator reserves a profile by editing the community
+  page's members (`profile: https://A/~joe`, `handle: joe`); a dedicated
+  command or app field for it is not built (**Decide** whether it is needed).
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 

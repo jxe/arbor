@@ -97,7 +97,7 @@ home, else the placement connection for that host (below), which must be
 recorded in this data home. A `host` with no placement connection makes the
 placement file invalid with an `unknown-placement-host` diagnostic, as an
 unknown configuration TreeID does, and the last valid projection stays
-active; `arbor account place <host>` records the connection. Arbor Sync then
+active; `arbor place` onto that host records the connection. Arbor Sync then
 lists, pushes, pulls and watches that tree at the placement host with the
 placement connection's session, and its folder moves (`arbor mv`) keep the
 `host`. A tree never changes hosts: `arbor mv` between two hosts' canonical
@@ -232,15 +232,18 @@ home's. `GET /v1/credential?configurationTree=…&origin=…` serves the session
 for a placement host to a local working-tree client, under the same loopback
 exposure as the home session.
 
-Two tools write a placement connection, both through `claimPlacementAccount`
-in `@overstory/client`, which signs with the data home's profile key: `arbor
-account place <host>`, and Arbor Sync's `POST /v1/bootstrap/placements`
+A placement account exists once the host's community reserves the
+profile's locator at its home host (accounts §1.3); there is no claim. Two
+tools write a placement connection, both through `connectPlacementAccount`
+in `@overstory/client`, which opens a session at the host with the data
+home's device key: `arbor place` onto that host, on first use, and Arbor
+Sync's `POST /v1/bootstrap/placements`
 ([the API](../../implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-declined-changes)),
-through which the Mac app claims, since the app never holds the profile key.
-Either one run again, or run on a second device that paired at the home
-host, connects to the account already claimed instead of claiming it twice.
-The Mac app then places folders under the placement root exactly as `arbor
-place` does, writing the `{tree, host}` form of `placements.yaml` above.
+through which the Mac app adds a host. A host with no reservation for the
+profile refuses the session, and the error names the profile URL to
+reserve. Any device paired at the home host connects the same way. The Mac
+app then places folders under the placement root exactly as `arbor place`
+does, writing the `{tree, host}` form of `placements.yaml` above.
 
 ## Migration
 

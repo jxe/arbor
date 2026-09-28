@@ -98,8 +98,12 @@ arbor place --access public=read ./handbook https://garden.example/~joe/handbook
 arbor place https://garden.example/~joe/handbook ~/Documents/handbook
 ```
 
-A URL on a host where you hold a placement account (`arbor account place`)
-selects that account: both forms then create or place the tree on that host,
+A URL on another host selects your placement account there, once that
+host's community has reserved your profile by its URL at your home host
+(such as `https://garden.example/~joe`; [accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
+The first `arbor place` onto the host connects this device to that account
+with its own device key; without a reservation it says what to ask the
+host's administrators to reserve. Both forms then create or place the tree on that host,
 under your placement root, and Arbor Sync syncs it there with the same device
 key. The placement root's own URL, while the root is not yet active,
 activates it with the folder's content; once active, place it with the
@@ -109,10 +113,10 @@ folder is recorded in `placements.yaml` with that host
 ([the format](../architecture/arborsync/data-home.md#placementsyaml)).
 
 ```sh
-arbor account place https://orchard.example
+# After orchard.example's community reserves https://garden.example/~joe as ~joe:
 arbor place ./orchard https://orchard.example/~joe
 arbor place ./research https://orchard.example/~joe/research
-# On another device paired at your home host, after `arbor account place` there:
+# On another device paired at your home host:
 arbor place https://orchard.example/~joe/research ~/Documents/research
 ```
 
@@ -281,22 +285,15 @@ it. `--account` is needed only when several accounts are connected.
 
 ```text
 arbor account
-arbor account place [--invite <code>] <placement-host-url>
 ```
 
 `arbor account` lists this installation's home account and the profile's
-placement accounts, each with the folders placed on it. `arbor account place` claims a placement account for your
-profile at another host
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)):
-the host must have reserved an account for your Profile TreeID (or give you
-an invitation code), and your profile key signs which host is your home. The
-host then accepts every device your home host lists, with the same key, and
-declares your placement root at the account's address as the parent of your
-trees there. Give the host's origin, or the exact account URL when it
-reserved several. Running it again reconnects to an account already claimed;
-another of your devices, once paired at your home host, runs it to connect
-to the same account. `arbor place` then places folders under the placement
-root (above).
+placement accounts, each with the folders placed on it. A placement account
+([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts))
+is made by the other host, not claimed: its community reserves your profile
+by its URL at your home host, which gives you a placement root at the
+account's address, and that host accepts every device your home host lists.
+`arbor place` connects to it on first use (above).
 
 ### `arbor daemon`
 

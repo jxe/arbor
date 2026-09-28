@@ -372,26 +372,24 @@ It verifies the returned device, profile and community and refuses to overwrite
 an existing checkout with different contents. It does not generate a profile key.
 Pairing codes and device credentials must never be logged.
 
-`POST /v1/bootstrap/placements` accepts `{ host, inviteCode? }` and claims a
-placement account for the data home's profile at `host`
+`POST /v1/bootstrap/placements` accepts `{ host }` and connects the data
+home's profile to its placement account at `host`
 ([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)),
-exactly as `arbor account place <host>` does (`claimPlacementAccount` in
-`@overstory/client`): the profile key signs a challenge naming the profile's
-home host, and the device then opens a session there with the key it uses at
-home. `host` is an HTTPS Canopy URL (plain HTTP only on loopback), either the
-host's origin or the exact account URL. It answers
-`{ placement, claimed }`, where `placement` is the connection record the data
-home now holds (`HostPlacementRecord`: `configurationTree`, `origin`,
-`account`, `accountID`, `handle?`, `profileTree`, `homeHost`,
-`placementRoot`, `placed`), with `201` when this call claimed the account and
-`200` when it connected to one the profile already holds there (a second
-device, or a claim whose answer was lost). A missing `host` is
-`400 invalid-request`; no identity, no connected home account, or a `host`
-that is the profile's home host is `409 conflict`. A placement host's refusal
-keeps its status, error code and details, so a `403` or `503` carries
-`details.homeHost`; an unreachable placement host is `503 internal-error`,
-retryable. The route exists because only the data home holds the profile key:
-the Mac app claims through it and never holds that key itself.
+which the host's community created by reserving the profile's URL at its
+home host, exactly as `arbor place` does on first use
+(`connectPlacementAccount` in `@overstory/client`): the device opens a
+session there with the key it uses at home. `host` is an HTTPS Canopy URL
+(plain HTTP only on loopback). It answers `200` with `{ placement }`, the
+connection record the data home now holds (`HostPlacementRecord`:
+`configurationTree`, `origin`, `account`, `accountID`, `handle?`,
+`profileTree`, `homeHost`, `placementRoot`, `placed`); connecting again
+answers the same. A missing `host` is `400 invalid-request`; no connected
+home account, or a `host` that is the profile's home host, is
+`409 conflict`; a host with no account for the profile is `404 not-found`,
+whose message names the profile URL to reserve. A placement host's refusal
+that names the home host keeps its status, error code and details, so a
+`403` or `503` carries `details.homeHost`; an unreachable placement host is
+`503 internal-error`, retryable. The Mac app adds hosts through it.
 
 
 Account bootstrap requires an existing self-certifying profile identity. It
