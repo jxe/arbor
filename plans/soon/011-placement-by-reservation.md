@@ -1,16 +1,18 @@
-# Security 011: Placement hosts by reservation, without a claim
+# Security 011: Qualified profile locators: placement by reservation, no `homeHost`
 
 ## Status
 
 - **Priority:** P3
 - **Effort:** M
 - **Risk:** MEDIUM. A placement host takes a profile's home host from its
-  own administrator's word instead of the profile key's signature.
+  own administrator's word instead of the profile key's signature, and a
+  profile on another host is named by its canonical locator there.
 - **State:** PLANNED 2026-09-28 (Joe chose it over a claim on first use).
   Replaces the placement claim of
-  [Security 007](007-placement-hosts.md), deployed 2026-09-28; nothing else
-  of 007 changes. No live placement account exists yet, so nothing needs
-  migrating.
+  [Security 007](007-placement-hosts.md) and the `homeHost` field Security 009
+  added to rule subjects, both deployed 2026-09-28. No live placement account
+  exists yet; live rules with `homeHost` are checked before the change
+  (Phase 4).
 - **Builds on:** [Security 007](007-placement-hosts.md) (published device
   keys, placement accounts, the placement root) and the grace and remote
   groups recorded in [status](../../status.md#trees-on-other-hosts--2026-09-28).
@@ -27,27 +29,42 @@ knows exactly whom they mean.
 
 ## The design
 
-**B's administrator names the person's qualified profile.** A community
-member entry may carry the home host the profile lives on:
+**A profile on another host is named by its locator there.** Wherever a
+profile or group is named (a community member, an `access.yaml` or `apps.yaml`
+rule's `who.profile`), the value is either a bare TreeID (or `arbor://tr_…/`),
+a profile this host holds, or a canonical locator at another host,
+`https://A/~joe` or `arbor://A/~joe` ([locators §1](../../docs/overstory-spec/03-locators.md#1-forms)).
+There is no `homeHost` field anywhere: the locator's authority says where to
+look.
 
 ```yaml
 members:
-  - profile: "arbor://tr_…/"      # the Profile TreeID, as today
+  - profile: https://arb.nxhx.org/~joe
     handle: joe
-    homeHost: https://arb.nxhx.org
 ```
 
-Clients let the administrator type `https://arb.nxhx.org/~joe` and write the
-entry: they resolve the URL at the named host to the Profile TreeID and record
-that host's origin as `homeHost`, the same `{profile, homeHost}` pair
-`access.yaml` already uses for remote groups. The stored entry names the
-TreeID, so a rename at the home host changes nothing on B.
+```yaml
+- who:
+    profile: https://arb.nxhx.org/~crew
+  allow: [read]
+```
+
+A host resolves such a locator at its authority (the canonical lookup of
+locators §1) to the TreeID, and refreshes it with the device keys or group
+members it reads there (60 s and 30 s, the one-hour grace). **Decide
+(recommended: pin):** the host records the TreeID it first resolved, as host
+state beside the account or rule index, and a later resolution to another
+TreeID makes the entry match nobody until it is edited; without the pin, a
+rename or reuse of the handle at the other host moves the reservation or the
+rule with it. Either way, locators §1's "profile identity equality comes only
+from the profile TreeID" gains this exception, which the spec states.
 
 **The reservation is the placement account.** When B accepts a community
-update, each member with a `homeHost` other than B becomes a placement account
-(`accounts` row with `home_host`, schema 27 as deployed), and removing the
-member disables it, ending its sessions and watches as a device deletion does.
-A member without `homeHost` is a home reservation, claimed as today.
+update, each member whose profile is a locator at another host becomes a
+placement account (`accounts` row with `home_host`, the locator's origin, schema
+27 as deployed), and removing the member disables it, ending its sessions and
+watches as a device deletion does. A member naming a TreeID is a home
+reservation, claimed as today.
 
 **Devices connect with no claim.** A device of that profile opens a session on
 B exactly as under Security 007: B reads the home host's published device keys
@@ -76,17 +93,23 @@ the home host over HTTPS for the device list;
 
 ### Phase 1: spec
 
-- Accounts §1.3 rewritten: a placement account comes from a reservation with
-  `homeHost`; no placement challenge or claim; the placement root's creation;
-  disabling on removal. §1 (reservations) and access control §3.3 gain the
-  member `homeHost`. Conformance: drop the placement challenge vectors, add a
-  member entry with `homeHost`.
+- Locators §1: profile subjects may be canonical locators at another host,
+  and the pin (or not). Accounts §1.3 rewritten: a placement account comes
+  from a reservation naming a locator at another host; no placement challenge
+  or claim; the placement root's creation; disabling on removal. Access
+  control §1 and §3.3: `who.profile` is a TreeID or such a locator, and
+  `homeHost` goes. Conformance: drop the placement challenge vectors and
+  `homeHost` from `resource-policy.json`; add locator subjects and members.
 
 ### Phase 2: canopyd
 
-- Read `homeHost` in `memberReservations` (`packages/canopyd/src/profile.ts`)
-  and turn such members into placement accounts in the community accept;
+- `memberReservations` (`packages/canopyd/src/profile.ts`) reads locator
+  members, and the community accept turns them into placement accounts;
   disable removed ones.
+- Rules: `resource-policy.ts` and `remote-groups.ts` take the group's host
+  from the locator; `access.yaml` and `apps.yaml` lose `homeHost`, and the
+  one-host-per-profile check becomes one locator per profile.
+- The pin, if chosen: the resolved TreeID per locator as host state.
 - Remove the placement claim (`createAccountChallenge`'s `homeHost`,
   `claimPlacementAccount`, `verifyAccountIdentityProof`'s placement branch).
 - Declare the placement root per the decision above.
@@ -102,13 +125,17 @@ the home host over HTTPS for the device list;
   (`arbor community reserve https://A/~joe` or an edit of the community page;
   **Decide**).
 - Swift: Add another host… on the Mac and iPhone; drop the claim in
-  `PlacementAccounts.swift` and `Credentials.swift`; the group member editor
-  accepts a qualified profile URL.
+  `PlacementAccounts.swift` and `Credentials.swift`; `homeHost` leaves
+  `ResourcePolicy.swift`, `ProfileConfigurationYAML.swift` and the sharing
+  view, which shows a locator subject's host from the locator; the group
+  member and sharing editors accept a qualified profile URL.
 - Tests: `arborsync-placement-host.test.ts` and `cli-account-place.test.ts`
   rewritten around reservations.
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- No schema change. The placement claim routes disappear, a wire change for
-  clients that claim; no live placement account uses them. Deploy canopyd with
-  the clients, then record in `status.md` and delete this plan.
+- No schema change. The placement claim routes disappear, and `homeHost`
+  in configuration files becomes invalid: a clean break (sole user). Check the
+  live `tree_policy` and `app_policy` for `homeHost` first and rewrite any
+  such rule as a locator in the same deploy. Deploy canopyd with the clients,
+  then record in `status.md` and delete this plan.

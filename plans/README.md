@@ -12,7 +12,7 @@ Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's 
 | Plan | What it does |
 |---|---|
 | Security [007](soon/007-placement-hosts.md) | Place trees on other hosts using the home host's published device keys |
-| Security [011](soon/011-placement-by-reservation.md) | A placement host's administrator names a person's qualified profile, replacing the placement claim |
+| Security [011](soon/011-placement-by-reservation.md) | Name profiles on other hosts by locator (`https://A/~joe`): placement by reservation, no claim, no `homeHost` |
 
 ## Remaining outcomes
 
