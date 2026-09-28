@@ -5088,6 +5088,9 @@ private struct CanopyProfileMembersSheet: View {
                                 && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 && ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil))
                 }
+                // A row inserted when the toggle flips is not drawn in a sheet's
+                // List on macOS; rebuilding the section draws the URL field.
+                .id(inviteByCode)
                 if let issuedCode {
                     Section("Invitation code") {
                         if let issuedLink {
