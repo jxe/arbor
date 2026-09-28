@@ -11,8 +11,8 @@
   Replaces the placement claim of
   [Security 007](007-placement-hosts.md) and the `homeHost` field Security 009
   added to rule subjects, both deployed 2026-09-28. No live placement account
-  exists yet; live rules with `homeHost` are checked before the change
-  (Phase 4).
+  exists yet, and on 2026-09-28 no live `tree_policy` or `app_policy` rule
+  used `homeHost` (3 and 0 rows), so nothing needs rewriting.
 - **Builds on:** [Security 007](007-placement-hosts.md) (published device
   keys, placement accounts, the placement root) and the grace and remote
   groups recorded in [status](../../status.md#trees-on-other-hosts--2026-09-28).
@@ -64,18 +64,22 @@ the other host fails closed instead of moving the reservation or the rule, and
 identity stays the TreeID: locators §1 states that a locator subject names the
 TreeID it was pinned to.
 
-**The reservation is the placement account.** When B accepts a community
-update, each member whose profile is a locator at another host becomes a
-placement account (`accounts` row with `home_host`, the locator's origin, schema
-27 as deployed), and removing the member disables it, ending its sessions and
-watches as a device deletion does. A member naming a TreeID is a home
-reservation, claimed as today.
+**The reservation is the placement account (decided, Joe, 2026-09-28).**
+When B accepts a community update that adds a member whose profile is a
+locator at another host, it resolves the locator there and, in the accept's
+transaction, pins the TreeID, records the placement account (`accounts` row
+with `home_host`, the locator's origin, schema 27 as deployed) and declares its
+placement root at `/~handle`, as Security 007's claim did. If the locator
+cannot be resolved, B refuses the update, naming the host it could not read,
+and the administrator retries. Removing the member disables the account,
+ending its sessions and watches as a device deletion does; the root and the
+trees under it stay, as a disabled home account's do. A member naming a TreeID
+is a home reservation, claimed as today.
 
 **Devices connect with no claim.** A device of that profile opens a session on
 B exactly as under Security 007: B reads the home host's published device keys
-(60 s lifetime, early refetch, one-hour grace). The first session from an
-administrator device declares the placement root at `/~handle` (**Decide**:
-or B declares it when it accepts the member, in the same transaction).
+(60 s lifetime, early refetch, one-hour grace). Opening a session creates
+nothing.
 
 **Clients discover B by using it.** `arbor place <folder> https://B/~joe/x`
 opens a session at B with the device key; success records the placement
@@ -122,7 +126,8 @@ the home host over HTTPS for the device list;
   restart keeps the pin.
 - Remove the placement claim (`createAccountChallenge`'s `homeHost`,
   `claimPlacementAccount`, `verifyAccountIdentityProof`'s placement branch).
-- Declare the placement root per the decision above.
+- Declare the placement root in the accept that adds the member; refuse the
+  update when the locator cannot be resolved.
 - Tests: `tests/integration/canopyd/placement-hosts.test.ts` reserves instead
   of claiming; a removed member loses its sessions; a reservation naming B
   itself is a home reservation.
@@ -146,7 +151,6 @@ the home host over HTTPS for the device list;
 
 - No schema change beyond the pin's step, if it needs one (cut over as a
   batch). The placement claim routes disappear, and `homeHost`
-  in configuration files becomes invalid: a clean break (sole user). Check the
-  live `tree_policy` and `app_policy` for `homeHost` first and rewrite any
-  such rule as a locator in the same deploy. Deploy canopyd with the clients,
-  then record in `status.md` and delete this plan.
+  in configuration files becomes invalid: a clean break (sole user; no live
+  rule uses it as of 2026-09-28, recheck just before). Deploy canopyd with the
+  clients, then record in `status.md` and delete this plan.
