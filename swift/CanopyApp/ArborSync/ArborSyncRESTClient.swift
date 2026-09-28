@@ -14,6 +14,16 @@ struct ArborSyncServerError: Error, LocalizedError, Sendable {
     }
 
     var errorDescription: String? { value.message }
+
+    /// A refused credential as the protocol client reports a host's refusal:
+    /// a device the host no longer lists is a 401, a host that cannot check it
+    /// now keeps its retryable status, and a named home host stays named.
+    var credentialRefusal: ProtocolHTTPError {
+        var homeHost: String?
+        if case let .object(details)? = value.details, case let .string(host)? = details["homeHost"] { homeHost = host }
+        return ProtocolHTTPError(status: status == 409 ? 401 : status, code: value.code, message: value.message,
+                                 retryable: value.retryable, homeHost: homeHost)
+    }
 }
 
 /// The running Arbor Sync has no placement route yet; the `arbor` command

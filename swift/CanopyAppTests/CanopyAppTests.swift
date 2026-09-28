@@ -345,6 +345,21 @@ struct CanopyAppTests {
     }
 
 #if os(macOS)
+    @Test("A placement host's refused credential reads as a refusal naming the home host")
+    func placementCredentialRefusal() {
+        func refusal(_ status: Int, retryable: Bool) -> ProtocolHTTPError {
+            ArborSyncServerError(status: status, value: ArborSyncErrorValue(
+                code: status == 409 ? "unauthenticated" : "internal-error", message: "refused", retryable: retryable,
+                tree: nil, path: nil, details: .object(["homeHost": .string("https://garden.example")])
+            )).credentialRefusal
+        }
+        let unreachable = refusal(503, retryable: true)
+        #expect(unreachable.status == 503 && unreachable.retryable)
+        #expect(unreachable.localizedDescription.contains("can't reach the account's home host, garden.example"))
+        let unlisted = refusal(409, retryable: false)
+        #expect(unlisted.status == 401 && unlisted.homeHost == "https://garden.example")
+    }
+
     @Test("Bootstrap rejection banner includes the daemon's explanation")
     func rejectedBootstrapShowsServerExplanation() throws {
         let error = ArborSyncServerError(

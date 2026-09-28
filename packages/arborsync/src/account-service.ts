@@ -32,8 +32,18 @@ export class LocalAccountService {
           ? (await new HostAccountStore(configurationTree).get())?.accountToken
           : (await placement.get())?.accountToken;
       } catch (error) {
-        // The host refused to open a session for this device: it is not listed there any more.
-        if (error instanceof ProtocolHTTPError) throw new ProtocolError("credential-unavailable", `${origin} refused this device: ${error.message}`, 409);
+        if (error instanceof ProtocolHTTPError) {
+          // A placement host names the profile's home host when it cannot
+          // check the device (accounts §5.4); clients show it.
+          const homeHost = typeof error.details?.homeHost === "string" ? error.details.homeHost : undefined;
+          const details = (homeHost ? { homeHost } : {}) as ProtocolError["details"];
+          // It cannot check this device now (its home host is unreachable): a retry may succeed.
+          if (error.retryable) {
+            throw new ProtocolError(error.code ?? "internal-error", `${origin} cannot check this device now: ${error.message}`, 503, { retryable: true, ...details });
+          }
+          // The host refused to open a session for this device: it is not listed there any more.
+          throw new ProtocolError("credential-unavailable", `${origin} refused this device: ${error.message}`, 409, details);
+        }
         throw error;
       }
     } else if (configurationTree) {

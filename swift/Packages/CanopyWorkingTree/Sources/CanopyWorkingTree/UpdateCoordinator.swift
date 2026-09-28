@@ -505,7 +505,7 @@ public actor UpdateCoordinator {
 
     /// Classify a failure into the machine's taxonomy.
     private func fail(_ error: any Error, id: String?) {
-        failure = String(describing: error)
+        failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         if let http = error as? ProtocolHTTPError, http.status == 401 || http.status == 403 {
             dispatch(.authenticationFailed(reason: http.code))
             // A key device's session expires within the hour. The client has

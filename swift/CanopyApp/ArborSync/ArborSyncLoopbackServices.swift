@@ -50,7 +50,10 @@ actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
         let client = self.client
         let configurationTree = self.configurationTree
         let origin = self.origin
-        let task = Task { try await client.credential(configurationTree: configurationTree, origin: origin) }
+        let task = Task {
+            do { return try await client.credential(configurationTree: configurationTree, origin: origin) }
+            catch let error as ArborSyncServerError where error.status == 409 || error.status == 503 { throw error.credentialRefusal }
+        }
         inFlight = task
         let result = await task.result
         // An `invalidate()` during the fetch may have started a newer one; this

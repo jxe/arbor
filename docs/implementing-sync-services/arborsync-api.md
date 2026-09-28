@@ -300,7 +300,11 @@ A tree placed on a placement host names that host as its descriptor's
 `origin` without `configurationTree`, or one that is not an exact origin, is
 `400 invalid-request`; no placement connection there is `404 not-found`, and a
 host that refuses to open a session for the device (it is no longer listed) is
-`409` with error `unauthenticated`.
+`409` with error `unauthenticated`. A placement host that cannot check the
+device now, because the profile's home host has been unreachable past the
+grace ([accounts §5.4](../overstory-spec/04-accounts-and-devices.md#54-published-device-keys)), is
+`503` with `retryable: true`. Either keeps the host's `details.homeHost`, so a
+client can name the home host.
 Serving the token over loopback is deliberate and adds no authority: any
 local process running as the user can already read the credential store and
 write the placed folders the daemon synchronizes. `data-home.md` records

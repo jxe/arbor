@@ -1306,7 +1306,8 @@ public struct ProtocolHTTPError: Error, Sendable, Equatable {
     /// home host; nil for every other error.
     public var placementDescription: String? {
         guard let homeHost else { return nil }
-        let home = URL(string: homeHost)?.host() ?? homeHost
+        let url = URL(string: homeHost)
+        let home = url?.host().map { host in url?.port.map { "\(host):\($0)" } ?? host } ?? homeHost
         if status == 403 {
             return "This account is a placement. Its devices and settings are managed at its home host, \(home)."
         }
