@@ -52,13 +52,14 @@ crossing the insertion threshold. Hold the gap open while speaking: Apple's
 changing live draft appears in a provisional paragraph or list row with the
 same wrapping and spacing as the eventual block. Release to commit only the
 finalized transcript; the completed row remains selected in navigation mode.
-For a longer note, slide both fingers into the right quarter of the screen
-until the lock closes, then lift: recording continues until a tap anywhere.
-While locked, a horizontal swipe inserts a divider instead, and **Heading** and
-**Indent** buttons turn the note into an H1 or a nested bullet. If no speech is
-detected, or recording could not start, the row becomes a blank paragraph in
-navigation mode. Pinch audio and partial drafts are ephemeral and never enter
-voice recovery; a divider or a cancelled pinch discards them.
+For a longer note, slide both fingers a third of the way from where they opened
+toward the right edge: a haptic fires and a lock badge appears with **Heading**
+and **Indent** buttons, which turn the note into an H1 or a nested bullet. Lift
+while locked and recording continues until a tap anywhere; a horizontal swipe
+inserts a divider instead. If no speech is detected, or recording could not
+start, the row becomes a blank paragraph in navigation mode. Pinch audio and
+partial drafts are ephemeral and never enter voice recovery; a divider or a
+cancelled pinch discards them.
 Toolbar recording prefers the block being edited when recording starts and
 inserts the transcript at its caret. Page-level routing, including a `🎙`
 heading, applies only when recording starts outside edit mode. Toolbar recording
