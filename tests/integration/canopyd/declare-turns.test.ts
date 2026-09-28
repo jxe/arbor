@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
-import { generateArborID, snapshotTreeConfig, type ProtocolClient } from "@overstory/protocol";
+import { generateArborID, snapshotTreeConfig, type ProtocolClient, type ResourceAccessRule } from "@overstory/protocol";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 const token = "declare-turns-owner";
@@ -30,13 +30,14 @@ afterAll(async () => {
 });
 
 test("two declarations of one TreeID take turns: one is accepted and the other refused as a conflict, never a fault", async () => {
-  const profile = (await owner.account()).account.profileTree;
+  const profile = (await owner.account()).account.id;
   const tree = generateArborID("tr");
-  const declare = (label: string) => owner.declareTree(tree, snapshotTreeConfig({
-    access: [{ who: { profile }, allow: ["admin"] }, ...(label === "open" ? [{ who: "everyone" as const, allow: ["read" as const] }] : [])],
-    mounts: {},
-  }));
-  const [first, second] = await Promise.allSettled([declare("private"), declare("open")]);
+  const declare = (readable: boolean) => {
+    const access: ResourceAccessRule[] = [{ who: { profile }, allow: ["admin"] }];
+    if (readable) access.push({ who: "everyone", allow: ["read"] });
+    return owner.declareTree(tree, snapshotTreeConfig({ access, mounts: {} }));
+  };
+  const [first, second] = await Promise.allSettled([declare(false), declare(true)]);
   const settled = [first, second];
   expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(1);
   const refused = settled.find((result) => result.status === "rejected") as PromiseRejectedResult;

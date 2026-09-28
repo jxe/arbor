@@ -15,8 +15,8 @@ assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/mi
 lists every stamp. Startup reads only the schema: the stamp, then each table's
 columns and the indexes queries rely on. Any difference is a
 `SchemaMismatchError`, and `canopyd` serves maintenance mode rather than the
-data root. The row invariants (every tree has accepted history, every account
-a device, no foreign key dangles) scan whole tables, so the integrity audit
+data root. The row invariants (every tree has accepted history, every home
+account a device, no foreign key dangles) scan whole tables, so the integrity audit
 checks them instead.
 
 ## Accounts and canonical paths
@@ -49,7 +49,8 @@ configurations have their shape, and the tests for each refused case, are in
   this host is refused. Removing the entry disables the account.
 - **Mounts are the canonical paths.** Canonical boundaries are recomputed
   from `mounts.yaml`: the root at `/`, each member's profile at `/~handle`
-  (canopyd inserts that mount when the profile is claimed and activates), and
+  (canopyd inserts that mount when the profile is claimed; the boundary
+  follows once the profile tree activates), and
   every other mount below its parent's boundary. The root's `mounts.yaml`
   holds its other top-level names and may not name a reserved or claimed
   `~handle`. Mounting a tree requires administering both parent and child

@@ -123,6 +123,8 @@ export interface HostBootstrapAccount {
  * copies of groups other hosts hold (access control §3.3).
  */
 export interface HostDaemonOptions {
+  /** Whether this host is itself served over plain HTTP, as only a local host is. */
+  servedOverHTTP?: boolean;
   sessionLifetimeMs?: number;
   deviceKeyLifetimeMs?: number;
   deviceKeyRefetchMs?: number;
@@ -315,7 +317,8 @@ interface UpdatePolicy {
 
 export class HostDaemon implements AsyncDisposable {
   private readonly wireSchemas = new CollectionSchemaCache();
-  private readonly validatedGraphs = new Map<string, ValidatedGraph>();
+  /** Recently validated graphs by root, which a later candidate's validation starts from. */
+  private readonly validatedGraphs = new Recent<ValidatedGraph>(8, { weight: (graph) => graph.objects.size, maxWeight: 200_000 });
   /** Stored profile rows by TreeID (`treeProfile`), committed state only. */
   private readonly treeProfiles = new Map<string, TreeProfile>();
   private readonly db: Database;
@@ -380,13 +383,9 @@ export class HostDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openHostDatabase(databasePath);
     const canopy = new HostDaemon(dataRoot, db, mergeTool);
-    if (options.sessionLifetimeMs !== undefined) canopy.sessionLifetimeMs = options.sessionLifetimeMs;
-    if (options.deviceKeyLifetimeMs !== undefined) canopy.deviceKeyLifetimeMs = options.deviceKeyLifetimeMs;
-    if (options.deviceKeyRefetchMs !== undefined) canopy.deviceKeyRefetchMs = options.deviceKeyRefetchMs;
-    if (options.deviceKeyStaleMs !== undefined) canopy.deviceKeyStaleMs = options.deviceKeyStaleMs;
-    if (options.remoteGroupLifetimeMs !== undefined) canopy.remoteGroupLifetimeMs = options.remoteGroupLifetimeMs;
-    if (options.remoteGroupRefetchMs !== undefined) canopy.remoteGroupRefetchMs = options.remoteGroupRefetchMs;
-    if (options.remoteGroupStaleMs !== undefined) canopy.remoteGroupStaleMs = options.remoteGroupStaleMs;
+    for (const [name, value] of Object.entries(options) as Array<[keyof HostDaemonOptions, number | boolean | undefined]>) {
+      if (value !== undefined) (canopy as unknown as Record<keyof HostDaemonOptions, number | boolean>)[name] = value;
+    }
     await canopy.mergeTool.clearStaleJobs();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -662,11 +661,6 @@ export class HostDaemon implements AsyncDisposable {
     if (profile) this.refuseOwnConfigurationOf(profile.id);
   }
 
-  /** The home host of a placement account for this profile, or null. */
-  placementHomeHost(profileTree: string): string | null {
-    return this.accounts.account(profileTree)?.homeHost ?? null;
-  }
-
   createAccountChallenge(input: {
     origin: string;
     account?: string;
@@ -831,7 +825,7 @@ export class HostDaemon implements AsyncDisposable {
   remoteGroupStaleMs = 60 * 60 * 1000;
 
   /** Whether this host is itself served over plain HTTP, as only a local
-   * host is; `serveHost` sets it. Only such a host reads loopback peers. */
+   * host is (`HostDaemonOptions`). Only such a host reads loopback peers. */
   servedOverHTTP = false;
 
   /** Whether a rule's `homeHost` is one this host reads groups from: HTTPS,
@@ -1388,6 +1382,13 @@ export class HostDaemon implements AsyncDisposable {
   /** A tree's rules as its administrators see them; links redacted. */
   resourcePolicy(account: HostAccount, tree: string) {
     return this.canAdminister(account, tree) ? this.access.safePolicy(tree) : undefined;
+  }
+
+  /** Every profile an `access.yaml` rule of the tree names, whatever its
+   * scope, app or operations. */
+  ruleProfiles(tree: string): string[] {
+    return [...new Set(this.access.rules(tree).flatMap((rule) =>
+      typeof rule.who === "object" && "profile" in rule.who ? [rule.who.profile] : []))];
   }
 
   accessEntries(tree: string): HostAccessEntry[] {
@@ -2841,10 +2842,7 @@ export class HostDaemon implements AsyncDisposable {
       return bytes;
     };
     const result = await validateGraphChange(root, load, proposed, collection, basis);
-    this.validatedGraphs.delete(root);
     this.validatedGraphs.set(root, result);
-    while (this.validatedGraphs.size > 8 || [...this.validatedGraphs.values()].reduce((n, graph) => n + graph.objects.size, 0) > 200_000)
-      this.validatedGraphs.delete(this.validatedGraphs.keys().next().value!);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

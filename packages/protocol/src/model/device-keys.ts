@@ -146,3 +146,19 @@ export interface PublishedDeviceKeys {
   profileTree: string;
   devices: PublishedDeviceKey[];
 }
+
+/** A home host's published device keys for `profileTree`, checked before
+ * anyone trusts any of it: the profile it names, and each entry's DeviceID,
+ * key and administrator flag. */
+export function decodePublishedDeviceKeys(value: unknown, profileTree: string): PublishedDeviceKeys {
+  const body = value as Partial<PublishedDeviceKeys> | null;
+  if (!body || body.profileTree !== profileTree || !Array.isArray(body.devices)) throw new Error("The home host's device keys name another profile");
+  const devices = body.devices.map((entry): PublishedDeviceKey => {
+    if (!entry || typeof entry.id !== "string" || !isGeneratedArborID(entry.id, "dv") || typeof entry.key !== "string" || typeof entry.administrator !== "boolean") {
+      throw new Error("The home host's device keys are malformed");
+    }
+    parseDeviceKey(entry.key);
+    return { id: entry.id, key: entry.key, administrator: entry.administrator };
+  });
+  return { profileTree, devices };
+}

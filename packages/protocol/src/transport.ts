@@ -11,6 +11,7 @@ import type {
 } from "./updates/types.ts";
 import {
   parseSSEStream,
+  decodePublishedDeviceKeys,
   type AccessEntry,
   type OverstoryError,
   type EventCursor,
@@ -400,7 +401,7 @@ export class ProtocolClient {
   /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
   async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
     const response = await this.checked(await this.request(`/.arbor/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
-    return response.json();
+    return decodePublishedDeviceKeys(await response.json(), profileTree);
   }
 
   async createDeviceSessionChallenge(input: { profileTree: TreeID; device: string }): Promise<DeviceSessionChallenge> {

@@ -305,3 +305,11 @@ export function renderPublicDataPage(title: string, properties: Record<string, J
     .join("");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="arbor-document"><h1>${escapeHTML(title)}</h1><dl class="data-properties">${rows}</dl></article></main></body></html>`;
 }
+
+const NOTICE_STYLES = "body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}";
+
+/** A short page with no tree content: nothing published at an address, or
+ * the state of a person's reserved or linked address. `body` is HTML. */
+export function renderNoticePage(title: string, body: string): string {
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(title)}</title><style>${NOTICE_STYLES}</style>${body}`;
+}

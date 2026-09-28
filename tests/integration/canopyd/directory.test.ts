@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serveHost } from "@overstory/canopyd";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { editTreeConfig } from "../../helpers/tree-config.ts";
 
 let root: string;
 let running: Awaited<ReturnType<typeof serveHost>>;
@@ -45,6 +46,20 @@ describe("authenticated user directory", () => {
     const bob = directory.snapshot.find((entry) => entry.handle === "bob");
     expect(bob).toMatchObject({ kind: "person", displayName: "Bob Builder" });
     expect(bob?.sources).toContain("community");
+  });
+
+  test("lists a profile an administered tree's rules name, however narrowly scoped", async () => {
+    const alice = await deviceClient(running.url, "alice-directory-token");
+    const bob = await deviceClient(running.url, "bob-directory-token");
+    const own = (await alice.account()).account.id;
+    const bobProfile = (await bob.account()).account.id;
+    // Bob's profile tree is his; only Alice's rule on her own tree names him.
+    await editTreeConfig(alice, own, "person", (values) => ({
+      ...values,
+      access: [...values.access, { who: { profile: bobProfile }, within: "/notes", allow: ["read"] }],
+    }));
+    const entry = (await alice.directory()).snapshot.find((candidate) => candidate.profile === bobProfile);
+    expect(entry?.sources).toContain("access");
   });
 
   test("rejects anonymous callers", async () => {
