@@ -72,7 +72,7 @@ test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap crea
   const watch = client.watch(tree, first.id, { signal: AbortSignal.timeout(3_000) });
   const observed = await watch.next(); await watch.return(undefined);
   expect(observed.value?.kind).toBe("tree.update");
-  if (observed.value?.kind === "tree.update") expect(observed.value.transitions.at(-1)!.update).toMatchObject({ id: accepted.id, conflicted: true });
+  if (observed.value?.kind === "tree.update") expect(observed.value.transition.update).toMatchObject({ id: accepted.id, conflicted: true });
   const page = await client.conflicts(tree, accepted.id, accepted.root), decision = page.decisions[0]!;
   expect(page.decisions).toHaveLength(1); expect(decision.alternatives).toHaveLength(2);
   expect(decision.alternatives.flatMap(a => a.contributions)).toEqual(expect.arrayContaining([

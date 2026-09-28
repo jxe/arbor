@@ -95,7 +95,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       return {
         id: field("id")[0],
         event: field("event")[0],
-        data: JSON.parse(field("data").join("\n")) as { cursor: string; change: { transitions?: AcceptedTransitionJSON[] } & Record<string, unknown> },
+        data: JSON.parse(field("data").join("\n")) as { transition: AcceptedTransitionJSON; access: string; canonical: unknown },
       };
     });
   }
@@ -365,7 +365,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         `${running.url}/.arbor/trees/${treeID}/watch?after=${baseline.current.observedThrough}`,
         1,
       );
-      expect(frames[0]!.data.change.transitions?.at(-1)?.update.id).toBe(advanced.update.id);
+      expect(frames[0]!.data.transition.update.id).toBe(advanced.update.id);
 
       const arbitraryObject = [...baseline.snapshot.objects.keys()].find((hash) => hash !== baseline.snapshot.root)!;
       const communityTree = baseline.account.account.community.id;
@@ -467,31 +467,31 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         source += new TextDecoder().decode(chunk.value, { stream: true });
       }
       abort.abort();
-      const data = eventFrames(source)[0]!.split("\n")
-        .filter((line) => line.startsWith("data: "))
-        .map((line) => line.slice(6))
-        .join("\n");
+      const lines = eventFrames(source)[0]!.split("\n");
+      // The cursor is the SSE id and the kind the event; the data is the change alone.
+      expect(lines.find((line) => line.startsWith("id: "))?.slice(4)).toBe(batchCursor);
+      expect(lines.find((line) => line.startsWith("event: "))?.slice(7)).toBe("tree.update");
+      const data = lines.filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
       const event = JSON.parse(data) as {
-        id?: string;
-        cursor: string;
-        change: { descriptor: { update: string; ref: string }; transitions: Array<{
+        transition: {
           update: { id: string; previous: { id: string; root: string }; root: string };
           from: { id: string; root: string };
-        }> };
+        };
+        access: string;
+        canonical: unknown;
       };
-      expect(event.change.transitions.map(({ update }) => update.id)).toEqual([second.update.id]);
-      expect(event.change.transitions[0]!.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
-      expect(event.change.transitions[0]!.update.previous).toEqual({id: first.update.id, root: first.update.root});
-      expect(event.cursor).toBe(batchCursor);
+      expect(Object.keys(event).sort()).toEqual(["access", "canonical", "transition"]);
+      expect(event.transition.update.id).toBe(second.update.id);
+      expect(event.transition.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
+      expect(event.transition.update.previous).toEqual({id: first.update.id, root: first.update.root});
       const replayAbort = new AbortController();
       for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.observedThrough, { signal: replayAbort.signal })) {
+        if (decoded.kind !== "tree.update") throw new Error("Expected accepted transition replay");
         expect(decoded.cursor).toBe(batchCursor);
-        if (decoded.kind === "tree.update") expect(decoded.descriptor.update).toBe(second.update.id);
-        else throw new Error("Expected accepted transition replay");
+        expect(decoded.transition.update).toMatchObject({ id: second.update.id, root: second.update.root });
         replayAbort.abort();
         break;
       }
-      expect(event.change.descriptor).toMatchObject({ update: second.update.id, root: second.update.root });
     });
 
     test("declares a client-generated tree by its configuration, mounts it, then activates it idempotently", async () => {
@@ -713,10 +713,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         1,
       );
       expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
-      expect(frames.every((frame) => frame.id === frame.data.cursor)).toBe(true);
-      expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([
-        third.update.id,
-      ]);
+      expect(frames[0]!.data.transition.update.id).toBe(third.update.id);
       expect(frames[0]!.id).toBe(third.update.id);
     });
 
@@ -776,14 +773,18 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       } finally { db.close(); }
     });
 
-    test("rejects conflicting cursor sources on the shared SSE surface", async () => {
-      const account = await client.account();
+    test("resumes a watch from after alone and ignores Last-Event-ID", async () => {
+      const baseline = await currentConfig();
+      const abort = new AbortController();
       const response = await fetch(
-        `${running.url}/.arbor/trees/${account.account.configuration.id}/watch?after=one`,
-        { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "last-event-id": "two" } },
+        `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
+        { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "last-event-id": "not-a-cursor" }, signal: abort.signal },
       );
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ error: "invalid-request", retryable: false });
+      expect(response.status).toBe(200);
+      const reader = response.body!.getReader();
+      // The stream opens at `after`; a Last-Event-ID the host read would have ended it with resync-required.
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe(": ready\n\n");
+      abort.abort();
     });
     test("large watch backlogs use bounded reads and coalesce appends before capture", async () => {
       const baseline = await currentConfig();
@@ -806,9 +807,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       };
       try {
         const frames=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
-        expect(frames.flatMap(frame=>frame.data.change.transitions!.map(t=>t.update.id))).toEqual([ids.at(-1)!]);
-        expect(frames[0]!.data.change.transitions![0]!.from?.id).toBe(baseline.current.tree.update);
-        expect(frames.map(frame=>frame.data.change.transitions!.length)).toEqual([1]);
+        expect(frames.map(frame=>frame.data.transition.update.id)).toEqual([ids.at(-1)!]);
+        expect(frames[0]!.data.transition.from?.id).toBe(baseline.current.tree.update);
         expect(sizes.every(size=>size<=64)).toBe(true);
         expect(frames.at(-1)!.id).toBe(running.canopy.observedThrough(tree));
       } finally {running.canopy.observationPage=original; db.close();}
@@ -829,8 +829,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         const iterator = client.watch(tree, baseline.current.observedThrough, {signal: abort.signal});
         const event = (await iterator.next()).value!;
         if (event.kind !== "tree.update") throw new Error("Expected net update");
-        expect(event.transitions).toHaveLength(1);
-        const transition = event.transitions[0]!;
+        const transition = event.transition;
         expect(transition.from).toEqual({id: baseline.current.tree.update, root: baseline.snapshot.root});
         expect(transition.update.previous!.id).not.toBe(transition.from!.id);
         const result = applyTransitionPayload(baseline.snapshot.objects, transition);
@@ -854,8 +853,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       };
       try {
         const frames = await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,2);
-        const first = decodeAcceptedTransitionJSON(frames[0]!.data.change.transitions![0]);
-        const second = decodeAcceptedTransitionJSON(frames[1]!.data.change.transitions![0]);
+        const first = decodeAcceptedTransitionJSON(frames[0]!.data.transition);
+        const second = decodeAcceptedTransitionJSON(frames[1]!.data.transition);
         expect(first.from?.id).toBe(baseline.current.tree.update);
         expect(second.update.previous?.id).toBe(first.update.id);
         expect(second.update.id).toBe(appended!);
@@ -873,8 +872,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       try {
         const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
         expect(frame!.event).toBe("tree.update");
-        expect(frame!.data.change.transitions).toHaveLength(1);
-        expect(frame!.data.change.transitions![0]!.update.previous!.id).not.toBe(baseline.current.tree.update);
+        expect(frame!.data.transition.update.previous!.id).not.toBe(baseline.current.tree.update);
         expect(loaded).toBe(0);
         const current=await client.descriptor(tree);
         expect(frame!.id).toBe(current.observedThrough);

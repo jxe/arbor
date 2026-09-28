@@ -163,8 +163,8 @@ Successful submissions verify the server's round-tripped semantic request
 digest and advance the durable watch cursor to their accepted update ID. An
 already-open watch can carry the same digest back only to the exact submitting
 device credential, allowing the client to correlate its own accepted write or
-recover a lost response without reconnecting. `Last-Event-ID` is reserved for
-reconnect/resume.
+recover a lost response without reconnecting. A reconnect resumes with a new
+watch whose `after` is the durable cursor; hosts ignore `Last-Event-ID`.
 
 The profile control includes **Pair a device** and device management without revealing an existing credential. Pairing uses a short-lived one-use secret plus a confirmation code; a claimed installation receives its own revocable credential and safe device label. Active and revoked devices are identified by stable device identity rather than their mutable labels, and revocation is explicit. The QR/pairing payload is not an Overstory navigation URL and never places a durable credential in browser history.
 

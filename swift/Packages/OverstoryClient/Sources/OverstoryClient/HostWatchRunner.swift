@@ -35,14 +35,14 @@ public struct HostWatchRunner: Sendable {
 
     /// Run the loop until the surrounding task is cancelled.
     public func run() async {
-        var lastEventID = try? await coordinator.watchCursor()
+        var cursor = try? await coordinator.watchCursor()
         await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             do {
-                if lastEventID == nil {
+                if cursor == nil {
                     _ = try await coordinator.recoverWatchGap()
-                    lastEventID = try await coordinator.watchCursor()
+                    cursor = try await coordinator.watchCursor()
                 }
-                let events = try await client.watch(tree: tree, lastEventID: lastEventID, onOpen: {
+                let events = try await client.watch(tree: tree, after: cursor, onOpen: {
                     await coordinator.setWatching(true)
                 })
                 // However this connection ends, the tree polls again until the next one opens.
@@ -50,18 +50,18 @@ public struct HostWatchRunner: Sendable {
                 for try await event in events {
                     connected()
                     try Task.checkCancellation()
-                    guard event.tree.id == tree else { continue }
+                    guard event.treeID == tree else { continue }
                     _ = try await coordinator.observe(event)
-                    lastEventID = try await coordinator.watchCursor()
-                    if lastEventID == nil {
+                    cursor = try await coordinator.watchCursor()
+                    if cursor == nil {
                         _ = try await coordinator.recoverWatchGap()
-                        lastEventID = try await coordinator.watchCursor()
+                        cursor = try await coordinator.watchCursor()
                     }
                     await onChange()
                 }
             } catch let error as ProtocolHTTPError where error.code == "resync-required" {
                 _ = try await coordinator.recoverWatchGap()
-                lastEventID = try await coordinator.watchCursor()
+                cursor = try await coordinator.watchCursor()
                 connected()
                 await onChange()
             }

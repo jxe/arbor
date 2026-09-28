@@ -440,12 +440,12 @@ public actor UpdateCoordinator {
         return installed
     }
 
-    /// Clean catch-up: replay the watch batch the cursor names when it chains
+    /// Clean catch-up: replay the watch transition the cursor names when it chains
     /// from the installed state, otherwise install the host's current state.
     private func catchUp(cursor: String?) async {
         do {
             let installed: UpdateMachine.AcceptedBase
-            if let cursor, let event = watchEvent, event.id == cursor, !event.transitions.isEmpty,
+            if let cursor, let event = watchEvent, event.id == cursor,
                let replayed = try? await applyAcceptedTransitions(event) {
                 installed = replayed
             } else {
@@ -579,11 +579,11 @@ public actor UpdateCoordinator {
     public func observe(_ event: ProtocolWatchEvent) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         await ensureEntered()
-        guard event.tree.id == (await workingTree.treeID().rawValue) else { return try await presentation() }
+        guard event.treeID == (await workingTree.treeID().rawValue) else { return try await presentation() }
         watchEvent = event
-        dispatch(.watch(cursor: event.id, root: event.tree.root, update: event.tree.update,
-            digests: event.requestDigest.map { [$0] } ?? [], transitions: !event.transitions.isEmpty,
-            conflicted: event.tree.conflicted))
+        dispatch(.watch(cursor: event.id, root: event.update.root, update: event.update.id,
+            digests: event.requestDigest.map { [$0] } ?? [], transitions: true,
+            conflicted: event.update.conflicted))
         await settle()
         return try await presentation()
     }

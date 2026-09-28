@@ -499,11 +499,11 @@ type ObservationEvent<TKind extends string, TChange> = {
 
 ```text
 GET /v1/events?after={cursor}
-Last-Event-ID: {cursor}
 ```
 
-`after` and `Last-Event-ID` are equivalent; supplying both with different
-values is `invalid-request`. The stream is UTF-8 SSE. Frames are separated by a
+`after` is the only resume cursor, as on a host's tree watch; the daemon
+ignores `Last-Event-ID`, and a client that reconnects opens a new stream with
+a new `after`. The stream is UTF-8 SSE. Frames are separated by a
 blank line; multiple `data:` lines join with newline; comments and keepalives
 are ignored. Every semantic frame satisfies `id === data.cursor` and
 `event === data.kind`. The daemon emits placement events (a tree-wide

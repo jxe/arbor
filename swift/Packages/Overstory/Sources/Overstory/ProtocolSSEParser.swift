@@ -135,98 +135,77 @@ public func runObservationLoop(
     }
 }
 
+/// One `tree.update` frame of a tree watch (tree operations §1.1.3): its
+/// cursor, which is the SSE `id`, and one transition. The tree's new
+/// descriptor is the client's own with the frame's `access` and `canonical`
+/// and the transition's update.
 public struct ProtocolWatchEvent: Equatable, Sendable {
-    public var id: String
     public var cursor: String
-    public var kind: String
     public var treeID: String
-    public var tree: ProtocolTreeDescriptor
-    public var requestDigest: String?
-    public var transitions: [ProtocolAcceptedTransition]
+    public var access: String
+    public var canonical: ProtocolCanonicalDescriptor?
+    public var transition: ProtocolAcceptedTransition
 
-    public init(id: String, tree: ProtocolTreeDescriptor, requestDigest: String? = nil, transitions: [ProtocolAcceptedTransition] = []) {
-        self.id = id
-        self.cursor = id
-        self.kind = "tree.update"
-        self.treeID = tree.id
-        self.tree = tree
-        self.requestDigest = requestDigest
-        self.transitions = transitions
-    }
+    public var id: String { cursor }
+    public var update: ProtocolAcceptedUpdate { transition.update }
+    public var requestDigest: String? { transition.requestDigest }
 
-    public init(cursor: String, treeID: String, kind: String, tree: ProtocolTreeDescriptor, requestDigest: String? = nil, transitions: [ProtocolAcceptedTransition] = []) {
-        self.id = cursor
+    public init(cursor: String, treeID: String, access: String = "write", canonical: ProtocolCanonicalDescriptor? = nil, transition: ProtocolAcceptedTransition) {
         self.cursor = cursor
-        self.kind = kind
         self.treeID = treeID
-        self.tree = tree
-        self.requestDigest = requestDigest
-        self.transitions = transitions
+        self.access = access
+        self.canonical = canonical
+        self.transition = transition
     }
 }
 
-public struct ProtocolTreeRefChange: Codable, Sendable, Equatable {
-    public var descriptor: ProtocolTreeDescriptor
-    public var requestDigest: String?
-    public var transitions: [ProtocolAcceptedTransition]
+/// A `tree.update` frame's data: the change alone.
+public struct ProtocolTreeUpdateFrame: Codable, Sendable, Equatable {
+    public var transition: ProtocolAcceptedTransition
+    public var access: String
+    public var canonical: ProtocolCanonicalDescriptor?
 
-    /// A contiguous batch of `tree`'s transitions ending at the descriptor,
-    /// starting from `basis` when the caller knows its confirmed state.
-    /// Identities compare by UTF-8 bytes, never Unicode-normalized.
+    private enum CodingKeys: String, CodingKey { case transition, access, canonical }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        transition = try values.decode(ProtocolAcceptedTransition.self, forKey: .transition)
+        access = try values.decode(String.self, forKey: .access)
+        guard values.contains(.canonical) else { throw ProtocolValidationError.malformedSSE("Tree update frame has no canonical placement") }
+        canonical = try values.decodeIfPresent(ProtocolCanonicalDescriptor.self, forKey: .canonical)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(transition, forKey: .transition)
+        try values.encode(access, forKey: .access)
+        try values.encode(canonical, forKey: .canonical)
+    }
+
+    /// One transition of `tree`, from `basis` when the caller knows its
+    /// confirmed state. Identities compare by UTF-8 bytes, never
+    /// Unicode-normalized.
     public func validated(tree: String, basis: ProtocolAcceptedLink? = nil) throws -> Self {
-        let descriptor = try descriptor.validated()
-        guard descriptor.id == tree, !transitions.isEmpty,
-              transitions.last?.update.id.utf8.elementsEqual(descriptor.update.utf8) == true,
-              transitions.last?.update.root == descriptor.root,
-              transitions.last?.update.conflicted == descriptor.conflicted else {
-            throw ProtocolValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
+        guard access == "read" || access == "write" else {
+            throw ProtocolValidationError.malformedSSE("Tree update access is neither read nor write")
+        }
+        _ = try transition.validated()
+        guard transition.update.tree == tree else {
+            throw ProtocolValidationError.malformedSSE("Tree update transition belongs to another tree")
+        }
+        guard let from = transition.transportBasis, !from.id.utf8.elementsEqual(transition.update.id.utf8) else {
+            throw ProtocolValidationError.malformedSSE("Tree update transition has no distinct predecessor")
         }
         if let basis {
-            guard let first = transitions.first?.transportBasis, first.root == basis.root,
-                  first.id.utf8.elementsEqual(basis.id.utf8) else {
-                throw ProtocolValidationError.malformedSSE("Tree ref transition batch does not start at the confirmed state")
+            guard from.root == basis.root, from.id.utf8.elementsEqual(basis.id.utf8) else {
+                throw ProtocolValidationError.malformedSSE("Tree update transition does not start at the confirmed state")
             }
         }
-        var seen = Set<Data>()
-        if let predecessor = transitions.first?.transportBasis { seen.insert(Data(predecessor.id.utf8)) }
-        for (index, transition) in transitions.enumerated() {
-            guard seen.insert(Data(transition.update.id.utf8)).inserted else {
-                throw ProtocolValidationError.malformedSSE("Repeated accepted identity")
-            }
-            guard transition.update.tree == tree else {
-                throw ProtocolValidationError.malformedSSE("Tree ref transition belongs to another tree")
-            }
-            if index > 0 {
-                let previous = transitions[index - 1].update
-                guard transition.transportBasis?.root == previous.root,
-                      transition.transportBasis?.id.utf8.elementsEqual(previous.id.utf8) == true else {
-                    throw ProtocolValidationError.malformedSSE("Tree ref transition batch is not contiguous")
-                }
-            }
-        }
-        if let requestDigest, let finalDigest = transitions.last?.requestDigest, requestDigest != finalDigest {
-            throw ProtocolValidationError.malformedSSE("Tree ref request digests disagree")
-        }
-        var validated = self
-        validated.descriptor = descriptor
-        return validated
+        return self
     }
 }
 
-public struct ProtocolTreeRefObservation: Codable, Sendable, Equatable {
-    public var cursor: String
-    public var tree: String
-    public var kind: String
-    public var change: ProtocolTreeRefChange
-}
-
+/// A `resync-required` frame's data. The frame has no `id`.
 public struct ProtocolResyncChange: Codable, Sendable, Equatable {
     public var reason: String
-}
-
-public struct ProtocolResyncObservation: Codable, Sendable, Equatable {
-    public var cursor: String
-    public var tree: String
-    public var kind: String
-    public var change: ProtocolResyncChange
 }

@@ -366,16 +366,17 @@ public actor ProtocolClient {
         try await get(path: "/.arbor/directory")
     }
 
-    /// A tree's watch stream. `onOpen` runs once the host has answered with
-    /// an event stream, before any event arrives.
+    /// A tree's watch stream, resuming strictly after the observation `after`
+    /// names, or at the tree's current head without it. `onOpen` runs once the
+    /// host has answered with an event stream, before any event arrives.
     public func watch(
         tree: String,
-        lastEventID: String? = nil,
+        after: String? = nil,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
-        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch")
+        let query = after.map { "?after=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)" } ?? ""
+        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch\(query)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
         let session = session
         let credentialProvider = credentialProvider
         let finalRequest = request
@@ -385,7 +386,7 @@ public actor ProtocolClient {
                 let connectedAt = Date()
                 var frames = 0
                 var connect = ProtocolNetworkLogEntry(kind: .watchConnect, name: "watch", tree: tree, at: connectedAt)
-                connect.cursor = lastEventID
+                connect.cursor = after
                 func disconnect(_ error: Error?) {
                     var entry = ProtocolNetworkLogEntry(kind: .watchDisconnect, name: "watch", tree: tree)
                     entry.durationMs = Date().timeIntervalSince(connectedAt) * 1000
@@ -412,34 +413,26 @@ public actor ProtocolClient {
                     var parser = ProtocolSSEParser()
                     for try await byte in bytes {
                         for frame in try parser.append(byte: byte) {
-                            guard let id = frame.id, !id.isEmpty, let kind = frame.event, !kind.isEmpty else {
-                                throw ProtocolValidationError.malformedSSE("Observation event has no ID or kind")
+                            if frame.event == "resync-required" {
+                                let change = try JSONDecoder().decode(ProtocolResyncChange.self, from: Data(frame.data.utf8))
+                                throw ProtocolHTTPError(status: 409, code: "resync-required", message: change.reason, retryable: true)
                             }
-                            if kind == "resync-required" {
-                                let event = try JSONDecoder().decode(ProtocolResyncObservation.self, from: Data(frame.data.utf8))
-                                guard event.cursor.utf8.elementsEqual(id.utf8), event.kind == kind else {
-                                    throw ProtocolValidationError.malformedSSE("Resync frame fields disagree")
-                                }
-                                throw ProtocolHTTPError(status: 409, code: "resync-required", message: event.change.reason, retryable: true)
-                            }
-                            guard kind == "tree.update" else {
+                            guard frame.event == "tree.update" else {
                                 throw ProtocolValidationError.malformedSSE("Unsupported tree watch event")
                             }
-                            let event = try JSONDecoder().decode(ProtocolTreeRefObservation.self, from: Data(frame.data.utf8))
-                            guard event.cursor.utf8.elementsEqual(id.utf8), event.kind == kind, event.tree == tree else {
-                                throw ProtocolValidationError.malformedSSE("Observation frame fields disagree")
+                            guard let cursor = frame.id, !cursor.isEmpty else {
+                                throw ProtocolValidationError.malformedSSE("Tree update has no cursor")
                             }
-                            let change = try event.change.validated(tree: tree)
-                            let descriptor = change.descriptor
-                            let transitions = change.transitions
+                            let change = try JSONDecoder().decode(ProtocolTreeUpdateFrame.self, from: Data(frame.data.utf8))
+                                .validated(tree: tree)
+                            let transition = change.transition
                             frames += 1
                             if let log {
-                                let digest = event.change.requestDigest ?? transitions.last?.requestDigest
+                                let digest = transition.requestDigest
                                 var entry = ProtocolNetworkLogEntry(kind: .watchFrame, name: "watch", tree: tree)
-                                entry.cursor = event.cursor
-                                entry.root = descriptor.root
-                                entry.updateIDs = transitions.map(\.update.id)
-                                if entry.updateIDs?.isEmpty == true { entry.updateIDs = [descriptor.update] }
+                                entry.cursor = cursor
+                                entry.root = transition.update.root
+                                entry.updateIDs = [transition.update.id]
                                 entry.bytesIn = frame.data.utf8.count
                                 entry.requestDigests = digest.map { [$0] }
                                 if let digest, let trip = log.roundTrip(for: digest, at: entry.at) {
@@ -449,13 +442,7 @@ public actor ProtocolClient {
                                 log.record(entry)
                             }
                             continuation.yield(ProtocolWatchEvent(
-                                cursor: event.cursor,
-                                treeID: event.tree,
-                                kind: event.kind,
-                                tree: descriptor,
-                                requestDigest: event.change.requestDigest ?? transitions.last?.requestDigest,
-                                transitions: transitions
-                            ))
+                                cursor: cursor, treeID: tree, access: change.access, canonical: change.canonical, transition: transition))
                         }
                     }
                     _ = try parser.finish()

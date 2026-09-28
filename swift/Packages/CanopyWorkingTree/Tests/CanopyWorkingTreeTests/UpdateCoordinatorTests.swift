@@ -618,10 +618,11 @@ struct UpdateCoordinatorTests {
                 throw ProtocolValidationError.invalidValue("A clean watch pull must not submit")
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: remoteTransport, stateRoot: root)
-            let event = ProtocolWatchEvent(
-                id: "up_remote",
-                tree: descriptor(tree: tree, snapshot: remote, update: "up_remote")
-            )
+            // A transition that does not chain from the replica: the coordinator reads the current state.
+            let event = ProtocolWatchEvent(cursor: "up_remote", treeID: tree, transition: .init(
+                update: ProtocolAcceptedUpdate(id: "up_remote", tree: tree, root: remote.root,
+                    previous: .init(id: "up_elsewhere", root: remote.root), acceptedAt: 1_800_000_000_000),
+                objects: []))
             let result = try await coordinator.observe(event)
             #expect(result.state == .current)
             #expect(result.acceptedRoot == remote.root)
@@ -667,11 +668,7 @@ struct UpdateCoordinatorTests {
                 from: net ? .init(id: "up_initial", root: initial.root) : nil
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            let result = try await coordinator.observe(ProtocolWatchEvent(
-                id: update.id,
-                tree: descriptor(tree: tree, snapshot: remote, update: update.id),
-                transitions: [transition]
-            ))
+            let result = try await coordinator.observe(ProtocolWatchEvent(cursor: update.id, treeID: tree, transition: transition))
 
             #expect(result.state == .current)
             #expect(result.acceptedRoot == remote.root)
@@ -695,11 +692,9 @@ struct UpdateCoordinatorTests {
             )
             let update = ProtocolAcceptedUpdate(id: "up_conflicted", tree: tree, root: initial.root,
                 previous: .init(id: "up_initial", root: initial.root), acceptedAt: 1, conflicted: true)
-            var remote = descriptor(tree: tree, snapshot: initial, update: update.id)
-            remote.conflicted = true
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            let result = try await coordinator.observe(ProtocolWatchEvent(id: "observation-metadata", tree: remote,
-                transitions: [.init(update: update, objects: [], deltas: [])]))
+            let result = try await coordinator.observe(ProtocolWatchEvent(cursor: "observation-metadata", treeID: tree,
+                transition: .init(update: update, objects: [], deltas: [])))
             #expect(result.state == .current)
             #expect(result.acceptedConflicted == true)
             #expect(try await workingTree.heads().acceptedCursor == "observation-metadata")
@@ -800,16 +795,14 @@ struct UpdateCoordinatorTests {
             let frozen = try #require(await transport.requests.first)
             let request = try frozen.decodedRequest()
             let candidate = try #require(request.updates.last?.candidate)
-            let eventTree = ProtocolTreeDescriptor(
-                id: tree, kind: "ordinary", root: candidate, access: "write",
-                canonical: ProtocolCanonicalDescriptor(path: "/~owner/watch-digest", endpoint: "https://example.test"),
-                update: net ? "up_net" : "up_1"
-            )
+            // A transition that does not chain from the replica: the coordinator reads the current state.
             let result = try await coordinator.observe(.init(
-                id: net ? "observation_net" : "observation_local",
-                tree: eventTree,
-                requestDigest: net ? nil : frozen.requestDigest,
-                transitions: []
+                cursor: net ? "observation_net" : "observation_local", treeID: tree,
+                canonical: ProtocolCanonicalDescriptor(path: "/~owner/watch-digest", endpoint: "https://example.test"),
+                transition: .init(
+                    update: ProtocolAcceptedUpdate(id: net ? "up_net" : "up_1", tree: tree, root: candidate,
+                        previous: .init(id: "up_elsewhere", root: candidate), acceptedAt: 1_800_000_000_000),
+                    objects: [], requestDigest: net ? nil : frozen.requestDigest)
             ))
             #expect(result.state == .current)
             #expect(await transport.requests.count == 2)
@@ -842,11 +835,10 @@ struct UpdateCoordinatorTests {
             let request = try frozen.decodedRequest()
             let candidate = try #require(request.updates.last?.candidate)
             let observation = Task {
-                try await coordinator.observe(.init(
-                    id: "up_1",
-                    tree: .init(id: tree, kind: "ordinary", root: candidate, access: "write", canonical: nil, update: "up_1"),
-                    requestDigest: frozen.requestDigest, transitions: []
-                ))
+                try await coordinator.observe(.init(cursor: "up_1", treeID: tree, transition: .init(
+                    update: ProtocolAcceptedUpdate(id: "up_1", tree: tree, root: candidate,
+                        previous: .init(id: "up_elsewhere", root: candidate), acceptedAt: 1_800_000_000_000),
+                    objects: [], requestDigest: frozen.requestDigest)))
             }
             try await waitUntil { await coordinator.syncState.kind == "accepted-pending-apply" }
             // Keep the response withheld while the watch's apply effect runs.

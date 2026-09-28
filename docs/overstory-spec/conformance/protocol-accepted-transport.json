@@ -18,19 +18,9 @@
     {
       "name": "same-root decision followed by content in one batch",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -46,7 +36,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -71,9 +65,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": true,
       "basis": {
         "id": "accepted-before",
@@ -83,19 +79,9 @@
     {
       "name": "sparse accepted transport",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -111,7 +97,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -148,9 +138,11 @@
               }
             ],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": true,
       "basis": {
         "id": "accepted-before",
@@ -160,19 +152,9 @@
     {
       "name": "metadata-only accepted state has empty payload",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-é",
-          "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -187,14 +169,106 @@
             },
             "objects": [],
             "deltas": []
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": true,
       "basis": {
         "id": "accepted-before",
         "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
       }
+    },
+    {
+      "name": "a frame carries one transition, not a batch",
+      "kind": "watch",
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      },
+      "value": [
+        {
+          "transitions": [
+            {
+              "update": {
+                "id": "opaque-é",
+                "tree": "transport-tree",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+                "previous": {
+                  "id": "accepted-before",
+                  "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+                },
+                "acceptedAt": 1,
+                "subject": null,
+                "conflicted": true
+              },
+              "objects": [],
+              "deltas": []
+            },
+            {
+              "update": {
+                "id": "opaque-final",
+                "tree": "transport-tree",
+                "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "previous": {
+                  "id": "opaque-é",
+                  "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+                },
+                "acceptedAt": 1,
+                "subject": null,
+                "conflicted": true
+              },
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": [],
+              "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            }
+          ],
+          "access": "write",
+          "canonical": null
+        }
+      ]
+    },
+    {
+      "name": "access is read or write",
+      "kind": "watch",
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      },
+      "value": [
+        {
+          "transition": {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          "access": "admin",
+          "canonical": null
+        }
+      ]
     },
     {
       "name": "historical receipt is independent of observation head",
@@ -429,19 +503,9 @@
     {
       "name": "unknown read extensions remain data",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -457,7 +521,14 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null,
+          "futureReadField": {
+            "rule": "unrecognized"
+          }
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -485,12 +556,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ],
-        "futureReadField": {
-          "rule": "unrecognized"
+          },
+          "access": "write",
+          "canonical": null
         }
-      },
+      ],
       "valid": true,
       "basis": {
         "id": "accepted-before",
@@ -500,19 +570,9 @@
     {
       "name": "same root cannot conceal wrong predecessor identity",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -528,7 +588,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -553,9 +617,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -565,19 +631,9 @@
     {
       "name": "omitted metadata-only update is a gap",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -602,9 +658,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -614,19 +672,9 @@
     {
       "name": "reordered batch fails",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -652,7 +700,11 @@
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -667,9 +719,11 @@
             },
             "objects": [],
             "deltas": []
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -679,19 +733,9 @@
     {
       "name": "wrong confirmed identity even at same root",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -707,7 +751,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -732,9 +780,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "different",
@@ -744,19 +794,9 @@
     {
       "name": "opaque IDs are not Unicode-normalized",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -772,7 +812,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -797,9 +841,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -809,19 +855,9 @@
     {
       "name": "wrong tree rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -837,7 +873,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "other",
@@ -862,139 +902,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-      }
-    },
-    {
-      "name": "descriptor identity must match final transition",
-      "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "other",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [],
-            "deltas": []
           },
-          {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-      }
-    },
-    {
-      "name": "descriptor conflict signal must match final transition",
-      "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": false,
-          "kind": "ordinary",
           "access": "write",
-          "permissions": [],
           "canonical": null
-        },
-        "transitions": [
-          {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [],
-            "deltas": []
-          },
-          {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1004,18 +916,9 @@
     {
       "name": "missing conflict signal rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1031,7 +934,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1041,8 +948,7 @@
                 "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
               },
               "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+              "subject": null
             },
             "objects": [
               {
@@ -1056,9 +962,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1068,19 +976,9 @@
     {
       "name": "activation is not a watch transition",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1093,7 +991,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1118,9 +1020,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1130,19 +1034,9 @@
     {
       "name": "missing transport array rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1158,7 +1052,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1182,9 +1080,11 @@
               }
             ],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1194,19 +1094,9 @@
     {
       "name": "duplicate objects rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1222,7 +1112,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1251,9 +1145,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1263,19 +1159,9 @@
     {
       "name": "wrong complete object bytes rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1291,7 +1177,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1316,9 +1206,11 @@
             ],
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1448,19 +1340,9 @@
     {
       "name": "invalid transition digest rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1476,7 +1358,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1501,9 +1387,11 @@
             ],
             "deltas": [],
             "requestDigest": "bad"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1513,19 +1401,9 @@
     {
       "name": "duplicate delta result rejected",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-é",
               "tree": "transport-tree",
@@ -1541,7 +1419,11 @@
             "objects": [],
             "deltas": []
           },
-          {
+          "access": "write",
+          "canonical": null
+        },
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1593,9 +1475,11 @@
               }
             ],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1605,19 +1489,9 @@
     {
       "name": "net catch-up spans same-root accepted decisions",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1646,9 +1520,11 @@
               "id": "accepted-before",
               "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
             }
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": true,
       "basis": {
         "id": "accepted-before",
@@ -1658,19 +1534,9 @@
     {
       "name": "net catch-up rejects wrong basis identity",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1699,9 +1565,11 @@
               "id": "wrong",
               "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
             }
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1711,19 +1579,9 @@
     {
       "name": "net catch-up rejects wrong basis root",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1752,9 +1610,11 @@
               "id": "accepted-before",
               "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
             }
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1764,19 +1624,9 @@
     {
       "name": "net catch-up rejects self basis",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1805,9 +1655,11 @@
               "id": "opaque-final",
               "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
             }
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",
@@ -1817,19 +1669,9 @@
     {
       "name": "net catch-up rejects null basis",
       "kind": "watch",
-      "value": {
-        "descriptor": {
-          "id": "transport-tree",
-          "update": "opaque-final",
-          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
-          "conflicted": true,
-          "kind": "ordinary",
-          "access": "write",
-          "permissions": [],
-          "canonical": null
-        },
-        "transitions": [
-          {
+      "value": [
+        {
+          "transition": {
             "update": {
               "id": "opaque-final",
               "tree": "transport-tree",
@@ -1855,9 +1697,11 @@
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "from": null
-          }
-        ]
-      },
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
       "valid": false,
       "basis": {
         "id": "accepted-before",

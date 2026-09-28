@@ -211,27 +211,27 @@ struct CanopyVisitFollower: Sendable {
     }
 
     func run(after cursor: String?) async {
-        var lastEventID = cursor
+        var after = cursor
         await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             do {
-                let events = try await client.watch(tree: tree, lastEventID: lastEventID)
+                let events = try await client.watch(tree: tree, after: after)
                 for try await event in events {
                     connected()
                     try Task.checkCancellation()
-                    lastEventID = event.id
-                    guard event.tree.id == tree else { continue }
+                    after = event.id
+                    guard event.treeID == tree else { continue }
                     let heads = try await workingTree.heads()
-                    if event.tree.root == heads.materializedRoot {
-                        try await workingTree.recordAccepted(root: event.tree.root, update: event.tree.update, cursor: event.id)
+                    if event.update.root == heads.materializedRoot {
+                        try await workingTree.recordAccepted(root: event.update.root, update: event.update.id, cursor: event.id)
                         continue
                     }
                     if (try? await workingTree.applyAcceptedTransitions(event)) == nil {
-                        try await pull(root: event.tree.root, update: event.tree.update, cursor: event.id)
+                        try await pull(root: event.update.root, update: event.update.id, cursor: event.id)
                     }
                     await onChange()
                 }
             } catch let error as ProtocolHTTPError where error.code == "resync-required" {
-                lastEventID = try await pullCurrent()
+                after = try await pullCurrent()
                 connected()
                 await onChange()
             }

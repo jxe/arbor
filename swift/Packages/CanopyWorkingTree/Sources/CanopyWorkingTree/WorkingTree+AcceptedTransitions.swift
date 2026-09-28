@@ -2,25 +2,20 @@ import Overstory
 import Foundation
 
 extension WorkingTree {
-    /// Install a watch event's transition batch when it chains from this
+    /// Install a watch event's transition when it chains from this
     /// replica's accepted state: fetch only the delta bases the replica lacks,
     /// replay sparse, and replace (or, when the result is already materialized,
-    /// just record) the accepted state. Throws when the batch does not chain,
+    /// just record) the accepted state. Throws when it does not chain,
     /// so the caller can fall back to reading the host's current state.
     public func applyAcceptedTransitions(_ event: ProtocolWatchEvent) async throws -> ProtocolAcceptedUpdate {
         let heads = try heads()
-        guard let final = event.transitions.last,
-              final.update.id.utf8.elementsEqual(event.tree.update.utf8),
-              final.update.root == event.tree.root else {
-            throw ProtocolValidationError.invalidValue("Watch transition batch does not match its descriptor")
-        }
-        guard let first = event.transitions.first,
-              first.transportBasis?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
-              first.transportBasis?.root == heads.acceptedRoot else {
+        let transition = event.transition, final = transition
+        guard transition.transportBasis?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
+              transition.transportBasis?.root == heads.acceptedRoot else {
             throw ProtocolValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
         }
-        let basis = try await sparseBasis(deltaBases: Set(event.transitions.flatMap { $0.deltas.map(\.base) }))
-        let accepted = try ProtocolTransitionReplay.applying(event.transitions, to: basis, mode: .sparseFiles)
+        let basis = try await sparseBasis(deltaBases: Set(transition.deltas.map(\.base)))
+        let accepted = try ProtocolTransitionReplay.applying([transition], to: basis, mode: .sparseFiles)
         if accepted.root == heads.materializedRoot {
             try recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
         } else {

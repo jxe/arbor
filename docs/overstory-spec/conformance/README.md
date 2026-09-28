@@ -126,7 +126,7 @@ authority for the implemented subset; the request grammar itself is in
 | `errors.json` | Protocol error shapes and codes |
 | `node-model.json` | Provider-neutral node model decoding |
 | `node-targets.json` | Node target resolution |
-| `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid |
+| `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid: the cursor in the SSE `id`, the kind in `event`, one transition per `tree.update`, and `resync-required` with no `id` |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
 | `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |
 | `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |

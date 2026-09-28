@@ -134,12 +134,8 @@ export function syncHandler(service: SyncHTTPService, options: {
       return json(await service.resolveLocator(locator));
     }
     if (request.method === "GET" && url.pathname === "/v1/events") {
-      const query = url.searchParams.get("after");
-      const header = request.headers.get("last-event-id");
-      if (query && header && query !== header) {
-        throw new ProtocolError("invalid-request", "after and Last-Event-ID disagree", 400);
-      }
-      const after = query ?? header;
+      // `after` is the only resume cursor, as on a host's tree watch; `Last-Event-ID` is ignored.
+      const after = url.searchParams.get("after");
       try {
         service.events.validate(after);
       } catch (error) {

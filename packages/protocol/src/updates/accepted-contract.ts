@@ -92,9 +92,11 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
   return v as DecisionPage;
 }
 /** A tree watch's `tree.update` change: its descriptor and a contiguous, verified transition batch. */
-export interface AcceptedWatchChange<Descriptor = { id: string; update: string; root: string; conflicted: boolean }> {
-  descriptor: Descriptor;
-  transitions: AcceptedTransition[];
+/** A `tree.update` frame's data: one transition, and the access and canonical placement the client's new descriptor takes. */
+export interface AcceptedWatchChange<Canonical = unknown> {
+  transition: AcceptedTransition;
+  access: "read" | "write";
+  canonical: Canonical | null;
 }
 /** The caller must deduplicate observation replay before checking its confirmed basis.
  * A cursor is never compared to an accepted ID. Descriptor policy fields are
@@ -104,19 +106,17 @@ export function decodeTransitionBasis(raw: unknown, update: AcceptedUpdate): Sta
   const p=obj(raw); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==update.id);
   return p as StateLink;
 }
-export function decodeAcceptedWatchChange<Descriptor extends { id: string; update: string; root: string; conflicted: boolean }>(
+/** Decode one `tree.update` frame's data for the watched `tree`: exactly one
+ * transition, whose transport basis (`from`, else `update.previous`) is
+ * `basis` when the caller knows its confirmed state. */
+export function decodeAcceptedWatchChange<Canonical = unknown>(
   raw: unknown, tree: string, basis?: StateLink,
-): AcceptedWatchChange<Descriptor> {
-  const v=obj(raw); required(v,["descriptor","transitions"]);
-  const d=obj(v.descriptor); required(d,["id","update","root","conflicted"]);
-  token(tree); check(d.id===tree); token(d.update); hash(d.root); check(typeof d.conflicted==="boolean");
-  check(Array.isArray(v.transitions) && v.transitions.length>0);
-  const transitions: AcceptedTransition[]=v.transitions.map((raw: unknown)=>{
-    required(obj(raw),["update","objects","deltas"]);
-    return decodeAcceptedTransitionJSON(raw);
-  });
-  const updates=transitions.map((t)=>t.from ? {...t.update, previous: t.from} : t.update);
-  validateAcceptedChain(tree,basis ?? updates[0]!.previous,updates,{id:d.update,root:d.root});
-  check(updates.at(-1)!.conflicted===d.conflicted);
-  return { descriptor: d as Descriptor, transitions };
+): AcceptedWatchChange<Canonical> {
+  const v=obj(raw); required(v,["transition","access","canonical"]);
+  check(v.access==="read" || v.access==="write"); check(v.canonical===null || (typeof v.canonical==="object" && !Array.isArray(v.canonical)));
+  token(tree); required(obj(v.transition),["update","objects","deltas"]);
+  const transition=decodeAcceptedTransitionJSON(v.transition);
+  const update=transition.from ? {...transition.update, previous: transition.from} : transition.update;
+  validateAcceptedChain(tree,basis ?? update.previous,[update],{id:update.id,root:update.root});
+  return { transition, access: v.access, canonical: v.canonical as Canonical | null };
 }

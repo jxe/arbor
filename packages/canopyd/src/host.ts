@@ -4,7 +4,7 @@ import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@overstory/protocol";
-import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
+import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
   HostDaemon,
@@ -154,24 +154,16 @@ function descriptorWithUpdate(
   return descriptor(origin, tree, access, update);
 }
 
-function watchDescriptor(
-  origin: string,
-  tree: HostTree,
-  transitions: AcceptedTransition[],
-  access: ReadWriteAccess,
-  cursor: string,
-): ObservationEvent<"tree.update", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
-  const final = transitions.at(-1);
-  if (!final) throw new ServerFaultError("Tree ref frame requires at least one accepted transition");
+/**
+ * A `tree.update` frame's data (tree operations §1.1.3): the one transition
+ * and what the client cannot derive for its new descriptor. The cursor is the
+ * frame's SSE `id` and the tree is the URL's.
+ */
+function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess) {
   return {
-    cursor,
-    tree: tree.id,
-    kind: "tree.update",
-    change: {
-      descriptor: descriptor(origin, tree, access, final.update),
-      transitions: transitions.map(encodeAcceptedTransitionJSON),
-      ...(final.requestDigest ? { requestDigest: final.requestDigest } : {}),
-    },
+    transition: encodeAcceptedTransitionJSON(transition),
+    access,
+    canonical: descriptor(origin, tree, access, transition.update).canonical,
   };
 }
 
@@ -783,12 +775,8 @@ export async function serveHost(options: {
           server.timeout(request, 0);
           const encoder = new TextEncoder();
           const credentialSubject = authentication?.subject;
-          const headerCursor = request.headers.get("last-event-id");
-          const queryCursor = url.searchParams.get("after");
-          if (headerCursor && queryCursor && headerCursor !== queryCursor) {
-            return protocolError("invalid-request", "after and Last-Event-ID disagree", 400);
-          }
-          const lastEventID = queryCursor ?? headerCursor;
+          // `after` is the only resume cursor; `Last-Event-ID` is ignored.
+          const after = url.searchParams.get("after");
           let closed = false;
           let delivered = 0;
           let frames: string[] = [];
@@ -809,11 +797,7 @@ export async function serveHost(options: {
               resync = (reason: string) => {
                 if (closed) return;
                 closed = true;
-                const cursor = canopy.observedThrough(tree.id);
-                const event: ObservationEvent<"resync-required", {reason: string}> = {
-                  cursor, tree: tree.id, kind: "resync-required", change: {reason},
-                };
-                controller.enqueue(encoder.encode(encodeSSEFrame({id: cursor, event: "resync-required", data: event})));
+                controller.enqueue(encoder.encode(encodeSSEFrame({event: "resync-required", data: {reason}})));
                 stop(); controller.close();
               };
               const stopObserving = canopy.subscribeObservations(tree.id, () => { wake?.(); wake = undefined; });
@@ -837,7 +821,7 @@ export async function serveHost(options: {
               };
               request.signal.addEventListener("abort", abort, {once: true});
               if (request.signal.aborted) return abort();
-              const position = canopy.observationPosition(tree.id, lastEventID);
+              const position = canopy.observationPosition(tree.id, after);
               if (!position.retained) return resync("The requested cursor is no longer retained");
               delivered = position.through;
               controller.enqueue(encoder.encode(execution ? ": authorized\n\n" : ": ready\n\n"));
@@ -867,7 +851,7 @@ export async function serveHost(options: {
                   if (!next) return resync("The requested accepted basis is no longer retained");
                   delivered = next.record.ordinal;
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
-                    data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [next.transition], access, next.record.id)})];
+                    data: watchFrame(publicOrigin, canopy.get(tree.id) ?? tree, next.transition, access)})];
                 }
               } catch (error) {
                 // A failure here, such as a retained transition whose objects

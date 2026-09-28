@@ -51,21 +51,29 @@ struct AcceptedContractTests {
             let data=try JSONSerialization.data(withJSONObject:#require(c["value"]))
             func decode() throws -> Data {
                 if c["kind"] as? String == "watch" {
-                    let basis=try #require(c["basis"] as? [String:String])
-                    let change=try JSONDecoder().decode(ProtocolTreeRefChange.self,from:data)
-                        .validated(tree:#require(file["tree"] as? String),basis:ProtocolAcceptedLink(id:#require(basis["id"]),root:#require(basis["root"])))
+                    // A run of frames, each one transition whose basis is the one before it.
+                    let tree=try #require(file["tree"] as? String)
+                    let fields=try #require(c["basis"] as? [String:String])
+                    var basis=ProtocolAcceptedLink(id:try #require(fields["id"]),root:try #require(fields["root"]))
+                    var transitions:[ProtocolAcceptedTransition]=[]
+                    for frame in try #require(c["value"] as? [Any]) {
+                        let change=try JSONDecoder().decode(ProtocolTreeUpdateFrame.self,from:JSONSerialization.data(withJSONObject:frame))
+                            .validated(tree:tree,basis:basis)
+                        transitions.append(change.transition)
+                        basis=ProtocolAcceptedLink(id:change.transition.update.id,root:change.transition.update.root)
+                    }
                     if ["same-root decision followed by content in one batch", "sparse accepted transport", "net catch-up spans same-root accepted decisions"].contains(c["name"] as? String ?? "") {
                         let snapshotData=try JSONSerialization.data(withJSONObject:#require(file["snapshot"]))
                         var snapshot=try JSONDecoder().decode(ProtocolSnapshot.self,from:snapshotData)
-                        for transition in change.transitions {
+                        for transition in transitions {
                             snapshot=try ProtocolTransitionReplay.applying(transition,to:snapshot)
                         }
-                        #expect(snapshot.root==change.descriptor.root)
+                        #expect(snapshot.root==basis.root)
                         #expect(snapshot.objects.count==2)
                         #expect(snapshot.objects.contains { String(data:$0.bytes,encoding:.utf8)=="A paragraph.\nA second paragraph.\n" })
                     }
-                    // The descriptor and read extensions are compared by the descriptor's own tests.
-                    return try JSONEncoder().encode(change.transitions)
+                    // Access, canonical placement and read extensions are compared by the descriptor's own tests.
+                    return try JSONEncoder().encode(transitions)
                 }
                 return try JSONEncoder().encode(JSONDecoder().decode(ProtocolUpdateResponse.self,from:data))
             }
@@ -74,7 +82,12 @@ struct AcceptedContractTests {
                 _ = try decode()
             } else if c["valid"] as? Bool == true {
                 var expected=try JSONDecoder().decode(ProtocolReadValue.self,from:data)
-                if c["kind"] as? String == "watch", case .object(let fields)=expected { expected=try #require(fields["transitions"]) }
+                if c["kind"] as? String == "watch", case .array(let frames)=expected {
+                    expected = .array(try frames.map { frame in
+                        guard case .object(let fields)=frame else { throw ProtocolValidationError.invalidValue("A watch frame is an object") }
+                        return try #require(fields["transition"])
+                    })
+                }
                 #expect(try JSONDecoder().decode(ProtocolReadValue.self,from:decode())==expected,"\(c["name"] ?? "case")")
             } else { #expect(throws:(any Error).self,"\(c["name"] ?? "case")") { try decode() } }
         }

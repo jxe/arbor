@@ -1,9 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
-    { "name": "id-cursor-mismatch", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_b\",\"tree\":\"tr_a\",\"kind\":\"tree.update\",\"change\":{}}\n\n" },
-    { "name": "event-kind-mismatch", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_a\",\"tree\":\"tr_a\",\"kind\":\"tree.changed\",\"change\":{}}\n\n" },
-    { "name": "unsupported-event-kind", "frame": "id: up_a\nevent: tree.changed\ndata: {\"cursor\":\"up_a\",\"tree\":\"tr_a\",\"kind\":\"tree.changed\",\"change\":{}}\n\n" },
-    { "name": "missing-tree", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_a\",\"kind\":\"tree.update\",\"change\":{}}\n\n" }
+    { "name": "missing-id", "frame": "event: tree.update\ndata: {\"transition\":{\"update\":{\"id\":\"1\",\"tree\":\"tr_a\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"previous\":{\"id\":\"0\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"},\"acceptedAt\":1,\"subject\":null,\"conflicted\":false},\"objects\":[],\"deltas\":[]},\"access\":\"read\",\"canonical\":null}\n\n" },
+    { "name": "unsupported-event-kind", "frame": "id: 1\nevent: tree.changed\ndata: {\"transition\":{\"update\":{\"id\":\"1\",\"tree\":\"tr_a\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"previous\":{\"id\":\"0\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"},\"acceptedAt\":1,\"subject\":null,\"conflicted\":false},\"objects\":[],\"deltas\":[]},\"access\":\"read\",\"canonical\":null}\n\n" },
+    { "name": "batch-of-transitions", "frame": "id: 1\nevent: tree.update\ndata: {\"transitions\":[{\"update\":{\"id\":\"1\",\"tree\":\"tr_a\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"previous\":{\"id\":\"0\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"},\"acceptedAt\":1,\"subject\":null,\"conflicted\":false},\"objects\":[],\"deltas\":[]}],\"access\":\"read\",\"canonical\":null}\n\n" },
+    { "name": "another-tree", "frame": "id: 1\nevent: tree.update\ndata: {\"transition\":{\"update\":{\"id\":\"1\",\"tree\":\"tr_b\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"previous\":{\"id\":\"0\",\"root\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"},\"acceptedAt\":1,\"subject\":null,\"conflicted\":false},\"objects\":[],\"deltas\":[]},\"access\":\"read\",\"canonical\":null}\n\n" },
+    { "name": "resync-without-reason", "frame": "event: resync-required\ndata: {}\n\n" }
   ]
 }

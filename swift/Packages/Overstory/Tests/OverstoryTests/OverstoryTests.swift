@@ -1043,23 +1043,23 @@ struct ProtocolValueVectorTests {
         }
     }
 
-    @Test("observation-events.sse frames satisfy id == cursor and event == kind")
+    @Test("observation-events.sse frames carry the cursor in id, the kind in event, and the change alone as data")
     func observationEvents() throws {
         let source = try String(contentsOf: fixtures.appending(path: "observation-events.sse"), encoding: .utf8)
         var parser = ProtocolSSEParser()
         var frames = try parser.append(Data(source.utf8))
         frames.append(contentsOf: try parser.finish())
-        #expect(frames.map(\.event) == ["tree.update"])
-        for frame in frames {
-            let payload = try #require(JSONSerialization.jsonObject(with: Data(frame.data.utf8)) as? [String: Any])
-            #expect(frame.id == payload["cursor"] as? String)
-            #expect(frame.event == payload["kind"] as? String)
-            #expect((payload["tree"] as? String)?.hasPrefix("tr_") == true)
-            // The frame is one the watch decoder accepts, transitions and all.
-            let observation = try JSONDecoder().decode(ProtocolTreeRefObservation.self, from: Data(frame.data.utf8))
-            #expect(try observation.change.validated(tree: observation.tree).transitions.count == 1)
-        }
-        // TODO: observation-events-invalid.json is not consumed here. The id/cursor and event/kind
-        // checks live inside `ProtocolClient.watch`; the batch checks are `ProtocolTreeRefChange.validated`.
+        #expect(frames.map(\.event) == ["tree.update", "resync-required"])
+        let update = frames[0], resync = frames[1]
+        #expect(update.id == "1")
+        let payload = try #require(JSONSerialization.jsonObject(with: Data(update.data.utf8)) as? [String: Any])
+        #expect(Set(payload.keys) == ["transition", "access", "canonical"])
+        // The frame is one the watch decoder accepts.
+        let change = try JSONDecoder().decode(ProtocolTreeUpdateFrame.self, from: Data(update.data.utf8))
+        #expect(try change.validated(tree: change.transition.update.tree).transition.update.id == "1")
+        #expect(resync.id == nil)
+        #expect(try JSONDecoder().decode(ProtocolResyncChange.self, from: Data(resync.data.utf8)).reason == "The requested cursor is no longer retained")
+        // TODO: observation-events-invalid.json is not consumed here. Its framing checks live inside
+        // `ProtocolClient.watch`; the transition checks are `ProtocolTreeUpdateFrame.validated`.
     }
 }

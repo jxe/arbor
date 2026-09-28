@@ -133,26 +133,25 @@ describe("REST v1 protocol fixtures", () => {
     expect(data.cursor).toBeUndefined();
   });
 
-  test("observation-events.sse frames satisfy id === cursor and event === kind", async () => {
+  test("observation-events.sse frames carry the cursor in id, the kind in event, and the change alone as data", async () => {
     const source = await readFile(join(conformance, "observation-events.sse"), "utf8");
     const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
-    expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
-    for (const frame of frames) {
-      const data = JSON.parse(frame.data) as { cursor: string; tree: string; kind: string; change: unknown };
-      expect(frame.id).toBe(data.cursor);
-      expect(frame.event).toBe(data.kind);
-      expect(data.tree).toStartWith("tr_");
-    }
-    const ref = JSON.parse(frames[0]!.data) as { tree: string; change: { descriptor: RemoteTreeDescriptor } };
-    validateTreeDescriptor(ref.change.descriptor);
-    // The frame is one the watch decoder accepts, transitions and all.
-    expect(decodeAcceptedWatchChange(ref.change, ref.tree).transitions).toHaveLength(1);
-    expect(ref.change.descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${ref.change.descriptor.id}`);
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "resync-required"]);
+    const [update, resync] = frames as [typeof frames[0], typeof frames[0]];
+    expect(update.id).toBe("1");
+    const data = JSON.parse(update.data) as { transition: { update: { tree: string } }; canonical: { endpoint: string } };
+    expect(Object.keys(data).sort()).toEqual(["access", "canonical", "transition"]);
+    const tree = data.transition.update.tree;
+    // The frame is one the watch decoder accepts.
+    expect(decodeAcceptedWatchChange(data, tree).transition.update.id).toBe("1");
+    expect(data.canonical.endpoint).toBe(`https://community.example/.arbor/trees/${tree}`);
+    expect(resync.id).toBeUndefined();
+    expect(JSON.parse(resync.data)).toEqual({ reason: "The requested cursor is no longer retained" });
   });
 
   test("observation-events-invalid.json frames are rejected by the wire watch decode path", async () => {
     const { cases } = await conformanceJSON<{ cases: Array<{ name: string; frame: string }> }>("observation-events-invalid.json");
-    expect(cases.map((item) => item.name)).toEqual(["id-cursor-mismatch", "event-kind-mismatch", "unsupported-event-kind", "missing-tree"]);
+    expect(cases.map((item) => item.name)).toEqual(["missing-id", "unsupported-event-kind", "batch-of-transitions", "another-tree", "resync-without-reason"]);
     const originalFetch = globalThis.fetch;
     try {
       for (const item of cases) {

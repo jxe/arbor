@@ -187,8 +187,11 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
     const candidate = host.held.updates.at(-1)!.candidate;
     const observation = coordinator.observe({
       kind: "tree.update", cursor: "up_1" as never, tree: TREE,
-      descriptor: { id: TREE, kind: "ordinary", root: candidate, access: "write", canonical: null, update: "up_1", conflicted: false } as never,
-      transitions: [], requestDigest: updateRequestDigests(TREE, host.held).at(-1) as never,
+      access: "write", canonical: null,
+      transition: {
+        update: { id: "up_1", tree: TREE, root: candidate, previous: { id: "up_0", root: candidate }, acceptedAt: 1, subject: null, conflicted: false },
+        objects: [], deltas: [], requestDigest: updateRequestDigests(TREE, host.held).at(-1) as never,
+      },
     });
     while (coordinator.state.kind !== "accepted-pending-apply") await Bun.sleep(5);
     await Bun.sleep(50);

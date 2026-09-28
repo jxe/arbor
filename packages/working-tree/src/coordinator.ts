@@ -477,7 +477,7 @@ export class UpdateCoordinator {
       const pending = await this.pendingCount() > 0;
       let installed: AcceptedBase | undefined;
       const event = this.watchEvent;
-      if (cursor && event?.cursor === cursor && event.transitions.length) {
+      if (cursor && event?.cursor === cursor) {
         try { installed = await this.replay(event, pending); } catch { installed = undefined; }
       }
       installed ??= await this.install(this.current(await this.transport.descriptor(this.tree)), new Map(), { pending });
@@ -494,21 +494,16 @@ export class UpdateCoordinator {
 
   private async replay(event: Extract<WatchEvent, { kind: "tree.update" }>, pending: boolean): Promise<AcceptedBase> {
     const accepted = await this.working.accepted();
-    const first = event.transitions[0]!, final = event.transitions.at(-1)!;
-    if (final.update.id !== event.descriptor.update || final.update.root !== event.descriptor.root) {
-      throw new UpdateValidationError("Watch transition batch does not match its descriptor");
-    }
-    if (!accepted || first.from?.id !== accepted.update || first.from.root !== accepted.root) {
+    const transition = event.transition;
+    const basis = transition.from ?? transition.update.previous;
+    if (!accepted || basis?.id !== accepted.update || basis.root !== accepted.root) {
       throw new UpdateValidationError("Watch predecessor differs from the installed accepted state");
     }
-    let objects = new Map<string, Uint8Array>();
-    for (const transition of event.transitions) {
-      for (const hash of new Set(transition.deltas.map(delta => delta.base))) {
-        if (!objects.has(hash)) objects.set(hash, await this.object(hash, objects));
-      }
-      objects = applyTransitionPayload(objects, transition);
-    }
-    return this.install({ update: final.update.id, root: final.update.root, conflicted: final.update.conflicted, cursor: event.cursor }, objects, { pending });
+    const bases = new Map<string, Uint8Array>();
+    for (const hash of new Set(transition.deltas.map(delta => delta.base))) bases.set(hash, await this.object(hash, bases));
+    const objects = applyTransitionPayload(bases, transition);
+    const { update } = transition;
+    return this.install({ update: update.id, root: update.root, conflicted: update.conflicted, cursor: event.cursor }, objects, { pending });
   }
 
   /** The chain through `tip` reproduces the accepted root: settle it without a request. */
@@ -610,8 +605,9 @@ export class UpdateCoordinator {
     if (event.tree !== this.tree) return this.presentation();
     if (event.kind === "resync-required") return this.recoverWatchGap();
     this.watchEvent = event;
-    this.dispatch({ type: "watch", cursor: event.cursor, root: event.descriptor.root, update: event.descriptor.update,
-      digests: event.requestDigest ? [event.requestDigest] : [], transitions: event.transitions.length > 0, conflicted: event.descriptor.conflicted });
+    const { update, requestDigest } = event.transition;
+    this.dispatch({ type: "watch", cursor: event.cursor, root: update.root, update: update.id,
+      digests: requestDigest ? [requestDigest] : [], transitions: true, conflicted: update.conflicted });
     await this.settle();
     return this.presentation();
   }

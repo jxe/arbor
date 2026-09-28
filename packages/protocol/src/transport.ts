@@ -1,4 +1,4 @@
-import { decodeAcceptedWatchChange, decodeDecisionPage, type DecisionPage } from "./updates/accepted-contract.ts";
+import { decodeAcceptedWatchChange, decodeDecisionPage, type AcceptedWatchChange, type DecisionPage } from "./updates/accepted-contract.ts";
 import type {
   AcceptedTransition,
   UpdateConflictResult,
@@ -176,33 +176,22 @@ export interface RemoteDirectoryEntry {
   sources: Array<"community" | `group:${TreeID}` | "access">;
 }
 
-/** One decoded frame of a tree watch. `tree.update` carries a verified, contiguous transition batch. */
+/**
+ * One decoded frame of a tree watch. `tree.update` carries one verified
+ * transition, its cursor from the SSE `id`; the tree's new descriptor is the
+ * client's own with the frame's `access` and `canonical` and the transition's
+ * update (tree operations §1.1.3).
+ */
 export type WatchEvent =
   | {
     kind: "tree.update";
     cursor: EventCursor;
     tree: TreeID;
-    descriptor: RemoteTreeDescriptor;
-    transitions: AcceptedTransition[];
-    requestDigest?: ObjectHash;
+    access: "read" | "write";
+    canonical: RemoteTreeDescriptor["canonical"];
+    transition: AcceptedTransition;
   }
-  | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string };
-
-function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.update" }> {
-  const change = decodeAcceptedWatchChange<RemoteTreeDescriptor>(value, tree);
-  const requestDigest = (value as { requestDigest?: unknown }).requestDigest;
-  if (requestDigest !== undefined && (typeof requestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestDigest))) {
-    throw new Error("Malformed tree.update request digest");
-  }
-  return {
-    kind: "tree.update",
-    cursor,
-    tree,
-    descriptor: change.descriptor,
-    transitions: change.transitions,
-    ...(requestDigest ? { requestDigest: requestDigest as ObjectHash } : {}),
-  };
-}
+  | { kind: "resync-required"; tree: TreeID; reason: string };
 
 /**
  * An HTTP failure. `code`, `retryable` and `details` come from the host's
@@ -622,16 +611,16 @@ export class ProtocolClient {
   private async *watchEvents(tree: TreeID, body: ReadableStream<Uint8Array>): AsyncGenerator<WatchEvent> {
     for await (const frame of parseSSEStream(body)) {
       if (!frame.data) continue;
-      const decoded = JSON.parse(frame.data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
-      if (typeof decoded.cursor !== "string" || typeof decoded.kind !== "string" || decoded.tree !== tree
-        || frame.id !== decoded.cursor || frame.event !== decoded.kind) {
-        throw new Error("Malformed Arbor watch event");
-      }
-      if (decoded.kind === "tree.update") {
-        yield decodeTreeRefChange(tree, decoded.cursor, decoded.change);
-      } else if (decoded.kind === "resync-required") {
-        const reason = (decoded.change as { reason?: unknown } | null)?.reason;
-        yield { kind: "resync-required", cursor: decoded.cursor, tree, ...(typeof reason === "string" ? { reason } : {}) };
+      if (frame.event === "tree.update") {
+        if (!frame.id) throw new Error("Malformed Arbor watch event: no cursor");
+        let change: AcceptedWatchChange<NonNullable<RemoteTreeDescriptor["canonical"]>>;
+        try { change = decodeAcceptedWatchChange(JSON.parse(frame.data), tree); }
+        catch (error) { throw new Error(`Malformed Arbor watch event: ${error instanceof Error ? error.message : String(error)}`); }
+        yield { kind: "tree.update", cursor: frame.id, tree, access: change.access, canonical: change.canonical, transition: change.transition };
+      } else if (frame.event === "resync-required") {
+        const reason = (JSON.parse(frame.data) as { reason?: unknown } | null)?.reason;
+        if (typeof reason !== "string") throw new Error("Malformed Arbor watch event: resync without a reason");
+        yield { kind: "resync-required", tree, reason };
         return;
       } else {
         throw new Error("Malformed Arbor watch event: unsupported kind");
