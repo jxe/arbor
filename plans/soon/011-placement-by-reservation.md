@@ -51,13 +51,18 @@ members:
 
 A host resolves such a locator at its authority (the canonical lookup of
 locators §1) to the TreeID, and refreshes it with the device keys or group
-members it reads there (60 s and 30 s, the one-hour grace). **Decide
-(recommended: pin):** the host records the TreeID it first resolved, as host
-state beside the account or rule index, and a later resolution to another
-TreeID makes the entry match nobody until it is edited; without the pin, a
-rename or reuse of the handle at the other host moves the reservation or the
-rule with it. Either way, locators §1's "profile identity equality comes only
-from the profile TreeID" gains this exception, which the spec states.
+members it reads there (60 s and 30 s, the one-hour grace).
+
+**The TreeID is pinned (decided, Joe, 2026-09-28).** The host records the
+TreeID a locator first resolved to, as host state beside the account or rule
+index, never in the configuration file. A later resolution to another TreeID
+makes the entry match nobody (a placement account refuses sessions, a rule
+grants nothing) until the entry is edited, which pins afresh; an unreadable
+locator is treated like an unreadable group, served from the last resolution
+through the grace, then matching nobody. So a rename or reuse of the handle at
+the other host fails closed instead of moving the reservation or the rule, and
+identity stays the TreeID: locators §1 states that a locator subject names the
+TreeID it was pinned to.
 
 **The reservation is the placement account.** When B accepts a community
 update, each member whose profile is a locator at another host becomes a
@@ -94,7 +99,7 @@ the home host over HTTPS for the device list;
 ### Phase 1: spec
 
 - Locators §1: profile subjects may be canonical locators at another host,
-  and the pin (or not). Accounts §1.3 rewritten: a placement account comes
+  pinned to the TreeID first resolved. Accounts §1.3 rewritten: a placement account comes
   from a reservation naming a locator at another host; no placement challenge
   or claim; the placement root's creation; disabling on removal. Access
   control §1 and §3.3: `who.profile` is a TreeID or such a locator, and
@@ -109,7 +114,12 @@ the home host over HTTPS for the device list;
 - Rules: `resource-policy.ts` and `remote-groups.ts` take the group's host
   from the locator; `access.yaml` and `apps.yaml` lose `homeHost`, and the
   one-host-per-profile check becomes one locator per profile.
-- The pin, if chosen: the resolved TreeID per locator as host state.
+- The pin: the resolved TreeID per locator as host state (a schema step in
+  `migrations/next/` if it needs a table; the in-memory group copies are not
+  enough, since the pin must survive a restart), set when an entry is
+  accepted, cleared when it is edited or removed. Tests: a handle moved to
+  another profile at A matches nobody on B until the entry is edited; a
+  restart keeps the pin.
 - Remove the placement claim (`createAccountChallenge`'s `homeHost`,
   `claimPlacementAccount`, `verifyAccountIdentityProof`'s placement branch).
 - Declare the placement root per the decision above.
@@ -134,7 +144,8 @@ the home host over HTTPS for the device list;
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
-- No schema change. The placement claim routes disappear, and `homeHost`
+- No schema change beyond the pin's step, if it needs one (cut over as a
+  batch). The placement claim routes disappear, and `homeHost`
   in configuration files becomes invalid: a clean break (sole user). Check the
   live `tree_policy` and `app_policy` for `homeHost` first and rewrite any
   such rule as a locator in the same deploy. Deploy canopyd with the clients,
