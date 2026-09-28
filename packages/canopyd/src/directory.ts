@@ -33,14 +33,13 @@ export function buildDirectory(canopy: HostDaemon, account: HostAccount, origin:
 
   // Every tree read once; each entry below reuses its row.
   const trees = new Map(canopy.list().map((tree) => [tree.id, tree]));
-  const active = [...trees.values()].filter((tree) => tree.status === "active");
   for (const member of canopy.communityMembers()) {
     const profile = profileLocatorTree(member.profile);
     if (profile) include(profile, "community", member.handle);
   }
-  // Every active group in one query, visited in tree order.
+  // Every group in one query, visited in tree order.
   const groups = new Map(canopy.groupProfiles().map(({ tree, facts }) => [tree, facts]));
-  for (const group of active) {
+  for (const group of trees.values()) {
     const facts = groups.get(group.id);
     if (!facts || !canopy.canRead(account, group)) continue;
     include(group.id, `group:${group.id}`);
@@ -49,7 +48,7 @@ export function buildDirectory(canopy: HostDaemon, account: HostAccount, origin:
       if (profile) include(profile, `group:${group.id}`, member.handle);
     }
   }
-  for (const tree of active.filter((tree) => canopy.canAdminister(account, tree))) {
+  for (const tree of [...trees.values()].filter((tree) => canopy.canAdminister(account, tree))) {
     for (const profile of canopy.ruleProfiles(tree.id)) include(profile, "access");
   }
 

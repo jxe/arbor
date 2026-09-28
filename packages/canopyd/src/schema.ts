@@ -9,10 +9,10 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const CANOPY_SCHEMA_VERSION = "28";
+export const CANOPY_SCHEMA_VERSION = "29";
 
 export const AUTHORITY_SCHEMA = {
-  trees: ["id", "ref", "policy", "status", "governs"],
+  trees: ["id", "ref", "policy", "governs"],
   boundaries: ["path", "tree_id", "parent_tree"],
   accepted_updates: [
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
@@ -111,7 +111,6 @@ export function createHostSchema(db: Database): void {
       id TEXT PRIMARY KEY,
       ref TEXT NOT NULL,
       policy TEXT NOT NULL DEFAULT 'ordinary',
-      status TEXT NOT NULL DEFAULT 'active',
       governs TEXT
     )
   `);
@@ -235,12 +234,12 @@ export function assertHostData(db: Database): void {
   `).get() as { count: number };
   const missingConfigurations = db.query(`
     SELECT COUNT(*) AS count FROM trees t
-    WHERE t.policy = 'ordinary' AND t.status = 'active'
-      AND NOT EXISTS (SELECT 1 FROM trees c WHERE c.governs = t.id AND c.status = 'active')
+    WHERE t.policy = 'ordinary'
+      AND NOT EXISTS (SELECT 1 FROM trees c WHERE c.governs = t.id)
   `).get() as { count: number };
   const unindexed = db.query(`
     SELECT COUNT(*) AS count FROM trees c
-    WHERE c.governs IS NOT NULL AND c.status = 'active'
+    WHERE c.governs IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM tree_admins a WHERE a.tree_id = c.governs)
   `).get() as { count: number };
   if (missingHistory.count) issues.push("trees without accepted history");

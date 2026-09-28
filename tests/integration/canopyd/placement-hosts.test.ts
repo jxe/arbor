@@ -505,7 +505,7 @@ test("removing ~alice from B's members disables her placement account and ends i
   await expect(macAtB.placementAccount()).rejects.toThrow("unauthenticated");
   await expect(openSession(b.url, alice.profileTree, macID, mac)).rejects.toThrow();
   // Her placement root and its trees stay.
-  expect(b.canopy.get(placementRoot)?.status).toBe("active");
+  expect(b.canopy.get(placementRoot)).not.toBeNull();
   await reserve(b.url, "placement-owner-b", { alice: `${homeHost}/~alice`, bob: bob.profileTree });
   expect(b.canopy.account(alice.profileTree)?.enabled).toBe(true);
   expect(b.canopy.placementRootOf(b.canopy.account(alice.profileTree)!)).toBe(placementRoot);

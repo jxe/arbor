@@ -11,7 +11,7 @@ const LINK = `sha256:${"b".repeat(64)}`;
 
 function tree(id: string, governs: string | null = null): HostTree {
   return { id, canonicalPath: governs ? null : `/${id}`, parentTree: null, kind: governs ? "tree-configuration" : "ordinary", ref: ROOT,
-    policy: governs ? "tree-config-v1" : "ordinary", status: "active", governs };
+    policy: governs ? "tree-config-v1" : "ordinary", governs };
 }
 const account = (profileTree: string): HostAccount => ({ id: profileTree, handle: profileTree.slice(3), enabled: true, homeHost: null });
 const joe = account("tr_joe"), alice = account("tr_alice"), carol = account("tr_carol"), bob = account("tr_bob");

@@ -169,7 +169,7 @@ export class AccessControl {
    */
   executionAllows(context: ExecutionContext, grant: ExecutionGrant, path: string, operation: AccessOperation): boolean {
     const tree = this.host.tree(grant.tree);
-    if (!tree || tree.policy !== "ordinary" || tree.status !== "active") return false;
+    if (!tree || tree.policy !== "ordinary") return false;
     const caller = context.caller ? this.accounts.enabledAccount(context.caller) : null;
     if (context.caller && !caller) return false;
     const callerProfile = caller?.id ?? null;
@@ -214,7 +214,7 @@ export class AccessControl {
    */
   level(account: HostAccount | null, treeOrID: string | HostTree, linkDigest?: string): "write" | "read" | null {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree || tree.status !== "active") return null;
+    if (!tree) return null;
     const profile = account?.id ?? null;
     if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(profile, tree.governs) ? "write" : null;
     if (this.administers(profile, tree.id)) return "write";
@@ -225,7 +225,7 @@ export class AccessControl {
 
   private allows(account: HostAccount | null, treeOrID: string | HostTree, operation: "read" | "write", linkDigest?: string): boolean {
     const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
-    if (!tree || tree.status !== "active") return false;
+    if (!tree) return false;
     // Only a tree's administrators see its configuration.
     if (isTreeConfigPolicy(tree.policy)) return !!account && !!tree.governs && this.administers(account.id, tree.governs);
     return this.holds(account?.id ?? null, tree.id, "/", operation, linkDigest);

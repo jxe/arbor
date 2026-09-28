@@ -8,8 +8,6 @@ export interface HostTree {
   kind: TreeKind;
   ref: ObjectHash;
   policy: "ordinary" | "tree-config-v1";
-  /** Retired trees retain immutable update history but have no canonical boundary or access. */
-  status: "active" | "retired";
   /** For a tree configuration, the TreeID of the tree it configures. */
   governs: string | null;
 }

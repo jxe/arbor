@@ -40,7 +40,7 @@ describe("Canopy schema version stamp", () => {
     expect(db.query("SELECT value FROM meta WHERE key = 'schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION });
     db.close();
     expect(columns(database, "boundaries")).toEqual(["path", "tree_id", "parent_tree"]);
-    expect(columns(database, "trees")).toEqual(["id", "ref", "policy", "status", "governs"]);
+    expect(columns(database, "trees")).toEqual(["id", "ref", "policy", "governs"]);
     expect(columns(database, "accounts")).toEqual(["id", "handle", "enabled", "claim_digest", "home_host"]);
     expect(columns(database, "tree_policy")).toEqual(["tree_id", "rules_json"]);
     expect(columns(database, "tree_admins")).toEqual(["tree_id", "profile_tree"]);
@@ -73,15 +73,15 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 28 is current: a schema-27 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("28");
+  test("schema 29 is current: a schema-28 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("29");
     const root = await dataRoot();
     const first = await HostDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
-    db.run("UPDATE meta SET value = '27' WHERE key = 'schema_version'");
+    db.run("UPDATE meta SET value = '28' WHERE key = 'schema_version'");
     db.close();
-    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 27 but this build requires 28.*run the offline migration/);
+    await expect(HostDaemon.open(root)).rejects.toThrow(/schema version 28 but this build requires 29.*run the offline migration/);
   });
 
   test("a root without the profile_facts table is a schema mismatch", async () => {

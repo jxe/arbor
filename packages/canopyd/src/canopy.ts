@@ -515,7 +515,6 @@ export class HostDaemon implements AsyncDisposable {
       path: string | null;
       parent_tree: string | null;
       policy: HostTree["policy"];
-      status: HostTree["status"];
       governs: string | null;
     };
     return {
@@ -525,7 +524,6 @@ export class HostDaemon implements AsyncDisposable {
       kind: isTreeConfigPolicy(row.policy) ? "tree-configuration" : "ordinary",
       ref: row.ref,
       policy: row.policy,
-      status: row.status,
       governs: row.governs,
     };
   }
@@ -1096,8 +1094,7 @@ export class HostDaemon implements AsyncDisposable {
 
   writableProfiles(account: HostAccount): HostTree[] {
     return this.list().filter((tree) =>
-      tree.status === "active"
-      && tree.canonicalPath !== null
+      tree.canonicalPath !== null
       && tree.policy === "ordinary"
       && this.rootProfileType(tree.id) !== null
       && this.canWrite(account, tree)
@@ -1155,7 +1152,7 @@ export class HostDaemon implements AsyncDisposable {
   /** Insert a prepared configuration and its index; callers run this inside their transaction. */
   private insertConfig(prepared: PreparedConfig, acceptedAt: number, subject: string | null, requestDigest?: ObjectHash, change?: string): AcceptedUpdate {
     const id = treeConfigurationID(prepared.tree);
-    this.db.run("INSERT INTO trees (id, ref, policy, status, governs) VALUES (?, ?, 'tree-config-v1', 'active', ?)", [id, prepared.root, prepared.tree]);
+    this.db.run("INSERT INTO trees (id, ref, policy, governs) VALUES (?, ?, 'tree-config-v1', ?)", [id, prepared.root, prepared.tree]);
     const accepted = this.acceptedStore.insert({
       tree: id, root: prepared.root, previousRoot: null, acceptedAt, subject, requestDigest, change,
       entryChanges: prepared.entryChanges, entry: prepared.entry,
@@ -1317,7 +1314,7 @@ export class HostDaemon implements AsyncDisposable {
     if (!root) return;
     const mounts = this.db.query(`
       SELECT m.parent_tree, m.path, m.tree_id FROM mounts m JOIN trees t ON t.id = m.tree_id
-      WHERE t.status = 'active' AND t.policy = 'ordinary' ORDER BY m.parent_tree, m.path
+      WHERE t.policy = 'ordinary' ORDER BY m.parent_tree, m.path
     `).all() as Array<{ parent_tree: string; path: string; tree_id: string }>;
     const byParent = new Map<string, typeof mounts>();
     for (const mount of mounts) byParent.set(mount.parent_tree, [...byParent.get(mount.parent_tree) ?? [], mount]);
@@ -1472,11 +1469,11 @@ export class HostDaemon implements AsyncDisposable {
     return this.treeProfile(idOf(tree)).stored?.facts ?? { version: 3, type: null, members: [] };
   }
 
-  /** Every active tree whose head declares `type: group`, with its facts: one query. */
+  /** Every tree whose head declares `type: group`, with its facts: one query. */
   groupProfiles(): Array<{ tree: string; facts: RootProfileFacts }> {
     return (this.db.query(`
       SELECT p.tree_id, p.facts FROM profile_facts p JOIN trees t ON t.id = p.tree_id
-      WHERE t.status = 'active' AND json_extract(p.facts, '$.type') = 'group'
+      WHERE json_extract(p.facts, '$.type') = 'group'
       ORDER BY p.tree_id
     `).all() as Array<{ tree_id: string; facts: string }>)
       .map((row) => ({ tree: row.tree_id, facts: JSON.parse(row.facts) as RootProfileFacts }));
@@ -2317,7 +2314,7 @@ export class HostDaemon implements AsyncDisposable {
       },
       prepareCommit: async (_remoteTree, _root, now) => {
         const content = this.get(governed);
-        const rewrite = content?.status === "active" ? await this.prepareMountRewrite(content, currentGraph.mounts, nextGraph.mounts) : null;
+        const rewrite = content ? await this.prepareMountRewrite(content, currentGraph.mounts, nextGraph.mounts) : null;
         const prepared = rewrite ? await this.prepareParentAdvance(rewrite) : null;
         const locators = configLocators(nextGraph);
         const pins = await this.locatorPins.prepare(governed, locators);
@@ -2470,7 +2467,7 @@ export class HostDaemon implements AsyncDisposable {
     const parent = mount ? this.get(mount.parent) : null;
     // Attaching a fresh tree is the single-addition boundary rewrite; a plain
     // entry already at that name is replaced by the nested-tree entry.
-    const attachment = parent?.status === "active" && parent.policy === "ordinary"
+    const attachment = parent?.policy === "ordinary"
       ? await this.prepareParentAdvance(await this.prepareBoundaryRewrite(parent.id, [], [{ path: mountBelow("/", mount!.path), tree: id }], { replaceEntries: true }))
       : null;
     const staged = new Map(snapshot.objects);
@@ -2587,7 +2584,7 @@ export class HostDaemon implements AsyncDisposable {
    * entry leaves its old name and appears at its new one. Null when nothing
    * changes. */
   private async prepareMountRewrite(parent: HostTree, before: Record<string, string>, after: Record<string, string>) {
-    const active = (tree: string) => this.get(tree)?.status === "active";
+    const active = (tree: string) => !!this.get(tree);
     const removals: BoundaryEdit[] = [];
     const additions: BoundaryEdit[] = [];
     for (const [path, child] of Object.entries(before)) {
@@ -2608,7 +2605,7 @@ export class HostDaemon implements AsyncDisposable {
   ): Promise<void> {
     const children = this.db.query(`
       SELECT m.path, m.tree_id FROM mounts m JOIN trees t ON t.id = m.tree_id
-      WHERE m.parent_tree = ? AND t.status = 'active' ORDER BY length(m.path)
+      WHERE m.parent_tree = ? ORDER BY length(m.path)
     `).all(parent.id) as Array<{ path: string; tree_id: string }>;
     for (const child of children) {
       const segments = child.path.split("/");
