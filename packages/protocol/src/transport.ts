@@ -26,6 +26,7 @@ import {
   type DeviceSessionChallenge,
 } from "./index.ts";
 import {
+  hashObject,
   type ObjectHash,
   type TreeSnapshot,
 } from "./objects.ts";
@@ -244,11 +245,21 @@ function httpError(response: Response, body: string): ProtocolHTTPError {
     const parsed = JSON.parse(body) as unknown;
     if (parsed && typeof parsed === "object") envelope = parsed as Partial<OverstoryError>;
   } catch {}
+  // A response without the envelope (a proxy's page) is retryable exactly
+  // when the status is a server's failure, as the Swift client reads it.
   return new ProtocolHTTPError(
     response.status,
     `${response.url}: ${envelope.error ?? response.status} ${envelope.message ?? (body || response.statusText)}`,
-    envelope,
+    { ...envelope, retryable: typeof envelope.retryable === "boolean" ? envelope.retryable : response.status >= 500 },
   );
+}
+
+/** A host answered an object request with bytes that do not hash to the object. */
+export class ProtocolObjectHashMismatch extends Error {
+  constructor(readonly tree: string, readonly hash: string) {
+    super(`The host answered ${hash} in ${tree} with other bytes`);
+    this.name = "ProtocolObjectHashMismatch";
+  }
 }
 
 export class ProtocolTransportError extends TypeError {
@@ -668,7 +679,9 @@ export class ProtocolClient {
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/objects/${hash}`, {
       headers: this.headers(),
     }));
-    return new Uint8Array(await response.arrayBuffer());
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (hashObject(bytes) !== hash) throw new ProtocolObjectHashMismatch(tree, hash);
+    return bytes;
   }
 
 }

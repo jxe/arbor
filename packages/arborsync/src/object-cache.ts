@@ -110,10 +110,6 @@ export class TreeObjectCache {
       this.report(objectReadError({ source: "canopy", tree, hash }, error));
       return undefined;
     }
-    if (hashObject(bytes) !== hash) {
-      this.report({ source: "canopy", reason: "hash-mismatch", tree, hash });
-      return undefined;
-    }
     this.fetched.set(hash, bytes);
     return bytes;
   }
