@@ -51,3 +51,16 @@ bun run packages/canopyd/migrations/tools/compare-canopy-roots.ts before migrate
   `assertHostData` pass. `compare-canopy-roots` (now reading `governs` where
   `trees.policy` is gone): all 6 roots unchanged. Served with this build:
   `verify.ts --sync` ok (6 trees), `/.arbor/integrity` ok (called once).
+
+## Cutover log
+
+- 2026-09-28, `bb1fc3f1`: Canopy quit on the Mac and iPhone; authored
+  manifest (112 files over 3 placements) and `cp -a ~/.arbor` taken; Arbor
+  Sync stopped; pushed `main`, which deployed into maintenance mode;
+  `railway ssh -- bun run
+  packages/canopyd/migrations/032-drop-unused-fields/run.ts /data` reported
+  `migrated: true`, 29 → 32 through 030, 031 and 032, as rehearsed;
+  `railway redeploy --from-source -y`. Then Arbor Sync started with every
+  placement idle at its old update, `verify.ts --sync` ok on the 6 roots,
+  the authored manifest unchanged, `/.arbor/integrity` ok (once), and a
+  file-system round trip (5328/5329). No client rebuild.

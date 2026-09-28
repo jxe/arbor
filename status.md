@@ -105,8 +105,9 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## canopyd cleanup review — 2026-09-28
 
-Implemented on `main` (`3861dfa`), not installed or deployed; the Swift gate
-has not run (the one Swift change is the descriptor access check below). A
+Deployed with migration 032 at `bb1fc3f1`, 2026-09-28; the Mac and iPhone
+apps are not rebuilt with it, and the Swift gate has not run (the one Swift
+change is the descriptor access check below). A
 review of canopyd for legacy and redundant surface, and the fixes it led to:
 
 - **Unknown update base.** A base the host does not hold for the tree, or a
@@ -132,10 +133,13 @@ review of canopyd for legacy and redundant surface, and the fixes it led to:
 - **Smaller fixes.** The CLI reads a reserved profile from
   `x-arbor-profile-state` only, not the page text; the canopyd README and
   host doc were corrected (`reconcile.ts`, opt-in rate limits).
-- **Queued, not cut over.** Batch steps 030–032 in
-  [`migrations/next`](packages/canopyd/migrations/next/README.md) drop
-  `trees.policy`, three unread timestamps and the profile facts version; the
-  product still serves schema 29.
+- **Migration 032 (schema 29 to 32).** Batch steps 030–032, cut over live
+  as [`032-drop-unused-fields`](packages/canopyd/migrations/032-drop-unused-fields/README.md),
+  drop `trees.policy` (a tree's kind is whether it `governs` another), three
+  unread timestamps and the profile facts version; no wire change. The live
+  report matched the rehearsal, all 6 roots unchanged, `verify.ts --sync`
+  ok, `/.arbor/integrity` ok (once), the authored manifest (112 files over 3
+  placements) unchanged, a file-system round trip (5328/5329).
 - **Left as they are.** The execution-token and app-runtime routes (dormant
   until [Apps 005](plans/apps/005-source-resolution-and-sidecar.md));
   `document_versions`, whose history columns nothing reads yet ([canopyd
