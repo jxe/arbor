@@ -19,6 +19,8 @@ Historical identifier: **Native 024**. The filename number is preserved; this pl
 
 Native 022 removed the daemon's `local` scope, so neither client can open an ordinary folder. Folders that are not trees need no synchronization; they need a dumb, reliable file editor with the same document surface.
 
+It also stranded the Mac's only way to make a folder into a tree: the share panel's "Make This an Overstory Tree" (`CanopySharePresentation.promotable`, `promoteLocalFolder`) appears only for a `local` workspace, which nothing opens now. Opening a plain folder brings it back, including onto a placement host's `~handle · host` destination (Security 007); until then new trees are placed with `arbor place`.
+
 ## Design
 
 **Daemon backend for the web** (`packages/arborsync/src/fs-editor.ts`, own module, own doc section, no `NodeRef`, no tree IDs):
