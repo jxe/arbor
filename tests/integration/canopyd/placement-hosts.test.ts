@@ -391,7 +391,7 @@ describe("a rule on B naming a group A holds (access control §3.3)", () => {
 
   let session: ProtocolClient | undefined;
   /** Alice on B: one session, opened again once it ends (a session on B
-   * lasts no longer than the grace), since challenges are rate-limited. */
+   * lasts no longer than the grace), as a client would. */
   async function aliceAtB(): Promise<ProtocolClient> {
     session ??= await openSession(b.url, alice.profileTree, macID, mac);
     try {

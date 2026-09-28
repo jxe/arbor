@@ -343,6 +343,12 @@ export async function serveHost(options: {
   mutationRuntime?: MutationCallRuntime;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: HostDaemonOptions;
+  /**
+   * Bound unauthenticated session challenges and pairing claims per caller.
+   * Off unless asked for: with one person's devices behind each host, a
+   * client retrying through an outage tripped it and hid the real refusal.
+   */
+  rateLimits?: boolean;
 }) {
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
@@ -356,11 +362,11 @@ export async function serveHost(options: {
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
   canopy.servedOverHTTP = new URL(publicOrigin).protocol === "http:";
   const onAuthorizationTick = authorizationTicker(canopy);
-  const pairingClaims = new AttemptLimiter(10, 10 * 60 * 1000);
-  const challenges = new AttemptLimiter(30, 10 * 60 * 1000);
-  /** Unauthenticated challenges are cheap to ask for; bound them per caller and profile. */
+  const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
+  const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
+  /** Unauthenticated challenges are cheap to ask for; with rate limits on, bound them per caller and profile. */
   const challengeAllowed = (request: Request, scope: string): boolean =>
-    challenges.allow(`${clientAddress(request)}:${scope}`);
+    challenges?.allow(`${clientAddress(request)}:${scope}`) ?? true;
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
@@ -512,7 +518,7 @@ export async function serveHost(options: {
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
           const pairingID = decodeURIComponent(pairingClaim[1]!);
-          if (!pairingClaims.allow(`${clientAddress(request)}:${pairingID}`))
+          if (pairingClaims && !pairingClaims.allow(`${clientAddress(request)}:${pairingID}`))
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await request.json() as {
             secret?: unknown;

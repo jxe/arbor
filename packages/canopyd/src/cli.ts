@@ -189,6 +189,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       accounts,
       port: requestedPort,
       hostname: hostnameOption(args),
+      rateLimits: process.env.ARBOR_CANOPY_RATE_LIMITS === "1",
     });
   } catch (error) {
     // A data root whose schema this build does not serve is not served and
