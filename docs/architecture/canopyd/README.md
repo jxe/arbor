@@ -107,9 +107,10 @@ configurations have their shape, and the tests for each refused case, are in
   deletes its sessions, and a watch rechecks its session's expiry outside the
   cached authorization. A request whose bearer token authenticates nothing is
   refused with 401 on every route.
-  Unauthenticated challenge requests are limited to 30 per caller and profile
-  per ten minutes, and pairing claims to 10 per caller and pairing; the
-  limiter keeps at most 10,000 keys, and its caller address comes from proxy
+  With `ARBOR_CANOPY_RATE_LIMITS=1` (off by default, and not set by the
+  deployment), unauthenticated challenge requests are limited to 30 per
+  caller and profile per ten minutes, and pairing claims to 10 per caller and
+  pairing; the limiter keeps at most 10,000 keys, and its caller address comes from proxy
   headers canopyd does not verify (`attempt-limiter.ts`, `clientAddress` in
   `host.ts`). As a
   home host canopyd publishes each profile's key devices at

@@ -13,7 +13,9 @@ depends on it except tests and the deployment tooling.
   integrity audit checks, and `openHostDatabase`. The stamps are listed in
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
 - `updates/`: `reconcile.ts` (the identity-only current, accept, and merge
-  table; invokes the merge sidecar only when both sides changed),
+  table for a snapshot update without a trace; its merge step runs only for
+  tree configurations, whose three-way merge canopyd owns; `canopy.ts` asks
+  the merge sidecar its one question),
   `store.ts` (private accepted history, the accepted-row transaction, and
   the only writer of `trees.ref`), `observations.ts` (cursor order over
   accepted updates, the only source of watch order), `entry-metadata.ts`

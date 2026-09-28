@@ -192,9 +192,7 @@ export async function isReservedProfile(target: OpenTarget): Promise<boolean> {
   if (!target.profile || !target.remoteURL) return false;
   try {
     const response = await fetch(target.remoteURL, { headers: { accept: "text/html" } });
-    if (!response.ok) return false;
-    if (response.headers.get("x-arbor-profile-state") === "reserved") return true;
-    return (await response.text()).includes("has not been claimed");
+    return response.ok && response.headers.get("x-arbor-profile-state") === "reserved";
   } catch {
     return false;
   }
