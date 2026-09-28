@@ -760,6 +760,11 @@ async function placeLocal(
       await addLocalPlacement({ configurationTree: config.configurationTree, path, tree, ...placementHost(selected) });
       await waitForLocalPlacement(client, tree, config.configurationTree, path);
     } else {
+      // Until the placement root is active nothing resolves below it, so a
+      // new tree there would have no parent to mount it.
+      if (rootPath !== null && !(await wire.placementAccount()).account.placementRoot.tree) {
+        throw new Error(`Place a folder at ${selected.host.placement!.account} first; trees below it can be placed once it is active`);
+      }
       tree = generateArborID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
       const { parent, name } = await mountPoint(wire, target.canonicalPath);

@@ -1085,6 +1085,14 @@ final class CanopyWorkspaceState {
             }
             tree = placementRoot
         } else {
+            if destination.host != nil {
+                // Until its placement root is active, nothing resolves below
+                // it, so the new tree would have no parent to mount it.
+                let current = try await wire.placementAccount().account
+                guard current.placementRoot.tree != nil else {
+                    throw ProtocolValidationError.invalidValue("Make a folder into \(account.accountURL) first; trees below it can be placed once it is active")
+                }
+            }
             tree = try generateArborID(prefix: "tr")
         }
         let placementsURL = CanopySupportDirectories.dataHome.appending(path: "placements.yaml")
