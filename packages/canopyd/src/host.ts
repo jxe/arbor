@@ -4,7 +4,7 @@ import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@overstory/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@overstory/protocol";
-import type { AccountChallenge, AccessLevel, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
+import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
   HostDaemon,
@@ -131,7 +131,7 @@ function arborLocator(origin: string, tree: HostTree): string | null {
 }
 
 /** A tree's descriptor at `head`, one of its accepted updates. */
-function descriptor(origin: string, tree: HostTree, access: AccessLevel, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">): RemoteTreeDescriptor {
+function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
@@ -1004,9 +1004,6 @@ export async function serveHost(options: {
         }
         if (error instanceof UpdateProtocolError) {
           if (error.code === "unsupported-operation") return protocolError(error.code, error.message, 422);
-          if (error.code === "base-not-retained") {
-            return protocolError("resync-required", error.message, 409, true, { kind: "server-update" });
-          }
           return protocolError("conflict", error.message, 409, false, { kind: "server-update" });
         }
         if (error instanceof AlreadyClaimedError) {

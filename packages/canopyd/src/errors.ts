@@ -71,9 +71,11 @@ export class RefConflictError extends Error {
   }
 }
 
-/** An update the protocol refuses: `base-not-retained` is a retryable 409
- * `resync-required`, `unsupported-operation` a 422, and
- * `activation-conflict` a 409 `conflict`. */
+/** An update the protocol refuses: `unsupported-operation` is a 422, and
+ * `base-not-retained` (a base the host does not hold for this tree, or a
+ * stale execution guard) and `activation-conflict` a 409 `conflict`, which a
+ * retry of the same request meets again. `resync-required` is kept for a
+ * catch-up that would cost more than a snapshot (tree operations §1.1.3). */
 export class UpdateProtocolError extends Error {
   override readonly name = "UpdateProtocolError";
   constructor(readonly code: "base-not-retained" | "activation-conflict" | "unsupported-operation", message: string) {

@@ -145,7 +145,7 @@ type CurrentTree = {
 type RemoteTreeDescriptor = {
   id: TreeID;
   kind: "ordinary" | "tree-configuration";
-  access: "none" | "read" | "write";
+  access: "read" | "write";
   root: Hash;
   update: string;
   conflicted: boolean;
@@ -161,6 +161,7 @@ type Hash = `sha256:${string}`;
 ```
 
 The descriptor's `access` summarizes the caller's effective whole-tree access.
+A caller who cannot read the tree gets no descriptor: the read is `404`.
 Scoped or executable-constrained authority is evaluated by
 [access control](05-access-control.md), not encoded as named mutation permissions.
 The descriptor's `root` is the bytes hash of the current accepted tree state

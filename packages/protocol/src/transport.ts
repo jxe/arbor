@@ -557,7 +557,7 @@ export class ProtocolClient {
         }
         throw new ProtocolUpdateConflict(conflict);
       }
-      // Any other refusal (a 409 `resync-required` among them) keeps its code.
+      // Any other refusal keeps its code.
       throw error;
     }
     // Error envelopes are JSON on every route; a success answers in the encoding its Content-Type names.

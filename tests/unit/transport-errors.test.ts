@@ -15,9 +15,9 @@ test("an HTTP failure keeps the envelope's code, retryability and details", asyn
   expect(error).toMatchObject({ status: 400, code: "invalid-request", retryable: false, details: { challenge: "expired" } });
 });
 
-test("a refused update other than a conflict is a ProtocolHTTPError with its code", async () => {
+test("a conflict without update details, such as an unknown base, is a ProtocolHTTPError with its code", async () => {
   const error = await withHost(
-    () => Response.json({ error: "resync-required", message: "Base update is not retained for this tree", retryable: true, details: { kind: "server-update" } }, { status: 409 }),
+    () => Response.json({ error: "conflict", message: "Base update is not retained for this tree", retryable: false, details: { kind: "server-update" } }, { status: 409 }),
     client => {
       const directory = encodeProtocolDirectory({ type: "directory", entries: [] });
       return client.submitUpdate("tr_transporterrorsaaaaaaaaaaaa", "up_base", { root: hashObject(directory), objects: new Map([[hashObject(directory), directory]]) })
@@ -25,7 +25,7 @@ test("a refused update other than a conflict is a ProtocolHTTPError with its cod
     },
   );
   expect(error).toBeInstanceOf(ProtocolHTTPError);
-  expect(error).toMatchObject({ status: 409, code: "resync-required", retryable: true });
+  expect(error).toMatchObject({ status: 409, code: "conflict", retryable: false });
 });
 
 test("a plain-text failure still reports its status", async () => {

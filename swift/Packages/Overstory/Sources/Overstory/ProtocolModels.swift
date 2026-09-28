@@ -120,7 +120,7 @@ public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
         guard ["ordinary", "tree-configuration"].contains(kind) else {
             throw ProtocolValidationError.invalidValue("Unknown tree kind")
         }
-        guard ["none", "read", "write"].contains(access) else {
+        guard ["read", "write"].contains(access) else {
             throw ProtocolValidationError.invalidValue("Unknown access level")
         }
         if kind == "tree-configuration" {

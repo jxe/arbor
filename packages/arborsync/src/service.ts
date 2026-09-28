@@ -641,7 +641,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
-            const access = remote.access === "none" ? "read" : remote.access;
+            const access = remote.access;
             // The host decides a tree's canonical path; a mount or rename moves it.
             const canonicalPath = remote.canonical?.path;
             if (placement.access !== access || (placement.kind !== "tree-configuration" && placement.canonicalPath !== canonicalPath)) {

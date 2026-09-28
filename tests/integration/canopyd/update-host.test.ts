@@ -381,6 +381,11 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(bodies.slice(0, 2).map((body) => JSON.parse(body).error)).toEqual(["not-found", "not-found"]);
       expect(JSON.parse(bodies[2]!).error).toBe("unauthenticated");
 
+      // A base the host does not hold for this tree is a conflict a retry
+      // meets again, never `resync-required`.
+      const unknownBase = await client.submitUpdate(treeID, "999999999", baseline.snapshot).catch((caught: unknown) => caught);
+      expect(unknownBase).toMatchObject({ status: 409, code: "conflict", retryable: false, details: { kind: "server-update" } });
+
       const restored = await client.submitUpdate(treeID, advanced.update.id, baseline.snapshot);
       if (restored.outcome !== "accepted") throw new Error("Expected restored configuration root");
       expect(restored.update.root).toBe(baseline.snapshot.root);

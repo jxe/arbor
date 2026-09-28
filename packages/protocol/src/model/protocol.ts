@@ -103,7 +103,7 @@ export interface AccessEntry {
 export interface TreeDescriptor {
   id: TreeID;
   kind: TreeKind;
-  access: AccessLevel;
+  access: ReadWriteAccess;
   canonical: {
     path: LogicalPath;
     endpoint: string;
