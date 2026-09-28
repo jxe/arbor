@@ -8,9 +8,10 @@
   own administrator's word instead of the profile key's signature, and a
   profile on another host is named by its canonical locator there.
 - **State:** PHASES 1–3 DONE 2026-09-28 on branch `claude/security-011`,
-  not merged or deployed: the spec, canopyd (schema 28, batch step 028 in
-  `migrations/next/`), the CLI, Arbor Sync and Swift. Phase 4 cuts batch 028
-  over with the merge. Joe chose this over a claim on first use.
+  not merged or deployed: the spec, canopyd, the CLI, Arbor Sync and Swift.
+  Batch 028–029 (schema 29, `migrations/029-profile-locators/`) and its four
+  wire changes are implemented and rehearsed on the 2026-09-28 live backup;
+  Phase 4 cuts it over with the merge. Joe chose this over a claim on first use.
   Replaces the placement claim of
   [Security 007](007-placement-hosts.md) and the `homeHost` field Security 009
   added to rule subjects, both deployed 2026-09-28. No live placement account
@@ -157,7 +158,7 @@ the home host over HTTPS for the device list;
 - The batch's other wire changes ride this cutover and its client release:
   the required update `head`, the slimmer watch frame, `after` as the only
   watch cursor, and `/access` as `{ policy, locators }` without the unused
-  cursors ([the batch README](../../packages/canopyd/migrations/next/README.md#wire-changes-at-cutover)
+  cursors ([the batch README](../../packages/canopyd/migrations/029-profile-locators/README.md#wire-changes-at-cutover)
   lists their spec sections and the code each touches), with step 029
   (`trees.status` dropped) beside 028.
 
