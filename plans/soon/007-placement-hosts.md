@@ -181,9 +181,13 @@ The Mac build, `CanopyAppTests` and the hand checks passed 2026-09-28
 
 ## Remaining
 
-- Placing an existing tree on a placement host from the app's "Available
-  trees" list, and the iPhone opening trees on a placement host (its
-  `place(tree:from:)` uses the home host).
+- Placing an existing tree on a placement host from the Mac app's "Available
+  trees" list.
+- The iPhone opening trees on a placement host is implemented on branch
+  `claude/security-011` (Place a Tree lists the account's other hosts and
+  their trees; `place(tree:from:)` uses this device's session at the tree's
+  host), with the Security 011 cutover. It has not been tried by hand: the
+  iPhone pairs only with an HTTPS home host, so it needs the live host.
 - Making a folder into a tree from the Mac app, onto a placement host as
   anywhere else, waits on
   [Filesystem 024](../filesystem/024-disk-editors-for-non-tree-folders.md).

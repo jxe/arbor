@@ -4324,6 +4324,10 @@ private struct IOSPlaceTreePanel: View {
     let workspace: CanopyWorkspaceState
     @State private var accounts: [CanopyAccount] = []
     @State private var selectedAccount: CanopyAccount?
+    /// The selected account's other hosts (accounts §1.3), and the one whose
+    /// trees are listed, if not the home host.
+    @State private var placements: [CanopyPlacement] = []
+    @State private var selectedPlacement: CanopyPlacement?
     @State private var trees: [ProtocolTreeDescriptor] = []
     @State private var loading = true
     @State private var placingTreeID: String?
@@ -4341,6 +4345,7 @@ private struct IOSPlaceTreePanel: View {
                     ForEach(accounts) { account in
                         Button {
                             selectedAccount = account
+                            selectedPlacement = nil
                             Task { await loadTrees(for: account) }
                         } label: {
                             HStack {
@@ -4351,7 +4356,7 @@ private struct IOSPlaceTreePanel: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if selectedAccount?.id == account.id {
+                                if selectedAccount?.id == account.id, selectedPlacement == nil {
                                     Image(systemName: "checkmark")
                                 }
                             }
@@ -4360,6 +4365,24 @@ private struct IOSPlaceTreePanel: View {
                     if accounts.isEmpty, !loading {
                         Text("Add a Canopy account from Accounts before placing another tree.")
                             .foregroundStyle(.secondary)
+                    }
+                }
+                if let account = selectedAccount, !placements.isEmpty {
+                    Section("Other hosts") {
+                        ForEach(placements) { placement in
+                            Button {
+                                selectedPlacement = placement
+                                Task { await loadTrees(for: account, at: placement) }
+                            } label: {
+                                HStack {
+                                    Text(placement.handle.map { "~\($0) · \(placement.hostName)" } ?? placement.hostName)
+                                    Spacer()
+                                    if selectedPlacement?.id == placement.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if selectedAccount != nil {
@@ -4419,11 +4442,20 @@ private struct IOSPlaceTreePanel: View {
         }
     }
 
-    private func loadTrees(for account: CanopyAccount) async {
+    private func loadTrees(for account: CanopyAccount, at placement: CanopyPlacement? = nil) async {
         loading = true
         defer { loading = false }
         do {
-            trees = try await workspace.accountService.client(for: account).trees().snapshot.sorted {
+            if placement == nil {
+                placements = (try? await workspace.accountService.placements(configurationTree: account.configurationTree)) ?? []
+            }
+            // A placement host lists the trees the profile has there, read with this device's session at that host.
+            let client = if let placement, let origin = account.origin {
+                try await NativeAccountService(origin: origin, configurationTree: account.configurationTree).placementClient(origin: placement.origin)
+            } else {
+                try await workspace.accountService.client(for: account)
+            }
+            trees = try await client.trees().snapshot.sorted {
                 ($0.canonicalPath ?? $0.id).localizedCaseInsensitiveCompare($1.canonicalPath ?? $1.id) == .orderedAscending
             }
             message = nil
@@ -4434,7 +4466,8 @@ private struct IOSPlaceTreePanel: View {
     }
 
     private func place(_ tree: ProtocolTreeDescriptor) async {
-        guard let account = selectedAccount, let origin = account.origin else { return }
+        guard let account = selectedAccount,
+              let origin = selectedPlacement.flatMap({ URL(string: $0.origin) }) ?? account.origin else { return }
         placingTreeID = tree.id
         defer { placingTreeID = nil }
         do {

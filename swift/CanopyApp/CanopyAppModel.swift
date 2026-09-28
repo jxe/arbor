@@ -364,7 +364,14 @@ final class CanopyWorkspaceState {
         try await conflictReview?.flushDraft()
         serverWatchTask?.cancel()
         serverWatchTask = nil
-        let credentialProvider = AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: KeychainDeviceCredentialStore())
+        let store = KeychainDeviceCredentialStore()
+        // A tree on one of the account's placement hosts syncs with this
+        // device's session there, which its home device key opens (accounts §1.3).
+        let home = try await store.accounts().first { $0.configurationTree == configurationTree }
+        let placementOrigin = Self.placementOrigin(endpoint: origin.absoluteString, home: home?.origin.absoluteString)
+        let credentialProvider = placementOrigin.map {
+            AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
+        } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
         let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: client)
         let platform = HostObjectStore(client: client, tree: tree.id)
