@@ -10,7 +10,7 @@
   ([Apps 005](005-source-resolution-and-sidecar.md)). One decision is Joe's
   (marked **Decide**).
 - **Builds on:** [Security 007](../soon/007-placement-hosts.md) and
-  [Security 009](../soon/009-configuration-beyond-home.md) (its refresh and
+  [Security 009](../../status.md#trees-on-other-hosts--2026-09-28) (its refresh and
   grace).
 - **Trust:** the home host, over HTTPS, as for devices. That a compromised home
   host could invent lends as well as devices is closed by

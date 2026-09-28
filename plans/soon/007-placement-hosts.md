@@ -8,18 +8,18 @@
 - **State:** PHASE 1 DONE 2026-09-26: the spec is written
   ([accounts §1, §1.3, §5.4](../../docs/overstory-spec/04-accounts-and-devices.md#13-claiming-a-placement-account),
   [access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
-  The decisions are recorded below. PHASE 2 DONE 2026-09-27, not deployed:
-  the home role (published device keys) is live since 2026-09-26
-  (`8448a63f`); the placement role is implemented, with its schema as batch
-  step 027 (see [status](../../status.md#in-progress)). PHASE 3 DONE on
-  Linux 2026-09-27 (CLI, Arbor Sync, Swift); the Mac build and two app flows
-  remain.
+  The decisions are recorded below. PHASES 2–4 DONE: the home role
+  (published device keys) is live since 2026-09-26 (`8448a63f`); the
+  placement role, the clients and batch 027 (schema 27) deployed and installed
+  2026-09-28 at `02689859` (see
+  [status](../../status.md#trees-on-other-hosts--2026-09-28)). Two app flows
+  remain, and no live placement host exists yet.
 - **Builds on:** [tree configurations](../../docs/architecture/canopyd/tree-configurations.md) (canopyd 005, live 2026-09-26) (each
   profile's configuration on one **home host**) and
   key devices and sessions opened by signing a host challenge
   ([accounts §5](../../docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing), Security 006,
   deployed 2026-09-26); from schema 26 every device is a key device.
-- **Followed by:** [Security 009](009-configuration-beyond-home.md); later [Apps 008](../apps/008-app-approvals-on-placement-hosts.md) and [Security 010](../security/010-signed-profile-statements.md).
+- **Followed by:** [Security 009](../../status.md#trees-on-other-hosts--2026-09-28); later [Apps 008](../apps/008-app-approvals-on-placement-hosts.md) and [Security 010](../security/010-signed-profile-statements.md).
 
 ## The problem
 
@@ -122,7 +122,7 @@ the profile key, so that B need not trust A at all, is Security 010.
 1. **Lifetimes:** a placement host keeps a fetched list for 60 s, refetches
    early for an unknown DeviceID at most once per 5 s per profile, and refuses
    to open a session from a copy older than 60 s that it cannot refresh.
-   [Security 009](009-configuration-beyond-home.md) adds a grace while the
+   [Security 009](../../status.md#trees-on-other-hosts--2026-09-28) adds a grace while the
    home is unreachable.
 2. **The tree at `/~handle` on B** is the **placement root** (accounts §1.3).
    It cannot become the profile tree if the home moves (Security 010).
@@ -171,19 +171,21 @@ Done 2026-09-27, not installed:
   lifetime), `arborsync-placement-route.test.ts`, and the Swift packages
   under the Linux harness.
 
-Remaining:
+The Mac build, `CanopyAppTests` and the hand checks passed 2026-09-28
+([status](../../status.md#trees-on-other-hosts--2026-09-28)).
 
-- The Mac build: the app target and `CanopyAppTests` have not been compiled,
-  and the hand checks (claim, place the root and a new folder, edit, 401
-  recovery, visits) are in the cutover prompt.
+### Phase 4: deployment (done 2026-09-28)
+
+- Batch 027 cut over live with this code at `02689859`; the Mac app, Arbor
+  Sync and the iPhone were rebuilt from it.
+
+## Remaining
+
 - Placing an existing tree on a placement host from the app's "Available
   trees" list, and the iPhone opening trees on a placement host (its
   `place(tree:from:)` uses the home host).
-
-### Phase 4: deployment (needs Joe's go-ahead)
-
-- The home role is live. Cut over batch step 027 before deploying anything
-  from this code: a schema-27 build serves maintenance mode on the live
-  schema-26 root. A live placement host needs a second canopyd, which is its
-  own decision.
-- Record the result in `status.md` and delete this plan.
+- Making a folder into a tree from the Mac app, onto a placement host as
+  anywhere else, waits on
+  [Filesystem 024](../filesystem/024-disk-editors-for-non-tree-folders.md).
+- A live placement host needs a second canopyd, which is Joe's decision.
+- When these are done, record them in `status.md` and delete this plan.

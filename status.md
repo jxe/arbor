@@ -72,7 +72,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Canopy presentation, canopyd hosting | [Apps 001, 003, 005 and 006](plans/catalog.md#product-completion) |
 | Group management | implemented, not deployed or installed | Deploy canopyd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing) and top-level `/~name` trees for administrators; install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
 
-| Trees on other hosts (Security 007, 009) | implemented on Linux, not deployed or installed; the Mac app not yet built | canopyd's placement role: claims record `accounts.home_host` (batch step 027, schema 27) and declare a placement root at `/~handle`; sessions open from an in-memory copy of the home host's device keys (60 s lifetime, 5 s early refetch that waits rather than refuses, one-hour grace while the home is unreachable, and a session ends when its copy's grace does); a device deleted at the home loses its sessions and watches within the lifetime; a rule's `{profile, homeHost}` subject matches a publicly readable group hosted elsewhere. Clients: `arbor account place`, `arbor place` onto a placement host, `placements.yaml` `{tree, host}`, per-host sessions in Arbor Sync, `POST /v1/bootstrap/placements`, and in Swift the placement claim, connections, the Other Hosts section and, on the Mac, placing and editing folders there. Tested by `tests/integration/canopyd/placement-hosts.test.ts`, `arborsync-placement-host.test.ts`, `arborsync-placement-route.test.ts`, `cli-account-place.test.ts` and the Swift packages under the Linux harness. Remaining: the Mac build and hand checks, the batch-027 cutover (which must precede any deploy of this code), placing an existing tree on a placement host from the app, and the iPhone opening such trees | [Security 007](plans/soon/007-placement-hosts.md), [Security 009](plans/soon/009-configuration-beyond-home.md) |
+| Trees on other hosts (Security 007, 009) | deployed and installed at schema 27, 2026-09-28 ([cutover](#trees-on-other-hosts--2026-09-28)); no live placement host yet | Placing an existing tree on a placement host from the app's "Available trees"; the iPhone opening trees on a placement host; making a folder into a tree from the Mac app waits on [Filesystem 024](plans/filesystem/024-disk-editors-for-non-tree-folders.md). A live second canopyd is Joe's decision | [Security 007](plans/soon/007-placement-hosts.md) |
 
 ## Specified but not implemented
 
@@ -101,6 +101,46 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## Trees on other hosts — 2026-09-28
+
+Security 007 (placement hosts) and Security 009 (the placement grace and
+remote groups) deployed at `02689859` with batch 027 (schema 26 to 27,
+`accounts.home_host`); the Mac app, Arbor Sync and the iPhone were rebuilt
+from it the same day. The runbook, rehearsal and live logs are in the
+[027-placement-accounts README](packages/canopyd/migrations/027-placement-accounts/README.md).
+
+- **canopyd.** A placement host records a claim's home host
+  (`accounts.home_host`) and declares a placement root at `/~handle`; sessions
+  open from an in-memory copy of the home host's published device keys (60 s
+  lifetime, 5 s early refetch, one-hour grace while the home is unreachable,
+  a session ending when its copy's grace does); a device deleted at the home
+  loses its sessions and watches within the lifetime. A rule's
+  `{profile, homeHost}` subject matches the members of a publicly readable
+  group hosted elsewhere, refreshed every 30 s with the same grace; an
+  unreadable group matches nobody. The challenge and pairing-claim limits are
+  now opt-in (`ARBOR_CANOPY_RATE_LIMITS=1`); in the hand check they turned a
+  home outage into "Too many challenges".
+- **Clients.** `arbor account place`, `arbor place` onto a placement host
+  (the placement root first, then trees below it), `placements.yaml`
+  `{tree, host}`, per-host sessions in Arbor Sync, whose `/v1/credential`
+  keeps a placement host's retryable refusal as a 503 with `details.homeHost`,
+  and `POST /v1/bootstrap/placements`. In Swift: the claim, placement
+  connections, Other Hosts on the Mac and iPhone, and on the Mac opening,
+  editing and sharing trees on a placement host, with the profile, devices and
+  apps read at the home host and a home-host outage shown as one.
+- **Verification.** `tests/integration/canopyd/placement-hosts.test.ts`,
+  `arborsync-placement-host.test.ts`, `arborsync-placement-route.test.ts`,
+  `cli-account-place.test.ts`, the Swift packages, `CanopyAppTests` and the
+  full gate on the Mac. Hand checks against local hosts A, B and C with a
+  scratch data home: CLI claim and placement; the Mac app placing on a host,
+  opening and editing trees there both ways, recovering after the placement
+  host restarts, syncing through a home outage inside the grace and naming the
+  home host past it; a public group on A giving its member access on B, with
+  the Mac sharing view showing the host and keeping it across a level change.
+  Fixes from the Mac build: macOS Keychain listing, the sharing view and tree
+  declaration on a placement host, host names with ports, and the refusal
+  surfaced in the app.
 
 ## Schema-26 cutover — 2026-09-27
 

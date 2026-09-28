@@ -50,3 +50,17 @@ The cutover commit renamed `next/` to this directory and started a fresh
   027; a rerun reports `migrated: false`; the one account's `home_host` is
   NULL. `compare-canopy-roots`: all 7 roots unchanged. Served with this build:
   `verify.ts --sync` ok (7 trees), `/.arbor/integrity` ok (called once).
+
+## Cutover log
+
+- 2026-09-28, `02689859`: Canopy quit on the Mac and iPhone; authored
+  manifest (112 files over 3 placements) and `cp -a ~/.arbor` taken; Arbor
+  Sync stopped; pushed `main`, which deployed into maintenance mode;
+  `railway ssh -- bun run
+  packages/canopyd/migrations/027-placement-accounts/run.ts /data` reported
+  `migrated: true`, 26 → 27 through 027, as rehearsed; `railway redeploy
+  --from-source -y`. Then `verify.ts --sync` ok on all 7 roots,
+  `/.arbor/integrity` ok (once), Arbor Sync started from the new checkout with
+  every placement idle at its old update, the authored manifest unchanged, and
+  round trips from the file system (5257/5258), the rebuilt Mac app and the
+  iPhone (Joe, by hand).

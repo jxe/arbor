@@ -11,7 +11,7 @@
   or a home host must be left behind. Two decisions are Joe's (marked
   **Decide**).
 - **Builds on:** [Security 007](../soon/007-placement-hosts.md),
-  [Security 009](../soon/009-configuration-beyond-home.md), and
+  [Security 009](../../status.md#trees-on-other-hosts--2026-09-28), and
   [Apps 008](../apps/008-app-approvals-on-placement-hosts.md) when it exists.
 
 ## Why it waits
