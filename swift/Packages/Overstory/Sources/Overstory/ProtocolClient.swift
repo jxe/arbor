@@ -153,7 +153,7 @@ public actor ProtocolClient {
     public func object(tree: String, hash: String) async throws -> Data {
         try validateObjectHash(hash)
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
-        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         let (data, response) = try await logged(request, kind: .read, name: "objects", tree: tree)
         let status = try statusCode(response)
         try validate(data: data, status: status)
@@ -366,7 +366,13 @@ public actor ProtocolClient {
         try await get(path: "/.arbor/directory")
     }
 
-    public func watch(tree: String, lastEventID: String? = nil) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
+    /// A tree's watch stream. `onOpen` runs once the host has answered with
+    /// an event stream, before any event arrives.
+    public func watch(
+        tree: String,
+        lastEventID: String? = nil,
+        onOpen: (@Sendable () async -> Void)? = nil
+    ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
@@ -402,6 +408,7 @@ public actor ProtocolClient {
                     guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
                         throw ProtocolValidationError.malformedSSE("Watch response is not an event stream")
                     }
+                    await onOpen?()
                     var parser = ProtocolSSEParser()
                     for try await byte in bytes {
                         for frame in try parser.append(byte: byte) {
@@ -512,7 +519,8 @@ public actor ProtocolClient {
             code: envelope?.error ?? "http-error",
             message: envelope?.message,
             retryable: envelope?.retryable ?? (status >= 500),
-            homeHost: envelope?.homeHost
+            homeHost: envelope?.homeHost,
+            challenge: envelope?.challenge
         )
     }
 
@@ -696,18 +704,22 @@ private struct ProtocolErrorEnvelope: Decodable {
     var error: String
     var message: String
     var retryable: Bool
-    /// `details.homeHost`, when the details carry one; details of any other
-    /// shape leave it nil rather than failing the envelope.
+    /// `details.homeHost` and `details.challenge`, when the details carry
+    /// them; details of any other shape leave them nil rather than failing
+    /// the envelope.
     var homeHost: String?
+    var challenge: String?
 
     private enum CodingKeys: String, CodingKey { case error, message, retryable, details }
-    private struct Details: Decodable { var homeHost: String? }
+    private struct Details: Decodable { var homeHost: String?; var challenge: String? }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         error = try values.decode(String.self, forKey: .error)
         message = try values.decode(String.self, forKey: .message)
         retryable = try values.decode(Bool.self, forKey: .retryable)
-        homeHost = (try? values.decodeIfPresent(Details.self, forKey: .details))??.homeHost
+        let details = (try? values.decodeIfPresent(Details.self, forKey: .details)) ?? nil
+        homeHost = details?.homeHost
+        challenge = details?.challenge
     }
 }

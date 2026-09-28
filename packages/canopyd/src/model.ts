@@ -33,12 +33,14 @@ export interface HostAccount {
   homeHost: string | null;
 }
 
+/** A request a key device's session authenticated: the only kind (accounts §5). */
 export interface HostAuthentication {
   account: HostAccount;
-  subject: string;
-  device: string | null;
-  /** When a device session authenticated the request, the session's expiry. */
-  expiresAt?: number;
+  device: string;
+  /** The subject its updates are recorded under: `device:<DeviceID>`. */
+  subject: `device:${string}`;
+  /** The session's expiry. */
+  expiresAt: number;
 }
 
 export interface HostAccessEntry {

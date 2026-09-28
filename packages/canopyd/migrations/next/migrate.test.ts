@@ -17,6 +17,8 @@ const tables = (path: string) => {
       names: (db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name),
       accounts: db.query("SELECT * FROM accounts ORDER BY id").all(),
       devices: db.query("SELECT * FROM devices ORDER BY id").all(),
+      trees: db.query("SELECT id, ref, policy, governs FROM trees ORDER BY id").all(),
+      treeColumns: (db.query("PRAGMA table_info(trees)").all() as Array<{ name: string }>).map(({ name }) => name),
     };
   } finally { db.close(); }
 };
@@ -41,17 +43,20 @@ test("the batch's steps run in order from the live schema to the next", () => {
   expect(steps[0]!.from).toBe(Number(tables(schema27).stamp));
 });
 
-test("the batch migrates schema 27 once, adding an empty pin table and keeping every other table and row", async () => {
+test("the batch migrates schema 27 once, adding an empty pin table, dropping trees.status and keeping every other table and row", async () => {
   const root = join(sandbox, "migrated");
   await cp(schema27, root, { recursive: true });
   const before = tables(root);
-  expect(migrateNextBatch(root)).toEqual({ migrated: true, from: 27, to: 28, steps: ["028-profile-locator-pins"] });
+  expect(migrateNextBatch(root)).toEqual({ migrated: true, from: 27, to: 29, steps: ["028-profile-locator-pins", "029-drop-tree-status"] });
   const after = tables(root);
-  expect(after.stamp).toBe("28");
+  expect(after.stamp).toBe("29");
   expect(after.names).toEqual([...before.names, "profile_locator_pins"].sort());
   expect(after.accounts).toEqual(before.accounts);
   expect(after.devices).toEqual(before.devices);
-  expect(migrateNextBatch(root)).toEqual({ migrated: false, from: 28, to: 28, steps: [] });
+  expect(before.treeColumns).toContain("status");
+  expect(after.treeColumns).toEqual(["id", "ref", "policy", "governs"]);
+  expect(after.trees).toEqual(before.trees);
+  expect(migrateNextBatch(root)).toEqual({ migrated: false, from: 29, to: 29, steps: [] });
 });
 
 test("a pin names one Profile TreeID per tree and locator", async () => {
@@ -64,6 +69,19 @@ test("a pin names one Profile TreeID per tree and locator", async () => {
     db.run("INSERT INTO profile_locator_pins VALUES ('tr_notes', 'https://home.example/~joe', 'tr_joe', 1)");
     expect(() => db.run("INSERT INTO profile_locator_pins VALUES ('tr_notes', 'https://home.example/~joe', 'tr_other', 2)")).toThrow("UNIQUE");
   } finally { db.close(); }
+});
+
+test("it refuses, changing nothing, a data root holding a tree that is not active", async () => {
+  const root = join(sandbox, "retired");
+  await cp(schema27, root, { recursive: true });
+  const db = new Database(join(root, "canopy.sqlite3"));
+  db.run("UPDATE trees SET status = 'retired' WHERE id = (SELECT id FROM trees LIMIT 1)");
+  db.close();
+  expect(() => migrateNextBatch(root)).toThrow("not active");
+  const after = tables(root);
+  expect(after.stamp).toBe("27");
+  expect(after.names).not.toContain("profile_locator_pins");
+  expect(after.treeColumns).toContain("status");
 });
 
 test("it refuses, changing nothing, a schema it does not start from", async () => {

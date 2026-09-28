@@ -1,4 +1,4 @@
-import { isGeneratedArborID, parseDeviceKey, type PublishedDeviceKeys } from "@overstory/protocol";
+import { decodePublishedDeviceKeys } from "@overstory/protocol";
 import { HomeHostUnavailableError } from "./errors.ts";
 
 /** A device a home host lists for a profile, as a placement host reads it. */
@@ -44,17 +44,7 @@ export const fetchPublishedDeviceKeys: DeviceKeyLoader = async (homeHost, profil
 
 /** A published device-key list, checked before a placement host trusts any of it. */
 function validPublishedKeys(value: unknown, profileTree: string): Map<string, ListedDevice> {
-  const body = value as Partial<PublishedDeviceKeys> | null;
-  if (!body || body.profileTree !== profileTree || !Array.isArray(body.devices)) throw new Error("The home host's device keys name another profile");
-  const devices = new Map<string, ListedDevice>();
-  for (const entry of body.devices) {
-    if (!entry || typeof entry.id !== "string" || !isGeneratedArborID(entry.id, "dv") || typeof entry.key !== "string" || typeof entry.administrator !== "boolean") {
-      throw new Error("The home host's device keys are malformed");
-    }
-    parseDeviceKey(entry.key);
-    devices.set(entry.id, { key: entry.key, administrator: entry.administrator });
-  }
-  return devices;
+  return new Map(decodePublishedDeviceKeys(value, profileTree).devices.map((entry) => [entry.id, { key: entry.key, administrator: entry.administrator }]));
 }
 
 /**

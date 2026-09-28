@@ -42,7 +42,11 @@ public struct HostWatchRunner: Sendable {
                     _ = try await coordinator.recoverWatchGap()
                     lastEventID = try await coordinator.watchCursor()
                 }
-                let events = try await client.watch(tree: tree, lastEventID: lastEventID)
+                let events = try await client.watch(tree: tree, lastEventID: lastEventID, onOpen: {
+                    await coordinator.setWatching(true)
+                })
+                // However this connection ends, the tree polls again until the next one opens.
+                defer { Task { await coordinator.setWatching(false) } }
                 for try await event in events {
                     connected()
                     try Task.checkCancellation()

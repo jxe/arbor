@@ -154,6 +154,13 @@ the home host over HTTPS for the device list;
 
 ### Phase 4: deployment (needs Joe's go-ahead)
 
+- The batch's other wire changes ride this cutover and its client release:
+  the required update `head`, the slimmer watch frame, `after` as the only
+  watch cursor, and `/access` as `{ policy, locators }` without the unused
+  cursors ([the batch README](../../packages/canopyd/migrations/next/README.md#wire-changes-at-cutover)
+  lists their spec sections and the code each touches), with step 029
+  (`trees.status` dropped) beside 028.
+
 - No schema change beyond the pin's step, if it needs one (cut over as a
   batch). The placement claim routes disappear, and `homeHost`
   in configuration files becomes invalid: a clean break (sole user; no live

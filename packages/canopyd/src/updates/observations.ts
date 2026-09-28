@@ -44,19 +44,22 @@ export class ObservationLog {
     return row ? toRecord(row) : null;
   }
 
-  latestCursor(tree?: string): string | null {
+  /** The latest ordinal of one tree, or of the whole server; null before any. */
+  private latest(tree?: string): number | null {
     const row = (tree
       ? this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates WHERE tree_id = ?").get(tree)
       : this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates").get()) as { ordinal: number | null };
-    return row.ordinal === null ? null : String(row.ordinal);
+    return row.ordinal;
+  }
+
+  latestCursor(tree?: string): string | null {
+    const ordinal = this.latest(tree);
+    return ordinal === null ? null : String(ordinal);
   }
 
   /** Starting position only; the durable history is the watch's backlog queue. */
   position(tree: string, cursor: string | null): { retained: boolean; through: number } {
-    if (cursor === null) {
-      const row = this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates WHERE tree_id = ?").get(tree) as { ordinal: number | null };
-      return { retained: true, through: row.ordinal ?? 0 };
-    }
+    if (cursor === null) return { retained: true, through: this.latest(tree) ?? 0 };
     const record = this.get(cursor);
     return record?.tree === tree ? { retained: true, through: record.ordinal } : { retained: false, through: 0 };
   }

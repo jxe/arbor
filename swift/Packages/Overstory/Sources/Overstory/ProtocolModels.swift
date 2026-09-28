@@ -1251,14 +1251,21 @@ public struct ProtocolHTTPError: Error, Sendable, Equatable {
     /// `permission-denied`), or cannot refresh the profile's device keys from
     /// it (503, retryable) (accounts §1.3, §5.4).
     public var homeHost: String? = nil
+    /// `details.challenge`: `expired` when a signed challenge outlived its
+    /// window, and the client asks for a fresh one and signs again.
+    public var challenge: String? = nil
 
-    public init(status: Int, code: String, message: String?, retryable: Bool, homeHost: String? = nil) {
+    public init(status: Int, code: String, message: String?, retryable: Bool, homeHost: String? = nil, challenge: String? = nil) {
         self.status = status
         self.code = code
         self.message = message
         self.retryable = retryable
         self.homeHost = homeHost
+        self.challenge = challenge
     }
+
+    /// Whether the host refused a signed challenge as expired.
+    public var isExpiredChallenge: Bool { challenge == "expired" }
 
     /// What to tell the person when a placement host refused because of its
     /// home host; nil for every other error.

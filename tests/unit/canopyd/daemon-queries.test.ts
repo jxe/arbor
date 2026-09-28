@@ -36,10 +36,18 @@ test("resolve picks the closest enclosing canonical boundary", () => {
 
 test("the authorization epoch moves only when authorization inputs may have changed", async () => {
   const session = await daemonSession(canopy, "test-token");
+  const reset = new Database(join(root, "canopy.sqlite3"));
+  reset.run("UPDATE devices SET last_used_at = NULL");
+  reset.close();
   const before = canopy.authorizationEpoch();
   canopy.canRead(null, canopy.boundary("/")!.id);
   expect(canopy.authorizationEpoch()).toBe(before);
-  canopy.authenticateToken(session);
+  // Authenticating writes the device's last-use time, which no decision
+  // reads: open streams need not check again.
+  expect(canopy.authenticateToken(session)).not.toBeNull();
+  expect((new Database(join(root, "canopy.sqlite3"), { readonly: true }).query("SELECT COUNT(*) AS n FROM devices WHERE last_used_at IS NOT NULL").get() as { n: number }).n).toBe(1);
+  expect(canopy.authorizationEpoch()).toBe(before);
+  canopy.createPairing(canopy.accountByHandle("owner")!);
   const written = canopy.authorizationEpoch();
   expect(written).not.toBe(before);
   canopy.execution.invalidate();

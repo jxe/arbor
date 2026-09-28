@@ -50,6 +50,9 @@ public actor UpdateCoordinator {
     private var deferredApply: (digest: String, result: UpdateMachine.AuthorityResult)?
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var timers: [UpdateMachine.Timer: Task<Void, Never>] = [:]
+    /// Whether the tree's watch stream is open; while it is, a clean tree
+    /// skips its freshness poll (the TypeScript coordinator's `setWatching`).
+    private var watching = false
 
     /// The validated response of the persisted attempt, kept for the `apply` it leads to.
     private var submission: (digest: String, response: ProtocolUpdateResponse, current: CurrentHead)?
@@ -192,12 +195,18 @@ public actor UpdateCoordinator {
         timers.removeValue(forKey: timer)?.cancel()
         timers[timer] = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            await self?.timerFired(timer)
+            await self?.timerFired(timer, delay: delay)
         }
     }
 
-    private func timerFired(_ timer: UpdateMachine.Timer) {
+    private func timerFired(_ timer: UpdateMachine.Timer, delay: Duration) {
         timers[timer] = nil
+        // A clean tree whose watch is open learns of updates from it; the poll
+        // is only for a watch that is down (a dead one fails its idle timeout).
+        if timer == .poll, watching, case .current = machine.phase {
+            schedule(.poll, after: delay)
+            return
+        }
         switch timer {
         case .trailing: dispatch(.publishDelayElapsed)
         case .max: dispatch(.maxDelayElapsed)
@@ -565,6 +574,11 @@ public actor UpdateCoordinator {
         if case .current = machine.phase { dispatch(.watchGap) } else { dispatch(.syncRequested) }
         await settle()
         return try await presentation()
+    }
+
+    /** Whether the tree's watch stream is open; while it is, a clean tree skips its freshness poll. */
+    public func setWatching(_ open: Bool) {
+        watching = open
     }
 
     /** Feed one watch event to the machine and wait for what it caused. */

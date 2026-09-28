@@ -1,5 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
+import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
 import { LocatorPins } from "./locator-pins.ts";
@@ -88,6 +88,16 @@ import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
 export type { HostAccessEntry, HostAccount, HostAuthentication, HostTree } from "./model.ts";
+export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, UpdateProtocolError } from "./errors.ts";
+
+/** Who submits an update: the account it acts for (an execution's caller
+ * under execution authority), the access link it presents, and the device
+ * session that authenticated it, if any. */
+export interface UpdateCaller {
+  account: HostAccount | null;
+  linkDigest?: string;
+  authentication?: HostAuthentication;
+}
 
 export interface StoredUpdateResponse {
   status: number;
@@ -117,6 +127,8 @@ export interface HostBootstrapAccount {
  * copies of groups other hosts hold (access control §3.3).
  */
 export interface HostDaemonOptions {
+  /** Whether this host is itself served over plain HTTP, as only a local host is. */
+  servedOverHTTP?: boolean;
   sessionLifetimeMs?: number;
   deviceKeyLifetimeMs?: number;
   deviceKeyRefetchMs?: number;
@@ -330,37 +342,10 @@ interface UpdatePolicy {
   }>;
 }
 
-export class RefConflictError extends Error {
-  constructor(readonly current: ObjectHash | null) {
-    super("Tree ref changed");
-    this.name = "RefConflictError";
-  }
-}
-
-export class UpdateProtocolError extends Error {
-  constructor(readonly code: "base-not-retained" | "server-busy" | "activation-conflict" | "unsupported-operation", message: string) {
-    super(message);
-    this.name = "UpdateProtocolError";
-  }
-}
-
-export class AlreadyClaimedError extends Error {
-  constructor(readonly handle: string) {
-    super(`Profile is already claimed: ~${handle}`);
-    this.name = "AlreadyClaimedError";
-  }
-}
-
-export class ReservedBoundaryConflictError extends Error {
-  constructor(readonly path: string, readonly tree: string) {
-    super(`Canonical boundary must remain mounted at ${path}`);
-    this.name = "ReservedBoundaryConflictError";
-  }
-}
-
 export class HostDaemon implements AsyncDisposable {
   private readonly wireSchemas = new CollectionSchemaCache();
-  private readonly validatedGraphs = new Map<string, ValidatedGraph>();
+  /** Recently validated graphs by root, which a later candidate's validation starts from. */
+  private readonly validatedGraphs = new Recent<ValidatedGraph>(8, { weight: (graph) => graph.objects.size, maxWeight: 200_000 });
   /** Stored profile rows by TreeID (`treeProfile`), committed state only. */
   private readonly treeProfiles = new Map<string, TreeProfile>();
   private readonly db: Database;
@@ -438,13 +423,9 @@ export class HostDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openHostDatabase(databasePath);
     const canopy = new HostDaemon(dataRoot, db, mergeTool);
-    if (options.sessionLifetimeMs !== undefined) canopy.sessionLifetimeMs = options.sessionLifetimeMs;
-    if (options.deviceKeyLifetimeMs !== undefined) canopy.deviceKeyLifetimeMs = options.deviceKeyLifetimeMs;
-    if (options.deviceKeyRefetchMs !== undefined) canopy.deviceKeyRefetchMs = options.deviceKeyRefetchMs;
-    if (options.deviceKeyStaleMs !== undefined) canopy.deviceKeyStaleMs = options.deviceKeyStaleMs;
-    if (options.remoteGroupLifetimeMs !== undefined) canopy.remoteGroupLifetimeMs = options.remoteGroupLifetimeMs;
-    if (options.remoteGroupRefetchMs !== undefined) canopy.remoteGroupRefetchMs = options.remoteGroupRefetchMs;
-    if (options.remoteGroupStaleMs !== undefined) canopy.remoteGroupStaleMs = options.remoteGroupStaleMs;
+    for (const [name, value] of Object.entries(options) as Array<[keyof HostDaemonOptions, number | boolean | undefined]>) {
+      if (value !== undefined) (canopy as unknown as Record<keyof HostDaemonOptions, number | boolean>)[name] = value;
+    }
     await canopy.mergeTool.clearStaleJobs();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -678,11 +659,11 @@ export class HostDaemon implements AsyncDisposable {
 
   /** The time-dependent half of `authenticationIsActive`: the session has not expired. */
   authenticationIsCurrent(authentication: HostAuthentication): boolean {
-    return authentication.expiresAt === undefined || authentication.expiresAt > Date.now();
+    return authentication.expiresAt > Date.now();
   }
 
   authenticationIsActive(authentication: HostAuthentication): boolean {
-    if (!authentication.device || !this.authenticationIsCurrent(authentication)) return false;
+    if (!this.authenticationIsCurrent(authentication)) return false;
     const device = this.accounts.device(authentication.device);
     return Boolean(device && device.account === authentication.account.id && device.revokedAt === null && authentication.account.enabled);
   }
@@ -692,7 +673,6 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   createPairing(account: HostAccount): PairingOffer {
-    this.refuseOwnConfiguration(account, "Pairing");
     return this.accounts.createPairing(account);
   }
 
@@ -721,11 +701,6 @@ export class HostDaemon implements AsyncDisposable {
     if (profile) this.refuseOwnConfigurationOf(profile.id);
   }
 
-  /** The home host of a placement account for this profile, or null. */
-  placementHomeHost(profileTree: string): string | null {
-    return this.accounts.account(profileTree)?.homeHost ?? null;
-  }
-
   createAccountChallenge(input: {
     origin: string;
     account?: string;
@@ -749,7 +724,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
     if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
-    if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new Error("This profile is already claimed or hosted on this Canopy");
+    if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical Canopy URLs");
     }
@@ -843,7 +818,6 @@ export class HostDaemon implements AsyncDisposable {
   createRecoveryPairing(handle: string): PairingOffer {
     const account = this.accountByHandle(handle);
     if (!account) throw new Error(`Unknown account: ~${handle}`);
-    this.refuseOwnConfiguration(account, "Recovery");
     return this.accounts.createPairing(account, { recovery: true });
   }
 
@@ -875,7 +849,7 @@ export class HostDaemon implements AsyncDisposable {
   remoteGroupStaleMs = 60 * 60 * 1000;
 
   /** Whether this host is itself served over plain HTTP, as only a local
-   * host is; `serveHost` sets it. Only such a host reads loopback peers. */
+   * host is (`HostDaemonOptions`). Only such a host reads loopback peers. */
   servedOverHTTP = false;
 
   /** Whether a rule's `homeHost` is one this host reads groups from: HTTPS,
@@ -1161,8 +1135,7 @@ export class HostDaemon implements AsyncDisposable {
    * profile: its flag in the accepted `devices.yaml` at the home host, or in
    * the home host's published keys at a placement host.
    */
-  private async isAdministratorDevice(account: HostAccount, device: string | null): Promise<boolean> {
-    if (!device) return false;
+  private async isAdministratorDevice(account: HostAccount, device: string): Promise<boolean> {
     if (account.homeHost) return (await this.listedDevice(account, device)).administrator;
     return (await this.treeConfig(account.id))?.devices?.[device]?.administrator === true;
   }
@@ -1199,6 +1172,15 @@ export class HostDaemon implements AsyncDisposable {
    * it can bind the credentials the new `devices.yaml` names.
    */
   private async advanceConfig(
+    tree: string,
+    subject: string,
+    change: (values: TreeConfigValues) => TreeConfigValues,
+    withinTransaction: () => void,
+  ): Promise<AcceptedUpdate> {
+    return this.withTreeLock(treeConfigurationID(tree), () => this.advanceConfigLocked(tree, subject, change, withinTransaction));
+  }
+
+  private async advanceConfigLocked(
     tree: string,
     subject: string,
     change: (values: TreeConfigValues) => TreeConfigValues,
@@ -1364,7 +1346,12 @@ export class HostDaemon implements AsyncDisposable {
    * `awaiting-initialization` until an administrator activates it.
    */
   async declareTree(tree: string, request: UpdateRequest, authentication: HostAuthentication | null): Promise<StoredUpdateResponse> {
-    if (!authentication?.device) throw new AuthenticationRequiredError("A device is required to declare a tree");
+    if (!authentication) throw new AuthenticationRequiredError("A device is required to declare a tree");
+    // Two declarations of one TreeID take turns: the second replays or is refused.
+    return this.withTreeLock(treeConfigurationID(tree), () => this.declareTreeLocked(tree, request, authentication));
+  }
+
+  private async declareTreeLocked(tree: string, request: UpdateRequest, authentication: HostAuthentication): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
     if (request.base !== null || request.updates.length !== 1 || request.updates[0]!.trace !== null || request.updates[0]!.resolves.length) {
       throw new Error("Declaring a tree is one snapshot update of its configuration with a null base");
@@ -1458,6 +1445,13 @@ export class HostDaemon implements AsyncDisposable {
   /** A tree's rules as its administrators see them; links redacted. */
   resourcePolicy(account: HostAccount, tree: string) {
     return this.canAdminister(account, tree) ? this.access.safePolicy(tree) : undefined;
+  }
+
+  /** Every profile an `access.yaml` rule of the tree names, whatever its
+   * scope, app or operations. */
+  ruleProfiles(tree: string): string[] {
+    return [...new Set(this.access.rules(tree).flatMap((rule) =>
+      typeof rule.who === "object" && "profile" in rule.who ? [rule.who.profile] : []))];
   }
 
   accessEntries(tree: string): HostAccessEntry[] {
@@ -1573,7 +1567,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     // One host per profile: a profile claimed or hosted here cannot be claimed again.
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
-      throw new Error("This profile is already claimed or hosted on this Canopy");
+      throw new AlreadyClaimedError(null);
     }
     const invitation = reservation.inviteDigest
       ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
@@ -1605,6 +1599,7 @@ export class HostDaemon implements AsyncDisposable {
       if (this.unclaimedFounderHandle() === input.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       if (invitation) this.advanceParent(invitation, now, `invite:${input.handle}`);
     })();
+    this.notifyAccepted(this.currentUpdate(input.configurationTree)!);
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
@@ -1671,14 +1666,12 @@ export class HostDaemon implements AsyncDisposable {
     return new TreeReader((hash) => this.object(hash), { verified: true });
   }
 
-  async submitUpdate(
-    treeID: string,
-    request: UpdateRequest,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
-    authentication?: HostAuthentication,
-  ): Promise<StoredUpdateResponse> {
+  /**
+   * Run `work` as the only acceptance on `treeID`: client updates, a
+   * tree's declaration and canopyd's own configuration edits take turns
+   * per tree. Nothing holding a tree's turn waits for another's.
+   */
+  private async withTreeLock<T>(treeID: string, work: () => Promise<T>): Promise<T> {
     const previous = this.updateLocks.get(treeID) ?? Promise.resolve();
     let release!: () => void;
     const turn = new Promise<void>((resolve) => { release = resolve; });
@@ -1687,28 +1680,19 @@ export class HostDaemon implements AsyncDisposable {
     await previous;
     markPhase("lock-wait");
     try {
-      return await this.submitUpdatesLocked(
-        treeID,
-        request,
-        account,
-        linkDigest,
-        credentialSubject,
-        authentication,
-      );
+      return await work();
     } finally {
       release();
       if (this.updateLocks.get(treeID) === queued) this.updateLocks.delete(treeID);
     }
   }
 
-  private async submitUpdatesLocked(
-    treeID: string,
-    request: UpdateRequest,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
-    authentication?: HostAuthentication
-  ): Promise<StoredUpdateResponse> {
+  async submitUpdate(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+    return this.withTreeLock(treeID, () => this.submitUpdatesLocked(treeID, request, caller));
+  }
+
+  private async submitUpdatesLocked(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+    const { account, linkDigest, authentication } = caller;
     validateUpdateRequestIntent(request);
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
     const retainedTree = this.get(treeID);
@@ -1740,7 +1724,7 @@ export class HostDaemon implements AsyncDisposable {
     // without accepted rows. Those elements must not recheck a now-stale guard.
     let recordedThrough = -1;
     const writable = retainedTree !== null && (this.canWrite(account, retainedTree, linkDigest) || this.execution.canSubmit(treeID));
-    const subject = writable ? this.subjectFor(retainedTree, account, linkDigest, credentialSubject) : null;
+    const subject = writable ? this.subjectFor(retainedTree, caller) : null;
     if (subject !== null) {
       for (let index = digests.length - 1; index >= 0; index--) {
         if (this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!)) { recordedThrough = index; break; }
@@ -1800,15 +1784,9 @@ export class HostDaemon implements AsyncDisposable {
             if (!plain) {
               const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
               const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
-              try {
-                const asked = await this.mergeTool.ask(question, objects);
-                markPhase("preflight-evaluate");
-                if (index === 0) prepared = { question, ...asked };
-              } catch (error) {
-                if (error instanceof MergeRefusal && error.code === "unsupported")
-                  throw new UpdateProtocolError("unsupported-operation", error.message);
-                throw error;
-              }
+              const asked = await this.askMerge(question, objects);
+              markPhase("preflight-evaluate");
+              if (index === 0) prepared = { question, ...asked };
             }
           } else plainSoFar = false;
         } else {
@@ -1863,9 +1841,7 @@ export class HostDaemon implements AsyncDisposable {
         requestDigest,
         proposed,
         basis!,
-        account,
-        linkDigest,
-        credentialSubject,
+        caller,
         index < recordedThrough,
         index === 0 ? prepared : undefined,
       );
@@ -1900,6 +1876,17 @@ export class HostDaemon implements AsyncDisposable {
       revision: 1,
       config: { contentChoices: this.mergeTool.contentChoices, conflictProjection: "current", maxMillis: this.mergeTool.evaluationMillis },
     };
+  }
+
+  /** A client update's question to the merge sidecar; a question it refuses
+   * as unsupported is an unsupported operation (422) wherever it is asked. */
+  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>) {
+    try {
+      return await this.mergeTool.ask(question, objects);
+    } catch (error) {
+      if (error instanceof MergeRefusal && error.code === "unsupported") throw new UpdateProtocolError("unsupported-operation", error.message);
+      throw error;
+    }
   }
 
   /** A client update as a question names it: its trace, the decision keys it
@@ -1945,18 +1932,16 @@ export class HostDaemon implements AsyncDisposable {
     requestDigest: ObjectHash,
     proposed: Map<ObjectHash, Uint8Array>,
     basis: AuthoredBasis,
-    account: HostAccount | null = null,
-    linkDigest?: string,
-    credentialSubject?: string,
+    caller: UpdateCaller,
     provenAcceptedPrefix = false,
     prepared?: PreparedAnswer,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
-    if (!(this.canWrite(account, tree, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
+    if (!(this.canWrite(caller.account, tree, caller.linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
     const policy = isTreeConfigPolicy(tree.policy)
-      ? this.treeConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
-      : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
+      ? this.treeConfigPolicy(tree, request, baseRoot, caller, proposed)
+      : this.ordinaryPolicy(tree, request, caller);
     const { subject } = policy;
     const execution = this.execution.current;
     if (execution) {
@@ -2105,7 +2090,7 @@ export class HostDaemon implements AsyncDisposable {
           rules: this.rules(),
         };
         const reuse = prepared && stableJSONString(prepared.question) === stableJSONString(question);
-        const { answer, objects } = reuse ? prepared! : await this.mergeTool.ask(question, proposed);
+        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed);
         for (const [hash, bytes] of objects) proposed.set(hash, bytes);
         markPhase("evaluate");
         root = answer.root;
@@ -2179,7 +2164,7 @@ export class HostDaemon implements AsyncDisposable {
         ),
       };
     }
-    throw new UpdateProtocolError("server-busy", "Server update changed repeatedly during merge");
+    throw new ServerBusyError("Server update changed repeatedly during merge");
   }
 
   /**
@@ -2214,28 +2199,23 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /** The subject an update to `tree` is recorded and replayed under. */
-  private subjectFor(tree: HostTree, account: HostAccount | null, linkDigest: string | undefined, credentialSubject: string | undefined): string {
-    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, account, credentialSubject).subject;
+  private subjectFor(tree: HostTree, caller: UpdateCaller): string {
+    if (isTreeConfigPolicy(tree.policy)) return this.configurationCaller(tree, caller).subject;
     const execution = this.execution.current;
-    return execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
+    const { account, linkDigest, authentication } = caller;
+    return execution?.code ? `execution:${execution.subject}:${execution.code}` : authentication?.subject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
   }
 
   /** Only a device of an administering profile may update a tree configuration. */
-  private configurationCaller(tree: HostTree, account: HostAccount | null, credentialSubject: string | undefined): { account: HostAccount; subject: string } {
-    if (!account || !tree.governs || !this.access.administers(account.id, tree.governs) || credentialSubject?.startsWith("device:") !== true) {
+  private configurationCaller(tree: HostTree, { account, authentication }: UpdateCaller): { account: HostAccount; device: string; subject: string } {
+    if (!account || !authentication || !tree.governs || !this.access.administers(account.id, tree.governs)) {
       throw new PermissionDeniedError("An administrator's device is required for configuration updates");
     }
-    return { account, subject: credentialSubject };
+    return { account, device: authentication.device, subject: authentication.subject };
   }
 
   /** Ordinary trees: graph and boundary validation, the protocol three-way merge, and community reconciliation. */
-  private ordinaryPolicy(
-    tree: HostTree,
-    request: CandidateUpdate,
-    account: HostAccount | null,
-    linkDigest: string | undefined,
-    credentialSubject: string | undefined,
-  ): UpdatePolicy {
+  private ordinaryPolicy(tree: HostTree, request: CandidateUpdate, caller: UpdateCaller): UpdatePolicy {
     const execution = this.execution.current;
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
@@ -2246,7 +2226,7 @@ export class HostDaemon implements AsyncDisposable {
     };
     const profiles = this.profileReader();
     return {
-      subject: this.subjectFor(tree, account, linkDigest, credentialSubject),
+      subject: this.subjectFor(tree, caller),
       profiles,
       validateCandidate: async (root, objects) => {
         if (execution && !request.ifCurrent) throw new Error("Execution updates require an exact-state guard");
@@ -2295,12 +2275,10 @@ export class HostDaemon implements AsyncDisposable {
     tree: HostTree,
     request: CandidateUpdate,
     baseRoot: ObjectHash,
-    caller: HostAccount | null,
-    credential: string | undefined,
+    caller: UpdateCaller,
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
-    const { account, subject: credentialSubject } = this.configurationCaller(tree, caller, credential);
-    const deviceID = credentialSubject.slice("device:".length);
+    const { account, device: deviceID, subject: credentialSubject } = this.configurationCaller(tree, caller);
     const governed = tree.governs!;
     const kind = this.treeConfigKind(governed);
     // A person's own configuration governs itself: its devices.yaml names the
@@ -2362,11 +2340,13 @@ export class HostDaemon implements AsyncDisposable {
    * Changes whenever anything an authorization decision reads may have
    * changed: an execution invalidation, a write through this connection, or a
    * commit by any other connection to the database. Equal values mean an
-   * earlier decision over database state still holds.
+   * earlier decision over database state still holds. A device's last-use
+   * time is written as requests authenticate and no decision reads it, so
+   * those writes are discounted rather than rechecking every open stream.
    */
   authorizationEpoch(): string {
     const row = this.db.query("SELECT total_changes() AS local, (SELECT data_version FROM pragma_data_version) AS shared").get() as { local: number; shared: number };
-    return `${this.execution.epoch}:${row.local}:${row.shared}`;
+    return `${this.execution.epoch}:${row.local - this.accounts.advisoryChanges}:${row.shared}`;
   }
 
   /** Live observation records for one tree, delivered after each durable append. */
@@ -2517,6 +2497,7 @@ export class HostDaemon implements AsyncDisposable {
       if (attachment) this.advanceParent(attachment, now, options.subject ?? null);
       this.recomputeBoundaries();
     })();
+    this.notifyAccepted(this.currentUpdate(id)!);
     if (attachment) this.notifyAccepted(this.currentUpdate(attachment.tree)!);
     return this.get(id)!;
   }
@@ -2903,10 +2884,7 @@ export class HostDaemon implements AsyncDisposable {
       return bytes;
     };
     const result = await validateGraphChange(root, load, proposed, collection, basis);
-    this.validatedGraphs.delete(root);
     this.validatedGraphs.set(root, result);
-    while (this.validatedGraphs.size > 8 || [...this.validatedGraphs.values()].reduce((n, graph) => n + graph.objects.size, 0) > 200_000)
-      this.validatedGraphs.delete(this.validatedGraphs.keys().next().value!);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

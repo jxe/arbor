@@ -1,5 +1,5 @@
 import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
-import { ProtocolHTTPError, ProtocolTransportError, type ObjectHash } from "@overstory/protocol";
+import { ProtocolHTTPError, ProtocolObjectHashMismatch, ProtocolTransportError, type ObjectHash } from "@overstory/protocol";
 
 /** Local operational evidence, not a protocol response or retained user content. */
 export interface ObjectReadDiagnostic {
@@ -23,6 +23,7 @@ export function objectReadError(
     return { ...context, reason: status === 404 ? "missing" : status === 401 ? "unauthenticated" : status === 403 ? "permission-denied" : "http-error", status };
   }
   if (error instanceof ProtocolTransportError) return { ...context, reason: "network-error" };
+  if (error instanceof ProtocolObjectHashMismatch) return { ...context, reason: "hash-mismatch" };
   const value = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
   // Keep error text, response bodies, URLs and credentials out of diagnostics.
   const code = typeof value === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(value) ? value : undefined;

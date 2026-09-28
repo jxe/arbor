@@ -1,4 +1,4 @@
-import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerBusyError, ServerFaultError } from "./errors.ts";
+import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
@@ -7,10 +7,6 @@ import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEnc
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
-  AlreadyClaimedError,
-  RefConflictError,
-  ReservedBoundaryConflictError,
-  UpdateProtocolError,
   HostDaemon,
   type HostAccount,
   type HostAuthentication,
@@ -24,11 +20,12 @@ import {
   decodeUpdateRequestJSON,
   encodeAcceptedTransitionJSON,
   type AcceptedTransition,
+  type AcceptedUpdate,
   type ObjectHash,
   type RemoteAccountDescriptor,
   type RemotePlacementAccountDescriptor,
 } from "@overstory/protocol";
-import { escapeHTML, publicTreePath, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
 
@@ -59,6 +56,13 @@ async function wireBody(request: Request): Promise<{ value: unknown; encoding: W
   const encoding = wireEncodingOf(request.headers.get("content-type"));
   const raw = new Uint8Array(await request.arrayBuffer());
   return { value: decodeWireBody(raw, encoding), encoding, bytes: raw.byteLength };
+}
+
+/** A request body's fields, in either wire encoding; anything but an object is refused. */
+async function bodyFields(request: Request): Promise<Record<string, unknown>> {
+  const { value } = await wireBody(request);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The request body must be an object");
+  return value as Record<string, unknown>;
 }
 
 /**
@@ -110,25 +114,32 @@ function protocolError(
   return json({ error, message, retryable, ...context, ...(Object.keys(details).length ? { details } : {}) }, status);
 }
 
-function descriptor(origin: string, tree: HostTree, access: AccessLevel = "read"): RemoteTreeDescriptor {
+/** A tree's canonical placement at this origin, or null for a tree mounted nowhere. */
+function canonicalOf(origin: string, tree: HostTree): RemoteTreeDescriptor["canonical"] {
+  return tree.canonicalPath === null ? null : {
+    path: tree.canonicalPath as `/${string}`,
+    endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}`,
+    parentTree: tree.parentTree,
+  } as RemoteTreeDescriptor["canonical"];
+}
+
+/** The `arbor://` locator of a canonical tree, or null for a noncanonical one. */
+function arborLocator(origin: string, tree: HostTree): string | null {
+  const canonical = canonicalOf(origin, tree);
+  return canonical ? canonicalArborLocator(canonical) : null;
+}
+
+/** A tree's descriptor at `head`, one of its accepted updates. */
+function descriptor(origin: string, tree: HostTree, access: AccessLevel, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
     access,
-    canonical: tree.canonicalPath === null ? null : {
-      path: tree.canonicalPath,
-      endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}`,
-      parentTree: tree.parentTree,
-    },
-    root: tree.ref as RemoteTreeDescriptor["root"],
-    update: "",
-    conflicted: false,
+    canonical: canonicalOf(origin, tree),
+    root: head.root as RemoteTreeDescriptor["root"],
+    update: head.id,
+    conflicted: head.conflicted,
   };
-}
-
-/** The `arbor://` locator of a canonical tree descriptor, or null for a noncanonical tree. */
-function arborLocator(tree: RemoteTreeDescriptor): string | null {
-  return tree.canonical ? canonicalArborLocator(tree.canonical) : null;
 }
 
 function descriptorWithUpdate(
@@ -139,7 +150,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
   if (!update) throw new ServerFaultError(`Tree has no accepted update: ${tree.id}`);
-  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id, conflicted: update.conflicted };
+  return descriptor(origin, tree, access, update);
 }
 
 function watchDescriptor(
@@ -156,7 +167,7 @@ function watchDescriptor(
     tree: tree.id,
     kind: "tree.update",
     change: {
-      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id, conflicted: final.update.conflicted },
+      descriptor: descriptor(origin, tree, access, final.update),
       transitions: transitions.map(encodeAcceptedTransitionJSON),
       ...(final.requestDigest ? { requestDigest: final.requestDigest } : {}),
     },
@@ -180,7 +191,7 @@ function accountDescriptor(origin: string, canopy: HostDaemon, account: HostAcco
     id: account.id,
     handle: account.handle,
     profileTree: account.id,
-    profileURL: profile ? arborLocator(descriptorWithUpdate(origin, canopy, profile, "write")) : null,
+    profileURL: profile ? arborLocator(origin, profile) : null,
     community: descriptorWithUpdate(origin, canopy, community, canopy.canWrite(account, community) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, canopy, configuration, "write"),
     writableProfiles: canopy.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, canopy, tree, "write")),
@@ -342,7 +353,7 @@ export async function serveHost(options: {
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
   /** Session and placement device-key lifetimes; tests shorten them. */
-  lifetimes?: HostDaemonOptions;
+  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP">;
   /**
    * Bound unauthenticated session challenges and pairing claims per caller.
    * Off unless asked for: with one person's devices behind each host, a
@@ -358,9 +369,8 @@ export async function serveHost(options: {
     name: options.community?.name ?? "Arbor Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  }, options.mergeTool, options.lifetimes);
+  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:" });
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
-  canopy.servedOverHTTP = new URL(publicOrigin).protocol === "http:";
   const onAuthorizationTick = authorizationTicker(canopy);
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
   const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
@@ -386,10 +396,16 @@ export async function serveHost(options: {
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       const link = linkDigest(request);
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
-      const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
+      /** A route segment's tree reference, refused with 403 when it names a
+       * placement account's profile configuration, which its home host holds. */
+      const hostedReference = (segment: string): { id: string; governs?: string } => {
         const reference = treeReference(segment);
         if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
         else canopy.refusePlacementConfigurationID(reference.id);
+        return reference;
+      };
+      const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
+        const reference = hostedReference(segment);
         const tree = canopy.get(reference.id);
         const level = tree ? canopy.accessLevel(account, tree, link) : null;
         if (!tree || !level) throw new NotFoundError("Tree not found");
@@ -470,9 +486,7 @@ export async function serveHost(options: {
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
           const authenticated = requireAccount(authentication);
-          const currentDevice = authentication?.device
-            ? canopy.devices(authenticated).find((device) => device.id === authentication.device)
-            : undefined;
+          const currentDevice = canopy.devices(authenticated).find((device) => device.id === authentication!.device);
           return json({
             account: {
               ...accountDescriptor(publicOrigin, canopy, authenticated),
@@ -490,18 +504,18 @@ export async function serveHost(options: {
           return json(await canopy.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
         }
         if (url.pathname === "/.arbor/device-sessions/challenges" && request.method === "POST") {
-          const body = await request.json() as { profileTree?: unknown; device?: unknown };
+          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown };
           if (typeof body.profileTree !== "string" || typeof body.device !== "string") throw new Error("A session challenge names a profile TreeID and a DeviceID");
           if (!challengeAllowed(request, `session:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
           return json(await canopy.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
         }
         if (url.pathname === "/.arbor/device-sessions" && request.method === "POST") {
-          const body = await request.json() as { challenge?: unknown; signature?: unknown };
+          const body = await bodyFields(request) as { challenge?: unknown; signature?: unknown };
           if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
           return json(await canopy.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
-          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
+          const body = await bodyFields(request) as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
           if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
             throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
           }
@@ -518,7 +532,7 @@ export async function serveHost(options: {
           const pairingID = decodeURIComponent(pairingClaim[1]!);
           if (pairingClaims && !pairingClaims.allow(`${clientAddress(request)}:${pairingID}`))
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
-          const body = await request.json() as {
+          const body = await bodyFields(request) as {
             secret?: unknown;
             device?: { id?: unknown; label?: unknown; key?: unknown };
           };
@@ -609,7 +623,7 @@ export async function serveHost(options: {
         }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
         if (access) {
-          const treeID = treeReference(access[1]!).id;
+          const treeID = hostedReference(access[1]!).id;
           if (request.method === "GET") {
             const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
@@ -620,7 +634,7 @@ export async function serveHost(options: {
               .map((entry) => {
               if (entry.subjectKind === "profile") {
                 const profile = canopy.get(entry.subject);
-                const locator = profile ? arborLocator(descriptor(publicOrigin, profile)) : null;
+                const locator = profile ? arborLocator(publicOrigin, profile) : null;
                 return {
                   id: entry.id,
                   subject: { kind: "profile" as const, tree: entry.subject, ...(locator ? { locator } : {}) },
@@ -699,9 +713,7 @@ export async function serveHost(options: {
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
           if (request.method !== "POST") return methodNotAllowed();
-          const reference = treeReference(updates[1]!);
-          if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
-          else canopy.refusePlacementConfigurationID(reference.id);
+          const reference = hostedReference(updates[1]!);
           const treeID = reference.id;
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
@@ -736,14 +748,11 @@ export async function serveHost(options: {
             timer.mark("parse-auth");
             let result: Awaited<ReturnType<typeof canopy.submitUpdate>>;
             try {
-              result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(
-                treeID,
-                update,
+              result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(treeID, update, {
                 account,
-                link,
-                authentication?.subject,
-                authentication ?? undefined,
-              ));
+                ...(link ? { linkDigest: link } : {}),
+                ...(authentication ? { authentication } : {}),
+              }));
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               logUpdate({ event: "update", tree: treeID, status: "error", error: message, updates: update.updates.length, ...timer.summary() });
@@ -875,7 +884,7 @@ export async function serveHost(options: {
 
         const object = /^\/\.arbor\/trees\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (object && request.method === "GET") {
-          const treeID = treeReference(object[1]!).id;
+          const treeID = hostedReference(object[1]!).id;
           const hash = object[2] as ObjectHash;
           if (!canopy.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.retainedObject(hash);
@@ -887,7 +896,7 @@ export async function serveHost(options: {
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
           // A browser gets a page; anything else the protocol's error envelope.
           const pageNotFound = () => request.headers.get("accept")?.includes("text/html")
-            ? html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Not found</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}</style><h1>Not found</h1><p>Nothing is published at this address.</p>`, 404)
+            ? html(renderNoticePage("Not found", "<h1>Not found</h1><p>Nothing is published at this address.</p>"), 404)
             : notFound();
           const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
           if (!requestLocator || requestLocator.kind !== "local") return pageNotFound();
@@ -903,11 +912,11 @@ export async function serveHost(options: {
           const pendingHandle = handleOfPath(requestLocator.path);
           if (pendingHandle && canopy.isReservedHandle(pendingHandle)) {
             const profileURL = `${publicOrigin}/~${pendingHandle}`;
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`, 200, { "x-arbor-profile-state": "reserved" });
+            return html(renderNoticePage(`~${pendingHandle}`, `<h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`), 200, { "x-arbor-profile-state": "reserved" });
           }
           const claimed = pendingHandle ? canopy.accountByHandle(pendingHandle) : null;
           if (pendingHandle && claimed && !canopy.boundary(requestLocator.path)) {
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingHandle)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.id)}/</code><p>The profile has not been hosted at this path yet.</p>`, 200, { "x-arbor-profile-state": "linked" });
+            return html(renderNoticePage(`~${pendingHandle}`, `<h1>~${escapeHTML(pendingHandle)}</h1><p>This account is linked to profile tree:</p><code>arbor://${escapeHTML(claimed.id)}/</code><p>The profile has not been hosted at this path yet.</p>`), 200, { "x-arbor-profile-state": "linked" });
           }
           const resolved = canopy.resolve(requestLocator.path);
           if (!resolved) return pageNotFound();
@@ -1026,13 +1035,10 @@ export async function serveHost(options: {
           if (error.code === "base-not-retained") {
             return protocolError("resync-required", error.message, 409, true, { kind: "server-update" });
           }
-          if (error.code === "server-busy") {
-            return protocolError("internal-error", error.message, 503, true);
-          }
           return protocolError("conflict", error.message, 409, false, { kind: "server-update" });
         }
         if (error instanceof AlreadyClaimedError) {
-          return protocolError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
+          return protocolError("already-claimed", error.message, 409, false, error.handle ? { handle: error.handle } : {});
         }
         if (error instanceof ReservedBoundaryConflictError) {
           return protocolError("conflict", "The update would change an independently versioned tree boundary", 409, false, {

@@ -116,12 +116,14 @@ export class MergeTool {
   async [Symbol.asyncDispose](): Promise<void> {
     this.closing = true;
     await Promise.allSettled([...this.jobs]);
-    const worker = this.worker;
-    if (worker) {
-      await worker.close();
-      await rm(worker.directory, {recursive: true, force: true});
-      this.worker = undefined;
-    }
+    if (this.worker) await this.retire(this.worker);
+  }
+
+  /** Stop a worker and remove its directory; it is no longer the live one. */
+  private async retire(worker: PersistentMergeWorker): Promise<void> {
+    if (this.worker === worker) this.worker = undefined;
+    await worker.close();
+    await rm(worker.directory, {recursive: true, force: true});
   }
 
   private async askJob(
@@ -200,9 +202,7 @@ export class MergeTool {
         if (!healthy || !worker.alive) {
           if (!this.workerAnswered && ++this.failedStarts > 1)
             this.nextStartAt = Date.now() + Math.min(30_000, 500 * 2 ** (this.failedStarts - 2));
-          this.worker = undefined;
-          await worker.close();
-          await rm(worker.directory, {recursive: true, force: true});
+          await this.retire(worker);
         } else {
           try {
             await rm(join(worker.directory, "objects"), {recursive: true, force: true});
@@ -222,8 +222,8 @@ export class MergeTool {
   private async currentWorker(): Promise<PersistentMergeWorker> {
     let worker = this.worker;
     if (worker && !worker.alive) {
-      await worker.close(); await rm(worker.directory, {recursive: true, force: true});
-      this.worker = worker = undefined;
+      await this.retire(worker);
+      worker = undefined;
     }
     if (worker) return worker;
     if (Date.now() < this.nextStartAt) throw new Error("Recent starts failed; waiting before the next");

@@ -50,7 +50,7 @@ export function buildDirectory(canopy: HostDaemon, account: HostAccount, origin:
     }
   }
   for (const tree of active.filter((tree) => canopy.canAdminister(account, tree))) {
-    for (const rule of canopy.accessEntries(tree.id)) if (rule.subjectKind === "profile") include(rule.subject, "access");
+    for (const profile of canopy.ruleProfiles(tree.id)) include(profile, "access");
   }
 
   for (const entry of entries.values()) {
