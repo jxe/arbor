@@ -34,7 +34,7 @@ actor ArborSyncCredentialProvider: ProtocolCredentialProvider {
     private let client: ArborSyncRESTClient
     private let configurationTree: String?
     /// The placement host these sessions are for; nil for the home host.
-    let origin: String?
+    nonisolated let origin: String?
     private var cached: String?
     private var inFlight: Task<String, Error>?
 
