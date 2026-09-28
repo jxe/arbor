@@ -1317,6 +1317,15 @@ public struct ProtocolHTTPError: Error, Sendable, Equatable {
     }
 }
 
+extension ProtocolValidationError: LocalizedError {
+    /// An `invalidValue` carries a sentence for a person; the other cases
+    /// name protocol faults and keep the system's description.
+    public var errorDescription: String? {
+        if case let .invalidValue(message) = self { return message }
+        return nil
+    }
+}
+
 extension ProtocolHTTPError: LocalizedError {
     public var errorDescription: String? { placementDescription ?? message }
 }

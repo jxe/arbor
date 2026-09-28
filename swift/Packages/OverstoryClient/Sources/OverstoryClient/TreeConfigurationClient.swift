@@ -7,20 +7,30 @@ import CanopyAppKit
 /// declaring and mounting new trees. The person's own profile configuration is
 /// also their account checkout, which a Mac may edit on disk instead.
 public struct TreeConfigurationClient: Sendable {
+    /// The host that holds the tree and its configuration.
     public let wire: ProtocolClient
-    public init(wire: ProtocolClient) { self.wire = wire }
+    /// The profile's home host when `wire` is one of its placement hosts
+    /// (accounts §1.3): the account, `devices.yaml` and `apps.yaml` are read
+    /// there, since a placement host holds none of them.
+    public let home: ProtocolClient?
+    public init(wire: ProtocolClient, home: ProtocolClient? = nil) {
+        self.wire = wire
+        self.home = home
+    }
+
+    private var homeWire: ProtocolClient { home ?? wire }
 
     /// A tree's configuration, which only its administrators may read, and
     /// whether this device is an administrator device of the person's profile,
     /// with the person's `apps.yaml`.
     func treeConfiguration(_ tree: String) async throws
         -> (account: ProtocolAccountDescriptor, configuration: ProtocolTreeDescriptor, snapshot: ProtocolSnapshot, devicesSource: String, appsSource: String) {
-        let account = try await wire.account().account
+        let account = try await homeWire.account().account
         let profile = try account.configuration.validated()
-        let profileSnapshot = try await wire.snapshot(tree: profile.id, root: profile.root)
+        let profileSnapshot = try await homeWire.snapshot(tree: profile.id, root: profile.root)
         let devicesSource = try utf8(profileSnapshot.rootFile(named: "devices.yaml"), name: "devices.yaml")
         let appsSource = (try? utf8(profileSnapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
-        if profile.id == treeConfigurationID(tree) { return (account, profile, profileSnapshot, devicesSource, appsSource) }
+        if home == nil, profile.id == treeConfigurationID(tree) { return (account, profile, profileSnapshot, devicesSource, appsSource) }
         let configuration: ProtocolTreeDescriptor
         do { configuration = try await wire.descriptor(tree: treeConfigurationID(tree)).tree.validated() }
         catch { throw ProtocolValidationError.invalidValue("Only this tree's administrators can see and change who has access") }
@@ -58,7 +68,7 @@ public struct TreeConfigurationClient: Sendable {
         var approvals = (try? TreeConfigurationYAML.appApprovals(for: tree, source: appsSource)) ?? []
         var groups: [NativeApprovalGroup] = []
         for profile in account.writableProfiles where profile.id != account.profileTree {
-            guard let group = try? await treeConfiguration(profile.id) else { continue }
+            guard let group = try? await TreeConfigurationClient(wire: homeWire).treeConfiguration(profile.id) else { continue }
             groups.append(NativeApprovalGroup(tree: profile.id, label: profile.canonical?.path ?? profile.id))
             let source = (try? utf8(group.snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
             approvals += (try? TreeConfigurationYAML.appApprovals(for: tree, source: source, group: profile.id)) ?? []
@@ -88,18 +98,18 @@ public struct TreeConfigurationClient: Sendable {
     /// rule is not their own approval, or else an entry in their `apps.yaml`.
     public func prepareResourceConsent(tree: String, app: String, rule: ProtocolAppAccessRule, removing: Bool = false, group: String? = nil) async throws -> NativeResourceConsent {
         if let group {
-            let config = try await treeConfiguration(group)
+            let config = try await TreeConfigurationClient(wire: homeWire).treeConfiguration(group)
             let source = (try? utf8(config.snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
             return try ProfileConfigurationYAML.prepareAppConsent(profile: group, group: true, app: app, rule: rule, removing: removing, source: source)
         }
-        let account = try await wire.account().account
+        let account = try await homeWire.account().account
         if rule.who != .me, let treeConfig = try? await treeConfiguration(tree) {
             return try ProfileConfigurationYAML.prepareTreeAppConsent(tree: tree, app: app, rule: rule, removing: removing,
                 source: utf8(treeConfig.snapshot.rootFile(named: "access.yaml"), name: "access.yaml"))
         }
         guard let profile = account.profileTree else { throw ProtocolValidationError.invalidValue("This account has no profile") }
         let configuration = try account.configuration.validated()
-        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
+        let snapshot = try await homeWire.snapshot(tree: configuration.id, root: configuration.root)
         let source = (try? utf8(snapshot.rootFile(named: "apps.yaml"), name: "apps.yaml")) ?? "{}\n"
         return try ProfileConfigurationYAML.prepareAppConsent(profile: profile, group: false, app: app, rule: rule, removing: removing, source: source)
     }
@@ -149,7 +159,7 @@ public struct TreeConfigurationClient: Sendable {
     /// then mount it in `parent`'s configuration at `name`. The tree activates
     /// with its first snapshot, which the placing client submits.
     public func declareAndMount(tree: String, rules: [ProtocolResourceAccessRule], parent: String, name: String) async throws {
-        let account = try await wire.account().account
+        let account = try await homeWire.account().account
         guard let profile = account.profileTree else { throw ProtocolValidationError.invalidValue("This account has no profile") }
         let access = try TreeConfigurationYAML.encodeAccess([ProtocolResourceAccessRule(who: .profile(profile), allow: [.admin])] + rules)
         let configuration = try Self.snapshot(files: ["access.yaml": access, "mounts.yaml": "{}\n"])

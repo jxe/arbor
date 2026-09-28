@@ -665,7 +665,17 @@ final class CanopyWorkspaceState {
               let placedTree = overview.trees.first(where: { $0.id == tree }) else {
             throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
         }
-        return TreeConfigurationClient(wire: try await placedTreeClient(placedTree, overview: overview))
+        let wire = try await placedTreeClient(placedTree, overview: overview)
+        // On a placement host the profile, its devices and its apps are read
+        // at the home host (accounts §1.3).
+        guard let configurationTree = placedTree.configurationTree,
+              let home = overview.accounts.first(where: { $0.configurationTree == configurationTree })?.canopy,
+              let homeURL = URL(string: home),
+              let endpoint = placedTree.canonicalEndpoint, let endpointURL = URL(string: endpoint),
+              !Self.sameOrigin(endpointURL, homeURL) else {
+            return TreeConfigurationClient(wire: wire)
+        }
+        return TreeConfigurationClient(wire: wire, home: try await accountClient(origin: homeURL))
     }
 
     /// A protocol client at the host that holds a tree placed on this Mac,
@@ -1111,7 +1121,12 @@ final class CanopyWorkspaceState {
             let last = segments[segments.count - 1]
             let parent = try await wire.resolve(path: "/" + segments.dropLast().joined(separator: "/"))
             let within = parent.ref.path == "/" ? "" : String(parent.ref.path.dropFirst())
-            try await TreeConfigurationClient(wire: wire).declareAndMount(
+            // A placement host holds no profile: the account is read at home.
+            var home: ProtocolClient?
+            if let homeHost = account.placement.flatMap({ URL(string: $0.homeHost) }) {
+                home = try await accountClient(origin: homeHost)
+            }
+            try await TreeConfigurationClient(wire: wire, home: home).declareAndMount(
                 tree: tree,
                 rules: try rules.map { try $0.resourceRule() },
                 parent: parent.ref.tree,
