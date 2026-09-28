@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
 import { deviceClient, testAccount } from "../../../../tests/helpers/devices.ts";
+import { assertHostData } from "../../src/schema.ts";
 import { runBatch } from "../tools/batch.ts";
 import { migrateNextBatch, steps } from "./run.ts";
 
@@ -23,7 +24,20 @@ const tables = (path: string) => {
   } finally { db.close(); }
 };
 
-/** A data root as the live host holds it before the batch: this build's schema 27. */
+/** Rewrite a data root this build wrote into the layout the live host holds
+ * at schema 27: no pin table, and `trees.status` with every tree active. */
+function toSchema27(path: string): void {
+  const db = new Database(join(path, "canopy.sqlite3"));
+  try {
+    db.transaction(() => {
+      db.run("DROP TABLE profile_locator_pins");
+      db.run("ALTER TABLE trees ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+      db.run("UPDATE meta SET value = '27' WHERE key = 'schema_version'");
+    })();
+  } finally { db.close(); }
+}
+
+/** A data root as the live host holds it before the batch: schema 27. */
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-migration-next-"));
   schema27 = join(sandbox, "schema27");
@@ -34,6 +48,7 @@ beforeAll(async () => {
   await (await deviceClient(host.url, "migration-next-owner")).account();
   host.server.stop(true);
   await host.canopy[Symbol.asyncDispose]();
+  toSchema27(schema27);
 });
 
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
@@ -71,13 +86,47 @@ test("a pin names one Profile TreeID per tree and locator", async () => {
   } finally { db.close(); }
 });
 
-test("it refuses, changing nothing, a data root holding a tree that is not active", async () => {
+/** Add an ordinary tree with one accepted update and an entry row, as the
+ * code before canopyd 005 left one it retired: unmounted and unconfigured. */
+function addRetiredTree(path: string, tree: string): void {
+  const db = new Database(join(path, "canopy.sqlite3"));
+  try {
+    db.transaction(() => {
+      const ref = (db.query("SELECT ref FROM trees WHERE policy = 'ordinary' LIMIT 1").get() as { ref: string }).ref;
+      db.run("INSERT INTO trees (id, ref, policy, governs, status) VALUES (?, ?, 'ordinary', NULL, 'retired')", [tree, ref]);
+      db.run(`INSERT INTO accepted_updates (tree_id, root, previous_ordinal, conflicted, accepted_at, subject, request_digest, change_id, entry)
+        SELECT ?, root, NULL, conflicted, accepted_at, subject, NULL, 'retired-change', entry FROM accepted_updates WHERE tree_id = (SELECT id FROM trees WHERE policy = 'ordinary' AND id <> ? LIMIT 1) LIMIT 1`, [tree, tree]);
+      db.run("INSERT INTO entry_metadata (tree_id, path, modified_at) VALUES (?, '/note.md', 1)", [tree]);
+    })();
+  } finally { db.close(); }
+}
+
+test("it deletes a retired tree nothing points at, with its rows, and names it in the report", async () => {
   const root = join(sandbox, "retired");
   await cp(schema27, root, { recursive: true });
+  const before = tables(root);
+  addRetiredTree(root, "tr_retiredtreeaaaaaaaaaaaaaa");
+  expect(migrateNextBatch(root)).toEqual({
+    migrated: true, from: 27, to: 29, steps: ["028-profile-locator-pins", "029-drop-tree-status"],
+    notes: { "029-drop-tree-status": ["deleted retired tree tr_retiredtreeaaaaaaaaaaaaaa with 1 accepted update(s)"] },
+  });
+  expect(tables(root).trees).toEqual(before.trees);
+  const db = new Database(join(root, "canopy.sqlite3"), { readonly: true });
+  try {
+    for (const table of ["accepted_updates", "entry_metadata"]) {
+      expect(db.query(`SELECT COUNT(*) AS n FROM ${table} WHERE tree_id = 'tr_retiredtreeaaaaaaaaaaaaaa'`).get()).toEqual({ n: 0 });
+    }
+    assertHostData(db);
+  } finally { db.close(); }
+});
+
+test("it refuses, changing nothing, a retired tree something still points at", async () => {
+  const root = join(sandbox, "retired-mounted");
+  await cp(schema27, root, { recursive: true });
   const db = new Database(join(root, "canopy.sqlite3"));
-  db.run("UPDATE trees SET status = 'retired' WHERE id = (SELECT id FROM trees LIMIT 1)");
+  db.run("UPDATE trees SET status = 'retired' WHERE id = (SELECT tree_id FROM boundaries WHERE path <> '/' LIMIT 1)");
   db.close();
-  expect(() => migrateNextBatch(root)).toThrow("not active");
+  expect(() => migrateNextBatch(root)).toThrow("is still");
   const after = tables(root);
   expect(after.stamp).toBe("27");
   expect(after.names).not.toContain("profile_locator_pins");

@@ -3,13 +3,14 @@ import { join, resolve } from "node:path";
 
 /**
  * One schema step of a migration batch: `run` carries a data root from
- * schema `from` to `from + 1` inside the batch's transaction, and `verify`
- * checks what the step promises once the whole batch has run.
+ * schema `from` to `from + 1` inside the batch's transaction, returning
+ * notes for the report on anything it removed, and `verify` checks what the
+ * step promises once the whole batch has run.
  */
 export interface MigrationStep {
   from: number;
   name: string;
-  run(db: Database): void;
+  run(db: Database): void | string[];
   verify?(db: Database): void;
 }
 
@@ -18,6 +19,8 @@ export interface BatchReport {
   from: number;
   to: number;
   steps: string[];
+  /** Each step's notes, by step name, when it returned any. */
+  notes?: Record<string, string[]>;
 }
 
 /**
@@ -48,15 +51,19 @@ export function runBatch(dataRoot: string, steps: readonly MigrationStep[], fini
     if (check.quick_check !== "ok") throw new Error(`The data root fails quick_check: ${check.quick_check}`);
     const pending = steps.filter((step) => step.from >= stamp);
     db.run("PRAGMA foreign_keys = OFF");
+    const notes: Record<string, string[]> = {};
     db.transaction(() => {
-      for (const step of pending) step.run(db);
+      for (const step of pending) {
+        const stepNotes = step.run(db);
+        if (stepNotes?.length) notes[step.name] = stepNotes;
+      }
       db.run("UPDATE meta SET value = ? WHERE key = 'schema_version'", [String(last)]);
       if (db.query("PRAGMA foreign_key_check").all().length) throw new Error("The batch would leave a dangling foreign key");
       for (const step of pending) step.verify?.(db);
     })();
     db.run("PRAGMA foreign_keys = ON");
     finish?.(db);
-    return { migrated: true, from: stamp, to: last, steps: pending.map((step) => step.name) };
+    return { migrated: true, from: stamp, to: last, steps: pending.map((step) => step.name), ...(Object.keys(notes).length ? { notes } : {}) };
   } finally {
     db.close();
   }
