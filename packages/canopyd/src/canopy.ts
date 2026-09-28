@@ -1,5 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerFaultError } from "./errors.ts";
+import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
@@ -84,6 +84,7 @@ import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
 
 export type { HostAccessEntry, HostAccount, HostAuthentication, HostTree } from "./model.ts";
+export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, UpdateProtocolError } from "./errors.ts";
 
 export interface StoredUpdateResponse {
   status: number;
@@ -301,34 +302,6 @@ interface UpdatePolicy {
     withinTransaction?: () => void;
     afterCommit?: (accepted: AcceptedUpdate) => void;
   }>;
-}
-
-export class RefConflictError extends Error {
-  constructor(readonly current: ObjectHash | null) {
-    super("Tree ref changed");
-    this.name = "RefConflictError";
-  }
-}
-
-export class UpdateProtocolError extends Error {
-  constructor(readonly code: "base-not-retained" | "server-busy" | "activation-conflict" | "unsupported-operation", message: string) {
-    super(message);
-    this.name = "UpdateProtocolError";
-  }
-}
-
-export class AlreadyClaimedError extends Error {
-  constructor(readonly handle: string) {
-    super(`Profile is already claimed: ~${handle}`);
-    this.name = "AlreadyClaimedError";
-  }
-}
-
-export class ReservedBoundaryConflictError extends Error {
-  constructor(readonly path: string, readonly tree: string) {
-    super(`Canonical boundary must remain mounted at ${path}`);
-    this.name = "ReservedBoundaryConflictError";
-  }
 }
 
 export class HostDaemon implements AsyncDisposable {
@@ -652,7 +625,6 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   createPairing(account: HostAccount): PairingOffer {
-    this.refuseOwnConfiguration(account, "Pairing");
     return this.accounts.createPairing(account);
   }
 
@@ -719,7 +691,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
     if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
-    if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new Error("This profile is already claimed or hosted on this Canopy");
+    if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical Canopy URLs");
     }
@@ -819,7 +791,6 @@ export class HostDaemon implements AsyncDisposable {
   createRecoveryPairing(handle: string): PairingOffer {
     const account = this.accountByHandle(handle);
     if (!account) throw new Error(`Unknown account: ~${handle}`);
-    this.refuseOwnConfiguration(account, "Recovery");
     return this.accounts.createPairing(account, { recovery: true });
   }
 
@@ -1510,7 +1481,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     // One host per profile: a profile claimed or hosted here cannot be claimed again.
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
-      throw new Error("This profile is already claimed or hosted on this Canopy");
+      throw new AlreadyClaimedError(null);
     }
     const invitation = reservation.inviteDigest
       ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
@@ -1604,7 +1575,7 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account reservation names a different profile TreeID");
     }
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree) || this.get(input.configurationTree)) {
-      throw new Error("This profile is already claimed or hosted on this Canopy");
+      throw new AlreadyClaimedError(null);
     }
     const invitation = reservation.inviteDigest
       ? await this.prepareInvitationClaim(input.handle, reservation.inviteDigest, input.inviteCode, input.profileTree)
@@ -1831,15 +1802,9 @@ export class HostDaemon implements AsyncDisposable {
             if (!plain) {
               const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
               const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
-              try {
-                const asked = await this.mergeTool.ask(question, objects);
-                markPhase("preflight-evaluate");
-                if (index === 0) prepared = { question, ...asked };
-              } catch (error) {
-                if (error instanceof MergeRefusal && error.code === "unsupported")
-                  throw new UpdateProtocolError("unsupported-operation", error.message);
-                throw error;
-              }
+              const asked = await this.askMerge(question, objects);
+              markPhase("preflight-evaluate");
+              if (index === 0) prepared = { question, ...asked };
             }
           } else plainSoFar = false;
         } else {
@@ -1931,6 +1896,17 @@ export class HostDaemon implements AsyncDisposable {
       revision: 1,
       config: { contentChoices: this.mergeTool.contentChoices, conflictProjection: "current", maxMillis: this.mergeTool.evaluationMillis },
     };
+  }
+
+  /** A client update's question to the merge sidecar; a question it refuses
+   * as unsupported is an unsupported operation (422) wherever it is asked. */
+  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>) {
+    try {
+      return await this.mergeTool.ask(question, objects);
+    } catch (error) {
+      if (error instanceof MergeRefusal && error.code === "unsupported") throw new UpdateProtocolError("unsupported-operation", error.message);
+      throw error;
+    }
   }
 
   /** A client update as a question names it: its trace, the decision keys it
@@ -2136,7 +2112,7 @@ export class HostDaemon implements AsyncDisposable {
           rules: this.rules(),
         };
         const reuse = prepared && stableJSONString(prepared.question) === stableJSONString(question);
-        const { answer, objects } = reuse ? prepared! : await this.mergeTool.ask(question, proposed);
+        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed);
         for (const [hash, bytes] of objects) proposed.set(hash, bytes);
         markPhase("evaluate");
         root = answer.root;
@@ -2210,7 +2186,7 @@ export class HostDaemon implements AsyncDisposable {
         ),
       };
     }
-    throw new UpdateProtocolError("server-busy", "Server update changed repeatedly during merge");
+    throw new ServerBusyError("Server update changed repeatedly during merge");
   }
 
   /**

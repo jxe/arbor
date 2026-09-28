@@ -52,6 +52,43 @@ export class HomeHostUnavailableError extends Error {
   }
 }
 
+/** 409 `already-claimed`: the handle, or with a null handle the profile,
+ * already has an account or a tree here. */
+export class AlreadyClaimedError extends Error {
+  override readonly name = "AlreadyClaimedError";
+  constructor(readonly handle: string | null) {
+    super(handle ? `Profile ~${handle} is already claimed` : "This profile is already claimed or hosted on this Canopy");
+  }
+}
+
+/** 409 `conflict` with `details.current`: a tree's ref moved under a
+ * server-side rewrite. */
+export class RefConflictError extends Error {
+  override readonly name = "RefConflictError";
+  constructor(readonly current: string | null) {
+    super("Tree ref changed");
+  }
+}
+
+/** An update the protocol refuses: `base-not-retained` is a retryable 409
+ * `resync-required`, `unsupported-operation` a 422, and
+ * `activation-conflict` a 409 `conflict`. */
+export class UpdateProtocolError extends Error {
+  override readonly name = "UpdateProtocolError";
+  constructor(readonly code: "base-not-retained" | "activation-conflict" | "unsupported-operation", message: string) {
+    super(message);
+  }
+}
+
+/** 409 `conflict` naming the tree and path: an update would move or remove
+ * a canonical boundary. */
+export class ReservedBoundaryConflictError extends Error {
+  override readonly name = "ReservedBoundaryConflictError";
+  constructor(readonly path: string, readonly tree: string) {
+    super(`Canonical boundary must remain mounted at ${path}`);
+  }
+}
+
 /** 500: canopyd's own state or a component it trusts broke an invariant.
  * Nothing the client sent can cause it. */
 export class ServerFaultError extends Error {

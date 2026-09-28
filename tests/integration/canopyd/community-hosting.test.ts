@@ -370,7 +370,7 @@ describe("client-generated profile and account bootstrap", () => {
       await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
       await expect(new ProtocolClient(running.url).createAccountChallenge({
         account: `${new URL(running.url).origin}/~charlie-two`, profileTree: localProfileTree, configurationTree,
-      })).rejects.toThrow("already claimed or hosted");
+      })).rejects.toMatchObject({ status: 409, code: "already-claimed", message: expect.stringContaining("already claimed or hosted") });
       await expect(new LocalAccountService({ trees: service.trees, events: service.events })
         .claimHostAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie")).rejects.toThrow("one home host");
     } finally {

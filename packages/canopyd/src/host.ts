@@ -1,4 +1,4 @@
-import { AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, ServerBusyError, ServerFaultError } from "./errors.ts";
+import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
@@ -7,10 +7,6 @@ import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEnc
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
 import {
-  AlreadyClaimedError,
-  RefConflictError,
-  ReservedBoundaryConflictError,
-  UpdateProtocolError,
   HostDaemon,
   type HostAccount,
   type HostAuthentication,
@@ -386,10 +382,16 @@ export async function serveHost(options: {
       const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       const link = linkDigest(request);
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
-      const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
+      /** A route segment's tree reference, refused with 403 when it names a
+       * placement account's profile configuration, which its home host holds. */
+      const hostedReference = (segment: string): { id: string; governs?: string } => {
         const reference = treeReference(segment);
         if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
         else canopy.refusePlacementConfigurationID(reference.id);
+        return reference;
+      };
+      const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
+        const reference = hostedReference(segment);
         const tree = canopy.get(reference.id);
         const level = tree ? canopy.accessLevel(account, tree, link) : null;
         if (!tree || !level) throw new NotFoundError("Tree not found");
@@ -635,7 +637,7 @@ export async function serveHost(options: {
         }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
         if (access) {
-          const treeID = treeReference(access[1]!).id;
+          const treeID = hostedReference(access[1]!).id;
           if (request.method === "GET") {
             const authenticated = requireAccount(authentication);
             const administer = canopy.canAdminister(authenticated, treeID);
@@ -725,9 +727,7 @@ export async function serveHost(options: {
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
           if (request.method !== "POST") return methodNotAllowed();
-          const reference = treeReference(updates[1]!);
-          if (reference.governs) canopy.refuseOwnConfigurationOf(reference.governs);
-          else canopy.refusePlacementConfigurationID(reference.id);
+          const reference = hostedReference(updates[1]!);
           const treeID = reference.id;
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
@@ -901,7 +901,7 @@ export async function serveHost(options: {
 
         const object = /^\/\.arbor\/trees\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (object && request.method === "GET") {
-          const treeID = treeReference(object[1]!).id;
+          const treeID = hostedReference(object[1]!).id;
           const hash = object[2] as ObjectHash;
           if (!canopy.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.retainedObject(hash);
@@ -1052,13 +1052,10 @@ export async function serveHost(options: {
           if (error.code === "base-not-retained") {
             return protocolError("resync-required", error.message, 409, true, { kind: "server-update" });
           }
-          if (error.code === "server-busy") {
-            return protocolError("internal-error", error.message, 503, true);
-          }
           return protocolError("conflict", error.message, 409, false, { kind: "server-update" });
         }
         if (error instanceof AlreadyClaimedError) {
-          return protocolError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
+          return protocolError("already-claimed", error.message, 409, false, error.handle ? { handle: error.handle } : {});
         }
         if (error instanceof ReservedBoundaryConflictError) {
           return protocolError("conflict", "The update would change an independently versioned tree boundary", 409, false, {

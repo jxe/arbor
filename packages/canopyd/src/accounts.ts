@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { generateArborID, sha256 } from "@overstory/protocol";
 import type { PairingOffer, ServerDevice } from "@overstory/protocol";
 import type { HostAccount, HostAuthentication } from "./model.ts";
+import { PlacementAccountError } from "./errors.ts";
 
 /** A device's last-use time is advisory; refresh it at most this often. */
 const LAST_USED_RESOLUTION_MS = 60_000;
@@ -183,7 +184,16 @@ export class AccountDirectory {
    * host operator issues (`canopyd recover`), lasts a day and its claim makes
    * the new device the account's only one; its ID says which it is.
    */
+  /**
+   * A pairing offer, or with `recovery` the operator's recovery pairing
+   * (accounts §5.3). A placement account has neither here: its devices are
+   * its home host's (accounts §1.3), so every caller, the `recover` command
+   * included, is refused the same way.
+   */
   createPairing(account: HostAccount, options: { recovery?: boolean } = {}): PairingOffer {
+    if (account.homeHost) {
+      throw new PlacementAccountError(account.homeHost, `${options.recovery ? "Recovery" : "Pairing"} is not available here: ~${account.handle} is a placement account, and its profile's configuration and devices are at its home host ${account.homeHost}`);
+    }
     const id = generateArborID(options.recovery ? "pr" : "pa");
     const secret = `arp_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
