@@ -108,18 +108,7 @@ public actor KeychainDeviceCredentialStore: AccountCredentialStore, PlacementCon
     }
 
     public func accounts() throws -> [NativeHostAccount] {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service + ".accounts",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return [] }
-        guard status == errSecSuccess else { throw OSStatusError(status) }
-        let values = (result as? [Data]) ?? (result as? Data).map { [$0] } ?? []
-        return try values.map { try JSONDecoder().decode(NativeHostAccount.self, from: $0) }
+        return try values(service: service + ".accounts").map { try JSONDecoder().decode(NativeHostAccount.self, from: $0) }
             .sorted { $0.configurationTree < $1.configurationTree }
     }
 
@@ -139,18 +128,7 @@ public actor KeychainDeviceCredentialStore: AccountCredentialStore, PlacementCon
     /// one item per `<ConfigurationTreeID>/host-<digest>` as a data home
     /// keys them (accounts §1.3).
     public func placements(configurationTree: String?) throws -> [NativePlacementAccount] {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service + ".placements",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return [] }
-        guard status == errSecSuccess else { throw OSStatusError(status) }
-        let values = (result as? [Data]) ?? (result as? Data).map { [$0] } ?? []
-        return values.compactMap { try? JSONDecoder().decode(NativePlacementAccount.self, from: $0) }
+        return try values(service: service + ".placements").compactMap { try? JSONDecoder().decode(NativePlacementAccount.self, from: $0) }
             .filter { $0.isWellFormed && (configurationTree == nil || $0.configurationTree == configurationTree) }
             .sorted { ($0.configurationTree, $0.origin) < ($1.configurationTree, $1.origin) }
     }
@@ -182,6 +160,26 @@ public actor KeychainDeviceCredentialStore: AccountCredentialStore, PlacementCon
     /// Lowercase SHA-256 hex of `text`, without the `sha256:` prefix of an object hash.
     private func hexDigest(_ text: String) -> String {
         String(ProtocolObjectCodec.hash(Data(text.utf8)).dropFirst("sha256:".count))
+    }
+
+    /// Every item's data under `service`. The macOS file-based Keychain
+    /// refuses `kSecReturnData` with `kSecMatchLimitAll` (errSecParam), so
+    /// this lists the items' accounts and reads each one.
+    private func values(service: String) throws -> [Data] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess else { throw OSStatusError(status) }
+        let items = (result as? [[String: Any]]) ?? (result as? [String: Any]).map { [$0] } ?? []
+        return try items.compactMap { $0[kSecAttrAccount as String] as? String }.compactMap {
+            try loadValue(account: $0, service: service).map { Data($0.utf8) }
+        }
     }
 
     private func loadValue(account: String, service: String? = nil) throws -> String? {
