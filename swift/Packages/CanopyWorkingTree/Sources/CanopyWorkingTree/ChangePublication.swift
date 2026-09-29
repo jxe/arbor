@@ -175,3 +175,100 @@ extension LocalChange {
             objects: objects.values.filter { !known.contains($0.hash) }.sorted { $0.hash < $1.hash }, deltas: deltas), operations: names)
     }
 }
+
+extension LocalChange {
+    /// Transport a branch across the remainder of a frozen publication only
+    /// when both sides read and write disjoint existing files. Operation history,
+    /// not equal bytes, proves this commutation. Retained records stay unchanged.
+    static func branchPublications(_ group: ChangePublication, shared: Int, branch: [LocalChange], records: [String: LocalChange]) throws -> [ChangePublication]? {
+        let members = group.changes.compactMap { records[$0] }
+        guard members.count == group.changes.count, shared > 0, shared < members.count,
+              let first = branch.first, first.graph.root == members[shared - 1].candidate.root else { return nil }
+        func paths(_ record: LocalChange) -> Set<String>? {
+            guard let trace = record.update.trace, !trace.isEmpty, record.update.resolves.isEmpty, record.update.ifCurrent == nil else { return nil }
+            var result = Set<String>()
+            func visit(_ value: ProtocolSemanticValue) -> Bool {
+                switch value {
+                case let .object(fields):
+                    if let material = fields["material"] {
+                        guard case let .object(reference) = material, reference["kind"] == .string("basis"),
+                              case let .string(path)? = reference["path"], fields["range"] != nil else { return false }
+                        result.insert(path)
+                    }
+                    return fields.values.allSatisfy(visit)
+                case let .array(values): return values.allSatisfy(visit)
+                default: return true
+                }
+            }
+            for operation in trace.flatMap(\.operations) {
+                guard ["editSource", "moveSource", "copySource"].contains(operation.kind), visit(.object(operation.fields)) else { return nil }
+            }
+            return result.isEmpty ? nil : result
+        }
+        var crossed = Set<String>()
+        for record in members.dropFirst(shared) {
+            guard let footprint = paths(record) else { return nil }
+            crossed.formUnion(footprint)
+        }
+        for record in branch {
+            guard let footprint = paths(record), footprint.isDisjoint(with: crossed) else { return nil }
+        }
+        let end = members.last!, split = members[shared - 1]
+        var objects = Dictionary((members + branch).flatMap { ($0.graph.objects + $0.candidate.objects).map { ($0.hash, $0.bytes) } }, uniquingKeysWith: { first, _ in first })
+        func directory(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionFileDescriptor?) {
+            guard let bytes = objects[hash], case let .directory(entries, source) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
+                throw ProtocolValidationError.invalidValue("Missing publication branch directory")
+            }
+            return (entries, source)
+        }
+        func file(_ root: String, _ path: String) throws -> String {
+            let parts = path.dropFirst().split(separator: "/").map(String.init)
+            var hash = root
+            for (index, part) in parts.enumerated() {
+                let entries = try directory(hash).0
+                guard let entry = entries.first(where: { $0.name == part }) else { throw ProtocolValidationError.invalidValue("Missing publication branch file") }
+                if index == parts.count - 1, let file = entry.file { return file }
+                guard let child = entry.directory else { throw ProtocolValidationError.invalidValue("Publication branch requires existing files") }
+                hash = child
+            }
+            throw ProtocolValidationError.invalidValue("Invalid publication branch path")
+        }
+        let replacements = try crossed.sorted().map { (path: $0, before: try file(split.candidate.root, $0), after: try file(end.candidate.root, $0)) }
+        var result: [ChangePublication] = []
+        for record in branch {
+            var supplied = Dictionary(record.update.objects.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
+            for delta in record.update.deltas {
+                guard let object = record.candidate.objects.first(where: { $0.hash == delta.result }) else { return nil }
+                supplied[object.hash] = object
+            }
+            func lift(_ original: String) throws -> String {
+                var root = original
+                for replacement in replacements {
+                    guard try file(root, replacement.path) == replacement.before else { throw ProtocolValidationError.invalidValue("Publication branch changed crossed material") }
+                    let parts = replacement.path.dropFirst().split(separator: "/").map(String.init)
+                    func replace(_ hash: String, _ depth: Int) throws -> String {
+                        let (entries, source) = try directory(hash)
+                        let changed = try entries.map { entry -> ProtocolDirectoryEntry in
+                            guard entry.name == parts[depth] else { return entry }
+                            if depth == parts.count - 1 { return .init(name: entry.name, file: replacement.after) }
+                            guard let child = entry.directory else { throw ProtocolValidationError.invalidValue("Publication branch crosses file") }
+                            return .init(name: entry.name, directory: try replace(child, depth + 1))
+                        }
+                        let object = try ProtocolObjectCodec.object(.directory(changed, childrenSource: source))
+                        objects[object.hash] = object.bytes; supplied[object.hash] = object
+                        return object.hash
+                    }
+                    root = try replace(root, 0)
+                }
+                return root
+            }
+            let trace = try (record.update.trace ?? []).map { try ProtocolTraceFrame(before: lift($0.before), after: lift($0.after), operations: $0.operations) }
+            let identity = "continuation-" + ProtocolObjectCodec.hash(try sortedKeysJSON([group.update.change, record.change])).replacingOccurrences(of: "sha256:", with: "")
+            let names = Dictionary(uniqueKeysWithValues: trace.flatMap(\.operations).map { ($0.key, $0.key) })
+            result.append(ChangePublication(changes: [record.change], update: ProtocolCandidateUpdate(candidate: trace.last!.after, change: identity,
+                trace: trace, objects: supplied.values.sorted { $0.hash < $1.hash }), operations: [record.change: names]))
+        }
+        guard result.first?.update.trace?.first?.before == group.update.candidate else { return nil }
+        return result
+    }
+}

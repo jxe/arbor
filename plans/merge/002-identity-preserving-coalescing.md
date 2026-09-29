@@ -24,6 +24,20 @@ simplifying their operations. Preserve the frame chain whenever a shorter accoun
 has not been proved. The baseline handles repeated pure moves of the same original
 span; mixed changes can still share one publication without flattening their frames.
 
+## Interior bases that need further support
+
+Before expanding composition, define publication identity for a late branch from
+an intermediate record when the remaining published frames touch the same file,
+change structure, or expose operation results. Known branch points already end a
+batch; source branches over disjoint files have a client commutation proof. That
+does not cover overlapping branches from editors captured before publication.
+Determine whether clients can preserve addressable intermediate bases without
+sending each original change, or whether the protocol needs an explicit retained
+intermediate-basis identity. Never replay an original prefix under a second
+identity, retarget by byte equality, or undo the already accepted suffix merely
+to reconstruct the old basis. Test late capture, copies, net-zero edits, guarded
+resolutions, collapsed move coordinates, retry and restart against the real host.
+
 ## Implementation order
 
 Start with common editor bursts that currently retain intermediate full-file

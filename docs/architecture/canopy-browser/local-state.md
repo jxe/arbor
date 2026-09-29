@@ -166,7 +166,11 @@ in the change log, and the journal names the draft it came from.
 
 Local update-control schema 5 holds the exact persisted request, the change it
 ends at, the held reason, settled changes, and the original-to-published change
-and operation-result mappings for coalesced publications. Schema 4 reads with
+and operation-result mappings for coalesced publications. Compaction retains every
+member of a batch while any member is still needed. A late disjoint source branch
+can have a continuation publication with different surrounding roots, so its
+original candidate is not a valid basis for the server's reconciliation payload.
+Schema 4 reads with
 no mappings. A schema-3 control that still
 holds a snapshot head, a next base, or an attempt outside the change log is
 refused without being rewritten; a clean one converts.

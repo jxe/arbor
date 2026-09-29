@@ -735,7 +735,7 @@ public actor ChangeLog {
     /// Object collection follows the journal rename, so a crash can leak cache
     /// bytes but can never strand retained intent without its basis.
     @discardableResult
-    public func compact(settled: Set<String>, preservingSettledTail: Bool = true) async throws -> Bool {
+    public func compact(settled: Set<String>, preservingSettledTail: Bool = true, publications: [[String]] = []) async throws -> Bool {
         while true {
             try await reloadIfChanged()
             let expected = fingerprint
@@ -761,6 +761,9 @@ public actor ChangeLog {
                 var changed = true
                 while changed {
                     changed = false
+                    for group in publications where group.contains(where: { required.contains($0) }) {
+                        for change in group where required.insert(change).inserted { changed = true }
+                    }
                     for record in records where required.contains(record.change) {
                         if case let .authored(parent) = record.basis, required.insert(parent).inserted { changed = true }
                     }

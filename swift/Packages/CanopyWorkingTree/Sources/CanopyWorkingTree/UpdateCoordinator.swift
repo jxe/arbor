@@ -392,6 +392,7 @@ public actor UpdateCoordinator {
             // A re-seeded tree no longer does and installs the host's state instead.
             var projected: ProtocolSnapshot?
             if let record = try await changeLog().retained().first(where: { $0.change == control.attemptTip }),
+               record.candidate.root == attempt.candidate,
                current.update == accepted.id, current.root == accepted.root {
                 if let reconciliation = final.reconciliation {
                     // The candidate's spine plus every delta base, fetched through the object store once each.
@@ -505,7 +506,7 @@ public actor UpdateCoordinator {
     /// Drop settled records no pending change or open editor still needs.
     private func compactLog() async throws {
         let log = try await changeLog()
-        if try await log.compact(settled: Set(control.settled)) {
+        if try await log.compact(settled: Set(control.settled), publications: control.publications.map(\.changes)) {
             control.settled = []
         } else {
             let retained = Set(try await log.retained().map(\.change))
@@ -527,13 +528,35 @@ public actor UpdateCoordinator {
     private func composePublication(in request: ProtocolUpdateRequest) async throws -> ProtocolUpdateRequest {
         let records = try await changeLog().retained()
         let byChange = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
+        var children: [String: Int] = [:]
+        for record in records {
+            if case let .authored(parent) = record.basis { children[parent, default: 0] += 1 }
+        }
         var updates: [ProtocolCandidateUpdate] = [], index = 0
         let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])
         while index < request.updates.count {
             let current = request.updates[index]
             if let group = control.publications.first(where: { $0.changes.first == current.change }) {
-                guard Array(request.updates.dropFirst(index).prefix(group.changes.count).map(\.change)) == group.changes else {
-                    throw ProtocolValidationError.invalidValue("Incomplete composed publication dependency")
+                var shared = 0
+                while shared < group.changes.count, index + shared < request.updates.count,
+                      request.updates[index + shared].change == group.changes[shared] { shared += 1 }
+                if shared != group.changes.count {
+                    let remaining = Array(request.updates.dropFirst(index + shared))
+                    let branch = remaining.compactMap { byChange[$0.change] }
+                    guard branch.count == remaining.count,
+                          let continuations = try LocalChange.branchPublications(group, shared: shared, branch: branch, records: byChange) else {
+                        throw ProtocolValidationError.invalidValue("Pending branch overlaps an already composed publication; original changes are retained")
+                    }
+                    var prefix = group.update
+                    if group.changes.allSatisfy({ control.settled.contains($0) }) { prefix.objects = []; prefix.deltas = [] }
+                    updates.append(prefix)
+                    for continuation in continuations {
+                        let existing = control.publications.first(where: { $0.changes.first == continuation.changes.first })
+                        guard existing == nil || existing == continuation else { throw ProtocolValidationError.invalidValue("Composed continuation identity changed") }
+                        if existing == nil { control.publications.append(continuation) }
+                        updates.append(existing?.update ?? continuation.update)
+                    }
+                    break
                 }
                 var update = group.update
                 if group.changes.allSatisfy({ control.settled.contains($0) }) { update.objects = []; update.deltas = [] }
@@ -545,6 +568,7 @@ public actor UpdateCoordinator {
                   let record = byChange[request.updates[cursor].change], record.update.trace != nil,
                   !control.settled.contains(record.change), !frozen.contains(record.change),
                   !control.publications.contains(where: { $0.changes.contains(record.change) }) {
+                if let previous = run.last, children[previous.change, default: 0] > 1 { break }
                 if let previous = run.last, record.basis != .authored(change: previous.change) { break }
                 let boundary = !record.update.resolves.isEmpty || record.update.ifCurrent != nil
                 if boundary, !run.isEmpty { break }

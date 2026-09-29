@@ -2,8 +2,8 @@ import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTT
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@overstory/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
-import { publication, type ChangePublication } from "./publication.ts";
-import type { LocalChange } from "./local-change.ts";
+import { branchPublications, publication, type ChangePublication } from "./publication.ts";
+import { equal, type LocalChange } from "./local-change.ts";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
 
@@ -16,7 +16,7 @@ export interface ChangeLogPort {
   /** The chain from its accepted basis through `through`; settled changes are repeated without objects. */
   request(through: string, settled: ReadonlySet<string>): Promise<{ base: { root: string; update: string }; request: { base: string; updates: unknown[] } }>;
   /** Drop settled records nothing pending needs; true when the log is now empty. */
-  compact(settled: ReadonlySet<string>): Promise<boolean>;
+  compact(settled: ReadonlySet<string>, preservingSettledTail?: boolean, publications?: readonly string[][]): Promise<boolean>;
   /** Remove these changes and every change authored on them. */
   discard(changes: ReadonlySet<string>): Promise<void>;
 }
@@ -418,7 +418,7 @@ export class UpdateCoordinator {
       // The projection of our own candidate, while the log still holds it.
       let objects = new Map<string, Uint8Array>();
       const record = records.find(record => record.change === this.control.attemptTip);
-      if (record && current.update === final.update.id && current.root === final.update.root) {
+      if (record && record.candidate.root === attempt.candidate && current.update === final.update.id && current.root === final.update.root) {
         const candidate = new Map(decodeTreeSnapshotJSON(record.candidate).objects);
         if (final.reconciliation) {
           for (const hash of new Set(final.reconciliation.deltas.map(delta => delta.base))) {
@@ -533,7 +533,7 @@ export class UpdateCoordinator {
 
   /** Drop settled records no pending change still needs. */
   private async compactLog(): Promise<void> {
-    if (await this.log.compact(this.settledSet())) this.control.settled = [];
+    if (await this.log.compact(this.settledSet(), true, this.control.publications?.map(group => group.changes))) this.control.settled = [];
     else {
       const retained = new Set((await this.log.retained()).map(record => record.change));
       this.control.settled = this.control.settled.filter(change => retained.has(change));
@@ -549,6 +549,8 @@ export class UpdateCoordinator {
 
   private async composePublication(request: { base: string; updates: unknown[] }): Promise<{ base: string; updates: unknown[] }> {
     const records = new Map((await this.log.retained()).map(record => [record.change, record]));
+    const children = new Map<string, number>();
+    for (const record of records.values()) if (record.basis.kind === "authored") children.set(record.basis.change, (children.get(record.basis.change) ?? 0) + 1);
     const originals = request.updates as LocalChange["update"][];
     const updates: LocalChange["update"][] = [];
     const groups = this.control.publications ??= [];
@@ -558,7 +560,21 @@ export class UpdateCoordinator {
       const current = originals[index]!;
       const group = groups.find(group => group.changes[0] === current.change);
       if (group) {
-        if (JSON.stringify(originals.slice(index, index + group.changes.length).map(update => update.change)) !== JSON.stringify(group.changes)) throw new UpdateValidationError("Incomplete composed publication dependency");
+        let shared = 0;
+        while (shared < group.changes.length && originals[index + shared]?.change === group.changes[shared]) shared++;
+        if (shared !== group.changes.length) {
+          const branch = originals.slice(index + shared).map(update => records.get(update.change));
+          const continuations = branch.every(record => record !== undefined) ? branchPublications(group, shared, branch, records) : undefined;
+          if (!continuations) throw new UpdateValidationError("Pending branch overlaps an already composed publication; original changes are retained");
+          updates.push({...group.update, ...(group.changes.every(change => this.control.settled.includes(change)) ? {objects: [], deltas: []} : {})});
+          for (const continuation of continuations) {
+            const existing = groups.find(value => value.changes[0] === continuation.changes[0]);
+            if (existing && !equal(existing, continuation)) throw new UpdateValidationError("Composed continuation identity changed");
+            if (!existing) groups.push(continuation);
+            updates.push(existing?.update ?? continuation.update);
+          }
+          break;
+        }
         updates.push(group.changes.every(change => this.control.settled.includes(change)) ? {...group.update, objects: [], deltas: []} : group.update);
         index += group.changes.length;
         continue;
@@ -569,6 +585,7 @@ export class UpdateCoordinator {
         const record = records.get(originals[cursor]!.change);
         if (!record || !record.update.trace || this.control.settled.includes(record.change) || frozen.has(record.change) || groups.some(group => group.changes.includes(record.change))) break;
         const previous = run.at(-1);
+        if (previous && (children.get(previous.change) ?? 0) > 1) break;
         if (previous && (record.basis.kind !== "authored" || record.basis.change !== previous.change)) break;
         const boundary = record.update.resolves.length > 0 || record.update.ifCurrent !== undefined;
         if (boundary && run.length) break;

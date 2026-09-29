@@ -1,4 +1,5 @@
-import { arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
+import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
 /** Immutable wire identity plus the durable local records/results it covers. */
@@ -115,4 +116,84 @@ export function publication(records: LocalChange[], previous: ChangePublication[
   return { changes, operations: names, update: { change, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
     trace: records.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...rewrite(op), key: names[record.change]![op.key]}) as SourceOperation)}))),
     objects: [...objects.values()].filter(object => !known.has(object.hash)).sort((a,b) => a.hash.localeCompare(b.hash)) } };
+}
+
+/** A branch captured inside a frozen batch can cross its remaining frames only
+ * when both sides read and write disjoint existing files. This is a commutation
+ * proof from operations, not a byte-equality rebase. Original records stay intact.
+ * Each transported record gets a new, durable wire identity. */
+export function branchPublications(group: ChangePublication, shared: number, branch: LocalChange[], records: Map<string, LocalChange>): ChangePublication[] | undefined {
+  const members = group.changes.map(change => records.get(change));
+  if (members.some(record => !record) || shared <= 0 || shared >= members.length || !branch.length) return;
+  function paths(record: LocalChange): Set<string> | undefined {
+    if (!record.update.trace?.length || record.update.resolves.length || record.update.ifCurrent !== undefined) return;
+    const result = new Set<string>();
+    function visit(value: any): boolean {
+      if (!value || typeof value !== "object") return true;
+      if (value.material) {
+        if (value.material.kind !== "basis" || typeof value.material.path !== "string" || !value.range) return false;
+        result.add(value.material.path);
+      }
+      return Object.values(value).every(visit);
+    }
+    for (const frame of record.update.trace) for (const op of frame.operations) {
+      if (!["editSource", "moveSource", "copySource"].includes(op.kind) || !visit(op)) return;
+    }
+    return result.size ? result : undefined;
+  }
+  const crossed = new Set<string>();
+  for (const record of members.slice(shared)) {
+    const footprint = paths(record!); if (!footprint) return;
+    for (const path of footprint) crossed.add(path);
+  }
+  for (const record of branch) {
+    const footprint = paths(record); if (!footprint || [...footprint].some(path => crossed.has(path))) return;
+  }
+  const end = members.at(-1)!, split = members[shared - 1]!;
+  if (branch[0]!.graph.root !== split.candidate.root) return;
+  const objects = new Map([...members as LocalChange[], ...branch].flatMap(record =>
+    [record.graph, record.candidate].flatMap(graph => [...decodeTreeSnapshotJSON(graph).objects])));
+  const directory = (hash: string) => decodeProtocolDirectory(objects.get(hash)!);
+  function file(root: string, path: string): string {
+    const parts = path.slice(1).split("/"); let hash = root;
+    for (const [i, part] of parts.entries()) {
+      const entry = directory(hash).entries.find(entry => entry.name === part);
+      if (i === parts.length - 1 && entry?.file !== undefined) return entry.file;
+      if (!entry?.directory) throw new UpdateValidationError("Publication branch requires existing files");
+      hash = entry.directory;
+    }
+    throw new UpdateValidationError("Invalid publication branch path");
+  }
+  const replacements = [...crossed].sort().map(path => ({path, before: file(split.candidate.root, path), after: file(end.candidate.root, path)}));
+  const result: ChangePublication[] = [];
+  for (const record of branch) {
+    const supplied = new Map(record.update.objects.map(object => [object.hash, object]));
+    for (const delta of record.update.deltas) {
+      const object = record.candidate.objects.find(object => object.hash === delta.result);
+      if (!object) return;
+      supplied.set(object.hash, object);
+    }
+    function lift(root: string): string {
+      for (const replacement of replacements) {
+        if (file(root, replacement.path) !== replacement.before) throw new UpdateValidationError("Publication branch changed crossed material");
+        const parts = replacement.path.slice(1).split("/");
+        function replace(hash: string, depth: number): string {
+          const value = directory(hash);
+          value.entries = value.entries.map(entry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
+            ? {name: entry.name, file: replacement.after} : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
+          const bytes = encodeProtocolDirectory(value), next = hashObject(bytes);
+          objects.set(next, bytes); supplied.set(next, {hash: next, bytes: encodeBase64(bytes)});
+          return next;
+        }
+        root = replace(root, 0);
+      }
+      return root;
+    }
+    const trace = record.update.trace!.map(frame => ({...frame, before: lift(frame.before), after: lift(frame.after)}));
+    const change = identity("continuation-", [group.update.change, record.change]);
+    result.push({changes: [record.change], operations: {[record.change]: Object.fromEntries(trace.flatMap(frame => frame.operations).map(op => [op.key, op.key]))},
+      update: {...record.update, change, candidate: trace.at(-1)!.after, trace, deltas: [], objects: [...supplied.values()].sort((a,b) => a.hash.localeCompare(b.hash))}});
+  }
+  if (result[0]!.update.trace![0]!.before !== group.update.candidate) return;
+  return result;
 }

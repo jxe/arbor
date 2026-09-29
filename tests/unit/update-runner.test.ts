@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@overstory/protocol";
-import { UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
+  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@overstory/protocol";
+import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
+import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
@@ -236,4 +237,52 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
     }
     expect(await coordinator.pendingChanges()).toHaveLength(0);
   } finally { coordinator.close(); await rm(stateRoot, { recursive: true, force: true }); }
+});
+
+
+for (const frozen of [false, true]) test(`branched publication ${frozen ? "recovers a frozen interior basis after restart" : "ends batching at a known branch point"}`, async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-branch-batch-"));
+  const objects = new Map<string, Uint8Array>();
+  const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file}; });
+  const bytes = encodeProtocolDirectory({type: "directory", entries}), root = hashObject(bytes); objects.set(root, bytes);
+  const initial = {root, objects}, host = new VectorHost(initial, frozen ? ["accept", "acceptThenFail"] : []);
+  const working = new MemoryWorkingTree({base: {root, update: "up_initial"}, snapshot: initial});
+  const log = new ChangeLog(TREE, stateRoot), store = new FileControlStore(stateRoot);
+  function edit(change: string, parent: LocalChange | undefined, path: string, source: string): LocalChange {
+    return prepareSourceChange({change, tree: TREE, basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root, update: "up_initial"},
+      graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : initial, sourcePath: path,
+      intent: {basis: {tree: TREE, path, revision: change, source}, edits: [{offset: 0, length: 1, replacement: source.toUpperCase()}], source: source.toUpperCase()}});
+  }
+  const a = edit("a", undefined, "/a.md", "a"), b = edit("b", a, "/b.md", "b"), c = edit("c", a, "/c.md", "c");
+  for (const record of [a,b,c]) await log.retain(record);
+  if (frozen) {
+    await log.compact(new Set([a.change, b.change]), false, [[a.change, b.change]]);
+    expect((await log.retained()).map(record => record.change)).toEqual(["a", "b", "c"]);
+    const group = publication([a,b], [])!;
+    const response = await host.submitUpdates(TREE, decodeUpdateRequestJSON({base: "up_initial", updates: [group.update]}));
+    await working.install({root: group.update.candidate, update: response.head.update}, {root: group.update.candidate, object: hash => host.object(TREE, hash), snapshot: async () => decodeTreeSnapshotJSON(b.candidate)});
+    await store.write({schema: 5, settled: [a.change,b.change], publications: [group]}, "current");
+  }
+  let coordinator = new UpdateCoordinator(TREE, log, store, host, working, {publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000});
+  try {
+    await coordinator.syncOnce();
+    if (frozen) {
+      const attempt = (await store.load()).attempt!;
+      expect(attempt).toBeDefined();
+      coordinator.close();
+      coordinator = new UpdateCoordinator(TREE, log, store, host, working, {publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000});
+      await coordinator.syncOnce();
+      expect(host.digests.at(-1)).toEqual(attempt.requestDigests);
+    }
+    expect((await coordinator.pendingChanges()).length).toBe(0);
+    const last = host.requests.at(-1)!;
+    if (frozen) {
+      expect(last.updates[0]!.change).toBe(host.requests[0]!.updates[0]!.change);
+      expect(host.digests.at(-1)![0]).toBe(host.digests[0]![0]);
+      expect(last.updates[1]!.change.startsWith("continuation-")).toBe(true);
+      expect(readSource(working.graph(), "/b.md")).toBe("B");
+      expect(readSource(working.graph(), "/c.md")).toBe("C");
+    } else expect(host.requests[0]!.updates.map(update => update.change)).toEqual(["a", "b"]);
+    expect(readSource(working.graph(), "/a.md")).toBe("A");
+  } finally { coordinator.close(); await rm(stateRoot, {recursive: true, force: true}); }
 });

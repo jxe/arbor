@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@overstory/protocol";
 import { prepareSourceChange, type LocalChange } from "@overstory/working-tree";
 import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
-import { publication } from "../../packages/working-tree/src/publication.ts";
+import { branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
 import { Fixture } from "./canopyd-merge/fixture.ts";
 
 const vectors = JSON.parse(await readFile(new URL("../fixtures/coalesced-publication.json", import.meta.url), "utf8")) as { cases: Array<{
@@ -124,4 +124,48 @@ test("generic frame limits remain boundaries and accepted-base deltas remain com
   expect(short.update.deltas).toEqual([]);
   expect(short.update.objects.some(object => object.hash === result)).toBe(true);
   expect(publication([first], [])!.update.deltas).toEqual(first.update.deltas);
+});
+
+
+test("branches inside frozen batches commute only across disjoint source footprints", async () => {
+  const f = new Fixture();
+  const initial = f.tree({"a.md": "A", "b.md": "B", "c.md": "C"});
+  const graph = {root: initial, objects: new Map(f.objects)};
+  function edit(change: string, parent: LocalChange | undefined, path: string, source: string, next: string): LocalChange {
+    return prepareSourceChange({change, tree: "tr_publication", graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : graph,
+      basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root: initial, update: "up_initial"}, sourcePath: path,
+      intent: {basis: {tree: "tr_publication", path, revision: change, source}, edits: [{offset: 0, length: source.length, replacement: next}], source: next}});
+  }
+  const a = edit("a", undefined, "/a.md", "A", "AA"), b = edit("b", a, "/b.md", "B", "BB"), c = edit("c", a, "/c.md", "C", "CC");
+  const d = edit("d", c, "/c.md", "CC", "CCC");
+  const records = new Map([a,b,c,d].map(record => [record.change, record]));
+  const group = publication([a,b], [])!, original = structuredClone([...records.values()]);
+  const continuations = branchPublications(group, 1, [c,d], records)!;
+  expect(continuations).toHaveLength(2);
+  expect(continuations[0]!.update.trace![0]!.before).toBe(group.update.candidate);
+  expect(continuations[1]!.update.trace![0]!.before).toBe(continuations[0]!.update.candidate);
+  expect([...records.values()]).toEqual(original);
+  expect(branchPublications(JSON.parse(JSON.stringify(group)), 1, [c,d], records)).toEqual(continuations);
+  for (const record of records.values()) for (const snapshot of [record.graph, record.candidate]) for (const [hash, bytes] of decodeTreeSnapshotJSON(snapshot).objects) f.objects.set(hash, bytes);
+  for (const update of continuations.map(value => value.update)) for (const object of update.objects) f.objects.set(object.hash, decodeBase64(object.bytes));
+  const request = f.request(initial, group.update.candidate, [], group.update.change);
+  request.incoming.trace = group.update.trace!;
+  let accepted = await f.run(request);
+  for (const continuation of continuations) {
+    const next = f.request(accepted.result, continuation.update.candidate, [], continuation.update.change);
+    next.incoming.trace = continuation.update.trace!;
+    accepted = await f.run(next);
+    expect(accepted.decisions).toEqual([]);
+  }
+  expect(f.content(accepted.result.object, "a.md")).toBe("AA");
+  expect(f.content(accepted.result.object, "b.md")).toBe("BB");
+  expect(f.content(accepted.result.object, "c.md")).toBe("CCC");
+  // Matching bytes are insufficient: even a net-zero edit overlaps origins.
+  const overlap = edit("overlap", a, "/b.md", "B", "B");
+  expect(branchPublications(group, 1, [overlap], records)).toBeUndefined();
+  const guarded = structuredClone(c); guarded.update.ifCurrent = "up_guard";
+  expect(branchPublications(group, 1, [guarded], records)).toBeUndefined();
+  const operationRef = structuredClone(c);
+  (operationRef.update.trace![0]!.operations[0] as any).source.material = {kind: "operation", change: "a", operation: "edit-0-0"};
+  expect(branchPublications(group, 1, [operationRef], records)).toBeUndefined();
 });

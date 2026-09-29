@@ -182,6 +182,20 @@ coordinates are transported through the moves, never inferred from equal text.
 Snapshots, resolutions and guarded changes are boundaries, and generic batches split at 64 frames
 or 1024 operations. Local records and undo history remain intact.
 
+A known local branch point ends a batch. A later editor can still branch from
+inside a batch that was already published. The runner can carry that branch
+across the remaining batch frames only when both sides contain source operations
+whose complete read/write footprints name disjoint existing files. It preserves
+the operations and references, adjusts the surrounding tree roots, and records a
+fresh deterministic publication identity for each carried change. Original local
+records stay intact; retries repeat the frozen batch and continuation identities.
+Overlapping files, operation-result references, structural suffixes, resolutions,
+and guards are not covered by this proof and remain retained for explicit recovery.
+When any batch member is retained, compaction retains the whole batch and its
+ancestry. If a carried candidate differs from the original local candidate, the
+runner loads the accepted graph instead of applying a reconciliation to the wrong
+basis. No host protocol extension is needed for these disjoint branches.
+
 Generic batching retains intermediate object material. A delta survives only
 when its result reaches the final candidate; otherwise its intermediate object
 is retained. Fewer update elements therefore do not guarantee fewer bytes for

@@ -46,4 +46,41 @@ struct PublicationTests {
             #expect(try JSONDecoder().decode(ChangePublication.self, from: sortedKeysJSON(published)) == published)
         }
     }
+    @Test("A frozen batch preserves disjoint branches and refuses overlapping origins")
+    func frozenBranch() async throws {
+        let fixture = try Self.branchFixture()
+        let (a, b, c, d) = (fixture[0], fixture[1], fixture[2], fixture[3])
+        let records = Dictionary(uniqueKeysWithValues: fixture.map { ($0.change, $0) })
+        let group = try #require(try LocalChange.publication([a,b], previous: []))
+        let before = try sortedKeysJSON(fixture)
+        let continuations = try #require(try LocalChange.branchPublications(group, shared: 1, branch: [c,d], records: records))
+        #expect(continuations.count == 2)
+        #expect(continuations[0].update.trace?.first?.before == group.update.candidate)
+        #expect(continuations[1].update.trace?.first?.before == continuations[0].update.candidate)
+        #expect(try sortedKeysJSON(fixture) == before)
+        let restored = try JSONDecoder().decode(ChangePublication.self, from: sortedKeysJSON(group))
+        #expect(try LocalChange.branchPublications(restored, shared: 1, branch: [c,d], records: records) == continuations)
+        #expect(try LocalChange.branchPublications(group, shared: 1, branch: [b], records: records) == nil)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "publication-retention-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = try await ChangeLog(tree: a.tree, stateRoot: directory)
+        for record in fixture { try await log.retain(record) }
+        _ = try await log.compact(settled: [a.change, b.change, c.change], preservingSettledTail: false, publications: [group.changes])
+        #expect(try await log.retained().map(\.change) == fixture.map(\.change))
+    }
+
+    static func branchFixture(tree: String = "tr_publication") throws -> [LocalChange] {
+        let files = try ["A", "B", "C"].map { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
+        let root = try ProtocolObjectCodec.object(.directory(zip(["a.md", "b.md", "c.md"], files).map { .init(name: $0, file: $1.hash) }))
+        let graph = ProtocolSnapshot(root: root.hash, objects: files + [root])
+        func edit(_ change: String, _ parent: LocalChange?, _ path: String, _ source: String, _ next: String) throws -> LocalChange {
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: tree), path: path), source: source, contentRevision: change)
+            return try LocalChange(change: change, tree: tree, basis: parent.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: "up_initial")),
+                graph: parent?.candidate ?? graph, sourcePath: path,
+                intent: .init(basis: basis, patch: .init(baseContentRevision: change, edits: [.init(utf8Range: 0..<source.utf8.count, replacement: next)]), source: next))
+        }
+        let a = try edit("a", nil, "/a.md", "A", "AA"), b = try edit("b", a, "/b.md", "B", "BB"), c = try edit("c", a, "/c.md", "C", "CC")
+        return [a,b,c,try edit("d", c, "/c.md", "CC", "CCC")]
+    }
+
 }

@@ -17,7 +17,9 @@ Both client state machines default to publication after idle. They compile
 eligible unsent local records into one authored publication; repeated pure moves
 retain the original source identity in one final move. The durable mapping from
 local changes and operation results to their published names survives retries and
-restart. A prepared prefix is immutable. Continuous folder sources explicitly
+restart. Known branch points end a batch. Late branches across disjoint source
+files can continue an already published batch under new durable wire identities;
+the original local records remain unchanged. A prepared prefix is immutable. Continuous folder sources explicitly
 opt into a maximum delay; watch and poll traffic respect active editing bursts.
 See [the update machine and runner](../../implementing-sync-services/update-machine.md)
 and [editor sources](../../implementing-editors/editor-source.md).

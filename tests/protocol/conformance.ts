@@ -71,6 +71,7 @@ try {
     const place = (name: string) => hostTree(owner, snapshot, { parent: { tree: profile, name, kind: "person" } });
     const tree = await place("protocol");
     const sourceTree = await place("source-admissions");
+    const branchTree = await place("publication-branches");
     const crossDocumentTree = await place("cross-document");
     const reviewTrees: Record<string, string> = {};
     for (const mode of ["keep-current", "choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"]) {
@@ -152,7 +153,7 @@ try {
     await run(["swift", "test", "--package-path", "swift/Packages/CanopyWorkingTree"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: session, ARBOR_SOURCE_TEST_TREE: sourceTree,
-      ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),
+      ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees), ARBOR_BRANCH_TEST_TREE: branchTree,
     });
     await run(["swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,

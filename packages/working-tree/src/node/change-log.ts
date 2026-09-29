@@ -74,7 +74,7 @@ export class ChangeLog {
   /** Remove settled records unless a pending authored descendant still needs
    * them. The newest record per open document and its ancestry stay while the
    * tail is preserved; nothing else survives acceptance. */
-  async compact(settled: ReadonlySet<string>, preservingSettledTail = true): Promise<boolean> {
+  async compact(settled: ReadonlySet<string>, preservingSettledTail = true, publications: readonly string[][] = []): Promise<boolean> {
     const previous = writers.get(this.path) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
       await this.load();
@@ -90,6 +90,9 @@ export class ChangeLog {
       let changed = true;
       while (changed) {
         changed = false;
+        for (const group of publications) if (group.some(change => required.has(change))) for (const change of group) {
+          if (!required.has(change)) { required.add(change); changed = true; }
+        }
         for (const record of records) if (required.has(record.change) && record.basis.kind === "authored" && !required.has(record.basis.change)) {
           required.add(record.basis.change); changed = true;
         }

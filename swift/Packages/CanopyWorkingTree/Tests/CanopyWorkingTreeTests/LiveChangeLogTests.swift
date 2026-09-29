@@ -8,6 +8,62 @@ import Testing
 /// It deliberately uses the production transport and coordinator, not a receipt stub.
 @Suite("Live source admission", .serialized)
 struct LiveChangeLogTests {
+
+    @Test("Late document branches inside an accepted move batch settle across restart and lost acknowledgement")
+    func frozenBatchBranches() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_BRANCH_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "frozen-branch-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ProtocolClient(origin: origin, credential: token), transport = ProtocolReplicaTransport(client: ProtocolClient(origin: origin, credential: token))
+        let descriptor = try await client.descriptor(tree: treeID)
+        let graph = try PublicationTests.branchFixture(tree: treeID)[0].graph
+        let seed = try await client.prepareUpdates(tree: treeID, base: .init(root: descriptor.tree.root, update: descriptor.tree.update),
+            updates: [.init(candidate: graph.root, change: UUID().uuidString, trace: nil, objects: graph.objects)])
+        _ = try await client.submitUpdateResponse(seed)
+        let tree = try await place(try await client.descriptor(tree: treeID), client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+        let tid = TreeID(rawValue: treeID)
+        _ = try await provider.perform(.move(reference: .init(tree: tid, path: "/a"), destination: .init(tree: tid, path: "/b")))
+        let parent = try await provider.openDocument(.init(tree: tid, path: "/b"))
+        let moved = try await provider.openDocument(.init(tree: tid, path: "/b/a"))
+        let other = try await provider.openDocument(.init(tree: tid, path: "/c"))
+        let parentBasis = try await parent.snapshot(), movedBasis = try await moved.snapshot(), otherBasis = try await other.snapshot()
+        func edit(_ basis: WorkspaceDocumentSnapshot, _ source: String) throws -> WorkspaceDocumentIntent {
+            try .init(basis: basis, patch: .init(baseContentRevision: basis.contentRevision, edits: [.init(utf8Range: 0..<basis.source.utf8.count, replacement: source)]), source: source)
+        }
+        _ = try await other.admit(intent: edit(otherBasis, "Other continued"))
+        _ = try await coordinator.syncOnce()
+        #expect(try await coordinator.presentation().state == .current)
+        // These editors still name the intermediate move, before the other edit.
+        _ = try await parent.admit(intent: edit(parentBasis, "Parent continued"))
+        _ = try await moved.admit(intent: edit(movedBasis, "Moved continued"))
+        let retained = try await ChangeLog(tree: treeID, stateRoot: root).retained()
+        #expect(retained.count == 4)
+        #expect(retained[2].basis == .authored(change: retained[0].change))
+        #expect(retained[3].basis == .authored(change: retained[0].change))
+        await parent.close(); await moved.close(); await other.close(); await coordinator.close(); await tree.close()
+        let recoveredTree = try await place(try await client.descriptor(tree: treeID), client: client)
+        let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root, faultInjector: StructuralPublicationCrash(),
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        _ = try await interrupted.syncOnce()
+        #expect(await interrupted.syncState.kind != "current")
+        await interrupted.close()
+        let recovered = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        _ = try await recovered.syncOnce()
+        let recoveredPresentation = try await recovered.presentation()
+        #expect(recoveredPresentation.state == .current, Comment(rawValue: String(describing: recoveredPresentation)))
+        let final = try await client.descriptor(tree: treeID)
+        #expect(!final.tree.conflicted)
+        let reader = WorkingTreeProvider(workingTree: recoveredTree, coordinator: recovered)
+        #expect(try await reader.openDocument(.init(tree: tid, path: "/b")).snapshot().source == "Parent continued")
+        #expect(try await reader.openDocument(.init(tree: tid, path: "/b/a")).snapshot().source == "Moved continued")
+        #expect(try await reader.openDocument(.init(tree: tid, path: "/c")).snapshot().source == "Other continued")
+        await recovered.close(); await recoveredTree.close()
+    }
+
     private func intent(_ source: String, from basis: WorkspaceDocumentSnapshot) throws -> WorkspaceDocumentIntent {
         // Preserve the existing final newline: this is a range edit, not the
         // whole-file replacement already covered by the earlier server slice.
@@ -253,7 +309,7 @@ extension LiveChangeLogTests {
         #expect(records[3].basis == .authored(change: records[0].change))
         await old.close(); await added.close(); await coordinator.close(); await tree.close()
 
-        let recoveredTree = try await place(client.descriptor(tree: treeID), client: client)
+        let recoveredTree = try await place(try await client.descriptor(tree: treeID), client: client)
         let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root , faultInjector: StructuralPublicationCrash(),
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let waiting = WorkingTreeProvider(workingTree: recoveredTree, coordinator: interrupted)

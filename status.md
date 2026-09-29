@@ -12,6 +12,28 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Branches inside composed publications — 2026-09-29
+
+Swift and TypeScript now end batching at known local branch points. For a late
+branch from inside an already published batch, the client can transport source
+operations across a suffix that reads and writes disjoint existing files. The
+original journal stays unchanged. New deterministic continuation identities and
+operation-result mappings survive exact retry and restart; compaction retains
+all members of a still-needed batch. Reconciliation uses the published candidate,
+so the runner loads the accepted graph when that differs from the original local
+candidate. This requires no canopyd or wire-format change.
+
+The live regression moves a page into another Markdown page, publishes that move
+with an independent edit, then admits two editors captured at the intermediate
+move. Both branches settle without a conflict after restart and a lost
+acknowledgement. Focused tests also cover known branch boundaries, refusal of
+overlapping material, deterministic recompilation, batch retention and exact
+retry. The protocol run passes 124 working-tree tests and 7 live editor tests.
+A read-only check of the stuck local journal confirms all three pending edits
+fit the disjoint-source case. No installed app, live journal or public host was
+changed. Broader interior-basis support remains in
+[Clients 002](plans/merge/002-identity-preserving-coalescing.md#interior-bases-that-need-further-support).
+
 ## Unchanged-content resolutions publish — 2026-09-29
 
 A live retained request showed that “Keep current contents” was marked settled
