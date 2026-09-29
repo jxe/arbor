@@ -165,8 +165,11 @@ public actor UpdateCoordinator {
             guard let tip = try await changeLog().nextPublication(accepted: Set(control.settled)) else { return }
             if machine.phase.tip?.change == tip.change { return }
             if machine.phase.tip == nil, machine.phase.request?.tip == tip.change { return }
-            let hasIntent = try await changeLog().retained().contains { !control.settled.contains($0.change) && $0.update.trace != nil }
-            dispatch(.localChange(change: tip.change, root: tip.candidate.root, settleIfUnchanged: !hasIntent))
+            let requiresAcceptance = try await changeLog().retained().contains {
+                !control.settled.contains($0.change) &&
+                ($0.update.trace != nil || !$0.update.resolves.isEmpty || $0.update.ifCurrent != nil)
+            }
+            dispatch(.localChange(change: tip.change, root: tip.candidate.root, settleIfUnchanged: !requiresAcceptance))
         } catch {
             Self.syncLog.error("change log unreadable: \(String(describing: error), privacy: .public)")
             failure = String(describing: error)

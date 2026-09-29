@@ -20,6 +20,7 @@ final class CanopyConflictReviewModel {
     private(set) var preview: ConflictReviewPreview?
     private(set) var previewing = false
     private(set) var contents: [String: Data] = [:]
+    private(set) var directoryDifferences: [String: [ConflictReviewEntryDifference]] = [:]
     private(set) var directories: [String: [ProtocolDirectoryEntry]] = [:]
     private(set) var refreshing = false
     /// True only until the first inspection arrives.
@@ -155,10 +156,10 @@ final class CanopyConflictReviewModel {
         guard let decision = next.decisions.first(where: { $0.id == id }) else { return }
         selectionGeneration += 1
         let generation = selectionGeneration
-        let loaded = await fetchContents(of: decision)
+        let loaded = await fetchContents(of: decision, snapshot: next.snapshot)
         guard generation == selectionGeneration else { return }
         selectedID = id; draft = next; completedID = nil; preview = nil
-        contents = loaded.contents; directories = loaded.directories; message = loaded.message
+        contents = loaded.contents; directories = loaded.directories; directoryDifferences = loaded.differences; message = loaded.message
         if expand { expanded = true }
     }
 
@@ -166,17 +167,18 @@ final class CanopyConflictReviewModel {
         selectionGeneration += 1
         let generation = selectionGeneration
         guard let decision = selectedDecision else { return }
-        let loaded = await fetchContents(of: decision)
+        let loaded = await fetchContents(of: decision, snapshot: draft?.snapshot)
         guard generation == selectionGeneration else { return }
-        contents = loaded.contents; directories = loaded.directories
+        contents = loaded.contents; directories = loaded.directories; directoryDifferences = loaded.differences
         if let message = loaded.message { self.message = message }
     }
 
-    private func fetchContents(of decision: ConflictReviewDecision) async
-        -> (contents: [String: Data], directories: [String: [ProtocolDirectoryEntry]], message: String?) {
+    private func fetchContents(of decision: ConflictReviewDecision, snapshot: ConflictReviewSnapshot?) async
+        -> (contents: [String: Data], directories: [String: [ProtocolDirectoryEntry]], differences: [String: [ConflictReviewEntryDifference]], message: String?) {
         var contents: [String: Data] = [:]
         var directories: [String: [ProtocolDirectoryEntry]] = [:]
         var message: String?
+        var differences: [String: [ConflictReviewEntryDifference]] = [:]
         for alternative in decision.alternatives {
             do {
                 if let bytes = try await coordinator.reviewContent(alternative) {
@@ -184,12 +186,23 @@ final class CanopyConflictReviewModel {
                 }
                 if alternative.value.directory != nil {
                     directories[alternative.id] = try await coordinator.reviewDirectory(alternative)
+                    if let other = decision.alternatives.first(where: { $0.id != alternative.id && $0.value.directory != nil }) {
+                        differences[alternative.id] = try await coordinator.reviewDirectoryDifferences(alternative, comparedTo: other)
+                    }
                 }
             } catch {
                 message = "Some alternatives could not be loaded: \(error.localizedDescription)"
             }
         }
-        return (contents, directories, message)
+        if decision.kind == "directory", decision.path == "/", let snapshot {
+            do {
+                let current = ConflictReviewAlternative.currentDirectory(snapshot.root)
+                for alternative in decision.alternatives where alternative.value.directory != nil {
+                    differences["current:" + alternative.id] = try await coordinator.reviewDirectoryDifferences(current, comparedTo: alternative)
+                }
+            } catch { message = "Current contents could not be compared: \(error.localizedDescription)" }
+        }
+        return (contents, directories, differences, message)
     }
 
     /// The decision whose inline card is open beside its paragraph.
@@ -213,6 +226,13 @@ final class CanopyConflictReviewModel {
                 try value.choose(member.id, alternative: member.selected)
             }
         } catch { message = error.localizedDescription; return }
+        draft = value; save(value)
+        await previewAndApply()
+    }
+
+    func keepCurrent() async {
+        guard var value = draft, value.supportsKeepingCurrent else { return }
+        value.keepCurrent = true
         draft = value; save(value)
         await previewAndApply()
     }
@@ -331,8 +351,17 @@ final class CanopyConflictReviewModel {
         do {
             try await coordinator.applyReviewDraft(value)
             pending = try await coordinator.reviewSubmissionPending()
-            if !pending { completedID = value.id }
-            message = pending ? "Waiting to apply. Your draft is retained." : "Choice resolved."
+            if pending {
+                message = "Waiting to apply. Your draft is retained."
+            } else {
+                let remaining = try await coordinator.inspectChoices()
+                if remaining.decisions.contains(where: { choice in value.decisions.contains { $0.id == choice.id } }) {
+                    message = "The choice is still unresolved. Your draft is retained."
+                } else {
+                    completedID = value.id
+                    message = "Choice resolved."
+                }
+            }
         } catch { message = error.localizedDescription }
         await refresh()
     }
@@ -532,7 +561,7 @@ struct CanopyChoiceVersionCards: View {
     let busy: Bool
 
     private func label(_ alternative: ConflictReviewAlternative, _ index: Int) -> String {
-        if alternative.id == decision.selected { return "Showing now" }
+        if alternative.id == decision.selected { return "Selected conflict version" }
         return decision.alternatives.count == 2 ? "Other version" : "Version \(index + 1)"
     }
 
@@ -540,9 +569,33 @@ struct CanopyChoiceVersionCards: View {
         let contents = decision.alternatives.map { review.content(of: $0, in: decision) }
         let texts = contents.map { content -> String? in if case let .text(text) = content { text } else { nil } }
         let listings = contents.map { content -> [ProtocolDirectoryEntry]? in if case let .directory(entries) = content { entries } else { nil } }
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 10) { cards(contents, texts, listings) }
-            VStack(alignment: .leading, spacing: 10) { cards(contents, texts, listings) }
+        VStack(alignment: .leading, spacing: 8) {
+            if listings.contains(where: { $0 != nil }) {
+                Text("These are the versions captured by the conflict. Later edits may differ from both.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if review.draft?.supportsKeepingCurrent == true,
+               decision.alternatives.allSatisfy({ review.directoryDifferences["current:" + $0.id] != nil }) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Current contents").font(.headline)
+                    Text("Later edits may have already reconciled this choice. Keeping the current contents clears it without replacing any pages.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    let paths = Set(decision.alternatives.flatMap { review.directoryDifferences[$0.id]?.map(\.path) ?? [] }).sorted()
+                    ForEach(paths, id: \.self) { path in
+                        let matches = decision.alternatives.enumerated().filter { _, alternative in
+                            !(review.directoryDifferences["current:" + alternative.id] ?? []).contains { $0.path == path }
+                        }.map { label($0.element, $0.offset).lowercased() }
+                        Text("\(path) · \(matches.isEmpty ? "edited further" : "matches " + matches.joined(separator: ", "))")
+                            .font(.callout)
+                    }
+                    Button("Keep current contents") { Task { await review.keepCurrent() } }.disabled(busy)
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 10) { cards(contents, texts, listings) }
+                VStack(alignment: .leading, spacing: 10) { cards(contents, texts, listings) }
+            }
         }
     }
 
@@ -553,6 +606,7 @@ struct CanopyChoiceVersionCards: View {
                 title: label(alternative, index), content: contents[index],
                 baseline: texts.enumerated().first { $0.offset != index && $0.element != nil }?.element ?? nil,
                 baselineEntries: listings.enumerated().first { $0.offset != index && $0.element != nil }?.element ?? nil,
+                directoryDifferences: review.directoryDifferences[alternative.id],
                 keepTitle: {
                     if case .removed = contents[index] { return decision.sourceRange != nil ? "Keep removed" : "Keep deleted" }
                     return "Keep this"
@@ -568,6 +622,7 @@ struct CanopyChoiceVersionCard: View {
     let content: CanopyConflictReviewModel.Content
     let baseline: String?
     var baselineEntries: [ProtocolDirectoryEntry]? = nil
+    var directoryDifferences: [ConflictReviewEntryDifference]? = nil
     let keepTitle: String
     let busy: Bool
     let keep: () -> Void
@@ -606,7 +661,23 @@ struct CanopyChoiceVersionCard: View {
             // version; show what this version has differently.
             let differences = Self.differences(entries, from: baselineEntries)
             VStack(alignment: .leading, spacing: 4) {
-                if baselineEntries != nil, differences.isEmpty {
+                if let directoryDifferences, !directoryDifferences.isEmpty {
+                    ForEach(directoryDifferences) { difference in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(difference.path, systemImage: difference.entry?.directory != nil ? "folder" : "doc")
+                                .font(.subheadline.weight(.semibold))
+                            if difference.entry == nil {
+                                Text("Deleted in this version").foregroundStyle(.secondary)
+                            } else if let bytes = difference.content, let text = String(data: bytes, encoding: .utf8) {
+                                directoryText(text, baseline: difference.otherContent.flatMap { String(data: $0, encoding: .utf8) })
+                            } else {
+                                Text(difference.other == nil ? "Only in this version" : "Contents differ")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } else if baselineEntries != nil, differences.isEmpty {
                     Text("Same entries as the other version").font(.caption).foregroundStyle(.secondary)
                 } else if baselineEntries != nil {
                     ForEach(differences.prefix(12), id: \.name) { difference in
@@ -629,6 +700,41 @@ struct CanopyChoiceVersionCard: View {
         case let .unavailable(summary):
             placeholder(summary)
         }
+    }
+
+    @ViewBuilder private func directoryText(_ source: String, baseline: String?) -> some View {
+        let comparison = CanopySourceLineComparison(displayed: source, baseline: baseline)
+        let changed = comparison.changedLines
+        // Show changed lines and nearby context, with the complete source one
+        // disclosure away. A deletion must be visible even with no added lines.
+        let lines = comparison.lines
+        let visible = Set(changed.flatMap { max(0, $0 - 2)...min(lines.count - 1, $0 + 2) })
+        if changed.isEmpty, comparison.status == "Changes appear in the other version" {
+            Text("Text removed in this version; compare the highlighted text opposite.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if comparison.status == "Highlighting unavailable for this large comparison" {
+            Text(comparison.status).font(.caption).foregroundStyle(.secondary)
+        }
+        if !visible.isEmpty {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(visible.sorted().enumerated()), id: \.element) { offset, index in
+                        if offset > 0, index > visible.sorted()[offset - 1] + 1 {
+                            Text("…").foregroundStyle(.secondary)
+                        }
+                        Text(lines[index].isEmpty ? " " : lines[index])
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(changed.contains(index) ? Color.orange.opacity(0.18) : .clear)
+                    }
+                }
+            }.frame(maxHeight: 220)
+        }
+        DisclosureGroup("Full page") {
+            ScrollView { Text(source).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                .frame(maxHeight: 260)
+        }.font(.caption)
     }
 
     struct Difference { let name: String; let state: String; let symbol: String }

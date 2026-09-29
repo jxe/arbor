@@ -8,6 +8,10 @@ enum ConflictReviewCompiler {
         guard base.root == draft.snapshot.root else { throw ConflictReviewError.changed }
         _ = try ProtocolObjectGraph.validate(base)
         guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
+        if draft.keepCurrent == true {
+            guard draft.supportsKeepingCurrent else { throw ConflictReviewError.unsupported }
+            return .init(fingerprint: try draft.fingerprint(), changes: [], candidate: base, operations: nil)
+        }
         var objects = Dictionary(uniqueKeysWithValues: base.objects.map { ($0.hash, $0.bytes) })
         for (hash, bytes) in material {
             guard ProtocolObjectCodec.hash(bytes) == hash else { throw ConflictReviewError.unavailable }

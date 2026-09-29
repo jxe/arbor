@@ -47,6 +47,9 @@ public struct ConflictReviewAlternative: Codable, Equatable, Identifiable, Senda
     public let revision: String
     public let value: Value
     public let placement: Placement?
+    public static func currentDirectory(_ root: String) -> Self {
+        .init(id: "current", revision: root, value: .init(text: nil, file: nil, directory: root, tree: nil, absent: nil), placement: nil)
+    }
     public var summary: String {
         if value.absent == true { return "Deleted" }
         if value.directory != nil { return "Directory version" }
@@ -143,6 +146,13 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
     public var source: String?
     /// Optional for journals created by the first whole-file implementation.
     public var selections: [String: ConflictReviewSelection]?
+    /// Explicitly resolve an independent whole-tree choice with the pinned current contents.
+    public var keepCurrent: Bool?
+    public var supportsKeepingCurrent: Bool {
+        decisions.count == 1 && decision.kind == "directory" && decision.path == "/" &&
+        decision.dependencies.isEmpty && decision.actions.contains("resolveConflict") &&
+        decision.affected.allSatisfy { $0.range == nil }
+    }
     public var destination: String?
     public var remove: Bool?
     public var decisions: [ConflictReviewDecision] {
@@ -163,6 +173,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         selection.alternative = alternative; set(selection, for: id)
     }
     public mutating func set(_ selection: ConflictReviewSelection, for id: String) {
+        keepCurrent = nil
         if id == self.id { alternative = selection.alternative; source = selection.source; destination = selection.destination; remove = selection.remove }
         else { if selections == nil { selections = [:] }; selections?[id] = selection }
     }
@@ -197,7 +208,10 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
               Set(current.group(containing: id).map(\.id)) == Set(decisions.map(\.id)),
               decisions.allSatisfy({ decision in current.decisions.first(where: { $0.id == decision.id }) == decision })
         else { return nil }
+        // Current contents are displayed evidence for a whole-tree review.
+        if supportsKeepingCurrent && current.root != snapshot.root { return nil }
         var next = ConflictReviewDraft(snapshot: current, decision: decision, alternative: alternative, source: source)
+        next.keepCurrent = keepCurrent
         next.selections = selections; next.destination = destination; next.remove = remove
         return next
     }
@@ -290,4 +304,15 @@ extension UpdateControlFiles {
 
 private extension String {
     var nonemptyRoot: String { isEmpty ? "/" : self }
+}
+
+/// One changed path inside a directory choice. Markdown bytes are loaded from
+/// both alternatives so the review can show the actual consequence of choosing.
+public struct ConflictReviewEntryDifference: Sendable, Identifiable {
+    public var id: String { path }
+    public let path: String
+    public let entry: ProtocolDirectoryEntry?
+    public let other: ProtocolDirectoryEntry?
+    public let content: Data?
+    public let otherContent: Data?
 }

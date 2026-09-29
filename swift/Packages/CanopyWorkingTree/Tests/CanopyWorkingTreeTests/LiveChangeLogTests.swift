@@ -344,7 +344,7 @@ extension LiveChangeLogTests {
 }
 
 extension LiveChangeLogTests {
-    @Test("Native review reads hidden material, resolves exact content and recovers a lost response", arguments: ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"])
+    @Test("Native review reads hidden material, resolves exact content and recovers a lost response", arguments: ["keep-current", "choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"])
     func nativeReviewThroughHost(mode: String) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
@@ -389,6 +389,28 @@ extension LiveChangeLogTests {
         }
         #expect(sourceBytes.contains(Data(hiddenFragment.utf8)))
         #expect(sourceBytes.contains(Data(peerFragment.utf8)))
+        if mode == "keep-current" {
+            // Exercise the same unchanged-root, snapshot resolution emitted by
+            // Keep current contents. It must reach the host despite equal bytes.
+            let accepted = try await tree.captureAcceptedGraph()
+            let change = UUID().uuidString
+            let update = ProtocolCandidateUpdate(candidate: accepted.graph.root, change: change, trace: nil,
+                resolves: [.init(state: inspection.state, conflict: decision.id, alternatives: decision.alternatives.map(\.id))],
+                ifCurrent: inspection.state, objects: [])
+            let record = try LocalChange(change: change, tree: treeID, basis: .accepted(accepted.base),
+                graph: accepted.graph, candidate: accepted.graph, update: update, sourcePath: nil,
+                document: nil, entryTransfer: nil, entryActions: nil, creation: nil, localTrash: nil)
+            try await ChangeLog(tree: treeID, stateRoot: root).retain(record)
+            await coordinator.publishTip()
+            _ = try await coordinator.syncOnce()
+            let resolved = try await client.descriptor(tree: treeID)
+            #expect(resolved.tree.update != inspection.state)
+            #expect(resolved.tree.root == inspection.root)
+            #expect(!resolved.tree.conflicted)
+            #expect(try await coordinator.inspectChoices().decisions.isEmpty)
+            await session.close(); await coordinator.close(); await tree.close()
+            return
+        }
         if mode.hasPrefix("group-") {
             // Deleting an ancestor of an unresolved leaf produces a coupled root choice.
             let projected = try await client.snapshot(tree: treeID, root: inspection.root)

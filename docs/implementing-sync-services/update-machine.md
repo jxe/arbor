@@ -52,7 +52,7 @@ Each effect, and what the runners do for it:
 | `submit(request)` | Send the persisted body in its persisted encoding; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
 | `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark all local changes covered by the request's publications settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
 | `catchUp(cursor)` | Replay the watch batch that cursor names when it chains from the installed state, otherwise install the host's current state; dispatch `applied(installed:)`. |
-| `settle(tip)` | Mark the chain through `tip` settled without a request. |
+| `settle(tip)` | Mark an unchanged snapshot chain through `tip` settled without a request, only when it carries no trace, resolution declaration or accepted-state guard. |
 | `stop(reason)` | Record the terminal diagnostic and cancel timers. |
 
 Public operations are events: `syncOnce` dispatches `syncRequested` and waits
@@ -194,6 +194,9 @@ or explicit discard covers every original record represented by the publication.
 Prepared or ambiguously transmitted prefixes are immutable, including across
 restart. Mapping retention follows the retained local chain. A semantic change
 with unchanged final bytes still publishes: equal roots do not prove equal identity.
+This includes snapshot resolutions (`trace: null` with `resolves`) and `ifCurrent`
+guards. Both clients must send them to canopyd; local byte equality cannot
+acknowledge a resolution or evaluate an authority guard.
 
 Shared `coalesced-publication.json` fixtures check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.

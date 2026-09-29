@@ -198,8 +198,9 @@ export class UpdateCoordinator {
       const retained = await this.log.retained();
       const record = retained.find(record => record.change === tip);
       if (!record) return;
-      this.dispatch({ type: "localChange", change: tip, root: record.candidate.root,
-        settleIfUnchanged: !retained.some(item => !this.control.settled.includes(item.change) && item.update.trace !== null) });
+      const requiresAcceptance = retained.some(item => !this.control.settled.includes(item.change) &&
+        (item.update.trace !== null || item.update.resolves.length > 0 || item.update.ifCurrent !== undefined));
+      this.dispatch({ type: "localChange", change: tip, root: record.candidate.root, settleIfUnchanged: !requiresAcceptance });
     } catch (error) {
       this.failure = String(error);
     }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON } from "@overstory/protocol";
+  type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@overstory/protocol";
 import { UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
@@ -208,4 +208,32 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
     coordinator.close();
     await rm(stateRoot, { recursive: true, force: true });
   }
+});
+
+
+test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s preserves its publication semantics", async kind => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-unchanged-resolution-"));
+  const initial = snapshot("Already reconciled\r\n"), host = new VectorHost(initial, []);
+  const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial" }, snapshot: initial });
+  const log = new ChangeLog(TREE, stateRoot);
+  const coordinator = new UpdateCoordinator(TREE, log, new FileControlStore(stateRoot), host, working,
+    { publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000 });
+  try {
+    const graph = encodeTreeSnapshotJSON(initial);
+    const resolves = kind === "resolution" ? [{ state: "up_initial", conflict: "choice", alternatives: ["left", "right"] }] : [];
+    await log.retain({ change: "keep-current", tree: TREE, basis: { kind: "accepted", root: initial.root, update: "up_initial" },
+      graph, candidate: graph, sourcePath: null, document: null,
+      update: encodeCandidateUpdateJSON({ change: "keep-current", candidate: initial.root, trace: null, resolves,
+        ...(kind === "guard" ? { ifCurrent: "up_initial" } : {}), objects: [], deltas: [] }) });
+    await coordinator.noteLocalChange();
+    await coordinator.syncOnce();
+    expect(host.requests).toHaveLength(kind === "ordinary" ? 0 : 1);
+    expect(working.base?.root).toBe(initial.root);
+    expect(working.base?.update).toBe(kind === "ordinary" ? "up_initial" : "up_1");
+    if (kind !== "ordinary") {
+      expect(host.requests[0]!.updates[0]!.resolves).toEqual(resolves);
+      expect(host.requests[0]!.updates[0]!.ifCurrent).toBe(kind === "guard" ? "up_initial" : undefined);
+    }
+    expect(await coordinator.pendingChanges()).toHaveLength(0);
+  } finally { coordinator.close(); await rm(stateRoot, { recursive: true, force: true }); }
 });

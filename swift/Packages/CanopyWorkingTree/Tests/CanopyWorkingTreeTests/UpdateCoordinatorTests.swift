@@ -1661,6 +1661,12 @@ private actor SourceModeTransport: UpdateTransport {
         ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
             canonical: nil, update: currentID, conflicted: !receipts.isEmpty), observedThrough: "cursor_\(currentID)")
     }
+    func object(tree: String, hash: String) throws -> Data {
+        guard let object = snapshots.values.lazy.flatMap(\.objects).first(where: { $0.hash == hash }) else {
+            throw UpdateError.returnedSnapshotMissing
+        }
+        return object.bytes
+    }
     func advanceIdentity() { currentID = "up_later" }
     func snapshot(tree: String, root: String) throws -> ProtocolSnapshot {
         guard let value = snapshots[root] else { throw UpdateError.returnedSnapshotMissing }
@@ -2143,6 +2149,36 @@ extension SourceSessionPublicationTests {
             #expect(try await recovered.openDocument(result.reference).snapshot().source.contains("# Pair") == true)
             #expect(try await recovered.openDocument(parent.reference).snapshot().source == before.source)
             await reopened.close(); await reopenedTree.close()
+        }
+    }
+}
+
+
+extension SourceSessionPublicationTests {
+    @Test("Directory conflict review loads exact changed Markdown from both versions")
+    func directoryChoiceContents() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try directoryBodySnapshot(stem: "pair", siblingSource: "Unchanged sibling\n", indexSource: "Stays\r\n\r\nMoved é\r\n")
+            let other = try directoryBodySnapshot(stem: "pair", siblingSource: "Unchanged sibling\n", indexSource: "Stays\r\n")
+            let tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: other)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root)
+            func alternative(_ id: String, _ hash: String) throws -> ConflictReviewAlternative {
+                try JSONDecoder().decode(ConflictReviewAlternative.self, from: JSONSerialization.data(withJSONObject: [
+                    "id": id, "revision": id, "value": ["directory": hash], "contributions": []
+                ]))
+            }
+            let a = try alternative("a", initial.root), b = try alternative("b", other.root)
+            let differences = try await coordinator.reviewDirectoryDifferences(a, comparedTo: b)
+            #expect(differences.count == 1)
+            let difference = try #require(differences.first)
+            #expect(difference.path == "pair/_index.md")
+            #expect(difference.content == Data("Stays\r\n\r\nMoved é\r\n".utf8))
+            #expect(difference.otherContent == Data("Stays\r\n".utf8))
+            let reversed = try await coordinator.reviewDirectoryDifferences(b, comparedTo: a)
+            #expect(reversed.first?.content == difference.otherContent)
+            #expect(reversed.first?.otherContent == difference.content)
+            await coordinator.close(); await tree.close()
         }
     }
 }

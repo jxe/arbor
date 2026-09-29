@@ -95,6 +95,54 @@ extension UpdateCoordinator {
         return entries
     }
 
+    /// Inspect changed descendants instead of presenting two indistinguishable
+    /// directory listings. Equal subtrees are skipped; linked trees stay opaque.
+    public func reviewDirectoryDifferences(_ alternative: ConflictReviewAlternative,
+                                           comparedTo other: ConflictReviewAlternative) async throws -> [ConflictReviewEntryDifference] {
+        guard let root = alternative.value.directory, let baseline = other.value.directory else { return [] }
+        let tree = await workingTree.treeID().rawValue
+        var cache: [String: Data] = [:]
+        func load(_ hash: String) async throws -> Data {
+            if let bytes = cache[hash] { return bytes }
+            let bytes = try await transport.object(tree: tree, hash: hash)
+            guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+            cache[hash] = bytes
+            return bytes
+        }
+        func entries(_ hash: String?) async throws -> [ProtocolDirectoryEntry] {
+            guard let hash else { return [] }
+            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(await load(hash), kind: .directory) else {
+                throw UpdateError.returnedSnapshotMismatch
+            }
+            return entries
+        }
+        var result: [ConflictReviewEntryDifference] = []
+        func compare(_ ours: String?, _ theirs: String?, path: String) async throws {
+            guard ours != theirs else { return }
+            let a = try await entries(ours), b = try await entries(theirs)
+            let left = Dictionary(uniqueKeysWithValues: a.map { ($0.name, $0) })
+            let right = Dictionary(uniqueKeysWithValues: b.map { ($0.name, $0) })
+            for name in Set(left.keys).union(right.keys).sorted() {
+                let entry = left[name], other = right[name]
+                guard entry != other else { continue }
+                let child = path.isEmpty ? name : path + "/" + name
+                if (entry == nil || entry?.directory != nil), (other == nil || other?.directory != nil) {
+                    try await compare(entry?.directory, other?.directory, path: child)
+                    // Empty folders still need a visible addition/removal.
+                    if entry?.directory == nil || other?.directory == nil {
+                        result.append(.init(path: child, entry: entry, other: other, content: nil, otherContent: nil))
+                    }
+                } else {
+                    let content: Data? = if name.hasSuffix(".md"), let hash = entry?.file { try await load(hash) } else { nil }
+                    let otherContent: Data? = if name.hasSuffix(".md"), let hash = other?.file { try await load(hash) } else { nil }
+                    result.append(.init(path: child, entry: entry, other: other, content: content, otherContent: otherContent))
+                }
+            }
+        }
+        try await compare(root, baseline, path: "")
+        return result
+    }
+
     /// Append one explicit guarded resolution as a local change. Editor changes
     /// continue against their captured bases; review never installs its draft
     /// as the live document or invents a merge over pending editor work.
@@ -119,6 +167,7 @@ extension UpdateCoordinator {
         let update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
             trace: chosen.isEmpty ? nil : [ProtocolTraceFrame(before: fresh.root, after: candidate.root, operations: chosen)],
             resolves: draft.decisions.map { .init(state: draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id)) },
+            ifCurrent: draft.keepCurrent == true ? draft.snapshot.state : nil,
             objects: candidate.objects.filter { !basis.contains($0.hash) })
         let record = try LocalChange(change: change, tree: fresh.tree, basis: .accepted(accepted.base), graph: accepted.graph,
             candidate: candidate, update: update, sourcePath: nil, document: nil, entryTransfer: nil, entryActions: nil,

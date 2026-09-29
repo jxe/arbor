@@ -5,6 +5,38 @@ import Testing
 
 @Suite("Grouped review compilation")
 struct ConflictReviewCompilerTests {
+    @Test("Keeping current tree contents preserves later edits and remains pinned")
+    func keepCurrentTree() throws {
+        var f = Fixture()
+        let old = try f.file("Old contents\n"), later = try f.file("Already reconciled\r\n🪴\n")
+        let oldRoot = try f.directory([.init(name: "page.md", file: old)])
+        let root = try f.directory([.init(name: "page.md", file: later)])
+        let decision = try f.decision("root-choice", path: "/", values: [["directory": oldRoot], ["directory": try f.directory([])]], root: root)
+        var proposal = draft(root, [decision])
+        #expect(proposal.rebased(onto: .init(tree: proposal.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) == nil)
+        proposal.keepCurrent = true
+        let retained = try JSONDecoder().decode(ConflictReviewDraft.self, from: JSONEncoder().encode(proposal))
+        let preview = try ConflictReviewCompiler.compile(retained, base: f.snapshot(root), material: [:])
+        #expect(preview.candidate.root == root)
+        #expect(preview.changes.isEmpty)
+        #expect(preview.operations == nil)
+        #expect(retained.rebased(onto: .init(tree: retained.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) == nil)
+        proposal.set(.init(alternative: decision.selected), for: decision.id)
+        #expect(proposal.keepCurrent == nil)
+    }
+
+    @Test("Keeping current contents refuses a coupled group")
+    func keepCurrentCoupled() throws {
+        var f = Fixture()
+        let root = try f.directory([])
+        let a = try f.decision("a", path: "/", values: [["directory": root]], dependencies: ["b"], root: root)
+        let b = try f.decision("b", path: "/", values: [["directory": root]], root: root)
+        var proposal = draft(root, [a, b])
+        try proposal.choose("b", alternative: b.selected)
+        proposal.keepCurrent = true
+        #expect(throws: ConflictReviewError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:]) }
+    }
+
     struct Fixture {
         var objects: [String: Data] = [:]
         mutating func file(_ source: String) throws -> String { try store(.file(Data(source.utf8))) }

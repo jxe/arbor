@@ -73,7 +73,7 @@ try {
     const sourceTree = await place("source-admissions");
     const crossDocumentTree = await place("cross-document");
     const reviewTrees: Record<string, string> = {};
-    for (const mode of ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"]) {
+    for (const mode of ["keep-current", "choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"]) {
       reviewTrees[mode] = await place(`review-${mode}`);
     }
 
