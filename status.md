@@ -23,7 +23,18 @@ UI validation. Cached/uncached equivalence tests cover repeated text, Unicode,
 CRLF/frontmatter, headings, lists, code, raw Markdown, blank lines and subsequent
 edits. The full editor package suite passes, as do link and whitespace checks.
 The app-hosted affected gate could not launch while the debug Canopy app was
-running. This change remains uninstalled. See [editor capture costs](docs/implementing-editors/editor-source.md#repeated-movement-on-the-main-thread).
+running. Joe subsequently reported much better Option-arrow responsiveness after
+testing the local build. See [editor capture costs](docs/implementing-editors/editor-source.md#repeated-movement-on-the-main-thread).
+
+The follow-up preserves the last validated parse cache across ordinary edits and
+uses it for incoming accepted replacements, transformed acknowledgements and
+structured source replacements. Fresh parses replace the cache rather than
+accumulating historical entries. Cold/cached debug comparisons over 500 paragraphs
+measure 60.0/11.0 ms for a move after editing and 53.4/7.9 ms for replacement parsing
+(excluding reconciliation/rendering). Tests compare cold and cached trees, byte
+sources and ledger ranges across boundary/nesting changes, and exercise an actual
+binding through typing and acceptance while preserving the unchanged block ID.
+These follow-ups have not been installed by this task.
 
 ## Idle publication and coalescing — 2026-09-29
 

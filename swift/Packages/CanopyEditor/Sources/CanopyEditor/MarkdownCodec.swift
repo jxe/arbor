@@ -28,6 +28,8 @@ struct CanopySourceLedger: Sendable {
     var newline: String
     var records: [BlockID: SourceRecord]
     /// Context-free leaf parses, keyed by exact bytes; nesting is always rebuilt.
+    /// Ordinary captures carry this last validated set without adding entries.
+    /// Opening or validating a replacement refreshes it to that source's leaves.
     var parsedKinds: [Data: BlockKind] = [:]
 }
 
@@ -137,7 +139,7 @@ public enum CanopyMarkdownCodec {
         open(source: source, revision: revision, identitySeed: identitySeed, reusing: [:])
     }
 
-    private static func open(source: String, revision: String, identitySeed: String,
+    static func open(source: String, revision: String, identitySeed: String,
                              reusing cachedKinds: [Data: BlockKind]) -> CanopyMarkdownOpenedDocument {
         var parsedKinds: [Data: BlockKind] = [:]
         let newline = source.contains("\r\n") ? "\r\n" : "\n"
@@ -392,7 +394,8 @@ public enum CanopyMarkdownCodec {
             revision: ledger.revision,
             envelope: ledger.envelope,
             newline: ledger.newline,
-            records: nextRecords
+            records: nextRecords,
+            parsedKinds: ledger.parsedKinds
         )
         return (CanopyMarkdownAdmission(source: source, patch: patch), next)
     }

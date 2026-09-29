@@ -246,7 +246,7 @@ public final class CanopyDocumentBinding {
         // The editor shows the replacement at once, so the keystroke guard sees
         // no uncommitted input and the acknowledgement confirms without reparsing.
         let opened = CanopyMarkdownCodec.open(source: replacement, revision: source.basis.contentRevision,
-                                             identitySeed: String(describing: reference.identity))
+                                             identitySeed: String(describing: reference.identity), reusing: ledger.parsedKinds)
         let rebased = CanopyMarkdownCodec.rebased(opened, preserving: document.children)
         _ = document.replaceChildrenReconciled(rebased.blocks)
         ledger = rebased.ledger
@@ -310,7 +310,8 @@ public final class CanopyDocumentBinding {
         let opened = CanopyMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
-            identitySeed: String(describing: snapshot.reference.identity)
+            identitySeed: String(describing: snapshot.reference.identity),
+            reusing: ledger.parsedKinds
         )
         let rebased = CanopyMarkdownCodec.rebased(opened, preserving: document.children)
         let replacement: [Block]
@@ -423,7 +424,8 @@ public final class CanopyDocumentBinding {
                 let opened = CanopyMarkdownCodec.open(
                     source: confirmed.source,
                     revision: confirmed.contentRevision,
-                    identitySeed: String(describing: confirmed.reference.identity)
+                    identitySeed: String(describing: confirmed.reference.identity),
+                    reusing: ledger.parsedKinds
                 )
                 let rebased = CanopyMarkdownCodec.rebased(opened, preserving: document.children)
                 ledger = rebased.ledger

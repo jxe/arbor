@@ -195,9 +195,14 @@ Source capture validates the rearranged Markdown before queuing its durable appe
 Its ledger caches context-free block parses by exact UTF-8 bytes. Each move still
 scans block boundaries, rebuilds indentation and heading nesting, checks the tree's
 shape, and verifies the patch against the exact source. Unchanged inline Markdown
-can reuse its parse; changed bytes must parse again. The cache contains only the
-leaf content in the last validated source, and is discarded when ordinary capture
-builds a new ledger. macOS continues to determine keyboard repeat timing.
+can reuse its parse; changed bytes must parse again. Ordinary captures carry the
+last validated cache without adding entries, so typing does not make the next move
+reparse every unchanged block. A fresh parse refreshes the cache to contain only
+the new source's leaves; it does not accumulate earlier document versions.
+Incoming accepted replacements, transformed acknowledgements and structured source
+replacements use the same cache before their existing BlockID reconciliation.
+Initial opens and Move to Document still start with a fresh parse. macOS continues
+to determine keyboard repeat timing.
 
 A local debug benchmark on 2026-09-29 moved one paragraph 20 times through pages
 of 50, 200 and 500 paragraphs containing bold text and links. Mean synchronous
@@ -205,3 +210,12 @@ transaction plus capture cost fell from 5.9/24.0/60.0 ms per move to
 1.2/4.4/11.2 ms. This excludes SwiftUI rendering and durable append work; it is
 not a measurement of installed-app key-to-screen latency. Reproduce with
 `CANOPY_MEASURE_MOVES=1 swift/scripts/test-canopy-editor-local.sh --filter measureMovePipeline`.
+
+The follow-up diagnostic (`CANOPY_MEASURE_MOVES=1
+swift/scripts/test-canopy-editor-local.sh --filter measureCacheReuse`) compares
+cold and cached parsing in one run over a 500-paragraph page. Mean capture cost
+for the first move after an edit was 60.0 ms cold and 11.0 ms cached; parsing a
+replacement with one added paragraph was 53.4 ms cold and 7.9 ms cached. Replacement
+timings exclude BlockID reconciliation, UI rendering and durability. Cache tests
+compare full trees, exact source, patches and ledger ranges with a fresh parse,
+including changed block boundaries, indentation, fences, frontmatter and Unicode.

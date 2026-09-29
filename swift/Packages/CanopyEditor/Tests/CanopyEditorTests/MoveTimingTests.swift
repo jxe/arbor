@@ -26,3 +26,30 @@ func measureMovePipeline() throws {
         print("MOVE TIMING blocks=\(size) total_ms=\(total*50) capture_ms=\(capture*50) transaction_ms=\((total-capture)*50)")
     }
 }
+
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["CANOPY_MEASURE_MOVES"] == "1"))
+func measureCacheReuse() throws {
+    let source = (0..<500).map { "Paragraph \($0) with **some text** and a [link](page).\n\n" }.joined()
+    let opened = CanopyMarkdownCodec.open(source: source, revision: "r", identitySeed: "reuse-timing")
+    for reuse in [false, true] {
+        var moveTime = 0.0, replacementTime = 0.0
+        for index in 0..<20 {
+            var blocks = opened.blocks
+            blocks[0].kind = .paragraph(text: AttributedString("Edit \(index)"))
+            var edited = CanopyMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger).1
+            if !reuse { edited.parsedKinds = [:] }
+            let moved = blocks[0].id
+            blocks.swapAt(0, 1)
+            var start = CFAbsoluteTimeGetCurrent()
+            let result = CanopyMarkdownCodec.admission(blocks: blocks, ledger: edited, moved: [moved])
+            moveTime += CFAbsoluteTimeGetCurrent() - start
+            #expect(result.0.patch.moves?.count == 1)
+            let replacement = source + "Incoming paragraph \(index)\n\n"
+            start = CFAbsoluteTimeGetCurrent()
+            let next = CanopyMarkdownCodec.open(source: replacement, revision: "next", identitySeed: "reuse-timing", reusing: reuse ? opened.ledger.parsedKinds : [:])
+            replacementTime += CFAbsoluteTimeGetCurrent() - start
+            #expect(next.blocks.count == 501)
+        }
+        print("CACHE TIMING reuse=\(reuse) move_after_edit_ms=\(moveTime*50) replacement_parse_ms=\(replacementTime*50)")
+    }
+}
