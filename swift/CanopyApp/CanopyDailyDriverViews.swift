@@ -131,6 +131,7 @@ struct CanopySidebarSurface: ViewModifier {
 /// Keeps native List selection and keyboard handling while drawing a quieter fill.
 struct CanopySidebarPageSelection: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     let selected: Bool
 
     func body(content: Content) -> some View {
@@ -138,6 +139,16 @@ struct CanopySidebarPageSelection: ViewModifier {
             .background {
                 Rectangle()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045))
+                    .overlay(alignment: .top) {
+                        Rectangle()
+                            .fill(Color.black.opacity(colorScheme == .dark ? 0.25 : 0.08))
+                            .frame(height: 1 / displayScale)
+                    }
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color.white.opacity(colorScheme == .dark ? 0.07 : 0.55))
+                            .frame(height: 1 / displayScale)
+                    }
                     // Extend through the native sidebar's 16-point content insets.
                     .padding(.horizontal, -16)
                     .padding(.top, -1)
