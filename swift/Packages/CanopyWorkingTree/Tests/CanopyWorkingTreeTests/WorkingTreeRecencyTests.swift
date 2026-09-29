@@ -46,6 +46,36 @@ struct WorkingTreeRecencyTests {
     private let tree = TreeID(rawValue: "tr_recency")
     private func day(_ n: Double) -> Date { Date(timeIntervalSince1970: 1_788_000_000 + n * 86_400) }
 
+    @Test("Local edits advance existing dates, survive reopen, and leave unchanged pages alone")
+    func localEditDates() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = WorkingTreeState(tree: tree.rawValue, nodes: [
+            WorkingTreeNode(path: "/", kind: .directory, source: "# Home\n"),
+            WorkingTreeNode(path: "/a", kind: .markdown, source: "A\n"),
+            WorkingTreeNode(path: "/b", kind: .markdown, source: "B\n"),
+        ])
+        let firstEdit = day(3), secondEdit = day(4)
+        var workingTree = try await WorkingTree.open(at: folder, tree: tree, clock: { firstEdit })
+        try await workingTree.initializeFromSystem(try SnapshotBridge.replacement(snapshot: try snapshot(first), tree: tree,
+            update: "up_1", entryMetadata: ["/a.md": .init(modifiedAt: day(1)), "/b.md": .init(modifiedAt: day(2))]))
+        let reference = WorkspaceReference(tree: tree, path: "/a")
+        let initial = try await workingTree.documentSnapshot(reference)
+        let edited = try await workingTree.writeDocument(reference, source: "First edit\n", baseRevision: initial.contentRevision)
+        #expect(try await workingTree.resolve(reference).modifiedAt == firstEdit)
+        workingTree = try await WorkingTree.open(at: folder, tree: tree, clock: { secondEdit })
+        #expect(try await workingTree.resolve(reference).modifiedAt == firstEdit)
+        // A no-op does not become recent just because it was acknowledged again.
+        _ = try await workingTree.writeDocument(reference, source: edited.source, baseRevision: edited.contentRevision)
+        #expect(try await workingTree.resolve(reference).modifiedAt == firstEdit)
+        _ = try await workingTree.writeDocument(reference, source: "Second edit\n", baseRevision: edited.contentRevision)
+        let results = try await WorkingTreeProvider(workingTree: workingTree).search("", in: tree)
+        #expect(results.first { $0.reference.path == "/a" }?.modifiedAt == secondEdit)
+        #expect(results.first { $0.reference.path == "/b" }?.modifiedAt == day(2))
+        let reopened = try await WorkingTree.open(at: folder, tree: tree)
+        #expect(try await reopened.resolve(reference).modifiedAt == secondEdit)
+    }
+
     @Test("Entry metadata dates each node by its body entry, files included")
     func bodyEntries() async throws {
         let state = WorkingTreeState(tree: tree.rawValue, nodes: [

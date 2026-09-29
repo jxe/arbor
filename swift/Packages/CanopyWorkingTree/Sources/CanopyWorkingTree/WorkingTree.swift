@@ -895,7 +895,7 @@ public actor WorkingTree {
         try change(&next)
         let changedAt = changedAt ?? clock()
         if recordsModificationDates {
-            applyModificationDates(from: state, to: &next, changedAt: changedAt)
+            applyModificationDates(from: state, to: &next, changedAt: changedAt, incoming: accepted != nil)
         }
         let generation = control.generation + 1
         let intent = WorkingTreeMutationIntent(
@@ -923,7 +923,8 @@ public actor WorkingTree {
     private func applyModificationDates(
         from previous: WorkingTreeState,
         to next: inout WorkingTreeState,
-        changedAt: Date
+        changedAt: Date,
+        incoming: Bool
     ) {
         let previousByPageID = Dictionary(
             uniqueKeysWithValues: previous.nodes.compactMap { node in
@@ -936,7 +937,9 @@ public actor WorkingTree {
             let old = candidate.pageID.flatMap { previousByPageID[$0] }
                 ?? previousByPath[candidate.path]
             // A date the change itself carries (Canopy's accepted time) stands.
-            let stamp = candidate.modifiedAt ?? changedAt
+            // Local mutations start with a copy of the old node, including its
+            // date. Only incoming replacements carry an authoritative new date.
+            let stamp = incoming ? (candidate.modifiedAt ?? changedAt) : changedAt
             guard let old else {
                 next.nodes[index].modifiedAt = stamp
                 continue

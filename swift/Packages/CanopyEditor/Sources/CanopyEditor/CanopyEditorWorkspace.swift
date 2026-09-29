@@ -19,6 +19,18 @@ public final class CanopyEditorWorkspace {
     public let provider: any WorkspaceProvider
     private let coordinator: WorkspaceCoordinator
     private var entries: [WorkspaceIdentity: Entry] = [:]
+    private var retentionObservers: [UUID: AsyncStream<CanopyLocalRetention>.Continuation] = [:]
+
+    /// Each window receives retained changes from every editor in this workspace.
+    public func localRetentions() -> AsyncStream<CanopyLocalRetention> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            retentionObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.retentionObservers.removeValue(forKey: id) }
+            }
+        }
+    }
 
     public init(provider: any WorkspaceProvider) {
         self.provider = provider
@@ -34,6 +46,10 @@ public final class CanopyEditorWorkspace {
             return CanopyEditorLease(id: id, identity: workspaceLease.identity, binding: entry.binding)
         }
         let binding = try await CanopyDocumentBinding.open(reference: reference, session: workspaceLease.session)
+        binding.onLocalRetention = { [weak self] change in
+            guard let self else { return }
+            for observer in self.retentionObservers.values { observer.yield(change) }
+        }
         entries[workspaceLease.identity] = Entry(binding: binding, workspaceLeases: [id: workspaceLease])
         return CanopyEditorLease(id: id, identity: workspaceLease.identity, binding: binding)
     }

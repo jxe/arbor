@@ -5,6 +5,21 @@ import Observation
 import OSLog
 import Quagmire
 
+/// A source change acknowledged by local storage, independently of publication.
+public struct CanopyLocalRetention: Sendable {
+    public let reference: WorkspaceReference
+    public let title: String
+    public let source: String
+    public let retainedAt: Date
+
+    public init(reference: WorkspaceReference, title: String, source: String, retainedAt: Date) {
+        self.reference = reference
+        self.title = title
+        self.source = source
+        self.retainedAt = retainedAt
+    }
+}
+
 /// Quagmire plumbing for an `EditorSource`.
 ///
 /// Quagmire owns the block tree, undo grouping and the exact-source ledger.
@@ -28,6 +43,7 @@ public final class CanopyDocumentBinding {
     public private(set) var reference: WorkspaceReference
     public private(set) var lastEnqueuedSource: String?
     public private(set) var acceptedTitle: String
+    public var onLocalRetention: ((CanopyLocalRetention) -> Void)?
 
     let session: any WorkspaceDocumentSession
     @ObservationIgnored private let source: EditorSource
@@ -401,6 +417,13 @@ public final class CanopyDocumentBinding {
     // MARK: Acknowledgement
 
     private func acknowledge(_ confirmed: WorkspaceDocumentSnapshot) {
+        let retained = CanopyLocalRetention(
+            reference: confirmed.reference,
+            title: WorkspaceDisplayTitle.derived(from: confirmed.source,
+                fallback: confirmed.reference.path == "/" ? "Home" : String(confirmed.reference.path.split(separator: "/").last ?? "")),
+            source: confirmed.source,
+            retainedAt: Date()
+        )
         reference = confirmed.reference
         if let authored = authoredLedgers.first(where: { $0.value.source.utf8.elementsEqual(confirmed.source.utf8) })?.value {
             var basis = authored
@@ -437,6 +460,7 @@ public final class CanopyDocumentBinding {
             basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }
         }
         refreshState()
+        onLocalRetention?(retained)
     }
 }
 

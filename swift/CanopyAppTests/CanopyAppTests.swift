@@ -1205,6 +1205,81 @@ struct CanopyAppTests {
         #expect(model.searchResults.contains { $0.reference.path == "/welcome" })
     }
 
+    @Test("Retained editor changes update Recent and filtered titles without searching the provider")
+    func editorRetentionUpdatesSidebar() async throws {
+        let provider = SidebarCountingProvider()
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        await workspace.switchProvider(provider, home: .init(tree: "tr_sample", path: "/"), detail: "counting")
+        let model = CanopyAppModel(workspace: workspace)
+        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        await model.search("Updated")
+        let binding = try #require(model.binding)
+        let host = try #require(model.editorHost)
+        let heading = try #require(binding.document.children.first)
+        let count = await provider.searchCount
+        for title in ["Updated once", "Updated twice"] {
+            binding.document.transaction(name: "Rename heading") {
+                _ = binding.document.setText(heading.id, AttributedString(title))
+            }
+            host.persistCommit(changes: [], in: binding.document)
+            await binding.flush()
+            for _ in 0..<200 where model.searchResults.first?.title != title {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            let row = try #require(model.searchResults.first)
+            #expect(row.title == title)
+            #expect(row.reference.identity == binding.reference.identity)
+            #expect(CanopySidebarPages.recentGroups(model.searchResults).first?.title == "Just now")
+            #expect(await provider.searchCount == count)
+        }
+        // A full refresh may still return the pre-edit index.
+        await model.load()
+        await model.search("Updated")
+        #expect(model.searchResults.first?.title == "Updated twice")
+
+        await workspace.switchProvider(InMemoryWorkspaceProvider.sample(),
+            home: .init(tree: "tr_sample", path: "/"), detail: "replacement")
+        await model.resetForWorkspace()
+        await model.search("Updated")
+        #expect(model.searchResults.isEmpty)
+    }
+
+    @Test("Sidebar retention survives stale indexes, follows stable identities, and retires when caught up")
+    func sidebarRetentionReconciliation() throws {
+        let reference = WorkspaceReference(tree: "tr_sidebar", path: "/old", stableKey: markdownStableKey("pg_note"))
+        let now = Date()
+        let change = CanopyLocalRetention(reference: reference, title: "Edited", source: "# Edited\n", retainedAt: now)
+        var pending = CanopySidebarRetentions()
+        pending.retain(change)
+        let stale = WorkspaceSearchResult(reference: reference, title: "Old", excerpt: "# Old\n", modifiedAt: now.addingTimeInterval(-86_400))
+        let patched = try #require(pending.applying(to: [stale], providerRefresh: true).first)
+        #expect(patched.title == "Edited")
+        #expect(patched.modifiedAt == now)
+        var moved = stale
+        moved.reference.path = "/renamed"
+        pending.relocate(from: reference, to: moved.reference)
+        #expect(pending.applying(to: [moved], providerRefresh: true).first?.reference.path == "/renamed")
+        var otherTree = stale
+        otherTree.reference.tree = "tr_other"
+        #expect(pending.applying(to: [otherTree]) == [otherTree])
+        #expect(pending.applying(to: [], providerRefresh: true).isEmpty)
+
+        var caughtUp = patched
+        caughtUp.modifiedAt = now.addingTimeInterval(1)
+        #expect(pending.applying(to: [caughtUp], providerRefresh: true) == [caughtUp])
+        var later = caughtUp
+        later.title = "Remote edit"
+        later.excerpt = "# Remote edit\n"
+        #expect(pending.applying(to: [later], providerRefresh: true) == [later])
+
+        pending.retain(change)
+        #expect(pending.applying(to: [later], providerRefresh: true) == [later])
+
+        pending.retain(change)
+        pending.remove(moved.reference)
+        #expect(pending.applying(to: [stale], providerRefresh: true) == [stale])
+    }
+
     @Test("Full-text search does not replace the sidebar page results")
     func fullTextSearchIsIndependentFromSidebar() async throws {
         let workspace = CanopyWorkspaceState(provider: .sample())
@@ -1547,4 +1622,24 @@ private actor RecordingAccountService: CanopyAccountService {
         throw CanopyAccountServiceError.unsupported(.connectPlacement)
     }
     func forgetPlacement(_: CanopyPlacement) {}
+}
+
+/// Its search snapshot deliberately lags writes through the document session.
+private actor SidebarCountingProvider: WorkspaceProvider {
+    private let base = InMemoryWorkspaceProvider.sample()
+    private var initialResults: [WorkspaceSearchResult]?
+    private(set) var searchCount = 0
+
+    func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode { try await base.resolve(reference) }
+    func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] { try await base.children(of: reference) }
+    func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult] {
+        searchCount += 1
+        if initialResults == nil { initialResults = try await base.search("", in: tree) }
+        return initialResults ?? []
+    }
+    func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] { try await base.backlinks(to: reference) }
+    func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? { try await base.perform(action) }
+    func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset { try await base.store(asset: asset, in: parent) }
+    func readFile(_ reference: WorkspaceReference) async throws -> Data { try await base.readFile(reference) }
+    func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession { try await base.openDocument(reference) }
 }

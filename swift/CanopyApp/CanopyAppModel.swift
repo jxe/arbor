@@ -2128,6 +2128,58 @@ final class CanopyWorkspaceState {
     }
 }
 
+/// Keeps acknowledged editor metadata ahead of a lagging provider index.
+struct CanopySidebarRetentions {
+    private var changes: [WorkspaceIdentity: CanopyLocalRetention] = [:]
+
+    mutating func retain(_ change: CanopyLocalRetention) {
+        changes[change.reference.identity] = change
+    }
+
+    mutating func remove(_ reference: WorkspaceReference) {
+        changes = changes.filter { _, change in
+            change.reference.tree != reference.tree
+                || (change.reference.identity != reference.identity
+                    && change.reference.path != reference.path
+                    && !change.reference.path.hasPrefix(reference.path + "/"))
+        }
+    }
+
+    mutating func relocate(from original: WorkspaceReference, to destination: WorkspaceReference) {
+        changes = Dictionary(uniqueKeysWithValues: changes.values.map { change in
+            guard change.reference.tree == original.tree,
+                  change.reference.identity == original.identity || change.reference.path.hasPrefix(original.path + "/") else {
+                return (change.reference.identity, change)
+            }
+            var reference = change.reference
+            reference.path = change.reference.identity == original.identity
+                ? destination.path : destination.path + change.reference.path.dropFirst(original.path.count)
+            let relocated = CanopyLocalRetention(reference: reference,
+                title: WorkspaceDisplayTitle.derived(from: change.source,
+                    fallback: String(reference.path.split(separator: "/").last ?? "Home")),
+                source: change.source, retainedAt: change.retainedAt)
+            return (reference.identity, relocated)
+        })
+    }
+
+    mutating func applying(to results: [WorkspaceSearchResult], providerRefresh: Bool = false) -> [WorkspaceSearchResult] {
+        results.map { result in
+            guard let change = changes[result.id] else { return result }
+            // A provider may skip straight to a later remote edit; it need not
+            // serve the exact locally retained source on its way there.
+            if providerRefresh, let date = result.modifiedAt, date >= change.retainedAt {
+                changes.removeValue(forKey: result.id)
+                return result
+            }
+            var updated = result
+            updated.title = change.title
+            updated.excerpt = change.source
+            updated.modifiedAt = max(result.modifiedAt ?? .distantPast, change.retainedAt)
+            return updated
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class CanopyAppModel {
@@ -2190,6 +2242,9 @@ final class CanopyAppModel {
     private var pageIndexIsStale = true
     private var pageIndexSyncBasis: [String?] = []
     private var pageIndexRequestID = 0
+    private var sidebarRetentions = CanopySidebarRetentions()
+    @ObservationIgnored private var retentionTask: Task<Void, Never>?
+    @ObservationIgnored private weak var retentionWorkspace: CanopyEditorWorkspace?
     private var dismissedTitleRenameProposals = Set<String>()
     /// The last profile parsed, so a home page's body does not re-parse its
     /// Markdown on every render.
@@ -2208,6 +2263,31 @@ final class CanopyAppModel {
         self.sidebarLocation = workspace.launchLocation
         self.observedWorkspaceGeneration = workspace.generation
         self.observedProviderRevision = workspace.providerRevision
+        observeLocalRetentions()
+    }
+
+    deinit { retentionTask?.cancel() }
+
+    private func observeLocalRetentions() {
+        let editors = workspace.editorWorkspace
+        guard retentionWorkspace !== editors else { return }
+        retentionTask?.cancel()
+        sidebarRetentions = CanopySidebarRetentions()
+        retentionWorkspace = editors
+        let changes = editors.localRetentions()
+        retentionTask = Task { [weak self, weak editors] in
+            for await change in changes {
+                guard !Task.isCancelled, let self, let editors,
+                      self.workspace.editorWorkspace === editors else { return }
+                self.retainSidebarChange(change)
+            }
+        }
+    }
+
+    func retainSidebarChange(_ change: CanopyLocalRetention) {
+        sidebarRetentions.retain(change)
+        pageIndexResults = sidebarRetentions.applying(to: pageIndexResults)
+        searchResults = sidebarResults(matching: lastSearchQuery, in: pageIndexResults)
     }
 
     convenience init() {
@@ -2294,6 +2374,7 @@ final class CanopyAppModel {
     }
 
     func load() async {
+        observeLocalRetentions()
         loadRequestID += 1
         let requestID = loadRequestID
         isLoading = true
@@ -2701,9 +2782,9 @@ final class CanopyAppModel {
         do {
             let results = try await workspace.provider.search("", in: tree)
             guard requestID == pageIndexRequestID, tree == pageIndexTree, tree == currentReference.tree else { return }
-            pageIndexResults = results
+            pageIndexResults = sidebarRetentions.applying(to: results, providerRefresh: true)
             // Queries typed while the index loaded filtered the previous one.
-            searchResults = sidebarResults(matching: lastSearchQuery, in: results)
+            searchResults = sidebarResults(matching: lastSearchQuery, in: pageIndexResults)
         }
         catch {
             if requestID == pageIndexRequestID { pageIndexIsStale = true }
@@ -2906,6 +2987,14 @@ final class CanopyAppModel {
     /// that deliberately tears down and reacquires an editor surface.
     func reconcile(_ receipt: WorkspaceStructuralReceipt) async {
         guard observedWorkspaceGeneration == workspace.generation else { return }
+        if case let .trash(reference) = receipt.action { sidebarRetentions.remove(reference) }
+        if let result = receipt.result {
+            switch receipt.action {
+            case let .rename(reference, _), let .move(reference, _):
+                sidebarRetentions.relocate(from: reference, to: result.reference)
+            default: break
+            }
+        }
         if let result = receipt.result {
             searchResults = searchResults.map { existing in
                 guard existing.reference.identity == result.reference.identity else { return existing }
