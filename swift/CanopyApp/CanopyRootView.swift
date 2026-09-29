@@ -160,26 +160,30 @@ enum CanopySidebarPages {
         calendar: Calendar = .current
     ) -> [CanopySidebarPageGroup] {
         let startOfToday = calendar.startOfDay(for: now)
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? startOfToday
-        let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? startOfWeek
-        let ordered = sorted(results, by: .recent)
-        let sections: [(String, (Date?) -> Bool)] = [
-            ("Today", { ($0 ?? .distantPast) >= startOfToday }),
-            ("This Week", { date in
-                guard let date else { return false }
-                return date >= startOfWeek && date < startOfToday
-            }),
-            ("This Month", { date in
-                guard let date else { return false }
-                return date >= startOfMonth && date < startOfWeek
-            }),
-            ("Earlier", { date in date.map { $0 < startOfMonth } ?? false }),
-            ("Unknown date", { $0 == nil }),
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? startOfYesterday
+        let monthAgo = calendar.date(byAdding: .month, value: -1, to: now) ?? weekAgo
+        let boundaries: [(title: String, start: Date)] = [
+            ("Just now", now.addingTimeInterval(-60 * 60)),
+            ("Today", startOfToday),
+            ("Yesterday", startOfYesterday),
+            ("In the last week", weekAgo),
+            ("In the last month", monthAgo),
         ]
-        return sections.compactMap { title, includes in
-            let matches = ordered.filter { includes($0.modifiedAt) }
-            return matches.isEmpty ? nil : CanopySidebarPageGroup(title: title, results: matches)
+        var groups = boundaries.map { CanopySidebarPageGroup(title: $0.title, results: []) }
+        groups.append(CanopySidebarPageGroup(title: "Earlier", results: []))
+        groups.append(CanopySidebarPageGroup(title: "Unknown date", results: []))
+        for result in sorted(results, by: .recent) {
+            // First matching boundary keeps groups exclusive, even just after midnight.
+            let index: Int
+            if let date = result.modifiedAt {
+                index = boundaries.firstIndex { date >= $0.start } ?? boundaries.count
+            } else {
+                index = boundaries.count + 1
+            }
+            groups[index].results.append(result)
         }
+        return groups.filter { !$0.results.isEmpty }
     }
 
     /// Pages in exactly the order `CanopyOrderedPageSections` draws them, so

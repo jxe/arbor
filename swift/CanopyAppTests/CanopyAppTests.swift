@@ -779,7 +779,7 @@ struct CanopyAppTests {
         #expect(CanopySidebarPages.sorted(results, by: .linkCount).map(\.title)
             == ["Older", "Monthly", "🌲 Alpha", "Beta"])
         let groups = CanopySidebarPages.recentGroups(results, now: now, calendar: calendar)
-        #expect(groups.map(\.title) == ["Today", "This Week", "This Month", "Earlier"])
+        #expect(groups.map(\.title) == ["Just now", "Yesterday", "In the last month", "Earlier"])
         #expect(groups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Monthly"], ["Older"]])
         let unknown = WorkspaceSearchResult(reference: WorkspaceReference(tree: tree, path: "/unknown"), title: "Unknown")
@@ -800,6 +800,42 @@ struct CanopyAppTests {
         #expect(canopySidebarContextPath("/March-Out-My-Work/arbor-demo")
             == "/March-Out-My-Work")
     }
+    @Test("Recent groups use exclusive rolling boundaries across midnight and month changes")
+    func recentGroupBoundaries() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let formatter = ISO8601DateFormatter()
+        let now = try #require(formatter.date(from: "2026-03-02T00:30:00Z"))
+        let timestamps = [
+            "2026-03-02T00:31:00Z", // Clock skew stays in Just now.
+            "2026-03-01T23:30:00Z", // Exactly one hour ago, across midnight.
+            "2026-03-01T23:29:59Z",
+            "2026-03-01T00:00:00Z",
+            "2026-02-28T23:59:59Z",
+            "2026-02-23T00:30:00Z", // Exactly seven days ago.
+            "2026-02-23T00:29:59Z",
+            "2026-02-02T00:30:00Z", // Exactly one calendar month ago.
+            "2026-02-02T00:29:59Z",
+        ]
+        let results = try timestamps.enumerated().map { index, timestamp in
+            WorkspaceSearchResult(
+                reference: WorkspaceReference(tree: "tr_sample", path: "/page-\(index)"),
+                title: String(index),
+                modifiedAt: try #require(formatter.date(from: timestamp))
+            )
+        }
+        let groups = CanopySidebarPages.recentGroups(results.reversed(), now: now, calendar: calendar)
+        #expect(groups.map(\.title) == ["Just now", "Yesterday", "In the last week", "In the last month", "Earlier"])
+        #expect(groups.map { $0.results.map(\.title) } == [["0", "1"], ["2", "3"], ["4", "5"], ["6", "7"], ["8"]])
+        #expect(groups.flatMap(\.results).count == results.count)
+
+        let noon = try #require(formatter.date(from: "2026-03-02T12:00:00Z"))
+        let laterGroups = CanopySidebarPages.recentGroups(results, now: noon, calendar: calendar)
+        #expect(laterGroups.first?.title == "Today")
+        #expect(laterGroups.first?.results.map(\.title) == ["0"])
+        #expect(CanopySidebarPages.recentGroups([], now: now, calendar: calendar).isEmpty)
+    }
+
     @Test("Opening a page pushes a native page-frame path")
     func openingPushesPageFrame() async {
         let model = CanopyAppModel()
