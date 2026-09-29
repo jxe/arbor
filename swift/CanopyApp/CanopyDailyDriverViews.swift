@@ -136,10 +136,12 @@ struct CanopySidebarPageSelection: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                RoundedRectangle(cornerRadius: 6)
+                Rectangle()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045))
-                    .padding(.horizontal, -8)
-                    .padding(.vertical, -1)
+                    // Extend through the native sidebar's 16-point content insets.
+                    .padding(.horizontal, -16)
+                    .padding(.top, -1)
+                    .padding(.bottom, -4)
                     .opacity(selected ? 1 : 0)
                     .allowsHitTesting(false)
             }
@@ -245,11 +247,17 @@ struct CanopySidebarSearchRow: View {
                     // intrinsic size without moving the title or widening its gap.
                     .fixedSize()
                     .frame(width: 20)
+#if os(macOS)
+                    .offset(y: 2)
+#endif
             } else {
                 Image(systemName: "text.page")
                     .font(.system(size: 18))
                     .frame(width: 20)
                     .foregroundStyle(.secondary)
+#if os(macOS)
+                    .offset(y: 2)
+#endif
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(titleParts.text)
