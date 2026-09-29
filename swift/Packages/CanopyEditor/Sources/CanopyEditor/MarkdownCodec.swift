@@ -27,6 +27,8 @@ struct CanopySourceLedger: Sendable {
     var envelope: String
     var newline: String
     var records: [BlockID: SourceRecord]
+    /// Context-free leaf parses, keyed by exact bytes; nesting is always rebuilt.
+    var parsedKinds: [Data: BlockKind] = [:]
 }
 
 public struct CanopyMarkdownOpenedDocument: Sendable {
@@ -132,6 +134,12 @@ public enum CanopyMarkdownCodec {
         revision: String,
         identitySeed: String
     ) -> CanopyMarkdownOpenedDocument {
+        open(source: source, revision: revision, identitySeed: identitySeed, reusing: [:])
+    }
+
+    private static func open(source: String, revision: String, identitySeed: String,
+                             reusing cachedKinds: [Data: BlockKind]) -> CanopyMarkdownOpenedDocument {
+        var parsedKinds: [Data: BlockKind] = [:]
         let newline = source.contains("\r\n") ? "\r\n" : "\n"
         let lines = sourceLines(source)
         var cursor = 0
@@ -189,8 +197,11 @@ public enum CanopyMarkdownCodec {
             leading = ""
             let id = stableID(seed: identitySeed, ordinal: ordinal)
             ordinal += 1
+            let leafBytes = Data(lines[start..<contentEnd].map(\.raw).joined().utf8)
+            let kind = cachedKinds[leafBytes] ?? parseBlock(Array(lines[start..<contentEnd]), id: id).kind
+            parsedKinds[leafBytes] = kind
             parsed.append(ParsedBlock(
-                block: parseBlock(Array(lines[start..<contentEnd]), id: id),
+                block: Block(id: id, kind: kind),
                 raw: raw,
                 indent: indentationDepth(lines[start].content)
             ))
@@ -235,7 +246,7 @@ public enum CanopyMarkdownCodec {
         }
         return CanopyMarkdownOpenedDocument(
             blocks: blocks,
-            ledger: CanopySourceLedger(source: source, revision: revision, envelope: envelope, newline: newline, records: records)
+            ledger: CanopySourceLedger(source: source, revision: revision, envelope: envelope, newline: newline, records: records, parsedKinds: parsedKinds)
         )
     }
 
@@ -468,7 +479,7 @@ public enum CanopyMarkdownCodec {
         guard (try? patch.applying(to: ledger.source))?.utf8.elementsEqual(source.utf8) == true else { return nil }
         // The bytes must mean the editor's tree: separators and indentation
         // that read differently in the new order are not a rearrangement.
-        let reopened = open(source: source, revision: ledger.revision, identitySeed: "arrangement")
+        let reopened = open(source: source, revision: ledger.revision, identitySeed: "arrangement", reusing: ledger.parsedKinds)
         guard sameShape(reopened.blocks, removingProjectedBlocks(from: blocks)) else { return nil }
         var records: [BlockID: SourceRecord] = [:]
         var position = envelope
@@ -477,7 +488,7 @@ public enum CanopyMarkdownCodec {
                                                          range: position..<(position + item.raw.utf8.count))
             position += item.raw.utf8.count
         }
-        let next = CanopySourceLedger(source: source, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records)
+        let next = CanopySourceLedger(source: source, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records, parsedKinds: reopened.ledger.parsedKinds)
         return (CanopyMarkdownAdmission(source: source, patch: patch), next)
     }
 

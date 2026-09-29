@@ -12,6 +12,19 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Option-arrow capture cost — 2026-09-29
+
+The native Markdown ledger reuses context-free block parses keyed by exact UTF-8
+bytes while still validating boundaries, nesting, tree shape and the final patch
+on every move. A synthetic 500-paragraph debug benchmark reduced mean synchronous
+move/capture cost from 60.0 ms to 11.2 ms. macOS key-repeat settings and shortcut
+routing are unchanged. This is source-level performance evidence, not installed
+UI validation. Cached/uncached equivalence tests cover repeated text, Unicode,
+CRLF/frontmatter, headings, lists, code, raw Markdown, blank lines and subsequent
+edits. The full editor package suite passes, as do link and whitespace checks.
+The app-hosted affected gate could not launch while the debug Canopy app was
+running. This change remains uninstalled. See [editor capture costs](docs/implementing-editors/editor-source.md#repeated-movement-on-the-main-thread).
+
 ## Idle publication and coalescing — 2026-09-29
 
 Both working-tree clients now default to publication after 250 ms of idle.

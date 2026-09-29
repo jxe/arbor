@@ -188,3 +188,20 @@ preparing in 20 ms instead of 918 ms, with the same candidate, digest, and trace
 A conflicted tree with 40 history steps and 500 sibling files evaluated in
 87 ms instead of 110 ms, with identical result, authored state, decisions, and
 evidence. These measurements do not predict production latency.
+
+### Repeated movement on the main thread
+
+Source capture validates the rearranged Markdown before queuing its durable append.
+Its ledger caches context-free block parses by exact UTF-8 bytes. Each move still
+scans block boundaries, rebuilds indentation and heading nesting, checks the tree's
+shape, and verifies the patch against the exact source. Unchanged inline Markdown
+can reuse its parse; changed bytes must parse again. The cache contains only the
+leaf content in the last validated source, and is discarded when ordinary capture
+builds a new ledger. macOS continues to determine keyboard repeat timing.
+
+A local debug benchmark on 2026-09-29 moved one paragraph 20 times through pages
+of 50, 200 and 500 paragraphs containing bold text and links. Mean synchronous
+transaction plus capture cost fell from 5.9/24.0/60.0 ms per move to
+1.2/4.4/11.2 ms. This excludes SwiftUI rendering and durable append work; it is
+not a measurement of installed-app key-to-screen latency. Reproduce with
+`CANOPY_MEASURE_MOVES=1 swift/scripts/test-canopy-editor-local.sh --filter measureMovePipeline`.
