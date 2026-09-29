@@ -2892,9 +2892,9 @@ final class CanopyAppModel {
         await workspace.flush()
         do {
             guard binding?.reference.identity == prompt.source.identity,
-                  let target = try? await workspace.provider.resolve(prompt.target),
-                  target.isWritable, target.surface.supportsDocumentSession,
-                  try await workspace.provider.backlinks(to: target.reference).isEmpty else { return }
+                  let target = try await CanopyEditorHost.orphanedDocumentAfterDeletingLink(
+                    prompt.target, from: prompt.source, provider: workspace.provider
+                  ) else { return }
             await perform(.trash(reference: target.reference), navigateToResult: false)
         } catch {
             errorMessage = error.localizedDescription

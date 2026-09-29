@@ -877,7 +877,7 @@ struct CanopyEditorTests {
         )
         let root = WorkspaceReference(tree: "tr_sample", path: "/")
         let target = try #require(await provider.perform(.createMarkdown(
-            parent: root,
+            parent: source,
             name: "Target",
             source: "# Target\n"
         )))
@@ -889,7 +889,7 @@ struct CanopyEditorTests {
         _ = try #require(await provider.perform(.createMarkdown(
             parent: root,
             name: "Other",
-            source: "# Other\n\n[Target](/Target)\n"
+            source: "# Other\n\n[Target](/welcome/Target)\n"
         )))
         let stillLinked = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
         #expect(stillLinked == nil)
@@ -897,7 +897,7 @@ struct CanopyEditorTests {
         // The regression: another page holding a *document-link row* — an `arbor://` locator, not a
         // readable path — still links the target, so deleting this page's link must stay silent.
         let rowTarget = try #require(await provider.perform(.createMarkdown(
-            parent: root,
+            parent: source,
             name: "RowTarget",
             source: "# RowTarget\n"
         )))
@@ -909,6 +909,22 @@ struct CanopyEditorTests {
             source: "# RowLinker\n\n[RowTarget](\(row.rawValue))\n"
         )))
         #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) == nil)
+        // A different parent still projects its child even without authored backlinks.
+        let otherParent = try #require(await provider.perform(.createMarkdown(
+            parent: root, name: "Parent", source: "# Parent\n"
+        )))
+        let child = try #require(await provider.perform(.createMarkdown(
+            parent: otherParent.reference, name: "Child", source: "# Child\n"
+        )))
+        #expect(try await provider.backlinks(to: child.reference).isEmpty)
+        #expect(await host.orphanedDocumentAfterDeletingLink(child.reference, from: source) == nil)
+        #expect(await host.orphanedDocumentAfterDeletingLink(otherParent.reference, from: source) == nil)
+        // The same child is eligible when deleting from its own parent, including a path-only source.
+        #expect(try await CanopyEditorHost.orphanedDocumentAfterDeletingLink(
+            child.reference,
+            from: WorkspaceReference(tree: otherParent.reference.tree, path: otherParent.reference.path),
+            provider: provider
+        )?.reference == child.reference)
         await session.close()
     }
 

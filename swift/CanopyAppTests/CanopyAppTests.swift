@@ -1157,7 +1157,7 @@ struct CanopyAppTests {
         let source = try #require(model.binding?.reference)
         let root = WorkspaceReference(tree: "tr_sample", path: "/")
         let orphan = try #require(try await workspace.perform(.createMarkdown(
-            parent: root,
+            parent: source,
             name: "Orphan",
             source: "# Orphan\n"
         )))
@@ -1171,7 +1171,7 @@ struct CanopyAppTests {
         #expect(try await workspace.provider.resolve(orphan.reference).reference.path == "/Trash/Orphan")
 
         let retained = try #require(try await workspace.perform(.createMarkdown(
-            parent: root,
+            parent: source,
             name: "Retained",
             source: "# Retained\n"
         )))
@@ -1179,12 +1179,20 @@ struct CanopyAppTests {
         _ = try #require(try await workspace.perform(.createMarkdown(
             parent: root,
             name: "Other",
-            source: "# Other\n\n[Retained](/Retained)\n"
+            source: "# Other\n\n[Retained](/welcome/Retained)\n"
         )))
         await model.trashPromptedLinkedPageIfStillOrphaned()
 
-        #expect(try await workspace.provider.resolve(retained.reference).reference.path == "/Retained")
+        #expect(try await workspace.provider.resolve(retained.reference).reference.path == "/welcome/Retained")
         #expect(model.editorLease?.id == lease.id)
+
+        let elsewhere = try #require(try await workspace.perform(.createMarkdown(
+            parent: root, name: "Elsewhere", source: "# Elsewhere\n"
+        )))
+        // Even a stale offer cannot trash a page still implicitly linked by another parent.
+        model.offerToTrashLinkedPage(elsewhere, from: source)
+        await model.trashPromptedLinkedPageIfStillOrphaned()
+        #expect(try await workspace.provider.resolve(elsewhere.reference).reference.path == "/Elsewhere")
     }
 
     @Test("Empty search starts as a page browser")

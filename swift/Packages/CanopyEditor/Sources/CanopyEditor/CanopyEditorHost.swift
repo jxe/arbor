@@ -415,11 +415,26 @@ public final class CanopyEditorHost: EditorHost {
     ) async -> WorkspaceNode? {
         guard target.identity != source.identity else { return nil }
         await binding.flush()
-        guard binding.lastError == nil,
-              let node = try? await provider.resolve(target),
+        guard binding.lastError == nil else { return nil }
+        return try? await Self.orphanedDocumentAfterDeletingLink(target, from: source, provider: provider)
+    }
+
+    /// Used again at confirmation time: every parent implicitly links its children,
+    /// except that the source parent's child link is the one being deleted.
+    public static func orphanedDocumentAfterDeletingLink(
+        _ target: WorkspaceReference,
+        from source: WorkspaceReference,
+        provider: any WorkspaceProvider
+    ) async throws -> WorkspaceNode? {
+        let node = try await provider.resolve(target)
+        let currentSource = try await provider.resolve(source)
+        guard node.reference.identity != currentSource.reference.identity,
               node.isWritable, node.surface.supportsDocumentSession,
-              let backlinks = try? await provider.backlinks(to: node.reference),
-              backlinks.isEmpty else { return nil }
+              try await provider.backlinks(to: node.reference).isEmpty else { return nil }
+        if let parent = node.reference.parent,
+           parent.tree != currentSource.reference.tree || parent.path != currentSource.reference.path {
+            return nil
+        }
         return node
     }
 
