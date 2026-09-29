@@ -50,6 +50,7 @@ public actor UpdateCoordinator {
     private var deferredApply: (digest: String, result: UpdateMachine.AuthorityResult)?
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var timers: [UpdateMachine.Timer: Task<Void, Never>] = [:]
+    private var timerTokens: [UpdateMachine.Timer: UUID] = [:]
     /// Whether the tree's watch stream is open; while it is, a clean tree
     /// skips its freshness poll (the TypeScript coordinator's `setWatching`).
     private var watching = false
@@ -87,7 +88,7 @@ public actor UpdateCoordinator {
         platformObjectStore: (any ObjectStore)? = nil,
         faultInjector: any UpdateFaultInjector = NoUpdateFaults(),
         publicationDelay: Duration = UpdateMachine.publicationDelay,
-        publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay,
+        publicationMaxDelay: Duration? = UpdateMachine.publicationMaxDelay,
         pollInterval: Duration? = nil
     ) throws {
         self.workingTree = workingTree
@@ -99,9 +100,10 @@ public actor UpdateCoordinator {
         // An incompatible or altered durable request must remain on disk for recovery.
         if let attempt = control.attempt {
             let request = try attempt.request()
+            let retainedControl = control
             guard request.base == attempt.base.update,
                   request.updates.last?.candidate == attempt.candidate,
-                  request.updates.last?.change == control.attemptTip,
+                  (request.updates.last?.change == retainedControl.attemptTip || retainedControl.publications.contains { $0.update.change == request.updates.last?.change && $0.changes.last == retainedControl.attemptTip }),
                   attempt.digest == attempt.allRequestDigests.last,
                   updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
                 throw ProtocolValidationError.invalidValue("Durable update intent does not match its digests")
@@ -163,7 +165,8 @@ public actor UpdateCoordinator {
             guard let tip = try await changeLog().nextPublication(accepted: Set(control.settled)) else { return }
             if machine.phase.tip?.change == tip.change { return }
             if machine.phase.tip == nil, machine.phase.request?.tip == tip.change { return }
-            dispatch(.localChange(change: tip.change, root: tip.candidate.root))
+            let hasIntent = try await changeLog().retained().contains { !control.settled.contains($0.change) && $0.update.trace != nil }
+            dispatch(.localChange(change: tip.change, root: tip.candidate.root, settleIfUnchanged: !hasIntent))
         } catch {
             Self.syncLog.error("change log unreadable: \(String(describing: error), privacy: .public)")
             failure = String(describing: error)
@@ -184,7 +187,7 @@ public actor UpdateCoordinator {
             switch effect {
             case let .schedule(timer, delay): schedule(timer, after: delay)
             case .cancelTimers:
-                for timer in [UpdateMachine.Timer.trailing, .max] { timers.removeValue(forKey: timer)?.cancel() }
+                for timer in [UpdateMachine.Timer.trailing, .max] { timers.removeValue(forKey: timer)?.cancel(); timerTokens[timer] = nil }
             default: queue.append(.effect(effect))
             }
         }
@@ -193,13 +196,17 @@ public actor UpdateCoordinator {
 
     private func schedule(_ timer: UpdateMachine.Timer, after delay: Duration) {
         timers.removeValue(forKey: timer)?.cancel()
+        let token = UUID()
+        timerTokens[timer] = token
         timers[timer] = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            await self?.timerFired(timer, delay: delay)
+            await self?.timerFired(timer, delay: delay, token: token)
         }
     }
 
-    private func timerFired(_ timer: UpdateMachine.Timer, delay: Duration) {
+    private func timerFired(_ timer: UpdateMachine.Timer, delay: Duration, token: UUID) {
+        guard timerTokens[timer] == token, !closed else { return }
+        timerTokens[timer] = nil
         timers[timer] = nil
         // A clean tree whose watch is open learns of updates from it; the poll
         // is only for a watch that is down (a dead one fails its idle timeout).
@@ -282,7 +289,8 @@ public actor UpdateCoordinator {
             return
         }
         do {
-            let prepared = try await changeLog().request(through: tip.change, accepted: Set(control.settled))
+            var prepared = try await changeLog().request(through: tip.change, accepted: Set(control.settled))
+            prepared.request = try await composePublication(in: prepared.request)
             let attempt = try Self.attempt(tree: await workingTree.treeID().rawValue, base: prepared.base, request: prepared.request)
             if let extends, !attempt.allRequestDigests.starts(with: extends.digests) {
                 // The tip no longer descends from the transmitted request: retry it exactly.
@@ -397,7 +405,7 @@ public actor UpdateCoordinator {
             let installed = try await install(current: current, projection: projected)
             try faultInjector.reached(.beforeBaseAdvancement)
             let request = try attempt.request()
-            control.settled = Array(Set(control.settled + request.updates.map(\.change))).sorted()
+            control.settled = Array(Set(control.settled + localChanges(in: request))).sorted()
             control.attempt = nil
             control.attemptTip = nil
             control.held = nil
@@ -500,7 +508,79 @@ public actor UpdateCoordinator {
             let retained = Set(try await log.retained().map(\.change))
             control.settled = control.settled.filter { retained.contains($0) }
         }
+        let retained = Set(try await log.retained().map(\.change))
+        control.publications.removeAll { Set($0.changes).isDisjoint(with: retained) }
         try writeControl()
+    }
+
+    private func localChanges(in request: ProtocolUpdateRequest) -> [String] {
+        request.updates.flatMap { update in
+            control.publications.first(where: { $0.update.change == update.change })?.changes ?? [update.change]
+        }
+    }
+
+    /// Freeze each composed publication alongside its exact request before any
+    /// transmission. Later requests repeat the same group as an immutable prefix.
+    private func composePublication(in request: ProtocolUpdateRequest) async throws -> ProtocolUpdateRequest {
+        let records = try await changeLog().retained()
+        let byChange = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
+        var updates: [ProtocolCandidateUpdate] = [], index = 0
+        let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])
+        while index < request.updates.count {
+            let current = request.updates[index]
+            if let group = control.publications.first(where: { $0.changes.first == current.change }) {
+                guard Array(request.updates.dropFirst(index).prefix(group.changes.count).map(\.change)) == group.changes else {
+                    throw ProtocolValidationError.invalidValue("Incomplete composed publication dependency")
+                }
+                var update = group.update
+                if group.changes.allSatisfy({ control.settled.contains($0) }) { update.objects = []; update.deltas = [] }
+                updates.append(update); index += group.changes.count; continue
+            }
+            var run: [LocalChange] = [], best: ChangePublication?
+            var cursor = index
+            while cursor < request.updates.count,
+                  let record = byChange[request.updates[cursor].change], record.update.trace != nil,
+                  !control.settled.contains(record.change), !frozen.contains(record.change),
+                  !control.publications.contains(where: { $0.changes.contains(record.change) }) {
+                if let previous = run.last, record.basis != .authored(change: previous.change) { break }
+                let boundary = !record.update.resolves.isEmpty || record.update.ifCurrent != nil
+                if boundary, !run.isEmpty { break }
+                run.append(record)
+                if boundary { break }
+                cursor += 1
+            }
+            func mentionsPrior(_ value: ProtocolSemanticValue) -> Bool {
+                switch value {
+                case let .object(fields):
+                    if fields["kind"] == .string("operation"), case let .string(change)? = fields["change"],
+                       control.publications.contains(where: { $0.changes.contains(change) }) { return true }
+                    return fields.values.contains(where: mentionsPrior)
+                case let .array(values): return values.contains(where: mentionsPrior)
+                default: return false
+                }
+            }
+            let referencesPrior = run.first?.update.trace?.flatMap(\.operations).contains {
+                $0.fields.values.contains(where: mentionsPrior)
+            } == true
+            if run.count > 1 || (run.first?.update.trace?.count ?? 0) > 1 || referencesPrior {
+                best = try LocalChange.publication(run, previous: control.publications)
+                if best == nil {
+                    var frames = 0, operations = 0, end = 0
+                    for record in run {
+                        frames += record.update.trace?.count ?? 0
+                        operations += (record.update.trace ?? []).reduce(0) { $0 + $1.operations.count }
+                        if frames > 64 || operations > 1024 { break }
+                        end += 1
+                    }
+                    if end > 0, end < run.count { best = try LocalChange.publication(Array(run.prefix(end)), previous: control.publications) }
+                }
+            }
+            if let best {
+                control.publications.append(best)
+                updates.append(best.update); index += best.changes.count
+            } else { updates.append(current); index += 1 }
+        }
+        return ProtocolUpdateRequest(base: request.base, updates: updates)
     }
 
     private var lastAuthenticationRetry: Date?
@@ -550,7 +630,7 @@ public actor UpdateCoordinator {
         await ensureEntered()
         dispatch(.syncRequested)
         await settle()
-        // A successor published after an apply waits on a zero delay; follow it.
+        // Explicit sync also drains pending successor and sibling chains.
         for _ in 0..<8 {
             guard case let .locallyPending(_, preparing) = machine.phase, !preparing else { break }
             dispatch(.syncRequested)
@@ -614,8 +694,9 @@ public actor UpdateCoordinator {
     /// out of `held`.
     public func discardHeldChanges() async throws {
         try requireOpen()
+        await ensureEntered()
         guard case let .held(_, _, request, _) = machine.phase, let attempt = control.attempt, attempt.digest == request.id else { return }
-        let changes = try attempt.request().updates.map(\.change)
+        let changes = localChanges(in: try attempt.request())
         try await changeLog().discard(Set(changes).subtracting(control.settled))
         control.attempt = nil
         control.attemptTip = nil

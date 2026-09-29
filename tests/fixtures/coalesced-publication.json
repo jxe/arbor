@@ -1,0 +1,143 @@
+{
+  "cases": [
+    {
+      "name": "same block moves down twice",
+      "source": "A\n\nB\n\nC\n\nD\n\n",
+      "frames": 1,
+      "kinds": ["moveSource"],
+      "steps": [
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "B\n\nA\n\nC\n\nD\n\n" },
+        { "moves": [{ "source": [3, 6], "anchor": [6, 9], "side": "after" }], "source": "B\n\nC\n\nA\n\nD\n\n" }
+      ]
+    },
+    {
+      "name": "same block moves up twice",
+      "source": "A\n\nB\n\nC\n\nD\n\n",
+      "frames": 1,
+      "kinds": ["moveSource"],
+      "steps": [
+        { "moves": [{ "source": [6, 9], "anchor": [3, 6], "side": "before" }], "source": "A\n\nC\n\nB\n\nD\n\n" },
+        { "moves": [{ "source": [3, 6], "anchor": [0, 3], "side": "before" }], "source": "C\n\nA\n\nB\n\nD\n\n" }
+      ]
+    },
+    {
+      "name": "equal bytes keep distinct identity",
+      "source": "A\n\nA\n\nC\n\nD\n\n",
+      "frames": 1,
+      "kinds": ["moveSource"],
+      "steps": [
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "A\n\nA\n\nC\n\nD\n\n" },
+        { "moves": [{ "source": [3, 6], "anchor": [6, 9], "side": "after" }], "source": "A\n\nC\n\nA\n\nD\n\n" }
+      ]
+    },
+    {
+      "name": "move back to start",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["moveSource"],
+      "steps": [
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "B\n\nA\n\nC\n\n" },
+        { "moves": [{ "source": [3, 6], "anchor": [0, 3], "side": "before" }], "source": "A\n\nB\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "edit move and edit form one authored update",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 3,
+      "kinds": ["editSource", "moveSource", "editSource"],
+      "steps": [
+        { "edits": [{ "range": [0, 1], "replacement": "X" }], "source": "X\n\nB\n\nC\n\n" },
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "B\n\nX\n\nC\n\n" },
+        { "edits": [{ "range": [3, 4], "replacement": "Y" }], "source": "B\n\nY\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "moves of different material retain both frames",
+      "source": "A\n\nB\n\nC\n\nD\n\n",
+      "frames": 2,
+      "kinds": ["moveSource", "moveSource"],
+      "steps": [
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "B\n\nA\n\nC\n\nD\n\n" },
+        { "moves": [{ "source": [6, 9], "anchor": [9, 12], "side": "after" }], "source": "B\n\nA\n\nD\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "seventy moves simplify below the frame limit",
+      "source": "A\nB\n",
+      "frames": 1,
+      "kinds": ["moveSource"],
+      "steps": [
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] },
+        { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
+        { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] }
+      ]
+    }
+  ]
+}

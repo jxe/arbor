@@ -136,7 +136,7 @@ extension UpdateMachine.HeldReason: Codable {}
 /// working tree's own state. Schema 4 dropped the snapshot head and next base
 /// of the earlier snapshot publication path.
 struct UpdateControl: Codable, Equatable, Sendable {
-    static let currentSchema = 4
+    static let currentSchema = 5
 
     var schema = currentSchema
     var attempt: UpdateAttempt?
@@ -146,11 +146,12 @@ struct UpdateControl: Codable, Equatable, Sendable {
     /// Changes an accepted update incorporates, until the log compacts them.
     var settled: [String] = []
     var acceptedConflicted: Bool?
+    var publications: [ChangePublication] = []
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case schema, attempt, attemptTip, held, settled, acceptedConflicted
+        case schema, attempt, attemptTip, held, settled, acceptedConflicted, publications
         // Schema 3.
         case sourceAttemptChange, sourceAcceptedChanges, head, nextBase
     }
@@ -175,12 +176,14 @@ struct UpdateControl: Codable, Equatable, Sendable {
             held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
             settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
         }
+        publications = try values.decodeIfPresent([ChangePublication].self, forKey: .publications) ?? []
         schema = Self.currentSchema
     }
 
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(schema, forKey: .schema)
+        try values.encode(publications, forKey: .publications)
         try values.encodeIfPresent(attempt, forKey: .attempt)
         try values.encodeIfPresent(attemptTip, forKey: .attemptTip)
         try values.encodeIfPresent(held, forKey: .held)

@@ -13,8 +13,8 @@
 
 /** Trailing delay before unsent durable local work is published. */
 export const PUBLICATION_DELAY_MS = 250;
-/** Maximum delay from the first unsent durable change to its publication. */
-export const PUBLICATION_MAX_DELAY_MS = 1_000;
+/** Optional cap for continuously active sources; interactive clients wait for idle. */
+export const PUBLICATION_MAX_DELAY_MS: number | undefined = undefined;
 
 /** Select one contiguous authored branch in admission order. Prepared requests
  * bypass this selector: uncertain/in-flight bodies must be retried exactly. */
@@ -46,6 +46,8 @@ export interface AcceptedBase {
 export interface LocalTip {
   change: string;
   root: string;
+  /** False when pending work carries identity even if its bytes return to the base. */
+  settleIfUnchanged?: boolean;
 }
 
 export interface PreparedRequest {
@@ -77,6 +79,12 @@ export type HeldReason = "rejected" | "unsupported";
 interface Base {
   base?: AcceptedBase;
   transportAvailable: boolean;
+  /** Idle has elapsed, including while another request was in flight. */
+  publicationReady?: boolean;
+  /** A first unsent change has started the optional maximum-delay window. */
+  publicationWindowOpen?: boolean;
+  /** A due maximum or explicit flush remains latched until preparation. */
+  publicationForced?: boolean;
 }
 
 export type UpdateState =
@@ -104,7 +112,7 @@ export type UpdateEvent =
   /** A retained request found at startup: held again, or resubmitted exactly. */
   | { type: "recovered"; request: PreparedRequest; held?: HeldReason; detail?: string }
   /** A local change is durable in the change log. */
-  | { type: "localChange"; change: string; root: string }
+  | { type: "localChange"; change: string; root: string; settleIfUnchanged?: boolean }
   | { type: "publishDelayElapsed" }
   | { type: "maxDelayElapsed" }
   | { type: "pollElapsed" }
@@ -157,7 +165,7 @@ export interface UpdateTransition {
 }
 
 function ctx(state: Base): Base {
-  return { ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable };
+  return { ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable, ...(state.publicationReady === undefined ? {} : { publicationReady: state.publicationReady }), ...(state.publicationWindowOpen === undefined ? {} : { publicationWindowOpen: state.publicationWindowOpen }), ...(state.publicationForced === undefined ? {} : { publicationForced: state.publicationForced }) };
 }
 
 function pollEffects(options: UpdateOptions): UpdateEffect[] {
@@ -168,24 +176,15 @@ function successor(tip: LocalTip | undefined, request: PreparedRequest): LocalTi
   return tip && tip.change !== request.tip ? tip : undefined;
 }
 
-function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalTip, options: UpdateOptions): UpdateTransition {
-  if (!state.transportAvailable) {
-    return {
-      state: { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: latest },
-      effects: [],
-    };
-  }
-  return {
-    state: { ...ctx(state), kind: "locally-pending", base: state.base, tip: latest },
-    effects: [
-      { type: "schedule", timer: "trailing", delay: options.publicationDelayMs ?? PUBLICATION_DELAY_MS },
-      { type: "schedule", timer: "max", delay: options.publicationMaxDelayMs ?? PUBLICATION_MAX_DELAY_MS },
-    ],
-  };
+function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalTip, effects: UpdateEffect[]): UpdateTransition {
+  return { state: state.transportAvailable
+    ? { ...ctx(state), kind: "locally-pending", base: state.base, tip: latest }
+    : { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: latest }, effects };
 }
 
-function prepare(state: Base & { base: AcceptedBase }, tip: LocalTip): UpdateTransition {
-  if (tip.root === state.base.root) {
+function prepare(input: Base & { base: AcceptedBase }, tip: LocalTip): UpdateTransition {
+  const state = { ...input, publicationWindowOpen: false, publicationForced: false };
+  if (tip.root === state.base.root && tip.settleIfUnchanged !== false) {
     return { state: { ...ctx(state), kind: "current", base: state.base }, effects: [{ type: "cancelTimers" }, { type: "settle", tip }] };
   }
   return {
@@ -241,8 +240,11 @@ function poll(state: UpdateState): UpdateTransition {
   }
 }
 
-export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: UpdateOptions = {}): UpdateTransition {
-  if (state.kind === "terminal") return { state, effects: [] };
+export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: UpdateOptions = {}): UpdateTransition {
+  if (input.kind === "terminal") return { state: input, effects: [] };
+  const state: UpdateState = event.type === "localChange" && input.kind !== "unplaced"
+    ? { ...input, publicationReady: false, publicationWindowOpen: true, publicationForced: input.publicationWindowOpen ? input.publicationForced : false }
+    : event.type === "publishDelayElapsed" ? { ...input, publicationReady: true } : input;
 
   switch (event.type) {
     case "bootstrapInstalled": {
@@ -258,7 +260,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
 
     case "recovered": {
       const cleanOffline = state.kind === "offline" && state.availability.kind === "transport" && !state.request && !state.tip;
-      if (state.kind !== "current" && !cleanOffline) return { state, effects: [] };
+      if (state.kind !== "current" && !(state.kind === "offline" && cleanOffline)) return { state, effects: [] };
       if (event.held) {
         return {
           state: { ...ctx(state), kind: "held", base: state.base, reason: event.held, ...(event.detail === undefined ? {} : { detail: event.detail }), request: event.request },
@@ -273,45 +275,54 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
     }
 
     case "localChange": {
-      const latest: LocalTip = { change: event.change, root: event.root };
+      const latest: LocalTip = { change: event.change, root: event.root, ...(event.settleIfUnchanged === false ? { settleIfUnchanged: false } : {}) };
+      const delay: UpdateEffect[] = [{ type: "schedule", timer: "trailing", delay: options.publicationDelayMs ?? PUBLICATION_DELAY_MS }, ...(!input.publicationWindowOpen && options.publicationMaxDelayMs !== undefined ? [{type: "schedule" as const, timer: "max" as const, delay: options.publicationMaxDelayMs}] : [])];
       switch (state.kind) {
         case "unplaced":
           return { state, effects: [] };
         case "current":
-          return pendingFrom(state, latest, options);
+          return pendingFrom(state, latest, delay);
         case "locally-pending":
-          if (state.preparing) return { state: { ...state, tip: latest }, effects: [] };
+          if (state.preparing) return { state: { ...state, tip: latest }, effects: delay };
           return {
             state: { ...state, tip: latest },
-            effects: [{ type: "schedule", timer: "trailing", delay: options.publicationDelayMs ?? PUBLICATION_DELAY_MS }],
+            effects: delay,
           };
         case "submitting":
-          return { state: { ...ctx(state), kind: "submitting-pending", base: state.base, request: state.request, tip: latest }, effects: [] };
+          return { state: { ...ctx(state), kind: "submitting-pending", base: state.base, request: state.request, tip: latest }, effects: delay };
         case "prepared":
         case "submitting-pending":
         case "accepted-pending-apply":
         case "offline":
         case "held":
           // Later local work replaces one successor tip; the log keeps every change.
-          return { state: { ...state, tip: latest }, effects: [] };
+          return { state: { ...state, tip: latest }, effects: delay };
       }
       return { state, effects: [] };
     }
 
-    case "publishDelayElapsed":
-    case "maxDelayElapsed": {
+    case "publishDelayElapsed": {
+      if (state.kind === "offline" && state.availability.kind === "transport" && state.transportAvailable) return resume(state);
       if (state.kind !== "locally-pending" || state.preparing) return { state, effects: [] };
       return prepare(state, state.tip);
+    }
+    case "maxDelayElapsed": {
+      if (options.publicationMaxDelayMs === undefined || !state.publicationWindowOpen) return { state, effects: [] };
+      const next = {...state, publicationForced: true};
+      if (next.kind === "offline" && next.availability.kind === "transport" && next.transportAvailable) return resume(next);
+      if (next.kind !== "locally-pending" || next.preparing) return {state: next, effects: []};
+      return prepare(next, next.tip);
     }
 
     case "pollElapsed": {
       if (state.kind === "unplaced") return { state, effects: [] };
+      if ("tip" in state && state.tip && !state.publicationReady && !state.publicationForced) return { state, effects: pollEffects(options) };
       const polled = poll(state);
       return { state: polled.state, effects: [...polled.effects, ...pollEffects(options)] };
     }
 
     case "syncRequested":
-      return poll(state);
+      return poll({ ...state, publicationForced: true });
 
     case "requestPersisted": {
       if (state.kind === "locally-pending" || (state.kind === "offline" && state.transportAvailable)) {
@@ -387,7 +398,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
           };
         }
         case "locally-pending": {
-          if (state.preparing) return { state, effects: [] };
+          if (state.preparing || (!state.publicationReady && !state.publicationForced)) return { state, effects: [] };
           // Remote history advanced under local work: publish now; the authority merges.
           return prepare(state, state.tip);
         }
@@ -418,10 +429,9 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
       const base: AcceptedBase = event.installed ?? { root: state.result.root, update: state.result.update, ...(state.result.conflicted === undefined ? {} : { conflicted: state.result.conflicted }), ...(state.result.cursor ? { cursor: state.result.cursor } : {}) };
       const next: Base = { ...ctx(state), base };
       if (state.tip) {
-        // Publish the retained successor against the new applied base without waiting.
-        return {
-          state: { ...next, kind: "locally-pending", base, tip: state.tip },
-          effects: [{ type: "schedule", timer: "trailing", delay: 0 }],
+        // The quiet period runs from the last change, also while submitting.
+        return (state.publicationReady || state.publicationForced) ? prepare({ ...next, base }, state.tip) : {
+          state: { ...next, kind: "locally-pending", base, tip: state.tip }, effects: [],
         };
       }
       return { state: { ...next, kind: "current", base }, effects: [] };
@@ -452,7 +462,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
         case "locally-pending":
           return {
             state: { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: state.tip },
-            effects: [{ type: "cancelTimers" }],
+            effects: [],
           };
         default:
           // An accepted decision is durable knowledge; its apply is retried locally.
@@ -472,7 +482,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
             effects: [],
           };
         case "locally-pending":
-          return { state: { ...ctx(state), kind: "offline", base: state.base, availability, transmitted: false, tip: state.tip }, effects: [{ type: "cancelTimers" }] };
+          return { state: { ...ctx(state), kind: "offline", base: state.base, availability, transmitted: false, tip: state.tip }, effects: [] };
         default:
           return { state, effects: [] };
       }
@@ -487,7 +497,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
         if (state.kind === "locally-pending") {
           return {
             state: { ...ctx(next), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: state.tip },
-            effects: [{ type: "cancelTimers" }],
+            effects: [],
           };
         }
         if (state.kind === "current") {
@@ -520,11 +530,12 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
 /** Reconnection: retry the exact retained request, or append the latest tip to an ambiguous prefix once. */
 function resume(state: Extract<UpdateState, { kind: "offline" }>): UpdateTransition {
   if (state.request) {
-    if (state.transmitted && state.tip && state.tip.change !== state.request.tip) {
+    if (state.transmitted && state.tip && !state.publicationReady && !state.publicationForced) return { state, effects: [] };
+    if (state.transmitted && (state.publicationReady || state.publicationForced) && state.tip && state.tip.change !== state.request.tip) {
       // Ambiguous-recovery transition: the only place a longer append-only request is issued.
       return {
-        state,
-        effects: [{ type: "persistRequest", base: state.base, tip: state.tip, extends: state.request }],
+        state: { ...state, publicationWindowOpen: false, publicationForced: false },
+        effects: [{ type: "cancelTimers" }, { type: "persistRequest", base: state.base, tip: state.tip, extends: state.request }],
       };
     }
     const tip = successor(state.tip, state.request);
@@ -534,14 +545,10 @@ function resume(state: Extract<UpdateState, { kind: "offline" }>): UpdateTransit
     };
   }
   if (state.tip) {
-    if (state.tip.root === state.base.root) {
-      return { state: { ...ctx(state), kind: "current", base: state.base }, effects: [{ type: "settle", tip: state.tip }] };
-    }
-    // Bypass the trailing delay: reconnection is a publication boundary.
-    return {
-      state: { ...ctx(state), kind: "locally-pending", base: state.base, tip: state.tip, preparing: true },
-      effects: [{ type: "persistRequest", base: state.base, tip: state.tip }],
+    if (!state.publicationReady && !state.publicationForced) return {
+      state: { ...ctx(state), kind: "locally-pending", base: state.base, tip: state.tip }, effects: [],
     };
+    return prepare(state, state.tip);
   }
   // A clean offline replica may still be behind: reconnection is an authoritative catch-up boundary.
   return catchUp(state, state.base.cursor);

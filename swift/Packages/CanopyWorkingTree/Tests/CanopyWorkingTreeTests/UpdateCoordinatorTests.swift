@@ -146,7 +146,7 @@ struct UpdateCoordinatorTests {
             #expect(try Data(contentsOf:files.controlURL) == original)
             #expect(await transport.requests.isEmpty)
 
-            // A clean schema-3 control keeps its settled changes and becomes schema 4.
+            // A clean schema-3 control keeps its settled changes and becomes schema 5.
             let clean = #"{"presentation":{"localAdditions":false,"remoteAdditions":false,"state":"current"},"schema":3,"sourceAcceptedChanges":["c1"],"sourceMode":true}"#
             try files.atomicWrite(Data(clean.utf8), to: files.controlURL)
             let converted = try files.load()
@@ -531,6 +531,41 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    @Test("Repeated moves wait for idle and publish one move with the original identity")
+    func moveBurstPublication() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_move_burst"
+            let initial = try snapshot(markdown: "A\n\nB\n\nC\n\nD\n\n")
+            let transport = acceptingTransport(tree: tree, initial: initial)
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(200), pollInterval: .milliseconds(20))
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            for offset in [0, 3] {
+                let basis = try await session.snapshot()
+                let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [], moves: [.init(source: offset..<(offset + 3), anchor: (offset + 3)..<(offset + 6), side: .after)])
+                _ = try await session.admit(intent: .init(basis: basis, patch: patch, source: patch.applying(to: basis.source)))
+                try await Task.sleep(for: .milliseconds(80))
+                #expect(await transport.requests.isEmpty)
+            }
+            try await waitUntil { let sent = await transport.requests.count; return await coordinator.syncState.kind == "current" && sent > 0 }
+            let requests = await transport.requests
+            #expect(requests.count == 1)
+            let update = try #require(try requests.first?.decodedRequest().updates.first)
+            #expect(update.trace?.count == 1)
+            let operation = try #require(update.trace?.first?.operations.first)
+            #expect(operation.kind == "moveSource")
+            #expect(operation.fields["source"] == .object(["material": .object(["kind": .string("basis"), "path": .string("/note.md"), "object": .string(ProtocolObjectCodec.hash(Data("A\n\nB\n\nC\n\nD\n\n".utf8)))]), "range": .array([.integer(0), .integer(3)])]))
+            #expect(try await session.snapshot().source == "B\n\nC\n\nA\n\nD\n\n")
+            // A newly observed accepted snapshot starts a fresh authored basis.
+            try await admitAppend(session, "Later\n")
+            _ = try await coordinator.syncOnce()
+            let next = try #require(await transport.requests.last).decodedRequest()
+            #expect(next.updates.first?.change != update.change)
+            #expect(next.updates.count == 1)
+            await coordinator.close()
+        }
+    }
+
     @Test("A burst of edits before the publication delay becomes one request")
     func burstCoalescesBeforePublication() async throws {
         try await withTemporaryRoot { root in
@@ -554,7 +589,7 @@ struct UpdateCoordinatorTests {
             #expect(requests.count == 1)
             let request = try #require(requests.first).decodedRequest()
             // One element per authored change, in log order.
-            #expect(request.updates.count == 15)
+            #expect(request.updates.count == 1)
             #expect(request.updates.last?.candidate == (try await workingTree.heads().acceptedRoot))
             #expect((try await session.snapshot()).source.hasSuffix("Move 15\n"))
         }
@@ -589,7 +624,7 @@ struct UpdateCoordinatorTests {
             let prefix = try requests[0].decodedRequest()
             let resumed = try requests[1].decodedRequest()
             #expect(prefix.updates.count == 1)
-            #expect(resumed.updates.count == 38)
+            #expect(resumed.updates.count == 2)
             #expect(Array(resumed.updates.prefix(1)) == prefix.updates)
             #expect(Array(requests[1].requestDigests.prefix(1)) == requests[0].requestDigests)
 
@@ -1707,7 +1742,7 @@ struct SourceSessionPublicationTests {
             let requests = await transport.received
             #expect(requests.count == 2)
             let batch = try requests[1].decodedRequest()
-            #expect(batch.updates.count == 4)
+            #expect(batch.updates.count == 2)
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
             #expect(batch.updates.first?.objects.isEmpty == true)
             #expect(try await session.snapshot().source == "Fourth\n")

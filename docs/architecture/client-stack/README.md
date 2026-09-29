@@ -13,12 +13,17 @@ idempotency key. Arbor Sync and the native coordinator each durably retain
 their own semantic prefix across retry and restart, with the objects each
 request carries, so resubmission never consults a live object store.
 
-When canopyd returns a conflict for an update string, the client keeps the
-exact prepared request as durable conflict state: the `completed` prefix is
-already processed, `failedIndex` identifies the element under review, and
-the suffix remains unattempted. Resolution submits the reviewed element
-against the verified current descriptor, then guardedly replays the retained
-suffix in order. The machines, their invariants, and trace compaction are in
-[editor sources](../../implementing-editors/editor-source.md).
+Both client state machines default to publication after idle. They compile
+eligible unsent local records into one authored publication; repeated pure moves
+retain the original source identity in one final move. The durable mapping from
+local changes and operation results to their published names survives retries and
+restart. A prepared prefix is immutable. Continuous folder sources explicitly
+opt into a maximum delay; watch and poll traffic respect active editing bursts.
+See [the update machine and runner](../../implementing-sync-services/update-machine.md)
+and [editor sources](../../implementing-editors/editor-source.md).
+
+Valid concurrent work is reconciled or retained as accepted ambiguity by the host.
+Rejected or unsupported requests remain held with their exact body until the user
+discards them; later dependent work stays with that request.
 
 See [implementing sync services](../../implementing-sync-services/README.md) and the [filesystem package](../../../packages/fs/README.md).

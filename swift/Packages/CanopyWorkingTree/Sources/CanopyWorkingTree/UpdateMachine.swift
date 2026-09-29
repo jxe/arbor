@@ -11,8 +11,8 @@ import Foundation
 public enum UpdateMachine {
     /// Trailing delay before unsent durable local work is published.
     public static let publicationDelay: Duration = .milliseconds(250)
-    /// Maximum delay from the first unsent durable head to its publication.
-    public static let publicationMaxDelay: Duration = .seconds(1)
+    /// Optional cap for continuously active sources; interactive clients wait for idle.
+    public static let publicationMaxDelay: Duration? = nil
 
     /// Select one contiguous authored branch. Persisted requests bypass this
     /// selector so new admissions cannot change an uncertain/in-flight body.
@@ -48,10 +48,12 @@ public enum UpdateMachine {
     public struct LocalTip: Sendable, Equatable {
         public var change: String
         public var root: String
+        public var settleIfUnchanged: Bool
 
-        public init(change: String, root: String) {
+        public init(change: String, root: String, settleIfUnchanged: Bool = true) {
             self.change = change
             self.root = root
+            self.settleIfUnchanged = settleIfUnchanged
         }
     }
 
@@ -167,6 +169,10 @@ public enum UpdateMachine {
         public var phase: Phase
         public var base: AcceptedBase?
         public var transportAvailable: Bool
+        /// Idle may elapse while a previous request is still in flight.
+        public var publicationReady = false
+        public var publicationWindowOpen = false
+        public var publicationForced = false
 
         public init(phase: Phase = .unplaced, base: AcceptedBase? = nil, transportAvailable: Bool = true) {
             self.phase = phase
@@ -189,7 +195,7 @@ public enum UpdateMachine {
         /// A retained request found at startup: held again, or resubmitted exactly.
         case recovered(request: PreparedRequest, held: HeldReason?, detail: String? = nil)
         /// A local change is durable in the change log.
-        case localChange(change: String, root: String)
+        case localChange(change: String, root: String, settleIfUnchanged: Bool = true)
         case publishDelayElapsed
         case maxDelayElapsed
         case pollElapsed
@@ -249,13 +255,13 @@ public enum UpdateMachine {
 
     public struct Options: Sendable, Equatable {
         public var publicationDelay: Duration
-        public var publicationMaxDelay: Duration
+        public var publicationMaxDelay: Duration?
         /// When set, the machine polls for freshness and retries transport failures at this interval.
         public var pollInterval: Duration?
 
         public init(
             publicationDelay: Duration = UpdateMachine.publicationDelay,
-            publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay,
+            publicationMaxDelay: Duration? = UpdateMachine.publicationMaxDelay,
             pollInterval: Duration? = nil
         ) {
             self.publicationDelay = publicationDelay
@@ -295,44 +301,66 @@ public enum UpdateMachine {
             next.phase = .prepared(request: request, tip: nil)
             return (next, [.submit(request)])
 
-        case let .localChange(change, root):
-            let latest = LocalTip(change: change, root: root)
+        case let .localChange(change, root, settleIfUnchanged):
+            next.publicationReady = false
+            if !state.publicationWindowOpen { next.publicationForced = false }
+            next.publicationWindowOpen = true
+            let delay: [Effect] = [.schedule(.trailing, options.publicationDelay)] +
+                (!state.publicationWindowOpen ? options.publicationMaxDelay.map { [.schedule(.max, $0)] } ?? [] : [])
+            let latest = LocalTip(change: change, root: root, settleIfUnchanged: settleIfUnchanged)
             switch state.phase {
             case .unplaced, .terminal:
                 return (state, [])
             case .current:
-                return pending(next, latest, options: options)
+                return pending(next, latest, effects: delay)
             case let .locallyPending(_, preparing):
                 next.phase = .locallyPending(tip: latest, preparing: preparing)
-                return (next, preparing ? [] : [.schedule(.trailing, options.publicationDelay)])
+                return (next, delay)
             case let .prepared(request, _):
                 next.phase = .prepared(request: request, tip: latest)
-                return (next, [])
+                return (next, delay)
             case let .submitting(request), let .submittingPending(request, _):
                 next.phase = .submittingPending(request: request, tip: latest)
-                return (next, [])
+                return (next, delay)
             case let .acceptedPendingApply(result, request, _):
                 next.phase = .acceptedPendingApply(result: result, request: request, tip: latest)
-                return (next, [])
+                return (next, delay)
             case let .offline(availability, request, transmitted, _):
                 // Later local work replaces one successor tip; the log keeps every change.
                 next.phase = .offline(availability: availability, request: request, transmitted: transmitted, tip: latest)
-                return (next, [])
+                return (next, delay)
             case let .held(reason, detail, request, _):
                 // Work authored on a held request stays durable and waits with it.
                 next.phase = .held(reason: reason, detail: detail, request: request, tip: latest)
-                return (next, [])
+                return (next, delay)
             }
 
-        case .publishDelayElapsed, .maxDelayElapsed:
-            guard case let .locallyPending(tip, preparing) = state.phase, !preparing else { return (state, []) }
+        case .publishDelayElapsed:
+            next.publicationReady = true
+            if case let .offline(availability, request, transmitted, tip) = state.phase,
+               case .transport = availability, state.transportAvailable {
+                return resume(next, availability: availability, request: request, transmitted: transmitted, tip: tip)
+            }
+            guard case let .locallyPending(tip, preparing) = state.phase, !preparing else { return (next, []) }
+            return prepare(next, tip)
+
+        case .maxDelayElapsed:
+            guard options.publicationMaxDelay != nil, state.publicationWindowOpen else { return (state, []) }
+            next.publicationForced = true
+            if case let .offline(availability, request, transmitted, tip) = state.phase,
+               case .transport = availability, state.transportAvailable {
+                return resume(next, availability: availability, request: request, transmitted: transmitted, tip: tip)
+            }
+            guard case let .locallyPending(tip, preparing) = state.phase, !preparing else { return (next, []) }
             return prepare(next, tip)
 
         case .pollElapsed:
+            if state.phase.tip != nil, !state.publicationReady, !state.publicationForced { return (state, options.pollEffects) }
             let (polled, effects) = poll(next)
             return (polled, effects + options.pollEffects)
 
         case .syncRequested:
+            next.publicationForced = true
             return poll(next)
 
         case let .requestPersisted(request):
@@ -401,7 +429,7 @@ public enum UpdateMachine {
                 next.phase = .acceptedPendingApply(result: result, request: request, tip: tip)
                 return (next, [.apply(result)])
             case let .locallyPending(tip, preparing):
-                guard !preparing else { return (state, []) }
+                guard !preparing, state.publicationReady || state.publicationForced else { return (state, []) }
                 // Remote history advanced under local work: publish now; the authority merges.
                 return prepare(next, tip)
             case let .offline(availability, request, transmitted, tip):
@@ -426,9 +454,10 @@ public enum UpdateMachine {
             let base = installed ?? AcceptedBase(root: result.root, update: result.update, cursor: result.cursor, conflicted: result.conflicted)
             next.base = base
             if let tip {
-                // Publish the retained successor against the new applied base without waiting.
+                // Its quiet period started at the last local change, including
+                // time spent waiting for the previous request and its apply.
                 next.phase = .locallyPending(tip: tip, preparing: false)
-                return (next, [.schedule(.trailing, .zero)])
+                return (state.publicationReady || state.publicationForced) ? prepare(next, tip) : (next, [])
             }
             next.phase = .current
             return (next, [])
@@ -448,7 +477,7 @@ public enum UpdateMachine {
                 return (next, [])
             case let .locallyPending(tip, _):
                 next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: tip)
-                return (next, [.cancelTimers])
+                return (next, [])
             default:
                 return (state, [])
             }
@@ -467,7 +496,7 @@ public enum UpdateMachine {
                 return (next, [])
             case let .locallyPending(tip, _):
                 next.phase = .offline(availability: availability, request: nil, transmitted: false, tip: tip)
-                return (next, [.cancelTimers])
+                return (next, [])
             default:
                 return (state, [])
             }
@@ -482,7 +511,7 @@ public enum UpdateMachine {
                 switch state.phase {
                 case let .locallyPending(tip, _):
                     next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: tip)
-                    return (next, [.cancelTimers])
+                    return (next, [])
                 case .current:
                     // A clean tree offline may fall behind; reconnection catches it up.
                     next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: nil)
@@ -514,20 +543,22 @@ public enum UpdateMachine {
         tip.change != request.tip ? tip : nil
     }
 
-    private static func pending(_ state: State, _ latest: LocalTip, options: Options) -> (State, [Effect]) {
+    private static func pending(_ state: State, _ latest: LocalTip, effects: [Effect]) -> (State, [Effect]) {
         var next = state
         if !state.transportAvailable {
             next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: latest)
-            return (next, [])
+            return (next, effects)
         }
         next.phase = .locallyPending(tip: latest, preparing: false)
-        return (next, [.schedule(.trailing, options.publicationDelay), .schedule(.max, options.publicationMaxDelay)])
+        return (next, effects)
     }
 
     private static func prepare(_ state: State, _ tip: LocalTip) -> (State, [Effect]) {
         var next = state
         guard let base = state.base else { return (state, []) }
-        if tip.root == base.root {
+        next.publicationWindowOpen = false
+        next.publicationForced = false
+        if tip.root == base.root, tip.settleIfUnchanged {
             next.phase = .current
             return (next, [.cancelTimers, .settle(tip: tip)])
         }
@@ -590,22 +621,23 @@ public enum UpdateMachine {
         var next = state
         guard let base = state.base else { return (state, []) }
         if let request {
-            if transmitted, let tip, tip.change != request.tip {
+            if transmitted, tip != nil, !state.publicationReady, !state.publicationForced { return (next, []) }
+            if transmitted, state.publicationReady || state.publicationForced, let tip, tip.change != request.tip {
                 // Ambiguous-recovery transition: the only place a longer append-only request is issued.
                 next.phase = .offline(availability: availability, request: request, transmitted: true, tip: tip)
-                return (next, [.persistRequest(base: base, tip: tip, extends: request)])
+                next.publicationWindowOpen = false
+                next.publicationForced = false
+                return (next, [.cancelTimers, .persistRequest(base: base, tip: tip, extends: request)])
             }
             next.phase = .prepared(request: request, tip: tip.flatMap { successor($0, of: request) })
             return (next, [.submit(request)])
         }
         if let tip {
-            if tip.root == base.root {
-                next.phase = .current
-                return (next, [.settle(tip: tip)])
+            if !state.publicationReady, !state.publicationForced {
+                next.phase = .locallyPending(tip: tip, preparing: false)
+                return (next, [])
             }
-            // Bypass the trailing delay: reconnection is a publication boundary.
-            next.phase = .locallyPending(tip: tip, preparing: true)
-            return (next, [.persistRequest(base: base, tip: tip, extends: nil)])
+            return prepare(next, tip)
         }
         // A clean offline replica may still be behind: reconnection is an authoritative catch-up boundary.
         return catchUp(next, cursor: base.cursor)

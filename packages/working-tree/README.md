@@ -14,6 +14,8 @@ The root entry point is browser-safe:
 - `local-change.ts`: `LocalChange` and its preparation from a source edit
   (`prepareSourceChange`), a page creation, or entry actions; trace
   compaction.
+- `publication.ts`: identity-preserving composition of unsent records and repeated
+  pure moves, with durable local-to-published result mappings.
 - `entry-transfer.ts`: entry move, copy, and action preparation.
 - `control.ts`: the runner's durable `UpdateControl` record (the same schema
   as Swift's) and its exact `UpdateAttempt`.
@@ -29,3 +31,7 @@ the runner is described in
 [the update machine](../../docs/implementing-sync-services/update-machine.md).
 `tests/unit/update-runner.test.ts` executes the runner vectors
 `tests/fixtures/update-runner.json`, which the Swift runner also executes.
+
+Publication defaults to 250 ms of idle. Continuous folder sources opt into a
+1 s maximum; explicit sync can flush. Watch and poll traffic do not interrupt
+an active local burst. Prepared requests remain exact across retries and restart.

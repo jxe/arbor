@@ -1,15 +1,17 @@
 import { decodeBase64, decodeWireBody, encodeBase64, encodeUpdateRequestJSON, encodeWireBody, updateRequestDigests, decodeUpdateRequestJSON,
   type UpdateRequest, type WireEncoding } from "@overstory/protocol";
+import type { ChangePublication } from "./publication.ts";
 import type { HeldReason } from "./update-machine.ts";
 
 /**
  * What the update machine's runner retains beside the change log: the exact
  * persisted request and the change it ends at, why it is held, and which
  * changes have settled. The accepted `{ root, update, cursor }` is the working
- * tree's own state. The same schema as Swift's `UpdateControl` (schema 4).
+ * tree's own state. The same schema as Swift's `UpdateControl` (schema 5).
  */
 export interface UpdateControl {
-  schema: 4;
+  schema: 5;
+  publications?: ChangePublication[];
   attempt?: UpdateAttempt;
   /** The local change the attempt's last element carries. */
   attemptTip?: string;
@@ -56,7 +58,7 @@ export class UpdateValidationError extends Error {
   constructor(message: string) { super(message); this.name = "UpdateValidationError"; }
 }
 
-export function emptyControl(): UpdateControl { return { schema: 4, settled: [] }; }
+export function emptyControl(): UpdateControl { return { schema: 5, settled: [] }; }
 
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === "string" && item.length > 0);
 
@@ -66,19 +68,19 @@ export function decodeControl(value: unknown, file = "update-control.json"): Upd
   const record = value as Record<string, unknown>;
   const schema = record.schema;
   if (typeof schema !== "number" || !Number.isInteger(schema)) throw new UpdateStateError(`${file} has no schema`);
-  if (schema > 4) throw new UpdateStateError(`${file} schema ${schema} is newer than this client`);
+  if (schema > 5) throw new UpdateStateError(`${file} schema ${schema} is newer than this client`);
   if (schema < 4) {
     const earlier = record.head != null || record.nextBase != null || (record.attempt != null && record.sourceAttemptChange == null);
     if (earlier) throw new UpdateStateError(`${file} holds unpublished work from an earlier client. Finish publishing it with that version, then update.`);
   }
-  const control: UpdateControl = { schema: 4, settled: [] };
+  const control: UpdateControl = { schema: 5, settled: [] };
   if (record.attempt != null) control.attempt = decodeAttempt(record.attempt, file);
   const tip = schema < 4 ? record.sourceAttemptChange : record.attemptTip;
   if (tip != null) {
     if (typeof tip !== "string" || !tip) throw new UpdateStateError(`${file} has an invalid attempt tip`);
     control.attemptTip = tip;
   }
-  if (schema === 4 && record.held != null) {
+  if (schema >= 4 && record.held != null) {
     const held = record.held as Record<string, unknown>;
     if (held.reason !== "rejected" && held.reason !== "unsupported") throw new UpdateStateError(`${file} has an invalid held reason`);
     control.held = { reason: held.reason, ...(typeof held.detail === "string" ? { detail: held.detail } : {}) };
@@ -89,6 +91,14 @@ export function decodeControl(value: unknown, file = "update-control.json"): Upd
     control.settled = [...settled];
   }
   if (typeof record.acceptedConflicted === "boolean") control.acceptedConflicted = record.acceptedConflicted;
+  if (record.publications != null) {
+    if (!Array.isArray(record.publications)) throw new UpdateStateError(`${file} has invalid publications`);
+    control.publications = record.publications.map((group: ChangePublication) => {
+      if (!strings(group.changes) || !group.changes.length || !group.update?.change || !group.operations || typeof group.operations !== "object") throw new UpdateStateError(`${file} has invalid publication mapping`);
+      decodeUpdateRequestJSON({ base: "publication-validation", updates: [group.update] });
+      return group;
+    });
+  }
   if (control.attempt && !control.attemptTip) throw new UpdateStateError(`${file} has an attempt without its tip`);
   return control;
 }
@@ -140,7 +150,7 @@ export function verifyAttempt(control: UpdateControl): void {
   const request = attemptRequest(attempt);
   const digests = updateRequestDigests(attempt.tree, request);
   if (request.base !== attempt.base.update || request.updates.at(-1)?.candidate !== attempt.candidate
-      || request.updates.at(-1)?.change !== control.attemptTip || attempt.digest !== attempt.requestDigests.at(-1)
+      || (request.updates.at(-1)?.change !== control.attemptTip && !control.publications?.some(group => group.update.change === request.updates.at(-1)?.change && group.changes.at(-1) === control.attemptTip)) || attempt.digest !== attempt.requestDigests.at(-1)
       || digests.length !== attempt.requestDigests.length || digests.some((digest, index) => digest !== attempt.requestDigests[index])) {
     throw new UpdateStateError("Durable update intent does not match its digests");
   }

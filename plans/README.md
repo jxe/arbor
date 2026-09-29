@@ -28,6 +28,13 @@ placement hosts too. After Apps 005.
 
 ## Later
 
+**[Clients 002: more identity-preserving coalescing](clients/002-identity-preserving-coalescing.md).**
+Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
+with enough identity for canopyd to merge concurrent work correctly. After the
+idle-based publication baseline, extend simplification beyond repeated moves of
+one unchanged span. Implement each case in the Swift and TypeScript clients,
+using shared examples and the host merge engine to prove the result.
+
 **[Apps 003: compile and typecheck executable documents](apps/003-development-compiler-and-editor-tooling.md).**
 Later, for testing Overstory as a web framework: one compiler and typechecker for
 executable documents everywhere, which the Supplies site needs. After the queries and

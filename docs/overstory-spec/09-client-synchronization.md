@@ -115,10 +115,12 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    durable in the change log independently of the network, **together with
    the objects it introduces over its basis**, before the machine learns of
    it. A process that stops before publication recovers the change from the
-   log. The machine then arms a trailing publication delay and a maximum
-   delay from the first unsent change. Explicit synchronization, shutdown
-   drain, reconnection, and a watch event under pending work bypass the
-   delay.
+   log. By default, each local change restarts a trailing publication delay:
+   publication waits for idle. A source needing bounded progress under
+   continuous activity MAY opt into a maximum delay from the first unsent
+   change. Explicit synchronization or a shutdown drain MAY force publication.
+   Reconnection, watch events and freshness polls MUST respect an active idle
+   window; they are not evidence that the author has finished a burst.
 2. **Every working tree is a source.** A change observed from disk, from an
    editor, or from an explicit local operation is authored work; the log
    keeps its provenance but the machine treats it the same way. A change
@@ -128,9 +130,13 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
 3. **One request is the log's chain, prepared exactly.** When the delay
    elapses the client persists one exact request: the chain of local changes
    from the accepted basis of its oldest unsettled change through the tip,
-   in log order, each as its immutable wire element. A settled change still
-   named as a basis is repeated without its objects or deltas, so the host
-   trims it by request digest. A request's base, change IDs, traces,
+   in log order. Before preparation, a client MAY coalesce a contiguous
+   authored chain under a fresh publication identity, preserving causal
+   meaning, material identity and references to operation results. It MUST
+   retain the original local records and a durable mapping to the published
+   change and operation identities while descendants need them. A settled
+   publication still named as a basis is repeated without its objects or
+   deltas, so the host trims it by request digest. A request's base, change IDs, traces,
    matching policies, candidates, derived digests, **and the object
    envelopes it carries** are one immutable record from the first attempt
    onward. Resubmission reads only that record, never a live object store:
@@ -141,8 +147,10 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    `accepted-pending-apply` advance one retained tip. The client does not
    send a longer request because another change arrived. After the result
    is durably applied, it publishes the chain through the tip against the
-   new base without waiting for the trailing delay. Because every change
-   names its authored basis, the successor's request repeats the settled
+   new base once the tip's idle window has elapsed (or an explicit flush or
+   configured maximum has forced it). Idle elapsed during submission is
+   remembered; applying a receipt does not start another delay. Because every
+   change names its authored basis, the successor's request repeats the settled
    prefix exactly and appends the new changes once; the host trims the
    accepted prefix by request digest and reconciles only the new transition.
 5. **Racing evidence.** The response and the matching watch event are
@@ -160,10 +168,10 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    transport transition batch (including a net transition spanning
    intermediate accepted updates) in memory and materializes its final state
    once, or pulls the current snapshot when the batch does not chain. A watch
-   event under pending work triggers publication and never overwrites local
-   changes. A client that polls for freshness treats a poll as an
-   authoritative catch-up boundary when clean and as a publication boundary
-   under pending work.
+   event under pending work never overwrites local changes and triggers
+   publication only when the pending idle window permits it. A client that
+   polls for freshness treats a poll as an authoritative catch-up boundary
+   when clean; pending work follows the same publication timing rules.
 8. **Accepted ambiguity is ordinary acceptance; rejection is held.** Ordinary
    valid concurrent edits are reconciled or retained as accepted ambiguity by
    the host. A stale basis alone does not enter a client-owned conflict
@@ -266,7 +274,10 @@ The reference editor source is described in
   concatenated, never rebased: each frame's references name material in its
   own `before` tree, and operation keys stay unique across the whole trace. A
   client MAY merge adjacent frames only when it can prove the merged frame
-  reproduces the same result.
+  reproduces the same bytes and preserves material origins, derivation,
+  destination identity, and still-addressable operation results. Equal roots
+  alone do not establish this equivalence or permit settling semantic work
+  without publication.
 - Restart MUST recover the original basis and pending intent from the change
   log. A newer projection does not turn recovery into a request for local
   merge review. Unknown submission outcomes require exact retry; equality

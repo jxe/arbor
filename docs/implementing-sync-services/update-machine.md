@@ -48,9 +48,9 @@ Each effect, and what the runners do for it:
 
 | Effect | Runner |
 |---|---|
-| `persistRequest(base, tip, extends)` | Cut `ChangeLog.request(through: tip)`: the chain from the oldest unsettled change's accepted basis through the tip, settled changes repeated without objects. Persist it as the immutable `UpdateAttempt`, then dispatch `requestPersisted`. An `extends` whose digests are not a prefix is retried exactly instead. |
+| `persistRequest(base, tip, extends)` | Cut `ChangeLog.request(through: tip)`: the chain from the oldest unsettled change's accepted basis through the tip, settled changes repeated without objects. Compile eligible unsent records into publications, retaining their local-change and operation-result mappings. Persist the mappings and immutable `UpdateAttempt` together, then dispatch `requestPersisted`. An `extends` whose digests are not a prefix is retried exactly instead. |
 | `submit(request)` | Send the persisted body in its persisted encoding; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
-| `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark the request's changes settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
+| `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark all local changes covered by the request's publications settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
 | `catchUp(cursor)` | Replay the watch batch that cursor names when it chains from the installed state, otherwise install the host's current state; dispatch `applied(installed:)`. |
 | `settle(tip)` | Mark the chain through `tip` settled without a request. |
 | `stop(reason)` | Record the terminal diagnostic and cancel timers. |
@@ -105,9 +105,11 @@ Under a tree's state root:
   sources or editor transactions. Appends are fsynced and flock-serialized; a
   corrupt journal fails without being rewritten. A journal written under the
   earlier name `source-admissions.json` is moved in place on first open.
-- **`sync/update-control.json`** (`UpdateControl`, schema 4): the exact
+- **`sync/update-control.json`** (`UpdateControl`, schema 5): the exact
   `UpdateAttempt` and the change it ends at, the held reason, the settled
-  changes the log has not yet compacted, and the accepted unresolved signal.
+  changes the log has not yet compacted, the accepted unresolved signal, and
+  publication groups mapping original change and operation identities to their
+  immutable wire representation. Schema-4 controls read with no groups.
   The accepted `{ root, update, cursor }` is the working tree's own state.
   Every write appends a line to `sync/events.jsonl`. An attempt's `body` is
   its exact request bytes and `contentType` their encoding: new attempts are
@@ -150,7 +152,8 @@ retained.
 stream, feeds every event to the coordinator, reconnects with backoff, and
 recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and visits
 share it. A watch frame under a transport failure is evidence that transport
-works and retries at once.
+works. An exact retry can proceed immediately; extending an ambiguous
+request with active local work waits for idle.
 
 **Structural gating.** Structural actions, imports and assets are available
 only when unsettled changes form one chain from the installed accepted graph;
@@ -159,11 +162,41 @@ advertise that restriction; the coordinator enforces it. Local Trash nodes and
 locally held file objects are private recovery material in the same structural
 record, excluded from Overstory candidates.
 
-## Reference timing
+## Idle publication and coalescing
 
-The reference publication delays are 250 ms after the latest local change and
-1 s from the first unsent change. The app polls every 30 s, which catches a
-clean tree up and retries a transport failure while the network is believed
-available. These are configurable per client and are not Overstory
-compatibility values; changing them requires request-count evidence and
-matching test updates.
+Both machines wait for **250 ms without a new durable local change** by default.
+Local work resets that timer even while a request is in flight or transport is
+unavailable. Once idle elapses, the successor is ready; acceptance does not add
+another wait. Watch traffic and freshness polls do not cut an active burst short.
+Explicit synchronization forces publication. Arbor Sync's folder source opts
+into a **1 s maximum** so continuously changing files still make progress; the
+maximum starts with the first pending change and remains due across submission.
+The app polls every 30 s for freshness. These are configurable implementation
+values, not protocol compatibility constants.
+
+`ChangePublication.swift` and `publication.ts` compile one contiguous unsent
+chain into a fresh authored update. Mixed operation-bearing records retain their
+ordered frames with unique operation keys. Repeated pure moves of the same
+original span reduce to one move from that original span to its final anchor;
+coordinates are transported through the moves, never inferred from equal text.
+Snapshots, resolutions and guarded changes are boundaries, and generic batches split at 64 frames
+or 1024 operations. Local records and undo history remain intact.
+
+Generic batching retains intermediate object material. A delta survives only
+when its result reaches the final candidate; otherwise its intermediate object
+is retained. Fewer update elements therefore do not guarantee fewer bytes for
+mixed or plain-edit sequences. Eliminating those intermediate versions is the
+first follow-up priority.
+
+The compiler persists original-to-published change and operation-result mappings
+with the prepared request. A later descendant uses those names, and acceptance
+or explicit discard covers every original record represented by the publication.
+Prepared or ambiguously transmitted prefixes are immutable, including across
+restart. Mapping retention follows the retained local chain. A semantic change
+with unchanged final bytes still publishes: equal roots do not prove equal identity.
+
+Shared `coalesced-publication.json` fixtures check the compiler in both languages;
+the TypeScript tests also run the real merge engine against concurrent peer edits.
+The runner vectors cover exact retries, restart, ambiguous extensions and discard.
+Further byte reductions are ordered in [Clients 002](../../plans/clients/002-identity-preserving-coalescing.md),
+starting with plain edits across records, then moves with edits and selections.

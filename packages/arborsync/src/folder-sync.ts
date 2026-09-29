@@ -230,6 +230,8 @@ export class FolderSync implements AcceptedTree {
       snapshot: (tree, root) => authenticated((client) => client.snapshot(tree, root)),
     };
     this.coordinator = new UpdateCoordinator(tree, this.log, new FileControlStore(stateRoot), transport, this, {
+      // A continuously changing folder must still make bounded progress.
+      publicationMaxDelayMs: 1_000,
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
       onState: (state) => {
         if (state.kind !== "unplaced") this.report(folderSyncState(state));

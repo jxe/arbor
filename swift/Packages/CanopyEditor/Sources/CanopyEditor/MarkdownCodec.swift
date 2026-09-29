@@ -239,8 +239,8 @@ public enum CanopyMarkdownCodec {
         )
     }
 
-    static func admission(blocks: [Block], ledger: CanopySourceLedger, copies: [BlockID: BlockID] = [:], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (CanopyMarkdownAdmission, CanopySourceLedger) {
-        if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger) { return arranged }
+    static func admission(blocks: [Block], ledger: CanopySourceLedger, copies: [BlockID: BlockID] = [:], moved: Set<BlockID> = [], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (CanopyMarkdownAdmission, CanopySourceLedger) {
+        if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger, moved: moved) { return arranged }
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
@@ -394,7 +394,7 @@ public enum CanopyMarkdownCodec {
     /// Anything else (new, removed or edited blocks, tabs, an indentation this
     /// cannot shift, a separator the new order would need) returns nil and the
     /// generation is serialized as an ordinary edit.
-    private static func arrangement(blocks: [Block], ledger: CanopySourceLedger) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
+    private static func arrangement(blocks: [Block], ledger: CanopySourceLedger, moved: Set<BlockID>) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
         struct Placed { var record: SourceRecord; var depth: Int; var indent: Int; var raw: String; var edits: [WorkspaceSourceEdit] }
         var placed: [Placed] = []
         var seen = Set<BlockID>()
@@ -412,7 +412,7 @@ public enum CanopyMarkdownCodec {
         // Try the exact bytes first. A top-level block recorded without a
         // blank line after it (the last block, or one written tight against
         // its successor) may need one before a different successor.
-        if let result = arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger) { return result }
+        if let result = arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger, moved: moved) { return result }
         let successors = Dictionary(uniqueKeysWithValues: zip(ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.map(\.block.id),
                                                               ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
         let blank = ledger.newline + ledger.newline
@@ -424,14 +424,19 @@ public enum CanopyMarkdownCodec {
             placed[index].edits.append(.init(utf8Range: (end - width)..<end, replacement: blank,
                                              lineage: [.init(source: (end - width)..<end, replacement: 0..<width)]))
         }
-        return arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger)
+        return arranged(placed: placed.map { ($0.record, $0.depth, $0.indent, $0.raw, $0.edits) }, blocks: blocks, ledger: ledger, moved: moved)
     }
 
     private static func arranged(placed: [(record: SourceRecord, depth: Int, indent: Int, raw: String, edits: [WorkspaceSourceEdit])],
-                                 blocks: [Block], ledger: CanopySourceLedger) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
+                                 blocks: [Block], ledger: CanopySourceLedger, moved: Set<BlockID>) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
         let old = placed.map(\.record.range.lowerBound)
         // Blocks that keep their relative order stay; the rest move.
-        let stays = Set(longestIncreasingSubsequence(old).map { placed[$0].record.block.id })
+        let stays = moved.isEmpty
+            ? Set(longestIncreasingSubsequence(old).map { placed[$0].record.block.id })
+            : Set(placed.map { $0.record.block.id }).subtracting(moved)
+        // Explicitly stationary blocks must really retain their relative order.
+        let stationary = placed.filter { stays.contains($0.record.block.id) }.map { $0.record.range.lowerBound }
+        guard stationary == stationary.sorted(), !stays.isEmpty else { return nil }
         let envelope = ledger.envelope.utf8.count
         var moves: [WorkspaceSourceMove] = []
         var index = 0

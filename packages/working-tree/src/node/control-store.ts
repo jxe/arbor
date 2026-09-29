@@ -15,7 +15,7 @@ export class FileControlStore implements ControlStore {
     let text: string;
     try { text = await readFile(this.path, "utf8"); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schema: 4, settled: [] };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schema: 5, settled: [] };
       throw error;
     }
     return decodeControl(JSON.parse(text));
@@ -26,13 +26,13 @@ export class FileControlStore implements ControlStore {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     try {
       const file = await open(temporary, "wx", 0o600);
-      try { await file.writeFile(JSON.stringify({ ...control, schema: 4 })); await file.sync(); } finally { await file.close(); }
+      try { await file.writeFile(JSON.stringify({ ...control, schema: 5 })); await file.sync(); } finally { await file.close(); }
       await rename(temporary, this.path);
       const dir = await open(directory, "r"); try { await dir.sync(); } finally { await dir.close(); }
     } finally { await rm(temporary, { force: true }); }
     // Scheduling and persistence evidence that outlives the cleared control.
     // Never authored source or credentials: the change log holds the work.
-    await appendFile(this.eventsPath, JSON.stringify({ timestamp: Date.now() / 1000, phase, schema: 4,
+    await appendFile(this.eventsPath, JSON.stringify({ timestamp: Date.now() / 1000, phase, schema: 5,
       attempt: control.attempt?.digest ?? "", tip: control.attemptTip ?? "", candidate: control.attempt?.candidate ?? "",
       held: control.held?.reason ?? "", settled: control.settled.length }) + "\n", { mode: 0o600 });
   }

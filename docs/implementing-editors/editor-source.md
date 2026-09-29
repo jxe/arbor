@@ -16,19 +16,20 @@ The reference implementation is `EditorSource` (`CanopyAppKit`, provider
 agnostic) with `CanopyDocumentBinding` (`CanopyEditor`) as its Quagmire
 plumbing. No TypeScript editor source exists yet; Web 025 adds one.
 
-## 1. Two clocks
+## 1. Three clocks
 
 - **Editor history** may keep every movement. Undo grouping and the typing
   checkpoint are the editor's own clocks (Quagmire commits a typing run after
-  750 ms of inactivity) and never influence what is sent.
+  750 ms of inactivity) and are independent of publication timing.
 - **Durable local changes** are what the change log holds. Each committed
   generation is appended at once; there is no second debounce.
 - **Accepted host history** is produced later by the update machine, which
   coalesces a burst of changes behind its own publication delay.
 
-A rapid sequence of 15 Option-arrow moves is therefore 15 undo entries, a few
-appended changes (those committed while an append is in flight travel
-together), and normally one accepted update.
+A rapid sequence of 15 Option-arrow moves retains each committed generation
+locally (generations committed during an append travel together). After idle,
+repeated pure moves of the same span publish as one move in one authored update.
+Editor undo grouping remains independent.
 
 ## 2. The source
 
@@ -58,6 +59,11 @@ The Quagmire binding does what only the editor can:
 - **Capture exactly.** Each generation's patch is captured against the
   previous generation's ledger, so it states what the editor did, including
   lineage and explicit copies; the source restates it against its basis.
+- **Capture the selected identity.** Quagmire exposes the blocks actually moved
+  during the synchronous commit callback, including moved descendants. The binding
+  passes that evidence into the codec so moving A down is described as moving A,
+  rather than inferring that its neighbors moved up. The codec falls back to an
+  order comparison only when explicit movement evidence is unavailable.
 - **Move, don't retype.** A generation that only rearranges blocks (a reorder,
   a drag, an indent or outdent, a move under another parent) is captured as
   moves of each relocated block's exact source, beside a block that stays or
@@ -134,7 +140,9 @@ lineage-free `editSource` over `basis` material with a range, the generations
 compose per path through `composeSourceEdits`, the composed operations are
 keyed `edit-<k>-<i>` in output order, and a run that returns to its starting
 root yields no frame. Frames carrying lineage, copies, moves or operation
-material name the generation they were captured against and are never merged. A trace
+material name the generation they were captured against and are not merged by
+this admission-time plain-edit compactor. Publication-time composition below is
+separate. A trace
 that would exceed the protocol's 64 frames or 1024 operations is dropped to
 `trace: null`; exact bytes stay authoritative. The same rule runs in the
 host's `composeFrames`, which proves a composition by executing it.
@@ -148,6 +156,20 @@ another request. The shared reference cases are in
 request before sending it; new changes cannot extend an uncertain in-flight
 attempt except through the ambiguous-recovery transition. Retrying repeats its
 original body and change identities.
+
+Before freezing the request, both runners compile eligible contiguous local
+records into one publication with a fresh change ID and unique operation keys.
+Mixed edits, copies and moves retain their frames. Repeated pure moves of the same
+unchanged original span collapse to one original-source move at the final anchor.
+The final bytes are checked, and original operation-result names map to the
+published result. Snapshots, resolutions and guarded changes remain boundaries; large generic
+traces split at the protocol limits. The originals remain durable for recovery.
+
+Publication mappings and the exact body are persisted together. Later descendants
+use the mapped identities; acceptance and discard account for all covered local
+records. A successor waits for idle, including after an earlier request succeeds.
+Idle already elapsed during submission does not incur another wait. Explicit sync
+can force publication, but watch events and polls do not interrupt a move burst.
 
 Accepted ancestry remains in a batch to preserve attribution, but its objects
 and deltas are omitted. canopyd uses the credential-bound receipt to avoid

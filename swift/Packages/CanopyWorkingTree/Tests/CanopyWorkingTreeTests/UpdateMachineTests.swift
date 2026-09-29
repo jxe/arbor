@@ -50,6 +50,9 @@ struct UpdateMachineTests {
             if let poll = (scenario["options"] as? [String: Any])?["pollIntervalMs"] as? Int {
                 options.pollInterval = .milliseconds(poll)
             }
+            if let maximum = (scenario["options"] as? [String: Any])?["publicationMaxDelayMs"] as? Int {
+                options.publicationMaxDelay = .milliseconds(maximum)
+            }
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
                 let event = try Self.event(from: try #require(step["event"] as? [String: Any]))
@@ -188,7 +191,7 @@ struct UpdateMachineTests {
                 detail: json["detail"] as? String
             )
         case "localChange":
-            return .localChange(change: try #require(json["change"] as? String), root: try #require(json["root"] as? String))
+            return .localChange(change: try #require(json["change"] as? String), root: try #require(json["root"] as? String), settleIfUnchanged: json["settleIfUnchanged"] as? Bool ?? true)
         case "pollElapsed":
             return .pollElapsed
         case "rejected":

@@ -8,12 +8,23 @@
       "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "settle", "stop"],
       "scenarios": [
         {
+          "name": "an explicit clean sync does not force the next editing burst",
+          "initial": { "kind": "current", "base": { "root": "r0", "update": "u0" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "syncRequested" }, "state": "accepted-pending-apply", "effects": ["catchUp"] },
+            { "event": { "type": "applied" }, "state": "current", "effects": [] },
+            { "event": { "type": "localChange", "change": "c1", "root": "r1" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "pollElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
           "name": "accepted conflicts advance identity at the same root without blocking ordinary edits",
           "initial": { "kind": "current", "base": { "root": "r0", "update": "u0", "cursor": "u0" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "watch", "root": "r0", "update": "u1", "cursor": "u1", "digests": [], "transitions": true, "conflicted": true }, "state": "accepted-pending-apply", "effects": ["catchUp"], "expect": { "result.conflicted": true } },
             { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "r0", "base.update": "u1", "base.conflicted": true } },
-            { "event": { "type": "localChange", "change": "c-r2", "root": "r2" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "base.conflicted": true } }
+            { "event": { "type": "localChange", "change": "c-r2", "root": "r2" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.conflicted": true } }
           ]
         },
         {
@@ -28,6 +39,7 @@
         },
         {
           "name": "fifteen durable heads before the delay become one persisted request carrying the final head",
+          "options": { "publicationMaxDelayMs": 1000 },
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "tip.root": "h1" } },
@@ -56,10 +68,10 @@
           "name": "a head during submission is one replaceable successor, never a concurrent request",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h2" } },
-            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"], "expect": { "request.candidate": "h1", "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": ["schedule"], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h3" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.update": "u1", "tip.root": "h3" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": [], "expect": { "base.update": "u1", "tip.root": "h3" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
             { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h3", "tip": "c-h3", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
           ]
@@ -91,21 +103,23 @@
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [] },
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [], "expect": { "tip.root": "h2" } },
-            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "offline", "effects": [], "expect": { "tip.root": "h3" } },
-            { "event": { "type": "localChange", "change": "c-h4", "root": "h4" }, "state": "offline", "effects": [], "expect": { "tip.root": "h4", "request.candidate": "h1" } },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "expect": { "request.id": "q1", "tip.root": "h4" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h3" } },
+            { "event": { "type": "localChange", "change": "c-h4", "root": "h4" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h4", "request.candidate": "h1" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "expect": { "request.id": "q1", "tip.root": "h4" } },
             { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h4", "tip": "c-h4", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q1", "q2"] } },
             { "event": { "type": "submitStarted", "id": "q2" }, "state": "submitting", "effects": [] }
           ]
         },
         {
-          "name": "an offline replica with unsent work publishes immediately on reconnection",
+          "name": "an idle offline replica with unsent work publishes on reconnection",
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": false },
           "steps": [
-            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "offline", "effects": [], "expect": { "transmitted": false, "tip.root": "h1" } },
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [], "expect": { "tip.root": "h2" } },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "locally-pending", "effects": ["persistRequest"], "expect": { "preparing": true } },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "offline", "effects": ["schedule"], "expect": { "transmitted": false, "tip.root": "h1" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
             { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h2", "tip": "c-h2", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] }
           ]
         },
@@ -138,7 +152,7 @@
           "initial": { "kind": "submitting-pending", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true, "tip": { "change": "c-h2", "root": "h2" } },
           "steps": [
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "merged", "root": "M1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h2" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "M1", "tip.root": "h2" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": [], "expect": { "base.root": "M1", "tip.root": "h2" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
             { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h2", "tip": "c-h2", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "u1" } }
           ]
@@ -156,8 +170,8 @@
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "R", "update": "uR", "digests": ["q1"], "conflicted": true } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "result.conflicted": true, "request.id": "q1" } },
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "accepted-pending-apply", "effects": [], "expect": { "tip.root": "h2" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "R", "base.update": "uR", "base.conflicted": true, "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "accepted-pending-apply", "effects": ["schedule"], "expect": { "tip.root": "h2" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": [], "expect": { "base.root": "R", "base.update": "uR", "base.conflicted": true, "tip.root": "h2" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true, "base.conflicted": true } }
           ]
         },
@@ -165,7 +179,8 @@
           "name": "a watch arriving under unsent local work publishes now and never overwrites the head",
           "initial": { "kind": "locally-pending", "base": { "root": "A", "update": "uA" }, "transportAvailable": true, "tip": { "change": "c-h1", "root": "h1" } },
           "steps": [
-            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "tip.root": "h1", "base.root": "A" } }
+            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } }
           ]
         },
         {
@@ -181,7 +196,7 @@
           "name": "a change back to the accepted root settles locally without a request",
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localChange", "change": "c-A", "root": "A" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "localChange", "change": "c-A", "root": "A" }, "state": "locally-pending", "effects": ["schedule"] },
             { "event": { "type": "publishDelayElapsed" }, "state": "current", "effects": ["cancelTimers", "settle"], "effectExpect": { "1.tip.change": "c-A" } }
           ]
         },
@@ -190,10 +205,10 @@
           "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["f1", "q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [], "expect": { "request.digests": ["f1", "q1"], "request.candidate": "h1" } },
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [], "expect": { "request.digests": ["f1", "q1"], "tip.root": "h2" } },
-            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"], "expect": { "request.digests": ["f1", "q1"], "tip.root": "h2" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "submitting-pending", "effects": ["schedule"], "expect": { "request.candidate": "h1", "tip.root": "h3" } },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.root": "h3" } },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.update": "u1", "tip.root": "h3" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": [], "expect": { "base.update": "u1", "tip.root": "h3" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
             { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h3", "tip": "c-h3", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q2"], "request.base": "u1" } }
           ]
@@ -213,9 +228,9 @@
           "name": "a definitive rejection holds the request and later work until the chain is discarded",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"] },
             { "event": { "type": "rejected", "id": "q1", "detail": "stale resolution guard" }, "state": "held", "effects": [], "expect": { "reason": "rejected", "request.id": "q1", "tip.change": "c-h2" } },
-            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "held", "effects": [], "expect": { "tip.change": "c-h3" } },
+            { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "held", "effects": ["schedule"], "expect": { "tip.change": "c-h3" } },
             { "event": { "type": "transportAvailable", "available": true }, "state": "held", "effects": [] },
             { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "held", "effects": [] },
             { "event": { "type": "heldDiscarded" }, "state": "accepted-pending-apply", "effects": ["catchUp"], "effectExpect": { "0.cursor": "cA" } },
@@ -251,8 +266,9 @@
           "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": false },
           "steps": [
             { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": [] },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "effectExpect": { "0.tip.change": "c-h2", "0.extends.id": "q1" } }
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "effectExpect": { "1.tip.change": "c-h2", "1.extends.id": "q1" } }
           ]
         },
         {
@@ -263,7 +279,7 @@
             { "event": { "type": "bootstrapInstalled", "root": "A", "update": "uA", "cursor": "cA" }, "state": "current", "effects": ["schedule"], "effectExpect": { "0.timer": "poll" } },
             { "event": { "type": "pollElapsed" }, "state": "accepted-pending-apply", "effects": ["catchUp", "schedule"], "effectExpect": { "0.cursor": "cA" } },
             { "event": { "type": "applied" }, "state": "current", "effects": [] },
-            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule"] },
             { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
             { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] },
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": false } },
@@ -279,7 +295,7 @@
           "steps": [
             { "event": { "type": "syncRequested" }, "state": "accepted-pending-apply", "effects": ["catchUp"], "effectExpect": { "0.cursor": "cA" } },
             { "event": { "type": "applied", "installed": { "root": "B", "update": "uB", "cursor": "cB" } }, "state": "current", "effects": [], "expect": { "base.root": "B", "base.update": "uB", "base.cursor": "cB" } },
-            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "localChange", "change": "c-h1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule"] },
             { "event": { "type": "syncRequested" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true } },
             { "event": { "type": "requestPersisted", "request": { "id": "q1", "base": "uB", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "prepared", "effects": ["submit"] },
             { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
@@ -323,11 +339,64 @@
           "name": "losing transport under a hanging request extends it once on reconnection",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"] },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [], "expect": { "transmitted": true, "tip.change": "c-h2" } },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["persistRequest"], "effectExpect": { "0.extends.id": "q1" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "effectExpect": { "1.extends.id": "q1" } },
             { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h2", "tip": "c-h2", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"] },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "prepared", "effects": [] }
+          ]
+        },
+        {
+          "name": "idle is the default and neither maximum timer nor poll nor watch cuts a burst",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c1", "root": "h1" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "maxDelayElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "pollElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "watch", "cursor": "peer", "root": "P", "update": "uP", "digests": [], "transitions": true }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "localChange", "change": "c2", "root": "h2" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
+          "name": "idle elapsed during submission is remembered and a response adds no fresh delay",
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c1", "digests": ["q1"] }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
+          "name": "an opted-in maximum bounds a successor without resetting on further activity",
+          "options": { "publicationMaxDelayMs": 1000 },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c1", "digests": ["q1"] }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule", "schedule"] },
+            { "event": { "type": "maxDelayElapsed" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "localChange", "change": "c3", "root": "h3" }, "state": "submitting-pending", "effects": ["schedule"] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
+          "name": "same bytes with material identity effects still publish",
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "localChange", "change": "swapped-identical-blocks", "root": "A", "settleIfUnchanged": false }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
+          "name": "reconnection waits for an active suffix before extending an ambiguous request",
+          "initial": { "kind": "offline", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c1", "digests": ["q1"] }, "transmitted": true, "availability": { "kind": "transport" }, "transportAvailable": false },
+          "steps": [
+            { "event": { "type": "localChange", "change": "c2", "root": "h2" }, "state": "offline", "effects": ["schedule"] },
+            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": [] },
+            { "event": { "type": "localChange", "change": "c3", "root": "h3" }, "state": "offline", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": ["cancelTimers", "persistRequest"] }
           ]
         }
       ]

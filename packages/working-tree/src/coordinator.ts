@@ -2,6 +2,7 @@ import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTT
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@overstory/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
+import { publication, type ChangePublication } from "./publication.ts";
 import type { LocalChange } from "./local-change.ts";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
@@ -194,9 +195,11 @@ export class UpdateCoordinator {
       const known = phaseTip(this.machine);
       if (known?.change === tip) return;
       if (!known && phaseRequest(this.machine)?.tip === tip) return;
-      const record = (await this.log.retained()).find(record => record.change === tip);
+      const retained = await this.log.retained();
+      const record = retained.find(record => record.change === tip);
       if (!record) return;
-      this.dispatch({ type: "localChange", change: tip, root: record.candidate.root });
+      this.dispatch({ type: "localChange", change: tip, root: record.candidate.root,
+        settleIfUnchanged: !retained.some(item => !this.control.settled.includes(item.change) && item.update.trace !== null) });
     } catch (error) {
       this.failure = String(error);
     }
@@ -330,6 +333,7 @@ export class UpdateCoordinator {
     }
     try {
       const prepared = await this.log.request(tip.change, this.settledSet());
+      prepared.request = await this.composePublication(prepared.request);
       const attempt = encodeAttempt(this.tree, prepared.base, prepared.request);
       if (extended && !extended.digests.every((digest, index) => attempt.requestDigests[index] === digest)) {
         // The tip no longer descends from the transmitted request: retry it exactly.
@@ -408,7 +412,7 @@ export class UpdateCoordinator {
       const final = response.results.at(-1);
       if (!final) throw new UpdateValidationError("The host returned no result");
       const request = attemptRequest(attempt);
-      const carried = new Set(request.updates.map(update => update.change));
+      const carried = new Set(this.localChanges(request));
       const records = await this.log.retained();
       // The projection of our own candidate, while the log still holds it.
       let objects = new Map<string, Uint8Array>();
@@ -533,7 +537,65 @@ export class UpdateCoordinator {
       const retained = new Set((await this.log.retained()).map(record => record.change));
       this.control.settled = this.control.settled.filter(change => retained.has(change));
     }
+    const retained = new Set((await this.log.retained()).map(record => record.change));
+    this.control.publications = this.control.publications?.filter(group => group.changes.some(change => retained.has(change)));
     await this.writeControl();
+  }
+
+  private localChanges(request: { updates: Array<{ change: string }> }): string[] {
+    return request.updates.flatMap(update => this.control.publications?.find(group => group.update.change === update.change)?.changes ?? [update.change]);
+  }
+
+  private async composePublication(request: { base: string; updates: unknown[] }): Promise<{ base: string; updates: unknown[] }> {
+    const records = new Map((await this.log.retained()).map(record => [record.change, record]));
+    const originals = request.updates as LocalChange["update"][];
+    const updates: LocalChange["update"][] = [];
+    const groups = this.control.publications ??= [];
+    const frozen = new Set(this.control.attempt ? attemptRequest(this.control.attempt).updates.map(update => update.change) : []);
+    let index = 0;
+    while (index < originals.length) {
+      const current = originals[index]!;
+      const group = groups.find(group => group.changes[0] === current.change);
+      if (group) {
+        if (JSON.stringify(originals.slice(index, index + group.changes.length).map(update => update.change)) !== JSON.stringify(group.changes)) throw new UpdateValidationError("Incomplete composed publication dependency");
+        updates.push(group.changes.every(change => this.control.settled.includes(change)) ? {...group.update, objects: [], deltas: []} : group.update);
+        index += group.changes.length;
+        continue;
+      }
+      const run: LocalChange[] = [];
+      let best: ChangePublication | undefined;
+      for (let cursor = index; cursor < originals.length; cursor++) {
+        const record = records.get(originals[cursor]!.change);
+        if (!record || !record.update.trace || this.control.settled.includes(record.change) || frozen.has(record.change) || groups.some(group => group.changes.includes(record.change))) break;
+        const previous = run.at(-1);
+        if (previous && (record.basis.kind !== "authored" || record.basis.change !== previous.change)) break;
+        const boundary = record.update.resolves.length > 0 || record.update.ifCurrent !== undefined;
+        if (boundary && run.length) break;
+        run.push(record);
+        if (boundary) break;
+      }
+      const mentions = (value: unknown): boolean => {
+        if (!value || typeof value !== "object") return false;
+        const fields = value as Record<string, unknown>;
+        return (fields.kind === "operation" && groups.some(group => group.changes.includes(fields.change as string))) || Object.values(fields).some(mentions);
+      };
+      if (run.length > 1 || (run[0]?.update.trace?.length ?? 0) > 1 || mentions(run[0]?.update.trace)) {
+        best = publication(run, groups);
+        if (!best) {
+          let frames = 0, operations = 0, end = 0;
+          for (const record of run) {
+            frames += record.update.trace!.length;
+            operations += record.update.trace!.reduce((n, frame) => n + frame.operations.length, 0);
+            if (frames > 64 || operations > 1024) break;
+            end++;
+          }
+          if (end > 0 && end < run.length) best = publication(run.slice(0, end), groups);
+        }
+      }
+      if (best) { groups.push(best); updates.push(best.update); index += best.changes.length; }
+      else { updates.push(current); index++; }
+    }
+    return { base: request.base, updates };
   }
 
   /** Classify a failure into the machine's taxonomy. */
@@ -638,7 +700,7 @@ export class UpdateCoordinator {
     const state = this.machine, attempt = this.control.attempt;
     if (state.kind !== "held" || !attempt || attempt.digest !== state.request.id) return;
     const settled = this.settledSet();
-    await this.log.discard(new Set(attemptRequest(attempt).updates.map(update => update.change).filter(change => !settled.has(change))));
+    await this.log.discard(new Set(this.localChanges(attemptRequest(attempt)).filter(change => !settled.has(change))));
     delete this.control.attempt;
     delete this.control.attemptTip;
     delete this.control.held;

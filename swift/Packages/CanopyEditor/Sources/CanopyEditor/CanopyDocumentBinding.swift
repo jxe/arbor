@@ -203,7 +203,7 @@ public final class CanopyDocumentBinding {
         // The patch is captured against the previous generation's ledger,
         // exactly as the editor produced it; the change states it in its own
         // frame (docs/overstory-spec/09-client-synchronization.md §4).
-        let (captured, nextLedger) = CanopyMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
+        let (captured, nextLedger) = CanopyMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources, moved: document.movedBlocksForCurrentCommit)
         ledger = nextLedger
         guard !captured.patch.isEmpty || !captured.source.utf8.elementsEqual(source.latestSource.utf8) else { return }
         generation += 1

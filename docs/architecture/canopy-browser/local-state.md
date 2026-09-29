@@ -164,8 +164,10 @@ durably installed the request. The Mac's conflict review keeps
 pinned decision and alternative evidence; a submitted resolution is a change
 in the change log, and the journal names the draft it came from.
 
-Local update-control schema 4 holds the exact persisted request, the change it
-ends at, the held reason, and settled changes. A schema-3 control that still
+Local update-control schema 5 holds the exact persisted request, the change it
+ends at, the held reason, settled changes, and the original-to-published change
+and operation-result mappings for coalesced publications. Schema 4 reads with
+no mappings. A schema-3 control that still
 holds a snapshot head, a next base, or an attempt outside the change log is
 refused without being rewritten; a clean one converts.
 

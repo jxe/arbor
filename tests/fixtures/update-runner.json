@@ -19,7 +19,7 @@
         { "append": "One\n" },
         { "append": "Two\n" },
         { "sync": true },
-        { "expect": { "phase": "current", "requests": 1, "lastElements": 2, "pending": 0, "document": "Base\nOne\nTwo\n" } }
+        { "expect": { "phase": "current", "requests": 1, "lastElements": 1, "pending": 0, "document": "Base\nOne\nTwo\n" } }
       ]
     },
     {
@@ -44,6 +44,7 @@
         { "append": "Two\n" },
         { "transport": false },
         { "transport": true },
+        { "sync": true },
         { "expect": { "phase": "current", "requests": 2, "lastElements": 2, "repeatsPrefix": true, "pending": 0, "document": "Base\nOne\nTwo\n" } }
       ]
     },
@@ -123,6 +124,49 @@
         { "restartWithJSONAttempt": true },
         { "sync": true },
         { "expect": { "phase": "current", "requests": 2, "sameDigests": true, "lastEncoding": "json", "pending": 0, "document": "Base\nOne\n" } }
+      ]
+    },
+    {
+      "name": "a coalesced publication survives a lost response and restart with exact bytes",
+      "document": "Base\n",
+      "responses": ["acceptThenFail"],
+      "steps": [
+        {"append": "One\n"},
+        {"append": "Two\n"},
+        {"sync": true},
+        {"expect": {"phase": "offline", "requests": 1, "lastElements": 1, "pending": 2}},
+        {"restart": true},
+        {"sync": true},
+        {"expect": {"phase": "current", "requests": 2, "sameBody": true, "pending": 0, "document": "Base\nOne\nTwo\n"}}
+      ]
+    },
+    {
+      "name": "a coalesced ambiguous prefix is repeated exactly before later local work",
+      "document": "Base\n",
+      "responses": ["acceptThenFail"],
+      "steps": [
+        {"append": "One\n"},
+        {"append": "Two\n"},
+        {"sync": true},
+        {"expect": {"phase": "offline", "requests": 1, "lastElements": 1, "pending": 2}},
+        {"append": "Three\n"},
+        {"sync": true},
+        {"expect": {"phase": "current", "requests": 2, "lastElements": 2, "repeatsPrefix": true, "pending": 0, "document": "Base\nOne\nTwo\nThree\n"}}
+      ]
+    },
+    {
+      "name": "discarding a held coalesced publication discards its covered records and descendants",
+      "document": "Base\n",
+      "responses": ["reject"],
+      "steps": [
+        {"append": "One\n"},
+        {"append": "Two\n"},
+        {"sync": true},
+        {"expect": {"phase": "held", "requests": 1, "lastElements": 1, "pending": 2}},
+        {"append": "Three\n"},
+        {"restart": true},
+        {"discardHeld": true},
+        {"expect": {"phase": "current", "requests": 1, "pending": 0, "document": "Base\n"}}
       ]
     }
   ]

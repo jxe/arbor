@@ -12,6 +12,47 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Idle publication and coalescing — 2026-09-29
+
+Both working-tree clients now default to publication after 250 ms of idle.
+Successors keep their remaining idle wait across an in-flight request; watch and
+poll traffic do not interrupt the burst. Arbor Sync folders explicitly retain a
+1 s maximum for continuous activity. Explicit sync can flush.
+
+Before preparation, Swift and TypeScript compile contiguous operation-bearing
+local records into a fresh authored update. Repeated pure moves of the same span
+reduce to one original-source move at its final anchor. Mixed work retains its
+frames; snapshots, resolutions and guards form boundaries. Control schema 5
+retains local-to-published change and operation-result mappings with the immutable
+request. Retry, restart, ambiguous extension, settlement and discard use that
+mapping. Original local records and editor undo remain independent.
+
+The native codec consumes actual moved-block evidence from the sibling Quagmire
+checkout, avoiding attribution to the stationary neighbor when moving a block
+down. This uses an additive Quagmire API that is **not released**; the committed
+pins remain 0.8.0. Integration has been tested with the local override. A Quagmire
+release and matching pin updates are still needed before a portable release.
+Nothing from this change has been installed or deployed.
+
+Evidence: shared compiler and state-machine fixtures, real merge-engine tests
+with concurrent peer edits in both arrival orders, and shared runner tests for
+coalesced retry/restart/discard. A 70-move burst reduces to one frame; encoded CBOR
+request-size assertions check the pure-move cases. The working-tree package's 118
+tests, editor package's 79 tests and Quagmire package tests pass. `bun run
+test:affected` passes with Bun 1.4.2, including typechecking, 267 affected product
+tests, build, the full TypeScript/Swift protocol gate, performance and links.
+The protocol gate includes live client/host checks and 343 TypeScript protocol
+tests. Closing the running Canopy app resolved the initial LaunchServices test
+launch failure. A live branch/restart case caught an intermediate delta whose
+result no longer reached the final candidate; both compilers now retain such
+material as an object and keep deltas only for final reachable results.
+
+Further reduction is ordered by likely frequency and byte savings in
+[Clients 002](plans/clients/002-identity-preserving-coalescing.md): plain edits across
+records, moves with edits, then repeated selection/subtree moves. These priorities
+are source-based estimates; the plan requires encoded-byte and preparation-cost
+measurements before broadening the implementation.
+
 ## Implemented
 
 | Area | State | Where to read |

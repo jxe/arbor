@@ -2252,3 +2252,29 @@ struct MarkdownLinkWritingTests {
         await workspace.closeAll()
     }
 }
+
+@MainActor
+@Test("Explicit downward moves keep the selected block as their source")
+func explicitMoveIdentity() throws {
+    let original = "Same\n\nSame\n\nThird\n\nLast\n\n"
+    let opened = CanopyMarkdownCodec.open(source: original, revision: "r", identitySeed: "explicit-move")
+    let document = Document(id: DocumentID("moves"), children: opened.blocks)
+    let selected = opened.blocks[0].id
+    var ledger = opened.ledger
+    var count = 0
+    document.didCommitTransaction = { _ in
+        #expect(document.movedBlocksForCurrentCommit == [selected])
+        let (captured, next) = CanopyMarkdownCodec.admission(blocks: document.children, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
+        let move = captured.patch.moves!.first!
+        #expect(move.source == ledger.records[selected]!.range)
+        #expect(try! captured.patch.applying(to: ledger.source) == captured.source)
+        ledger = next
+        count += 1
+    }
+    for _ in 0..<2 {
+        document.transaction(name: "Move") { #expect(document.slideSiblings([selected], by: 1)) }
+        #expect(document.movedBlocksForCurrentCommit.isEmpty)
+    }
+    #expect(count == 2)
+    #expect(ledger.source == "Same\n\nThird\n\nSame\n\nLast\n\n")
+}
