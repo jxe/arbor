@@ -432,6 +432,8 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
     func admit(transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult?
     /// Publish retained local work now rather than after the usual delay.
     func publishPending() async
+    /// Captured editor work is awaiting admission; publication waits until it drains.
+    func sourceActivity(pending: Bool) async
     func history() async throws -> [WorkspaceHistoryEntry]
     func recover(revision: String) async throws -> WorkspaceDocumentSnapshot
     func close() async
@@ -442,6 +444,7 @@ public extension WorkspaceDocumentSession {
     func copyDocument() async throws -> WorkspaceCopyDocument? { nil }
     func admit(transfer: WorkspaceDocumentTransfer) async throws -> WorkspaceDocumentTransferResult? { nil }
     func publishPending() async {}
+    func sourceActivity(pending: Bool) async {}
     /// Compatibility bridge for existing providers. It preserves their rejection/recovery
     /// behavior until their publication queues support independently retained bases.
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {

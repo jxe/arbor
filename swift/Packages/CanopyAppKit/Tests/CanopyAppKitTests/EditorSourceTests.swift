@@ -23,10 +23,12 @@ struct EditorSourceTests {
         append("Two\n", to: source)
         append("Three\n", to: source)
         #expect(!source.isSettled)
+        #expect(await session.activity == [true])
         #expect(source.pending.count == 2)
         await session.release()
         await source.settle()
         let intents = await session.intents
+        #expect(await session.activity == [true, false])
         #expect(intents.count == 2)
         #expect(intents[0].generations.isEmpty)
         #expect(intents[0].source == "Base\nOne\n")
@@ -101,6 +103,8 @@ private actor GatedSession: WorkspaceDocumentSession {
     nonisolated let identity: WorkspaceIdentity
     private var current: WorkspaceDocumentSnapshot
     private(set) var intents: [WorkspaceDocumentIntent] = []
+    private(set) var activity: [Bool] = []
+    func sourceActivity(pending: Bool) { activity.append(pending) }
     private var gate: CheckedContinuation<Void, Never>?
     private var holdNext = false
     private var failing = false
@@ -119,6 +123,7 @@ private actor GatedSession: WorkspaceDocumentSession {
     func updates() -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { AsyncThrowingStream { _ in } }
 
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        #expect(activity.last == true)
         if holdNext {
             holdNext = false
             holding = true

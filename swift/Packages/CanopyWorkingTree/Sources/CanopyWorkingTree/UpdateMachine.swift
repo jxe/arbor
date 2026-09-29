@@ -171,6 +171,7 @@ public enum UpdateMachine {
         public var transportAvailable: Bool
         /// Idle may elapse while a previous request is still in flight.
         public var publicationReady = false
+        public var sourcePending = false
         public var publicationWindowOpen = false
         public var publicationForced = false
 
@@ -196,6 +197,7 @@ public enum UpdateMachine {
         case recovered(request: PreparedRequest, held: HeldReason?, detail: String? = nil)
         /// A local change is durable in the change log.
         case localChange(change: String, root: String, settleIfUnchanged: Bool = true)
+        case sourceActivity(pending: Bool)
         case publishDelayElapsed
         case maxDelayElapsed
         case pollElapsed
@@ -301,6 +303,11 @@ public enum UpdateMachine {
             next.phase = .prepared(request: request, tip: nil)
             return (next, [.submit(request)])
 
+        case let .sourceActivity(pending):
+            next.sourcePending = pending
+            next.publicationReady = false
+            return (next, pending ? [] : [.schedule(.trailing, options.publicationDelay)])
+
         case let .localChange(change, root, settleIfUnchanged):
             next.publicationReady = false
             if !state.publicationWindowOpen { next.publicationForced = false }
@@ -336,6 +343,7 @@ public enum UpdateMachine {
             }
 
         case .publishDelayElapsed:
+            guard !state.sourcePending else { return (next, []) }
             next.publicationReady = true
             if case let .offline(availability, request, transmitted, tip) = state.phase,
                case .transport = availability, state.transportAvailable {
@@ -556,6 +564,7 @@ public enum UpdateMachine {
     private static func prepare(_ state: State, _ tip: LocalTip) -> (State, [Effect]) {
         var next = state
         guard let base = state.base else { return (state, []) }
+        guard !state.sourcePending || state.publicationForced else { return (state, []) }
         next.publicationWindowOpen = false
         next.publicationForced = false
         if tip.root == base.root, tip.settleIfUnchanged {
@@ -650,6 +659,7 @@ extension UpdateMachine.State {
         var value: [String: Any] = [
             "kind": kind,
             "transportAvailable": transportAvailable,
+            "sourcePending": sourcePending,
         ]
         if let base { value["base"] = base.fixtureRepresentation }
         if let tip = phase.tip { value["tip"] = ["change": tip.change, "root": tip.root] }

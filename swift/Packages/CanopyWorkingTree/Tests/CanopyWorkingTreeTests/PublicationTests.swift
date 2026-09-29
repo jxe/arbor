@@ -69,6 +69,41 @@ struct PublicationTests {
         #expect(try await log.retained().map(\.change) == fixture.map(\.change))
     }
 
+
+    @Test("Fifty moves send compact deltas against the accepted request basis")
+    func movePayload() throws {
+        struct Parameters: Decodable { var moves: Int; var selected: String; var neighbor: String; var tailBytes: Int; var maximumRequestBytes: Int }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures/move-publication-payload.json")
+        let parameters = try JSONDecoder().decode(Parameters.self, from: Data(contentsOf: url))
+        var source = parameters.selected + String(repeating: parameters.neighbor, count: parameters.moves) + String(repeating: "x", count: parameters.tailBytes)
+        let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let base = ProtocolSnapshot(root: root.hash, objects: [file, root])
+        var graph = base, records: [LocalChange] = []
+        for index in 0..<parameters.moves {
+            let start = index * parameters.neighbor.utf8.count, end = start + parameters.selected.utf8.count
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_publication", path: "/note"), source: source, contentRevision: "r\(index)")
+            let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [], moves: [.init(source: start..<end, anchor: end..<(end + parameters.neighbor.utf8.count), side: .after)])
+            source = try patch.applying(to: source)
+            let record = try LocalChange(change: "c\(index)", tree: "tr_publication", basis: records.last.map { .authored(change: $0.change) } ?? .accepted(.init(root: base.root, update: "up_initial")), graph: graph, sourcePath: "/note.md", intent: .init(basis: basis, patch: patch, source: source))
+            records.append(record); graph = record.candidate
+        }
+        for offset in [0, 1] {
+            let published = try #require(try LocalChange.publication(Array(records.dropFirst(offset)), previous: []))
+            let base = records[offset].graph
+            let compact = try LocalChange.compactTransport(published.update, basis: base, candidate: graph)
+            let old = try UpdateCoordinator.attempt(tree: "tr_publication", base: .init(root: base.root, update: "up_initial"), request: .init(base: "up_initial", updates: [published.update]))
+            let next = try UpdateCoordinator.attempt(tree: "tr_publication", base: .init(root: base.root, update: "up_initial"), request: .init(base: "up_initial", updates: [compact]))
+            #expect(old.allRequestDigests == next.allRequestDigests)
+            #expect(next.body.count < parameters.maximumRequestBytes)
+            #expect(next.body.count < old.body.count / 10)
+            let replayed = try ProtocolTransitionReplay.applying(.init(objects: compact.objects, deltas: compact.deltas), to: base, root: compact.candidate)
+            #expect(try replayed.rootFile(named: "note.md") == Data(source.utf8))
+            #expect(compact.deltas.allSatisfy { delta in base.objects.contains { $0.hash == delta.base } })
+            print("move payload offset=\(offset): \(old.body.count) -> \(next.body.count) bytes")
+        }
+    }
+
     static func branchFixture(tree: String = "tr_publication") throws -> [LocalChange] {
         let files = try ["A", "B", "C"].map { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
         let root = try ProtocolObjectCodec.object(.directory(zip(["a.md", "b.md", "c.md"], files).map { .init(name: $0, file: $1.hash) }))

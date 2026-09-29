@@ -164,9 +164,13 @@ record, excluded from Overstory candidates.
 
 ## Idle publication and coalescing
 
-Both machines wait for **250 ms without a new durable local change** by default.
-Local work resets that timer even while a request is in flight or transport is
-unavailable. Once idle elapses, the successor is ready; acceptance does not add
+Both machines wait for **250 ms of quiet after captured source work has drained**
+by default. `sourceActivity(pending:)` holds automatic publication while an editor
+has captured generations awaiting admission; a gap between journal appends is
+not editor idle. Sessions have separate activity identities, and closing one
+releases only its own claim. The last active source draining starts the quiet
+period. Durable local changes also reset the timer, including while a request is
+in flight or transport is unavailable. Once idle elapses, the successor is ready; acceptance does not add
 another wait. Watch traffic and freshness polls do not cut an active burst short.
 Explicit synchronization forces publication. Arbor Sync's folder source opts
 into a **1 s maximum** so continuously changing files still make progress; the
@@ -195,6 +199,15 @@ When any batch member is retained, compaction retains the whole batch and its
 ancestry. If a carried candidate differs from the original local candidate, the
 runner loads the accepted graph instead of applying a reconciliation to the wrong
 basis. No host protocol extension is needed for these disjoint branches.
+
+Before freezing the first publication in a new request, both clients compress final reachable object
+envelopes against objects at the same paths in the request's original accepted
+basis. Rolling-block copy/insert deltas preserve moved bytes without resending
+the whole document. The final directories are compressed too. Compression does
+not change traces, candidate roots, operation identities, or request digests.
+Delta bases never come from an unpublished prefix; intermediate objects needed
+by trace frames stay available. Later batch elements retain their envelopes because their preceding candidate
+may not yet be retained by the host. Frozen request bodies are never recompressed.
 
 Generic batching retains intermediate object material. A delta survives only
 when its result reaches the final candidate; otherwise its intermediate object

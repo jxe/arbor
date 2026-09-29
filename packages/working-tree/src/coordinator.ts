@@ -2,7 +2,7 @@ import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTT
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@overstory/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
-import { branchPublications, publication, type ChangePublication } from "./publication.ts";
+import { compactTransport, branchPublications, publication, type ChangePublication } from "./publication.ts";
 import { equal, type LocalChange } from "./local-change.ts";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
@@ -172,6 +172,16 @@ export class UpdateCoordinator {
       } finally { this.entering = undefined; }
     })();
     await this.entering;
+  }
+
+  private readonly activeSources = new Set<string>();
+
+  /** An editor has captured work that has not finished admission. */
+  async sourceActivity(id: string, pending: boolean): Promise<void> {
+    await this.start();
+    const wasActive = this.activeSources.size > 0;
+    if (pending) this.activeSources.add(id); else this.activeSources.delete(id);
+    if (wasActive !== (this.activeSources.size > 0)) this.dispatch({type: "sourceActivity", pending: this.activeSources.size > 0});
   }
 
   /** A source appended a durable local change: tell the machine the log's tip. */
@@ -553,6 +563,14 @@ export class UpdateCoordinator {
     for (const record of records.values()) if (record.basis.kind === "authored") children.set(record.basis.change, (children.get(record.basis.change) ?? 0) + 1);
     const originals = request.updates as LocalChange["update"][];
     const updates: LocalChange["update"][] = [];
+    // A retained authored graph may be a hidden candidate, not the request base.
+    const transportBase = [...records.values()].find(record => record.basis.kind === "accepted" && record.basis.update === request.base && record.basis.root === record.graph.root)?.graph;
+    const compact = (update: LocalChange["update"], change: string) => {
+      const candidate = records.get(change)?.candidate;
+      // Later elements start at the preceding authored candidate. Until that
+      // graph is retained by the host, keep their self-contained envelopes.
+      return updates.length === 0 && transportBase && candidate ? compactTransport(update, transportBase, candidate) : update;
+    };
     const groups = this.control.publications ??= [];
     const frozen = new Set(this.control.attempt ? attemptRequest(this.control.attempt).updates.map(update => update.change) : []);
     let index = 0;
@@ -610,8 +628,8 @@ export class UpdateCoordinator {
           if (end > 0 && end < run.length) best = publication(run.slice(0, end), groups);
         }
       }
-      if (best) { groups.push(best); updates.push(best.update); index += best.changes.length; }
-      else { updates.push(current); index++; }
+      if (best) { best.update = compact(best.update, best.changes.at(-1)!); groups.push(best); updates.push(best.update); index += best.changes.length; }
+      else { updates.push(compact(current, current.change)); index++; }
     }
     return { base: request.base, updates };
   }

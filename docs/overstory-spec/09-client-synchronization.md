@@ -116,7 +116,10 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    the objects it introduces over its basis**, before the machine learns of
    it. A process that stops before publication recovers the change from the
    log. By default, each local change restarts a trailing publication delay:
-   publication waits for idle. A source needing bounded progress under
+   publication waits for idle. An editor with captured work awaiting admission
+   MUST keep its idle window active until that work drains; a gap between durable
+   appends alone is not evidence of editor inactivity. This activity signal
+   carries no candidate and does not replace durable retention. A source needing bounded progress under
    continuous activity MAY opt into a maximum delay from the first unsent
    change. Explicit synchronization or a shutdown drain MAY force publication.
    Reconnection, watch events and freshness polls MUST respect an active idle

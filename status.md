@@ -12,6 +12,33 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Editor activity and compact move payloads — 2026-09-29
+
+The Swift and TypeScript publication machines now distinguish editor activity
+from completed durable appends. Native `EditorSource` holds a per-session
+activity claim while captured generations await admission; the quiet timer starts
+when all such work drains. Closing a session or failing an append releases its claim;
+explicit synchronization and configured maximum delays remain exceptions.
+This prevents slow admission from splitting a held Option-arrow burst into
+requests despite continuing editor captures.
+
+Before freezing the first publication in a request, both coordinators compact
+final reachable file and directory envelopes into copy/insert deltas when smaller.
+Every delta base comes from the request's original accepted graph. Later batch
+elements retain their envelopes because their preceding candidate may not yet
+be retained by the host. Intermediate trace objects remain available. Semantic digests and
+frozen retry bodies do not change. The previous move coalescer emitted a full
+final document even after simplifying its operation to one move.
+
+Shared size tests move a paragraph 50 times through a 57 KB document: both
+clients reduce the whole-burst CBOR request from 58,007 to 1,153 bytes.
+The coordinator currently applies this optimization only to the first publication
+in a request; compacting later elements needs a separate retained-base proof.
+These are synthetic measurements, not a measurement of Joe's next live
+move. Tests verify delta reconstruction, accepted-base reachability and unchanged
+request digests. Slow-admission tests cover overlapping editors, idle release,
+close and explicit flush. No installed app or live data was changed.
+
 ## Branches inside composed publications — 2026-09-29
 
 Swift and TypeScript now end batching at known local branch points. For a late

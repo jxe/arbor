@@ -566,6 +566,35 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    @Test("Captured activity holds publication across slow admission and overlapping sessions")
+    func sourceActivityWaitsForDrain() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_source_activity", initial = try snapshot(markdown: "Base\n")
+            let transport = acceptingTransport(tree: tree, initial: initial)
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(20))
+            let first = try await noteSession(workingTree, coordinator, tree: tree)
+            let second = try await noteSession(workingTree, coordinator, tree: tree)
+            await first.sourceActivity(pending: true)
+            try await admitAppend(first, "One\n")
+            try await Task.sleep(for: .milliseconds(60))
+            #expect(await transport.requests.isEmpty)
+            await second.sourceActivity(pending: true)
+            await first.sourceActivity(pending: false)
+            try await admitAppend(first, "Two\n")
+            try await Task.sleep(for: .milliseconds(60))
+            #expect(await transport.requests.isEmpty)
+            // Closing one editor must release only its own activity claim.
+            await second.close()
+            try await Task.sleep(for: .milliseconds(5))
+            #expect(await transport.requests.isEmpty)
+            try await waitUntil { await coordinator.syncState.kind == "current" }
+            #expect(await transport.requests.count == 1)
+            #expect(try await transport.requests.first?.decodedRequest().updates.count == 1)
+            await first.close(); await coordinator.close()
+        }
+    }
+
     @Test("A burst of edits before the publication delay becomes one request")
     func burstCoalescesBeforePublication() async throws {
         try await withTemporaryRoot { root in

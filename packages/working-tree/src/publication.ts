@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
+import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
@@ -196,4 +196,37 @@ export function branchPublications(group: ChangePublication, shared: number, bra
   }
   if (result[0]!.update.trace![0]!.before !== group.update.candidate) return;
   return result;
+}
+
+
+/** Compress final reachable envelopes against the request's accepted basis.
+ * Transport matching never establishes semantic provenance. */
+export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+  if (!update.objects.length) return update;
+  const before = decodeTreeSnapshotJSON(basis).objects, after = decodeTreeSnapshotJSON(candidate).objects;
+  const envelopes = new Map(update.objects.map(object => [object.hash, object])), deltas = [...update.deltas], visited = new Set<string>();
+  function visit(old: string | undefined, next: string, directory: boolean): void {
+    if (visited.has(next)) return;
+    visited.add(next);
+    if (before.has(next)) { envelopes.delete(next); return; }
+    const base = old && before.get(old), envelope = envelopes.get(next);
+    if (base && envelope && base.length <= 64 * 1024 * 1024) {
+      const bytes = decodeBase64(envelope.bytes);
+      if (bytes.length <= 64 * 1024 * 1024 && bytes.length) {
+        const delta = {base: old!, result: next, instructions: objectDelta(base, bytes)};
+        if (hashObject(applyObjectDelta(base, delta)) !== next) throw new UpdateValidationError("Invalid publication transport delta");
+        const encoded = encodeObjectDeltaJSON(delta);
+        if (encodeWireBody(delta, "cbor").length < encodeWireBody({hash: next, bytes}, "cbor").length) { envelopes.delete(next); deltas.push(encoded); }
+      }
+    }
+    if (!directory) return;
+    const entries = decodeProtocolDirectory(after.get(next)!).entries;
+    const prior = new Map(old && before.has(old) ? decodeProtocolDirectory(before.get(old)!).entries.map(entry => [entry.name, entry]) : []);
+    for (const entry of entries) {
+      if (entry.file) visit(prior.get(entry.name)?.file, entry.file, false);
+      else if (entry.directory) visit(prior.get(entry.name)?.directory, entry.directory, true);
+    }
+  }
+  visit(basis.root, candidate.root, true);
+  return {...update, objects: [...envelopes.values()].sort((a,b) => a.hash.localeCompare(b.hash)), deltas};
 }

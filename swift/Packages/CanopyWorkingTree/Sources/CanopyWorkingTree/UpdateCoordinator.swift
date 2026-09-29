@@ -61,6 +61,15 @@ public actor UpdateCoordinator {
     private var watchEvent: ProtocolWatchEvent?
     /// The last failure, for presentation.
     private var failure: String?
+    private var activeSources = Set<String>()
+
+    public func sourceActivity(id: String, pending: Bool) async {
+        guard !closed else { return }
+        await ensureEntered()
+        let wasActive = !activeSources.isEmpty
+        if pending { activeSources.insert(id) } else { activeSources.remove(id) }
+        if wasActive != !activeSources.isEmpty { dispatch(.sourceActivity(pending: !activeSources.isEmpty)) }
+    }
 
     // Local-change state, used by UpdateCoordinator+LocalChanges.
     var log: ChangeLog?
@@ -532,7 +541,19 @@ public actor UpdateCoordinator {
         for record in records {
             if case let .authored(parent) = record.basis { children[parent, default: 0] += 1 }
         }
+        // An authored graph can be a hidden candidate rather than the request base.
+        let transportBase = records.first { record in
+            if case let .accepted(base) = record.basis {
+                return base.update == request.base && base.root == record.graph.root
+            }
+            return false
+        }?.graph
         var updates: [ProtocolCandidateUpdate] = [], index = 0
+        func compact(_ update: ProtocolCandidateUpdate, change: String) throws -> ProtocolCandidateUpdate {
+            // Later elements may start at a graph the host has not retained yet.
+            guard updates.isEmpty, let transportBase, let candidate = byChange[change]?.candidate else { return update }
+            return try LocalChange.compactTransport(update, basis: transportBase, candidate: candidate)
+        }
         let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])
         while index < request.updates.count {
             let current = request.updates[index]
@@ -602,10 +623,11 @@ public actor UpdateCoordinator {
                     if end > 0, end < run.count { best = try LocalChange.publication(Array(run.prefix(end)), previous: control.publications) }
                 }
             }
-            if let best {
+            if var best {
+                best.update = try compact(best.update, change: best.changes.last!)
                 control.publications.append(best)
                 updates.append(best.update); index += best.changes.count
-            } else { updates.append(current); index += 1 }
+            } else { updates.append(try compact(current, change: current.change)); index += 1 }
         }
         return ProtocolUpdateRequest(base: request.base, updates: updates)
     }

@@ -4,9 +4,33 @@
   "machines": {
     "working-tree-updates": {
       "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "offline", "held", "terminal"],
-      "events": ["bootstrapInstalled", "recovered", "localChange", "publishDelayElapsed", "maxDelayElapsed", "pollElapsed", "syncRequested", "requestPersisted", "submitStarted", "accepted", "rejected", "unsupported", "heldDiscarded", "watch", "watchGap", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed"],
+      "events": ["bootstrapInstalled", "recovered", "sourceActivity", "localChange", "publishDelayElapsed", "maxDelayElapsed", "pollElapsed", "syncRequested", "requestPersisted", "submitStarted", "accepted", "rejected", "unsupported", "heldDiscarded", "watch", "watchGap", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed"],
       "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "settle", "stop"],
       "scenarios": [
+        {
+          "name": "captured work prevents idle publication until admission drains",
+          "initial": { "kind": "current", "base": { "root": "r0", "update": "u0" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "sourceActivity", "pending": true }, "state": "current", "effects": [], "expect": { "sourcePending": true } },
+            { "event": { "type": "localChange", "change": "c1", "root": "r1" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "pollElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "localChange", "change": "c2", "root": "r2" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "sourceActivity", "pending": false }, "state": "locally-pending", "effects": ["schedule"], "expect": { "sourcePending": false } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true, "tip.change": "c2" } }
+          ]
+        },
+        {
+          "name": "explicit sync remains an exception during captured work",
+          "initial": { "kind": "current", "base": { "root": "r0", "update": "u0" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "sourceActivity", "pending": true }, "state": "current", "effects": [] },
+            { "event": { "type": "localChange", "change": "c1", "root": "r1" }, "state": "locally-pending", "effects": ["schedule"] },
+            { "event": { "type": "syncRequested" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+
         {
           "name": "an explicit clean sync does not force the next editing burst",
           "initial": { "kind": "current", "base": { "root": "r0", "update": "u0" }, "transportAvailable": true },

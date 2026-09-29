@@ -31,6 +31,18 @@ public final class EditorSource {
     /// Called when an append fails; its generations are kept for `retry()`.
     public var onFailure: ((any Error) -> Void)?
     private var task: Task<Void, Never>?
+    private var activity: Task<Void, Never>?
+    private var activityPending = false
+
+    private func reportActivity(_ pending: Bool) {
+        guard pending != activityPending else { return }
+        activityPending = pending
+        let previous = activity, session = session
+        activity = Task {
+            await previous?.value
+            await session.sourceActivity(pending: pending)
+        }
+    }
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     public init(session: any WorkspaceDocumentSession, basis: WorkspaceDocumentSnapshot) {
@@ -46,6 +58,7 @@ public final class EditorSource {
     /// Capture one generation; `patch` takes `latestSource` to `generation.source`.
     public func append(_ generation: WorkspaceDocumentGeneration) {
         guard !generation.patch.isEmpty || !generation.source.utf8.elementsEqual(latestSource.utf8) else { return }
+        if failure == nil { reportActivity(true) }
         pending.append(generation)
         if failure == nil { next() }
     }
@@ -53,6 +66,7 @@ public final class EditorSource {
     /// Send generations kept after a failed append again.
     public func retry() {
         failure = nil
+        if !pending.isEmpty { reportActivity(true) }
         next()
     }
 
@@ -61,6 +75,7 @@ public final class EditorSource {
         while !(isSettled || (task == nil && failure != nil)) {
             await withCheckedContinuation { waiters.append($0) }
         }
+        await activity?.value
     }
 
     /// Adopt `snapshot` as the basis of the next change. Only a settled source
@@ -86,6 +101,7 @@ public final class EditorSource {
         // completes even if the editor is dropped before it returns.
         task = Task { @MainActor in
             do {
+                await self.activity?.value
                 let acknowledged = try await self.session.admit(intent: intent)
                 self.basis = acknowledged
                 self.appending = []
@@ -105,6 +121,7 @@ public final class EditorSource {
 
     private func resume() {
         guard task == nil else { return }
+        reportActivity(false)
         let waiting = waiters
         waiters = []
         for waiter in waiting { waiter.resume() }

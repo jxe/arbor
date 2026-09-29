@@ -13,13 +13,16 @@ idempotency key. Arbor Sync and the native coordinator each durably retain
 their own semantic prefix across retry and restart, with the objects each
 request carries, so resubmission never consults a live object store.
 
-Both client state machines default to publication after idle. They compile
+Both client state machines default to publication after idle. Captured source
+work still awaiting admission keeps publication waiting; separate sessions hold
+separate activity claims. They compile
 eligible unsent local records into one authored publication; repeated pure moves
 retain the original source identity in one final move. The durable mapping from
 local changes and operation results to their published names survives retries and
 restart. Known branch points end a batch. Late branches across disjoint source
 files can continue an already published batch under new durable wire identities;
-the original local records remain unchanged. A prepared prefix is immutable. Continuous folder sources explicitly
+the original local records remain unchanged. Final object payloads use compact
+deltas against the request's accepted basis. A prepared prefix is immutable. Continuous folder sources explicitly
 opt into a maximum delay; watch and poll traffic respect active editing bursts.
 See [the update machine and runner](../../implementing-sync-services/update-machine.md)
 and [editor sources](../../implementing-editors/editor-source.md).

@@ -284,6 +284,7 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     private let coordinator: UpdateCoordinator?
     private var sourceSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
     private var terminal = false
+    private let activityID = UUID().uuidString
 
     init(
         workingTree: WorkingTree,
@@ -410,6 +411,11 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         return result
     }
 
+    public func sourceActivity(pending: Bool) async {
+        guard !terminal || !pending else { return }
+        await coordinator?.sourceActivity(id: activityID, pending: pending)
+    }
+
     public func publishPending() async {
         _ = try? await coordinator?.syncOnce()
     }
@@ -427,6 +433,7 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
 
     public func close() async {
         terminal = true
+        await coordinator?.sourceActivity(id: activityID, pending: false)
     }
 
     private func requireOpen() throws {

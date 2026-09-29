@@ -81,6 +81,7 @@ interface Base {
   transportAvailable: boolean;
   /** Idle has elapsed, including while another request was in flight. */
   publicationReady?: boolean;
+  sourcePending?: boolean;
   /** A first unsent change has started the optional maximum-delay window. */
   publicationWindowOpen?: boolean;
   /** A due maximum or explicit flush remains latched until preparation. */
@@ -113,6 +114,7 @@ export type UpdateEvent =
   | { type: "recovered"; request: PreparedRequest; held?: HeldReason; detail?: string }
   /** A local change is durable in the change log. */
   | { type: "localChange"; change: string; root: string; settleIfUnchanged?: boolean }
+  | { type: "sourceActivity"; pending: boolean }
   | { type: "publishDelayElapsed" }
   | { type: "maxDelayElapsed" }
   | { type: "pollElapsed" }
@@ -165,7 +167,7 @@ export interface UpdateTransition {
 }
 
 function ctx(state: Base): Base {
-  return { ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable, ...(state.publicationReady === undefined ? {} : { publicationReady: state.publicationReady }), ...(state.publicationWindowOpen === undefined ? {} : { publicationWindowOpen: state.publicationWindowOpen }), ...(state.publicationForced === undefined ? {} : { publicationForced: state.publicationForced }) };
+  return { ...(state.sourcePending === undefined ? {} : {sourcePending: state.sourcePending}), ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable, ...(state.publicationReady === undefined ? {} : { publicationReady: state.publicationReady }), ...(state.publicationWindowOpen === undefined ? {} : { publicationWindowOpen: state.publicationWindowOpen }), ...(state.publicationForced === undefined ? {} : { publicationForced: state.publicationForced }) };
 }
 
 function pollEffects(options: UpdateOptions): UpdateEffect[] {
@@ -183,6 +185,7 @@ function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalTip, eff
 }
 
 function prepare(input: Base & { base: AcceptedBase }, tip: LocalTip): UpdateTransition {
+  if (input.sourcePending && !input.publicationForced) return {state: {...input, kind: "locally-pending", tip}, effects: []};
   const state = { ...input, publicationWindowOpen: false, publicationForced: false };
   if (tip.root === state.base.root && tip.settleIfUnchanged !== false) {
     return { state: { ...ctx(state), kind: "current", base: state.base }, effects: [{ type: "cancelTimers" }, { type: "settle", tip }] };
@@ -244,7 +247,7 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
   if (input.kind === "terminal") return { state: input, effects: [] };
   const state: UpdateState = event.type === "localChange" && input.kind !== "unplaced"
     ? { ...input, publicationReady: false, publicationWindowOpen: true, publicationForced: input.publicationWindowOpen ? input.publicationForced : false }
-    : event.type === "publishDelayElapsed" ? { ...input, publicationReady: true } : input;
+    : event.type === "publishDelayElapsed" && !input.sourcePending ? { ...input, publicationReady: true } : input;
 
   switch (event.type) {
     case "bootstrapInstalled": {
@@ -274,6 +277,9 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
       return { state: { ...ctx(state), kind: "prepared", base: state.base, request: event.request }, effects: [{ type: "submit", request: event.request }] };
     }
 
+    case "sourceActivity":
+      return {state: {...state, sourcePending: event.pending, publicationReady: false}, effects: event.pending ? [] : [{type: "schedule", timer: "trailing", delay: options.publicationDelayMs ?? PUBLICATION_DELAY_MS}]};
+
     case "localChange": {
       const latest: LocalTip = { change: event.change, root: event.root, ...(event.settleIfUnchanged === false ? { settleIfUnchanged: false } : {}) };
       const delay: UpdateEffect[] = [{ type: "schedule", timer: "trailing", delay: options.publicationDelayMs ?? PUBLICATION_DELAY_MS }, ...(!input.publicationWindowOpen && options.publicationMaxDelayMs !== undefined ? [{type: "schedule" as const, timer: "max" as const, delay: options.publicationMaxDelayMs}] : [])];
@@ -302,6 +308,7 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
     }
 
     case "publishDelayElapsed": {
+      if (state.sourcePending) return {state, effects: []};
       if (state.kind === "offline" && state.availability.kind === "transport" && state.transportAvailable) return resume(state);
       if (state.kind !== "locally-pending" || state.preparing) return { state, effects: [] };
       return prepare(state, state.tip);

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@overstory/protocol";
+import { applyTransitionPayload, decodeCandidateUpdateJSON, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@overstory/protocol";
 import { prepareSourceChange, type LocalChange } from "@overstory/working-tree";
 import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
-import { branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
+import { compactTransport, branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
 import { Fixture } from "./canopyd-merge/fixture.ts";
 
 const vectors = JSON.parse(await readFile(new URL("../fixtures/coalesced-publication.json", import.meta.url), "utf8")) as { cases: Array<{
@@ -168,4 +168,34 @@ test("branches inside frozen batches commute only across disjoint source footpri
   const operationRef = structuredClone(c);
   (operationRef.update.trace![0]!.operations[0] as any).source.material = {kind: "operation", change: "a", operation: "edit-0-0"};
   expect(branchPublications(group, 1, [operationRef], records)).toBeUndefined();
+});
+
+
+test("fifty moves in a large document use compact accepted-base deltas, including a new accepted basis", async () => {
+  const fixture = JSON.parse(await readFile(new URL("../fixtures/move-publication-payload.json", import.meta.url), "utf8"));
+  const source = fixture.selected + fixture.neighbor.repeat(fixture.moves) + "x".repeat(fixture.tailBytes);
+  let current = source;
+  const steps = Array.from({length: fixture.moves}, (_, i) => {
+    const start = i * fixture.neighbor.length, end = start + fixture.selected.length;
+    const moves: SourceMove[] = [{source: [start, end], anchor: [end, end + fixture.neighbor.length], side: "after"}];
+    current = applySourceChange(current, [], moves);
+    return {source: current, moves};
+  });
+  const local = records({name: "large move", source, steps, frames: 1, kinds: ["moveSource"]});
+  for (const offset of [0, 1]) {
+    const published = publication(local.slice(offset), [])!;
+    const compact = compactTransport(published.update, local[offset]!.graph, local.at(-1)!.candidate);
+    const updates = [compact];
+    const oldUpdates = [published.update];
+    const encoded = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates});
+    const old = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: oldUpdates});
+    expect(encoded.requestDigests).toEqual(old.requestDigests);
+    expect(decodeBase64(encoded.body).length).toBeLessThan(fixture.maximumRequestBytes);
+    expect(decodeBase64(encoded.body).length).toBeLessThan(decodeBase64(old.body).length / 10);
+    const basis = decodeTreeSnapshotJSON(local[offset]!.graph);
+    const reconstructed = applyTransitionPayload(basis.objects, decodeCandidateUpdateJSON(compact));
+    expect(reconstructed.get(compact.candidate)).toEqual(decodeTreeSnapshotJSON(local.at(-1)!.candidate).objects.get(compact.candidate));
+    expect(compact.deltas.every(delta => basis.objects.has(delta.base))).toBe(true);
+    console.log(`move payload (${offset ? "new accepted basis" : "whole burst"}): ${decodeBase64(old.body).length} -> ${decodeBase64(encoded.body).length} bytes`);
+  }
 });

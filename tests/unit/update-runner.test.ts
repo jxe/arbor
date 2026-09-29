@@ -286,3 +286,31 @@ for (const frozen of [false, true]) test(`branched publication ${frozen ? "recov
     expect(readSource(working.graph(), "/a.md")).toBe("A");
   } finally { coordinator.close(); await rm(stateRoot, {recursive: true, force: true}); }
 });
+
+
+test("source activity holds automatic publication across slow admission and overlapping editors", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-active-source-"));
+  const initial = snapshot("Base\n"), host = new VectorHost(initial, []);
+  const working = new MemoryWorkingTree({base: {root: initial.root, update: "up_initial"}, snapshot: initial});
+  const log = new ChangeLog(TREE, stateRoot);
+  const coordinator = new UpdateCoordinator(TREE, log, new FileControlStore(stateRoot), host, working, {publicationDelayMs: 20});
+  try {
+    await coordinator.sourceActivity("editor-one", true);
+    await appendSource(coordinator, log, working, "/note.md", source => ({offset: source.length, length: 0, replacement: "One\n"}));
+    await Bun.sleep(60);
+    expect(host.requests).toHaveLength(0);
+    await coordinator.sourceActivity("editor-two", true);
+    await coordinator.sourceActivity("editor-one", false);
+    await appendSource(coordinator, log, working, "/note.md", source => ({offset: source.length, length: 0, replacement: "Two\n"}));
+    await Bun.sleep(60);
+    expect(host.requests).toHaveLength(0);
+    await coordinator.sourceActivity("editor-two", false);
+    await Bun.sleep(5);
+    expect(host.requests).toHaveLength(0);
+    const deadline = Date.now() + 2000;
+    while (coordinator.state.kind !== "current" && Date.now() < deadline) await Bun.sleep(5);
+    expect(coordinator.state.kind).toBe("current");
+    expect(host.requests).toHaveLength(1);
+    expect(host.requests[0]!.updates).toHaveLength(1);
+  } finally { coordinator.close(); await rm(stateRoot, {recursive: true, force: true}); }
+});

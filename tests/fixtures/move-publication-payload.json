@@ -1,0 +1,7 @@
+{
+  "moves": 50,
+  "selected": "Selected paragraph\n",
+  "neighbor": "Neighbor line with enough distinct context to match the unchanged source bytes.\n",
+  "tailBytes": 53000,
+  "maximumRequestBytes": 2500
+}

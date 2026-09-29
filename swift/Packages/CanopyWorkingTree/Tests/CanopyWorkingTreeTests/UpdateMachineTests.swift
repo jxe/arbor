@@ -200,6 +200,7 @@ struct UpdateMachineTests {
             return .unsupported(id: try #require(json["id"] as? String), detail: json["detail"] as? String)
         case "heldDiscarded":
             return .heldDiscarded
+        case "sourceActivity": return .sourceActivity(pending: json["pending"] as? Bool ?? false)
         case "publishDelayElapsed":
             return .publishDelayElapsed
         case "maxDelayElapsed":

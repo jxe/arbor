@@ -170,9 +170,19 @@ traces split at the protocol limits. The originals remain durable for recovery.
 
 Publication mappings and the exact body are persisted together. Later descendants
 use the mapped identities; acceptance and discard account for all covered local
-records. A successor waits for idle, including after an earlier request succeeds.
+records. `EditorSource` reports captured work before admission and keeps that
+activity claim until its pending generations drain. These notifications are
+ordered independently of slow appends, so a gap in durable completions does not
+look like editor idle. A failed append releases the activity claim; retry claims
+it again while preserving the pending generations. A successor waits for idle,
+including after an earlier request succeeds.
 Idle already elapsed during submission does not incur another wait. Explicit sync
 can force publication, but watch events and polls do not interrupt a move burst.
+
+The first publication in a request uses smaller copy/insert deltas for final files and
+directories, including a coalesced move's final candidate. Bases come from the
+request's accepted graph. Later batch elements retain their envelopes until
+the client can prove the host retains their preceding candidate. Transport byte matching never supplies move or copy evidence.
 
 Accepted ancestry remains in a batch to preserve attribution, but its objects
 and deltas are omitted. canopyd uses the credential-bound receipt to avoid
