@@ -78,7 +78,12 @@ operations take its full evaluator.
 
 A batch is checked before anything in it is accepted: plain elements are checked by
 canopyd, each on the one before it, and any other traced element is asked of the sidecar
-against the request's base (with the earlier elements as `prefix`). An unsupported or
+against the request's base (with the earlier elements as `prefix` and `validate: true`).
+Validation executes the candidate on the authored state after that prefix, so a
+newly created or moved parent is not mistaken for a concurrent deletion. This
+mode requires `base == head` and a traced candidate; acceptance still asks the
+ordinary merge question against the actual head. Validation returns no accepted
+decisions and its answer is never used as an acceptance result. An unsupported or
 invalid element never accepts a prefix. At acceptance, an element accepted exactly as
 authored on the entry before it becomes the next element's base; any other is carried in
 `prefix`. A preflight answer is reused only for a verbatim question.

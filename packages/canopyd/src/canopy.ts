@@ -1767,7 +1767,7 @@ export class HostDaemon implements AsyncDisposable {
             plainSoFar &&= plain;
             if (!plain) {
               const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
-              const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
+              const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { validate: true, prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
               const asked = await this.askMerge(question, objects);
               markPhase("preflight-evaluate");
               if (index === 0) prepared = { question, ...asked };

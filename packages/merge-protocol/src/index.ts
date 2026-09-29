@@ -191,6 +191,8 @@ export interface MergeRules { id: string; revision: number; config?: unknown }
  * authored on `base` before this one (earlier elements of the same batch);
  * applied in order, they give the author's own basis. */
 export interface MergeQuestion {
+  /** Check the authored chain without merging it against the pre-prefix head. */
+  validate?: true;
   base: ObjectHash;
   head: ObjectHash;
   prefix?: Candidate[];
@@ -199,6 +201,7 @@ export interface MergeQuestion {
 }
 const mergeQuestionSchema = z
   .object({
+    validate: z.literal(true).optional(),
     base: hash,
     head: hash,
     prefix: z.array(candidate).max(64).optional(),
@@ -210,6 +213,8 @@ const mergeQuestionSchema = z
 /** Check a question's shape and every material reference it carries. */
 export function parseQuestion(raw: unknown): MergeQuestion {
   const question = mergeQuestionSchema.parse(raw) as MergeQuestion;
+  if (question.validate && (question.head !== question.base || question.candidate.trace === null))
+    throw new Error("Validation requires a traced candidate and one accepted basis");
   for (const c of [...(question.prefix ?? []), question.candidate])
     for (const alternative of c.alternatives ?? []) {
       const ref = decodeMaterialRef(alternative.ref);

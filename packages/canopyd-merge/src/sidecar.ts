@@ -179,6 +179,11 @@ export class Sidecar {
     this.lastHead = question.head;
     this.replayDeadline = performance.now() + this.replayMillis;
     const { result, evidence } = await this.solve(question, rules);
+    // An authored prefix can hide an unresolved ancestor. Its private state is
+    // valid evidence, but its choices are not decisions in an accepted root.
+    // Preflight checks execution only; acceptance produces and records choices.
+    if (question.validate)
+      return { root: result.object, objects: await this.export(result.object, []), decisions: [], evidence };
     const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
     return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
@@ -205,7 +210,7 @@ export class Sidecar {
     for (const prior of question.prefix ?? []) basis = await this.authored(head.tree, basis, prior, rules);
     const candidate = question.candidate;
     if (candidate.trace === null) return this.snapshot(question, head, basis.object, current);
-    const evaluated = await this.evaluate(head.tree, basis, current, candidate, rules);
+    const evaluated = await this.evaluate(head.tree, basis, question.validate ? basis : current, candidate, rules);
     return { result: evaluated.result, evidence: evaluated.evidence as unknown };
   }
 
