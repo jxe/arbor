@@ -137,6 +137,20 @@ struct CanopySidebarSearchRow: View {
     let open: () -> Void
 
     var body: some View {
+#if os(macOS)
+        if opensThroughListSelection {
+            // A selectable List owns the menu so its row insets participate too.
+            rowContent
+        } else {
+            rowContent.contextMenu { contextMenuActions }
+        }
+#else
+        rowContent.contextMenu { contextMenuActions }
+#endif
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
         let titleParts = canopySidebarTitleParts(result.title)
         let contextPath = canopySidebarContextPath(result.reference.path)
 
@@ -161,12 +175,14 @@ struct CanopySidebarSearchRow: View {
         .canopyBlockDropDestination(
             acceptsBlockDrop ? CanopyDocumentReferenceCodec.encode(result.reference) : nil
         )
-        .contextMenu {
-            Button("Open", systemImage: "arrow.right", action: open)
-            if let movePage {
-                Divider()
-                Button("Move Page…", systemImage: "folder", action: movePage)
-            }
+    }
+
+    @ViewBuilder
+    private var contextMenuActions: some View {
+        Button("Open", systemImage: "arrow.right", action: open)
+        if let movePage {
+            Divider()
+            Button("Move Page…", systemImage: "folder", action: movePage)
         }
     }
 

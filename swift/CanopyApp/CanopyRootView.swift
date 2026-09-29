@@ -1578,6 +1578,17 @@ struct CanopyRootView: View {
     private func sidebarPagesList<Content: View>(@ViewBuilder content: () -> Content) -> some View {
 #if os(macOS)
         List(selection: $sidebarListSelection, content: content)
+            .contextMenu(forSelectionType: WorkspaceIdentity.self) { identities in
+                if let result = model.searchResults.first(where: { identities.contains($0.id) }) {
+                    Button("Open", systemImage: "arrow.right") {
+                        openFromSidebar(.reference(result.reference))
+                    }
+                    Divider()
+                    Button("Move Page…", systemImage: "folder") {
+                        Task { _ = await model.editorHost?.moveDocument(result.reference) }
+                    }
+                }
+            }
 #else
         List(content: content)
 #endif
