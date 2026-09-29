@@ -440,9 +440,17 @@ public struct LocalChange: Codable, Equatable, Sendable {
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
         let captured = try prepared?.operations ?? creation.map { try Self.creationOperations($0, graph: graph, candidate: candidate) } ?? []
+        var suppliedObjects = self.candidate.objects.filter { !known.contains($0.hash) }
+        if entryActions?.promotedParent != nil {
+            let bytes = try ProtocolObjectCodec.encode(.directory([], childrenSource: nil))
+            let hash = ProtocolObjectCodec.hash(bytes)
+            if !known.contains(hash), !suppliedObjects.contains(where: { $0.hash == hash }) {
+                suppliedObjects.append(.init(hash: hash, bytes: bytes))
+            }
+        }
         self.update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
                                           trace: captured.isEmpty ? nil : [ProtocolTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
-                                          objects: self.candidate.objects.filter { !known.contains($0.hash) })
+                                          objects: suppliedObjects)
         _ = try JSONEncoder().encode(update)
     }
 
@@ -469,8 +477,18 @@ public struct LocalChange: Codable, Equatable, Sendable {
         _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
         _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
         let known = Set(graph.objects.map(\.hash)), present = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash, $0.bytes) })
+        // An operation may introduce material that later operations change,
+        // such as the empty directory receiving a moved page. Its original
+        // object is needed to replay the trace although absent from the result.
+        let introduced = Set((update.trace ?? []).flatMap(\.operations).compactMap { operation -> String? in
+            guard operation.kind == "addEntry", case let .object(value)? = operation.fields["value"] else { return nil }
+            if case let .string(hash)? = value["directory"] { return hash }
+            if case let .string(hash)? = value["file"] { return hash }
+            return nil
+        })
         for object in update.objects {
-            guard !known.contains(object.hash), present[object.hash] == object.bytes else { throw Self.invalid("Update object is not a new candidate object") }
+            guard !known.contains(object.hash), ProtocolObjectCodec.hash(object.bytes) == object.hash,
+                  present[object.hash] == object.bytes || introduced.contains(object.hash) else { throw Self.invalid("Update object is not candidate or introduced material") }
         }
         for delta in update.deltas {
             guard present[delta.result] != nil, known.contains(delta.base) || present[delta.base] == nil else { throw Self.invalid("Delta does not target the candidate") }
@@ -829,12 +847,13 @@ public actor ChangeLog {
         var bytes = objectCache
         var presented: [String: Data] = [:]
         for record in next {
-            for object in record.graph.objects + record.candidate.objects {
+            for object in record.graph.objects + record.candidate.objects + record.update.objects {
                 bytes[object.hash] = object.bytes
             }
             for object in record.localTrash?.objects ?? [] {
                 bytes[object.hash] = object.bytes; presented[object.hash] = object.bytes
             }
+            for object in record.update.objects { presented[object.hash] = object.bytes }
             // Objects a candidate introduces relative to its graph are queue-owned
             // until the admission settles, whether the wire element carries them
             // whole or as deltas. Accepted graph objects stay in the platform CAS.

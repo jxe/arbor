@@ -6,8 +6,59 @@ import Foundation
 public struct EntryActions: Codable, Equatable, Sendable {
     public var transfers: [EntryTransfer]
     public var removals: [String]
-    public init(transfers: [EntryTransfer] = [], removals: [String] = []) {
-        self.transfers = transfers; self.removals = removals
+    /// A Markdown destination gains its first child directory in this action.
+    public var promotedParent: String?
+    public init(transfers: [EntryTransfer] = [], removals: [String] = [], promotedParent: String? = nil) {
+        self.transfers = transfers; self.removals = removals; self.promotedParent = promotedParent
+    }
+
+    /// Add only the empty sibling directory; the existing Markdown body keeps
+    /// its bytes and identity. Transfers then target this operation's result.
+    func preparingParent(graph: ProtocolSnapshot) throws -> (graph: ProtocolSnapshot, operation: ProtocolSourceOperation?) {
+        guard let path = promotedParent else { return (graph, nil) }
+        let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard path.hasPrefix("/"), !parts.isEmpty, parts.allSatisfy(ProtocolGraph.isPathComponent),
+              transfers.allSatisfy({ $0.parent == path }) else {
+            throw ProtocolValidationError.invalidValue("Invalid promoted destination")
+        }
+        var objects = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
+        let empty = try ProtocolObjectCodec.encode(.directory([], childrenSource: nil))
+        let emptyHash = ProtocolObjectCodec.hash(empty)
+        objects[emptyHash] = empty
+        var parentHash = ""
+        func add(_ hash: String, _ remaining: ArraySlice<String>) throws -> String {
+            guard let bytes = objects[hash], case let .directory(original, descriptor) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
+                  let name = remaining.first else { throw ProtocolValidationError.invalidValue("Invalid promotion parent") }
+            var entries = original
+            if remaining.count == 1 {
+                guard !entries.contains(where: { $0.name == name }),
+                      entries.contains(where: { $0.name == name + ".md" && $0.file != nil }) else {
+                    throw ProtocolValidationError.invalidValue("Promotion requires an existing Markdown leaf")
+                }
+                parentHash = hash
+                entries.append(.init(name: name, directory: emptyHash))
+            } else {
+                guard let index = entries.firstIndex(where: { $0.name == name }), let child = entries[index].directory else {
+                    throw ProtocolValidationError.invalidValue("Invalid promotion ancestor")
+                }
+                entries[index].directory = try add(child, remaining.dropFirst())
+            }
+            entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
+            let encoded = try ProtocolObjectCodec.encode(.directory(entries, childrenSource: descriptor))
+            let result = ProtocolObjectCodec.hash(encoded); objects[result] = encoded
+            return result
+        }
+        let root = try add(graph.root, parts[...])
+        let parentPath = parts.count == 1 ? "/" : "/" + parts.dropLast().joined(separator: "/")
+        let operation = try ProtocolSourceOperation([
+            "key": .string("promote-parent"), "kind": .string("addEntry"),
+            "destination": .object([
+                "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(parentPath), "object": .string(parentHash)])]),
+                "name": .string(parts.last!),
+            ]),
+            "value": .object(["directory": .string(emptyHash)]),
+        ])
+        return (try ProtocolGraph.reachable(from: root, in: objects), operation)
     }
 
     public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String) throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
@@ -26,16 +77,20 @@ public struct EntryActions: Codable, Equatable, Sendable {
         for (i, path) in destinations.enumerated() {
             guard !destinations.dropFirst(i + 1).contains(where: { overlaps(path,$0) }) else { throw invalid() }
         }
-        var current = graph
-        var operations: [ProtocolSourceOperation] = []
+        let promotion = try preparingParent(graph: graph)
+        var current = promotion.graph
+        var operations = promotion.operation.map { [$0] } ?? []
         for (index, transfer) in transfers.enumerated() {
-            let original = try transfer.prepare(graph: graph, candidate: candidate, changeID: changeID)
+            let original = try transfer.prepare(graph: promotion.graph, candidate: candidate, changeID: changeID)
             current = try transfer.prepare(graph: current, candidate: candidate, changeID: changeID).candidate
             // Only keys and same-change operation references are renamed. Basis
             // references remain the original graph, never intermediate hashes.
             func bind(_ value: ProtocolSemanticValue) -> ProtocolSemanticValue {
                 switch value {
                 case var .object(fields):
+                    if let promotedParent, fields["kind"] == .string("basis"), fields["path"] == .string(promotedParent) {
+                        return .object(["kind": .string("operation"), "change": .string(changeID), "operation": .string("promote-parent")])
+                    }
                     if fields["kind"] == .string("operation"), fields["change"] == .string(changeID), case let .string(key)? = fields["operation"] {
                         fields["operation"] = .string("entry-\(index)-" + key)
                     }

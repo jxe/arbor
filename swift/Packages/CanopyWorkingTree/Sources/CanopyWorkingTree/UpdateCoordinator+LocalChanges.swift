@@ -55,7 +55,14 @@ extension UpdateCoordinator {
                 var transferred: WorkingTreeNode?
                 var transferKind = EntryTransfer.Kind.moveEntry
                 var isTrash = false
+                var promotedParent: String?
                 if case let .action(action) = structural {
+                    switch action {
+                    case let .move(_, destination), let .copy(_, destination):
+                        let parent = try await staging.resolve(destination)
+                        if parent.kind == .markdown { promotedParent = parent.path }
+                    default: break
+                    }
                     switch action {
                     case let .copy(reference, _):
                         transferred = try await staging.resolve(reference); transferKind = .copyEntry
@@ -92,12 +99,13 @@ extension UpdateCoordinator {
                     if isTrash {
                         actions = EntryActions(removals: paths.map { $0.0 })
                     } else {
+                        let transferGraph = try EntryActions(promotedParent: promotedParent).preparingParent(graph: graph).graph
                         let transfers = try paths.map { source, destination in
                             let parts = destination.split(separator:"/").map(String.init)
                             let transfer = EntryTransfer(kind:transferKind,source:source,parent:parts.count == 1 ? "/" : "/"+parts.dropLast().joined(separator:"/"),name:parts.last!)
-                            return try transferKind == .copyEntry ? transfer.capturingRewrites(graph:graph,candidate:candidate) : transfer
+                            return try transferKind == .copyEntry ? transfer.capturingRewrites(graph:transferGraph,candidate:candidate) : transfer
                         }
-                        actions = EntryActions(transfers:transfers)
+                        actions = EntryActions(transfers:transfers, promotedParent: promotedParent)
                     }
                 }
                 var creation: SourcePageCreation?

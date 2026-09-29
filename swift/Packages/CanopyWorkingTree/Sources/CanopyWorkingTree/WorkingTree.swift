@@ -662,24 +662,25 @@ public actor WorkingTree {
         let node = try resolve(reference)
         let parent = try resolve(destination)
         guard node.path != "/" else { throw WorkingTreeError.readOnly(reference) }
-        guard parent.kind == .directory else { throw WorkingTreeError.notDirectory(destination) }
+        guard parent.kind == .directory || parent.kind == .markdown else { throw WorkingTreeError.notDirectory(destination) }
         guard !WorkingTreeSemantics.isDescendant(parent.path, of: node.path), parent.path != node.path else {
             throw WorkingTreeError.invalidPath(parent.path)
         }
-        return try relocate(node, to: WorkingTreeSemantics.child(WorkingTreeSemantics.name(of: node.path), of: parent.path), mutation: "move")
+        return try relocate(node, to: WorkingTreeSemantics.child(WorkingTreeSemantics.name(of: node.path), of: parent.path), mutation: "move", parent: parent)
     }
 
     @discardableResult
     func copy(_ reference: WorkspaceReference, destination: WorkspaceReference) throws -> WorkingTreeNode {
         let node = try resolve(reference)
         let parent = try resolve(destination)
-        guard parent.kind == .directory else { throw WorkingTreeError.notDirectory(destination) }
+        guard parent.kind == .directory || parent.kind == .markdown else { throw WorkingTreeError.notDirectory(destination) }
         guard parent.path != node.path, !WorkingTreeSemantics.isDescendant(parent.path, of: node.path) else {
             throw WorkingTreeError.invalidPath(parent.path)
         }
         let target = WorkingTreeSemantics.child(WorkingTreeSemantics.name(of: node.path), of: parent.path)
         var copied: WorkingTreeNode!
         try transact(mutation: "copy", pageKey: node.pageID ?? "_tree") { next in
+            try prepareParentForChildren(parent, in: &next)
             try refuseCollision(target, in: next)
             let sourceNodes = next.nodes.filter { $0.path == node.path || WorkingTreeSemantics.isDescendant($0.path, of: node.path) }
             for var source in sourceNodes.sorted(by: { $0.path.count < $1.path.count }) {
@@ -866,9 +867,10 @@ public actor WorkingTree {
 
     public func treeID() -> TreeID { TreeID(rawValue: state.tree) }
 
-    private func relocate(_ node: WorkingTreeNode, to destination: String, mutation: String) throws -> WorkingTreeNode {
+    private func relocate(_ node: WorkingTreeNode, to destination: String, mutation: String, parent: WorkingTreeNode? = nil) throws -> WorkingTreeNode {
         var moved: WorkingTreeNode!
         try transact(mutation: mutation, pageKey: node.pageID ?? "_tree") { next in
+            if let parent { try prepareParentForChildren(parent, in: &next) }
             try refuseCollision(destination, in: next)
             for index in next.nodes.indices where next.nodes[index].path == node.path || WorkingTreeSemantics.isDescendant(next.nodes[index].path, of: node.path) {
                 let old = next.nodes[index].path

@@ -184,9 +184,11 @@ extension LiveChangeLogTests {
         let original = try await session.snapshot(), editedSource = original.source + "Then edited locally\n"
         _ = try await session.admit(intent: .init(basis: original, patch: .init(baseContentRevision: original.contentRevision,
             edits: [.init(utf8Range: original.source.utf8.count..<original.source.utf8.count, replacement: "Then edited locally\n")]), source: editedSource))
-        let directory = try #require(try await provider.perform(.createDirectory(parent: parent, name: "group-" + UUID().uuidString)))
-        let moved = try #require(try await provider.perform(.move(reference: created.reference, destination: directory.reference)))
-        let copy = try #require(try await provider.perform(.copy(reference: moved.reference, destination: parent)))
+        let directory = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "group-" + UUID().uuidString, source: "# Destination\n")))
+        let movedInitial = try #require(try await provider.perform(.move(reference: created.reference, destination: directory.reference)))
+        let moved = try #require(try await provider.perform(.rename(reference: movedInitial.reference, name: "renamed-move")))
+        let copyParent = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "copy-parent-" + UUID().uuidString, source: "# Copies\n")))
+        let copy = try #require(try await provider.perform(.copy(reference: moved.reference, destination: copyParent.reference)))
         let renamed = try #require(try await provider.perform(.rename(reference: copy.reference, name: "copy-" + UUID().uuidString)))
         let binary = try await provider.importFile(name: "data.bin", bytes: Data([0, 42, 255]), in: directory.reference)
         let asset = try await provider.store(asset: .init(name: "image.bin", bytes: Data([9, 8, 7])), in: directory.reference)
@@ -194,7 +196,7 @@ extension LiveChangeLogTests {
         _ = try await provider.perform(.restore(reference: trashed.reference))
         #expect(try await tree.heads().acceptedRoot == initial.tree.root)
         let records = try await ChangeLog(tree: treeID, stateRoot: root).retained()
-        #expect(records.count == 10)
+        #expect(records.count == 12)
         await session.close(); await coordinator.close(); await tree.close()
 
         let current = try await client.descriptor(tree: treeID)

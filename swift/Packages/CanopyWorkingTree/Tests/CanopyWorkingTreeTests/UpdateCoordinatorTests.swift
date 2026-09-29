@@ -2101,3 +2101,48 @@ extension SourceSessionPublicationTests {
         }
     }
 }
+
+
+extension SourceSessionPublicationTests {
+    @Test("Moving and copying into a Markdown page promotes it with explicit identity", arguments: [false, true])
+    func transferIntoMarkdownParent(copy: Bool) async throws {
+        try await withTemporaryRoot { root in
+            let initial = try directoryBodySnapshot(stem: "pair", siblingSource: "---\nid: pg_pair\n---\n\n# Pair\n", indexSource: nil)
+            let tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+            let parent = try #require(try await provider.perform(.createMarkdown(parent: .init(tree: treeID, path: "/"), name: "Psych", source: "# Psych\r\n")))
+            let before = try await provider.openDocument(parent.reference).snapshot()
+            let source = WorkspaceReference(tree: treeID, path: "/pair")
+            let action: WorkspaceStructuralAction = copy ? .copy(reference: source, destination: parent.reference) : .move(reference: source, destination: parent.reference)
+            let result = try #require(try await provider.perform(action))
+            #expect(result.reference.path == "/Psych/pair")
+            #expect(try await provider.openDocument(parent.reference).snapshot().source == before.source)
+            let records = try await ChangeLog(tree: treeID.rawValue, stateRoot: root).retained()
+            let record = try #require(records.last)
+            let frames = try #require(record.update.trace)
+            let operations = frames.flatMap(\.operations)
+            #expect(operations.first?.kind == "addEntry")
+            #expect(operations.filter { $0.kind == (copy ? "copyEntry" : "moveEntry") }.count == 2)
+            for operation in operations where operation.kind == "copyEntry" || operation.kind == "moveEntry" {
+                guard case let .object(destination)? = operation.fields["destination"],
+                      case let .object(parent)? = destination["parent"],
+                      case let .object(material)? = parent["material"] else { Issue.record("Missing destination identity"); continue }
+                #expect(material["kind"] == .string("operation"))
+                #expect(material["operation"] == .string("promote-parent"))
+            }
+            let replay = try #require(record.entryActions).prepare(graph: record.graph, candidate: record.candidate, changeID: record.change)
+            #expect(replay.candidate.root == record.candidate.root)
+            await coordinator.close(); await tree.close()
+            let reopenedTree = try await makeTree(initial, update: "up_initial")
+            let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
+                publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let recovered = WorkingTreeProvider(workingTree: reopenedTree, coordinator: reopened)
+            #expect(try await recovered.openDocument(result.reference).snapshot().source.contains("# Pair") == true)
+            #expect(try await recovered.openDocument(parent.reference).snapshot().source == before.source)
+            await reopened.close(); await reopenedTree.close()
+        }
+    }
+}
