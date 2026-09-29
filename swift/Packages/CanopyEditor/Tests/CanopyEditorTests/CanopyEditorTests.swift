@@ -720,8 +720,8 @@ struct CanopyEditorTests {
     }
 
     @MainActor
-    @Test("Move to Document falls back to an exact copy when the provider cannot state one change")
-    func moveFallsBackToCopy() async throws {
+    @Test("Move to Document leaves both pages intact when the provider cannot state one change")
+    func moveRefusesSeparateCopyAndDeletion() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
         let destination = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let reference = WorkspaceReference(tree: "tr_sample", path: "/origin")
@@ -730,10 +730,12 @@ struct CanopyEditorTests {
         var errors: [String] = []
         let host = CanopyEditorHost(binding: binding, provider: provider, linkPreviewService: linkPreviewService(), reportError: { errors.append($0) })
         let moved = binding.document.children[1]
-        #expect(await host.appendToDocument(CanopyDocumentReferenceCodec.encode(destination), [moved]))
+        let before = try await provider.openDocument(destination).snapshot().source
+        #expect(!(await host.appendToDocument(CanopyDocumentReferenceCodec.encode(destination), [moved])))
         let target = try await provider.openDocument(destination).snapshot().source
-        #expect(target.hasSuffix("Moved\n\n"))
-        #expect(errors.isEmpty)
+        #expect(target == before)
+        #expect(binding.document.children.contains { $0.id == moved.id })
+        #expect(errors.count == 1)
         await binding.close()
     }
 
@@ -2029,6 +2031,16 @@ struct TransferPlanTests {
         #expect(result.transfer.moves[0].anchor.document == .destination)
         #expect(result.transfer.edits.isEmpty)
         #expect(result.planned.originLedger.records.count == 2)
+    }
+
+    @Test("A newly created titled page accepts an identity-preserving transfer")
+    func titledDestination() throws {
+        let target = "---\nid: pg_target\n---\n\n# Psych\n\n"
+        let result = try #require(try plan("One\n\nMoved\n\nThree\n", target) { [$0[1]] })
+        #expect(result.planned.originSource == "One\n\nThree\n")
+        #expect(result.planned.destinationSource == target + "Moved\n\n")
+        #expect(result.transfer.moves.count == 1)
+        #expect(result.transfer.edits.isEmpty)
     }
 
     @Test("Blank lines are added where a block would run into another")

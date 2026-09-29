@@ -79,9 +79,12 @@ The Quagmire binding does what only the editor can:
   one retained tree holding both pages as the editor read them, decided from
   record ancestry. When the two pages' local work sits on different chains,
   the editor publishes it, adopts the byte-identical accepted view and tries
-  again; failing that, or for blocks apart from each other, it copies the
-  blocks exactly and deletes them from the origin. Until the editor removes
-  the moved blocks, no capture of the origin is taken.
+  again. If one transfer cannot represent the selection, both pages stay
+  unchanged and the editor reports the failure. A separate copy and deletion
+  can conflict with each other and must not substitute for a same-tree move.
+  Destination validation folds appended blocks under existing headings, including
+  a newly created page’s title. Until the editor removes the moved blocks, no
+  capture of the origin is taken.
 - **Guard uncommitted input.** Quagmire can hold a keystroke before its commit
   callback fires. `flush()` captures it first; an acknowledgement that finds
   the mounted tree ahead of the latest capture appends it as a successor

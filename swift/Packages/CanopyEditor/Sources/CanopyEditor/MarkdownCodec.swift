@@ -622,7 +622,7 @@ public enum CanopyMarkdownCodec {
         }
         // Separate spans would chain one move onto material another carried
         // into the destination; canopyd executes that but does not yet
-        // reconcile it with a peer's edit, so such a selection is copied.
+        // reconcile it with a peer's edit, so such a selection is refused.
         guard spans.count == 1 else { return nil }
         for span in spans {
             moves.append(.init(source: span, anchor: .init(document: .destination, range: anchor), side: .after))
@@ -649,7 +649,7 @@ public enum CanopyMarkdownCodec {
         let remaining = removingSubtrees(removed, from: removingProjectedBlocks(from: blocks))
         guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
               sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
-                        removingProjectedBlocks(from: destination.blocks) + roots.map(stripped)) else { return nil }
+                        foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
         return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
             originLedger: CanopySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
             destinationSource: destinationSource)

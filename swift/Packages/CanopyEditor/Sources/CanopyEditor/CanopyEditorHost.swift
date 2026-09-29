@@ -686,7 +686,7 @@ public final class CanopyEditorHost: EditorHost {
             errorAction("Couldn't add blocks: the destination page is not in this workspace")
             return false
         }
-        if let moved = await moveToDocument(decoded, reference: reference, blocks) { return moved }
+        if let moved = await moveToDocument(decoded, blocks) { return moved }
         do {
             _ = try await withDocumentSession(decoded) { session in
                 try await admitBlockEdit(in: session) { $0 += blocks }
@@ -703,10 +703,10 @@ public final class CanopyEditorHost: EditorHost {
     /// this document's own blocks (a copy gets fresh identities), so blocks
     /// recorded in this editor's source are moved rather than retyped. When
     /// the two pages' local work sits on different chains, publish it and try
-    /// once more on the accepted view; failing that, or when the move is not
-    /// one exact change, copy the blocks exactly and let Quagmire remove them
-    /// here. Nil leaves an ordinary append.
-    private func moveToDocument(_ destination: WorkspaceReference, reference: DocumentReference, _ blocks: [Block]) async -> Bool? {
+    /// once more on the accepted view. A same-tree move must stay atomic: a
+    /// copy followed by a separate deletion can become competing tree choices.
+    /// Nil leaves an ordinary append for blocks that do not belong to this page.
+    private func moveToDocument(_ destination: WorkspaceReference, _ blocks: [Block]) async -> Bool? {
         guard destination.tree == binding.reference.tree, destination.identity != binding.reference.identity,
               !blocks.isEmpty, blocks.allSatisfy({ binding.ledger.records[$0.id] != nil }) else { return nil }
         func attempt() async throws -> Bool {
@@ -716,7 +716,7 @@ public final class CanopyEditorHost: EditorHost {
         }
         do {
             if try await attempt() { return true }
-            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) is not one exact change; copying instead")
+            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) is not one exact change; leaving the origin intact")
         } catch WorkspaceTransferError.basesDiverged {
             await binding.session.publishPending()
             await binding.adoptCurrentSnapshot()
@@ -726,12 +726,13 @@ public final class CanopyEditorHost: EditorHost {
                 errorAction("Couldn't move blocks: \(error.localizedDescription)")
                 return false
             }
-            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) spans diverged local work after publication; copying instead")
+            Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) spans diverged local work after publication; leaving the origin intact")
         } catch {
             errorAction("Couldn't move blocks: \(error.localizedDescription)")
             return false
         }
-        return await copyToDocument(reference, blocks: blocks, from: binding.document)
+        errorAction("Couldn’t move these blocks together. They remain in the original page.")
+        return false
     }
 
     /// Open a provider session for one operation and always close it.

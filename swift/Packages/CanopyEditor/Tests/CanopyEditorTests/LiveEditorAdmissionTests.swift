@@ -472,7 +472,7 @@ extension LiveEditorAdmissionTests {
         await continued.close(); await coordinator.close(); await tree.close()
     }
 
-    enum MoveCase: String, CaseIterable, Sendable { case plain, peer, diverged }
+    enum MoveCase: String, CaseIterable, Sendable { case plain, peer, diverged, titled }
 
     /// Move to Document is one change over both pages: the paragraph leaves
     /// one and lands in the other as a move, replays identically after a
@@ -488,14 +488,15 @@ extension LiveEditorAdmissionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let client = ProtocolClient(origin: url, credential: token)
         let origin = try await freshUndoPage(client: client, tree: treeID, content: "Stays here\n\nMoved paragraph\n\nAlso stays\n")
-        let destination = try await freshUndoPage(client: client, tree: treeID, content: "Destination\n\n")
+        let destinationSource = variant == .titled ? "# Destination\n\n" : "Destination\n\n"
+        let destination = try await freshUndoPage(client: client, tree: treeID, content: destinationSource)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
         let transport = ProtocolReplicaTransport(client: client)
         var coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
         let capture = try await tree.captureSourceBasis(origin)
-        var destinationText = "Destination\n\n"
+        var destinationText = destinationSource
         if variant == .diverged {
             // Unpublished work on the destination, on its own chain.
             let other = try await CanopyDocumentBinding.open(reference: destination, session: provider.openDocument(destination))
