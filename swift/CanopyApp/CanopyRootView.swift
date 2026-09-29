@@ -423,6 +423,7 @@ private struct MacPageOrderPicker: NSViewRepresentable {
     func makeNSView(context: Context) -> PageOrderPopUpButton {
         let button = PageOrderPopUpButton(frame: .zero, pullsDown: false)
         button.isBordered = false
+        button.focusRingType = .exterior
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
         button.target = context.coordinator
@@ -470,6 +471,13 @@ private struct MacPageOrderPicker: NSViewRepresentable {
 
 @MainActor
 private final class PageOrderPopUpButton: NSPopUpButton {
+    override var acceptsFirstResponder: Bool { true }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 6, yRadius: 6).fill()
+    }
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: 32, height: 32)
     }
@@ -532,6 +540,7 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
         var focusChanged: ((Bool) -> Void)?
         private var observation: NSKeyValueObservation?
         private var fieldIsFocused = false
+        private var keyMonitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -541,6 +550,41 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
                 MainActor.assumeIsolated { self?.firstResponderChanged() }
             }
             firstResponderChanged()
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+            guard window != nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let window = self.window,
+                      let field = self.field,
+                      let responder = NSApp.keyWindow?.firstResponder,
+                      responder === field || responder === field.currentEditor(),
+                      event.keyCode == 48,
+                      event.modifierFlags.intersection([.shift, .control, .option, .command]) == .shift,
+                      let picker = self.pageOrderPicker else { return event }
+                // Backward traversal out of the fullscreen titlebar can land on
+                // its invisible window responder. Wrap to a visible control.
+                picker.nextKeyView = field
+                return window.makeFirstResponder(picker) ? nil : event
+            }
+        }
+
+        isolated deinit {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        }
+
+        private var pageOrderPicker: PageOrderPopUpButton? {
+            func find(in view: NSView) -> PageOrderPopUpButton? {
+                if let picker = view as? PageOrderPopUpButton { return picker }
+                return view.subviews.lazy.compactMap { find(in: $0) }.first
+            }
+            var ancestor = superview
+            while let view = ancestor {
+                if let picker = find(in: view), !picker.isHiddenOrHasHiddenAncestor, picker.isEnabled {
+                    return picker
+                }
+                ancestor = view.superview
+            }
+            return nil
         }
 
         func request(_ focused: Bool) {
