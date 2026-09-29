@@ -1,8 +1,9 @@
 # Security 010: Signed profile statements, and moving a home host
 
+**Why and when:** when a host Joe does not control is involved, or a home host must be left behind.
+
 ## Status
 
-- **Priority:** P4
 - **Effort:** XL
 - **Risk:** HIGH. It changes how every device and app change is authorized,
   and moves a profile between hosts.
@@ -10,7 +11,7 @@
   (Security 008). **Deferred** until a host Joe does not control is involved,
   or a home host must be left behind. Two decisions are Joe's (marked
   **Decide**).
-- **Builds on:** [Security 007](../soon/007-placement-hosts.md),
+- **Builds on:** [Security 007](../../status.md#trees-on-other-hosts--2026-09-28),
   [Security 009](../../status.md#trees-on-other-hosts--2026-09-28), and
   [Apps 008](../apps/008-app-approvals-on-placement-hosts.md) when it exists.
 

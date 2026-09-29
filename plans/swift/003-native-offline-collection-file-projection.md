@@ -1,10 +1,11 @@
 # Native 003: Project synchronized collection-file rows in native offline replicas
 
+**Why and when:** when browsing collection rows offline on native becomes a real need.
+
 Historical identifier: **Smaller project 003**. The filename number is preserved; this plan now belongs to native.
 
 ## Status
 
-- **Priority:** P2
 - **Effort:** UNKNOWN
 - **State:** DEFERRED — specification and implementation begin only when native
   offline browsing of collection-file children becomes a product requirement.

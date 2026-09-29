@@ -1,5 +1,7 @@
 # Filesystem 024: Disk editors for non-tree folders
 
+**Why and when:** opening an ordinary folder in the Mac app, and making it into a tree from there, went away with the daemon's editor path; today a new tree needs `arbor place`. Joe wants this first, before the web editor. The web half follows Web 025.
+
 Historical identifier: **Native 024**. The filename number is preserved; this plan now belongs to filesystem.
 
 > **Executor instructions**: Give the Mac app and Canopy for the web a plain disk editor for folders that are not placed Overstory trees. No update machine, no admission fence, no journal, no recovery: read, write with an etag check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead.
@@ -8,7 +10,6 @@ Historical identifier: **Native 024**. The filename number is preserved; this pl
 
 ## Status
 
-- **Priority**: P2 — restores non-tree browsing
 - **Effort**: M
 - **Risk**: LOW
 - **Depends on**: Native 022 (for the Mac editor); Web 025 (for the web editor)

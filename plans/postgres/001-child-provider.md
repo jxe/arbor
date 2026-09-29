@@ -1,8 +1,9 @@
 # Postgres 001: Complete the Postgres child provider
 
+**Why and when:** longer term. For now the point is that the design shows Postgres backings, SQLite projections and moving a collection between representations are possible.
+
 ## Status
 
-- **Priority:** P2
 - **Effort:** L
 - **State:** PLANNED — extracted from Data 002; not a prerequisite for closing
   the common node model.

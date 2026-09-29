@@ -1,10 +1,11 @@
 # canopyd 001: Pack retained objects into compressed group files
 
+**Why and when:** when size hurts: the live volume or backups grow until loose objects cost startup, audit or backup time. Space is not pressing.
+
 Historical identifier: **canopyd storage 001**. The filename number is preserved; this plan now belongs to canopy.
 
 ## Status
 
-- **Priority:** P2
 - **Effort:** M
 - **Risk:** MEDIUM — an index row pointing at the wrong bytes would corrupt reads;
   every read is checked against its hash

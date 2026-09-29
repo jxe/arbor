@@ -1,10 +1,11 @@
 # Postgres 005: Preserve node identity across representations
 
+**Why and when:** longer term. For now the point is that the design shows Postgres backings, SQLite projections and moving a collection between representations are possible.
+
 Current identifier: **Postgres 005**. Former identifiers: **Smaller project 001 / Data model 001**.
 
 ## Status
 
-- **Priority:** P1
 - **Effort:** L
 - **State:** PLANNED — the Data 002 and Data 011 foundations are historical
   prerequisites already delivered; this plan owns the remaining cross-representation behavior.

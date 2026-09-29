@@ -1,83 +1,96 @@
-# Overstory plans
+# Plans
 
-Start with [Soon](#soon). Beyond it, choose an outcome below: the order is a menu, not an execution sequence.
-For current behavior use [status.md](../status.md); for every retained plan and smaller candidate use the
-[detailed catalog](catalog.md). Historical identifiers are recorded inside moved plans; new numbers avoid collisions in their destination directory.
+Each plan starts with why and when Joe wants it; the same paragraph is below. Small tasks
+and install, deploy and soak checks are in [small work](small-work.md); unplanned candidates
+and open design questions are in [ideas](ideas.md). Current behavior is in
+[status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
+its evidence in status.
 
 ## Soon
 
-Plans chosen for near-term work are in [`soon/`](soon/). Each keeps its owner's identifier
-(canopyd 005 is still canopyd 005) and its entry in the [catalog](catalog.md), marked **SOON**.
+**[Filesystem 024: disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md).**
+Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
+with the daemon's editor path; today a new tree needs `arbor place`. Joe wants this first,
+before the web editor. The web half follows Web 025.
 
-| Plan | What it does |
-|---|---|
-| Security [007](soon/007-placement-hosts.md) | Place trees on other hosts using the home host's published device keys |
+**[Apps 005: source resolution and the execution sidecar](apps/005-source-resolution-and-sidecar.md).**
+Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
+lending models against real code. This is the first step: a headless sidecar that runs them
+under canopyd's authorization.
 
-## Remaining outcomes
+**[Apps 006: durable query and mutation authoring](apps/006-durable-authoring.md).**
+Part of the same push, after Apps 005: the authoring API that declares author and user
+authority together is what exercises the permissions and lending models.
 
-| Outcome | What remains | Start here |
-|---|---|---|
-| Extend Native editing | Copies with changes, paste and inline provenance, and compound undo; capture, block moves, Move to Document, sync and accepted-choice review are implemented | Native [008](swift/008-copies-with-changes-and-compound-undo.md); server transfer policy in canopyd [014](canopyd/014-merge-handles-many-cases.md) |
-| Make the merge handle many more cases | Lose nothing, keep the syntax, approach the meaning; merge or merge with a note far more often than asking for review: anchors that agree in both orders, cross-document links, new keys and arrays in JSON/YAML, code moves and imports, and formats such as BibTeX and notebooks | canopyd [014](canopyd/014-merge-handles-many-cases.md) |
-| Show declined folders in the Mac app | List placed folders with declined paths and offer restore and resend | Native [012](swift/012-show-declined-folders.md) |
-| Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
-| Make Overstory applications executable | Headless sidecar with resource policy → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow. Declarative collection schemas are implemented; their Swift edits await the [Mac gates](release-and-soak.md#collection-schema-mac-gates) | Apps [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
-| Make sharing easier | Safe access links and coherent group management; name-based sharing, the directory, and avatar profiles are implemented. Per-tree configuration with co-administrators and group-owned trees is live; every device is a key device from the schema-26 cutover; trees on several hosts deployed at schema 27 and named by locator at schema 29; later: app lends across hosts, signed profile statements and home moves | Security [004](security/004-access-link-secrets.md), Security [007](soon/007-placement-hosts.md), [010](security/010-signed-profile-statements.md), Apps [008](apps/008-app-approvals-on-placement-hosts.md), [009](apps/009-cross-host-delegation.md), [product design](catalog.md#product-completion) |
-| Browse document history and authorship | Show accepted document versions, restore an earlier version as a new edit, and explain who contributed current lines | canopyd [007](canopyd/007-document-history-routes-and-restore.md) and [006](canopyd/006-line-provenance.md) |
-| Bound storage and improve slow paths | Run the object collector live, bound document-version history, then measure before packing; sparse iOS placement and targeted performance work | canopyd [017](canopyd/017-collect-objects-live.md), [001](canopyd/001-pack-object-storage.md), Native [006](swift/006-sparse-ios-placement.md), [performance candidates](catalog.md#hardening-efficiency-polish-etc) |
-| Strengthen safety and delivery | URL/response/secret boundaries; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [compatibility cutoffs](catalog.md#compatibility-cutoffs) |
+**[Apps 008: app approvals and lending on placement hosts](apps/008-app-approvals-on-placement-hosts.md).**
+Part of the lending test: an app approved at a profile's home host should work on its
+placement hosts too. After Apps 005.
 
-## Release and verify what is already built
+## Later
 
-Source publication is installed, the merge authority is deployed, and substantial Native
-move/copy/undo capture plus accepted-choice review are implemented. Their remaining release
-and hands-on checks are separate from the extensions above; see [current status](../status.md).
+**[Apps 003: compile and typecheck executable documents](apps/003-development-compiler-and-editor-tooling.md).**
+Later, for testing Overstory as a web framework: one compiler and typechecker for
+executable documents everywhere, which the Supplies site needs. After the queries and
+mutations work.
 
-[Release and verification](release-and-soak.md) collects the outstanding installation,
-deployment, manual acceptance and soak checks. It separates those checks from new feature work.
-Verification checklists do not authorize deployment.
+**[Apps 001: the Supplies executable site](apps/001-supplies-executable-site.md).**
+Later, the web-framework test itself: the Supplies site running locally and on canopyd,
+then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
 
-## Parked and conditional work
+**[Web 025: Canopy for the web](canopy-web/025-arbor-web.md)**, with its
+[surface inventory](canopy-web/surfaces.md). For sharing with others: people without the Mac
+or iPhone app need a way to read and edit a tree. After Filesystem 024 and the Native 022
+soak closeout.
 
-The [catalog](catalog.md) retains Postgres, external-agent CLI access, representation work,
-non-tree disk editing, collection projection and smaller polish candidates. They are available to
-select, not an implied commitment to execute them all.
+**[Security 004: access links without leaking secrets](security/004-access-link-secrets.md).**
+When Joe shares by link, alongside Web 025: an access link must not leak its secret into
+URLs, history or logs. Nothing is in production yet, so until then the spec carries the
+requirement.
 
-Account/device recovery is a separate product-design question in the catalog. Editor crash
-recovery already has an implementation; neither is what the document-history row means.
-Name-based sharing and avatars need product design before an executor plan. Other unresolved
-contracts remain in [open questions](open-questions.md).
+**[Apps 002: hosted agents](apps/002-canopy-hosted-agents.md).** After the Supplies site:
+authored agents hosted beside an app, calling its own query and mutation handles. No timing
+yet.
 
-## Directory map
+**[Apps 009: code on one host using access held on another](apps/009-cross-host-delegation.md).**
+After Apps 008, once apps span hosts. A design sketch; no timing yet.
 
-| Directory | Owns |
-|---|---|
-| `soon/` | Plans chosen for near-term work, from any owner; each keeps its owner's identifier |
-| `swift/` | Placement, offline collections, editor command capture and conflict review |
-| `canopy-web/` | The browser client: working-tree rebuild, hosts, and the native surfaces ported |
-| `filesystem/` | Disk editors |
-| `canopyd/` | Merge policy, storage, accepted document history, provenance and hosted-tree configuration |
-| `cli/` | Structured access for external agents |
-| `apps/` | Executable documents, runtime authority and hosted agents |
-| `postgres/` | Providers, projections and representation equivalence |
-| `security/` | Input, rendering, authorization and sharing boundaries |
+## Parked
 
-The [catalog](catalog.md) follows this layout. Completed plans are deleted; git history keeps
-them, and each active plan records any identifier it inherited.
+**[canopyd 014: the merge handles many cases](canopyd/014-merge-handles-many-cases.md).**
+Prose already merges well. Take an item from its menu when a real edit reaches review that
+should have merged.
 
-## Planning rules
+**[Native 008: copies with changes and compound undo](swift/008-copies-with-changes-and-compound-undo.md).**
+When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
+have merged. Needs Quagmire 0.9.0.
 
-- A plan moves into `soon/` when chosen and keeps its identifier. A new plan's number must not
-  collide with a plan of the same owner in `soon/` (Filesystem 005 lives there, so the next
-  Filesystem plan is not 005).
-- Keep one owner for each remaining task. Link to it from dependencies instead of copying its checklist.
-- Active plans describe remaining work. Delete implemented or superseded executor documents
-  after recording their evidence in `status.md`; transfer unfinished gates explicitly.
-- **Implemented**, **installed/deployed**, and **manually verified** are separate claims.
-- **Needs design**, **deferred**, and **waiting** are not ready-to-execute instructions. Old P1/P2
-  labels are workstream assessments, not the current global priority order.
-- Check source, tests and `git status` before implementation. Preserve portable contracts and
-  historical verification records; do not revive removed architecture from an old checklist.
+**[canopyd 007: document history and restore](canopyd/007-document-history-routes-and-restore.md).**
+Parked. Seeing and restoring earlier versions of a page; it also decides how long document
+versions are kept, which is most of what canopyd retains.
 
-The former long sections are in the [detailed catalog](catalog.md). Completed implementation and
-superseded designs are deleted and remain in git history.
+**[canopyd 006: line provenance](canopyd/006-line-provenance.md).** Parked, and after
+canopyd 007: who submitted each current line.
+
+**[canopyd 001: pack object storage](canopyd/001-pack-object-storage.md).** When size hurts:
+the live volume or backups grow until loose objects cost startup, audit or backup time.
+Space is not pressing.
+
+**[Native 006: sparse iOS placement](swift/006-sparse-ios-placement.md).** When size hurts:
+a tree too big to place on the iPhone in one download.
+
+**[Native 003: collection rows in native offline replicas](swift/003-native-offline-collection-file-projection.md).**
+When browsing collection rows offline on native becomes a real need.
+
+**[Security 002: decode URL paths once](security/002-path-decoding.md)** and
+**[Security 003: harden canopyd responses](security/003-canopy-host-responses.md).**
+Nothing is in production, so these leaks are tolerable for now; what matters is that the
+spec states the requirement. Do them before a host serves people other than Joe.
+
+**[Security 010: signed profile statements](security/010-signed-profile-statements.md).**
+When a host Joe does not control is involved, or a home host must be left behind.
+
+**Postgres [001](postgres/001-child-provider.md), [002](postgres/002-observation-and-semantic-sync.md),
+[003](postgres/003-read-only-sqlite-projection.md), [004](postgres/004-bidirectional-projection.md),
+[005](postgres/005-representation-equivalence.md).** Longer term. For now the point is that
+the design shows Postgres backings, SQLite projections and moving a collection between
+representations are possible.

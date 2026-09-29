@@ -166,7 +166,7 @@ implementation yet.
 | [`docs/`](docs/README.md) | Getting started, the Overstory specification and conformance fixtures, implementing editors, implementing sync services, and architecture by subcomponent |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
-| [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |
+| [`plans/`](plans/README.md) | Remaining work: plans with why and when, small work and verification, ideas and open questions |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md), [`AGENTS.md`](AGENTS.md) | How the repository is worked on: setup, ownership, change discipline, gates; and the short list of things that differ for agents |
 
 This repository does not yet have an open-source license, so contributions

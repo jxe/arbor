@@ -1,8 +1,9 @@
 # Postgres 003: Materialize a read-only SQLite placement projection
 
+**Why and when:** longer term. For now the point is that the design shows Postgres backings, SQLite projections and moving a collection between representations are possible.
+
 ## Status
 
-- **Priority:** P2
 - **Effort:** L
 - **Risk:** MED — the projection is rebuildable and never accepts writes, but
   stale or mixed-generation reads would violate executable-document semantics.

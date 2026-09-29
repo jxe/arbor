@@ -89,6 +89,10 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 - `plans/` owns remaining work only. A completed plan is deleted after its
   evidence lands in `status.md` or `docs/`; git history is the record.
   Numbers are stable identifiers within a plan directory, not an order.
+  Each plan opens with why and when Joe wants it, repeated in
+  `plans/README.md`, and carries no priority label. Small tasks and
+  install, deploy and soak checks go in `plans/small-work.md`, not their own
+  plan; unplanned candidates and open questions go in `plans/ideas.md`.
 - `tests/fixtures/` owns reference-implementation fixtures, as opposed to
   the portable vectors under `docs/overstory-spec/conformance/`.
 - The host's operating material lives with the host:

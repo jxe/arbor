@@ -135,7 +135,7 @@ may extract the runtime without preserving the unused legacy query/mutation APIs
 These are the behaviors the specification names but does not yet define. Each
 inline mention links here; accepted implementation work is indexed under
 [plans](../../plans/README.md), while unresolved design questions remain in
-[open questions](../../plans/open-questions.md).
+[open questions](../../plans/ideas.md#open-questions).
 
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([configuration](04-accounts-and-devices.md#32-invariants)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](07-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](07-executable-documents.md#4-queries)).

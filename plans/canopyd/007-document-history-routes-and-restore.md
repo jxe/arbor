@@ -1,5 +1,7 @@
 # canopyd 007: Document history routes, restore, and the History view
 
+**Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what canopyd retains.
+
 Historical identifier: **Smaller project 007**, formerly "Surface accepted document
 history from canopyd". Its storage half shipped with canopyd 013
 ([closeout](../../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); this plan is
@@ -7,7 +9,6 @@ what remains.
 
 ## Status
 
-- **Priority:** P1
 - **Effort:** L
 - **Risk:** HIGH — an authenticated canopyd route that enumerates deleted
   source, and a visible restore action whose meaning changes
@@ -60,7 +61,7 @@ tool and never appears as History.
    edits already survive in the change log and publish on reconnect.
 2. **Retention bound.** `document_versions` holds most of what the object
    collector keeps (106 MB of 116 MB on 2026-09-24, nearly all versions of one
-   60 KB `_index.md`; see [canopyd 017](017-collect-objects-live.md)). Choose
+   60 KB `_index.md`; see [small work](../small-work.md#schedule-the-object-collector)). Choose
    the bound History promises, for example every version for N days and then
    one a day, and prune rows to it so the collector reclaims the bodies.
 

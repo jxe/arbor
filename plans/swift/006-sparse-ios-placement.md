@@ -1,5 +1,7 @@
 # Native 006: Place trees sparsely on iOS
 
+**Why and when:** when size hurts: a tree too big to place on the iPhone in one download.
+
 Historical identifier: **Reliability 006**, formerly "Preview and resume initial
 working-tree bootstrap". Rewritten 2026-09-24 against the specification's sparse
 install ([tree operations §1.1](../../docs/overstory-spec/01-tree-operations.md#11-current-tree-accepted-snapshots-and-watch)).
@@ -10,7 +12,6 @@ whole.
 
 ## Status
 
-- **Priority:** P2
 - **Effort:** M
 - **Risk:** MEDIUM. It changes which objects an iOS working tree holds locally,
   and so what is available offline.

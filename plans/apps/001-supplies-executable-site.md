@@ -1,5 +1,7 @@
 # Apps 001: Complete the Supplies executable site
 
+**Why and when:** later, the test of Overstory as a web framework: the Supplies site running locally and on canopyd, then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
+
 > After the headless [Apps 005](005-source-resolution-and-sidecar.md) gate, this plan owns browser integration acceptance: document/action/asset forwarding, SSR and hydration without duplicate initial reads, navigation and JavaScript-free form actions, using the coherent compiler supplied by Apps 003. Apps 005 does not wait for this gate.
 
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
@@ -12,7 +14,6 @@
 
 ## Status
 
-- **Priority**: P1
 - **Depends on**: completed SQLite query, streaming, and mutation runtimes
   recorded in `_done/applications` (completed plan, deleted; see git history), plus
   the provider-neutral node/query contract and core/provider phases in
@@ -187,6 +188,23 @@ cannot leave stale results; retries cannot duplicate mutations; private rows
 and raw store bytes remain private; component bundles contain no server
 capabilities; all person-valued rows use stable ProfileIDs; and the real-data
 cutover has passed side-by-side staging and rollback.
+
+## Then: deploy to a third-party host
+
+Once the site runs on local Overstory and canopyd, deploy the same compiled
+application to a platform such as Vercel. Design it against that host's real
+requirements, not in advance.
+
+- A fully static application can be emitted as immutable web files, but only when
+  every document and query resolves at build time.
+- Live queries or mutations need an adapter for the platform that preserves
+  Overstory identity, transactions, subscriptions, reconnect, validation, user
+  identity, execution authority and resource limits.
+- Either form keeps each document's assets, initial results, live handlers,
+  capabilities and schema requirements together rather than flattening the
+  application into unrelated pages.
+- Deployed pages advertise their Overstory source through `<link rel="arbor">`
+  and `Arbor-Tree`.
 
 ## Deliberate cuts
 

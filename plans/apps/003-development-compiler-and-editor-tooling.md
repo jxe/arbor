@@ -1,5 +1,7 @@
 # Apps 003: Compile and typecheck executable Overstory documents
 
+**Why and when:** later, for testing Overstory as a web framework: one compiler and typechecker for executable documents everywhere, which the Supplies site needs. After the queries and mutations work (Apps 005, 006).
+
 > This plan supplies coherent compilation and SSR/hydration artifacts for the browser integration gate owned by [Apps 001](001-supplies-executable-site.md). That integration follows the headless [Apps 005](005-source-resolution-and-sidecar.md) gate; compiler work may proceed independently, and Apps 005 does not wait for it.
 
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
@@ -12,7 +14,6 @@
 
 ## Status
 
-- **Priority:** P1
 - **Effort:** XL
 - **State:** PLANNED — deliberately separated from Data 002 so the logical node
   protocol can close without choosing an editor integration architecture.

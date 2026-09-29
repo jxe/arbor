@@ -1,19 +1,19 @@
 # canopyd 014: The merge handles many cases brilliantly
 
+**Why and when:** prose already merges well. Take an item from this menu when a real edit reaches review that should have merged.
+
 Formerly "Merge moved and copied text beyond paragraphs", split from canopyd
 009 (merge rule selection, since deleted; see git history) on 2026-09-22. (Plan
 numbers are separate from migration numbers: this is not migration 014.)
 
 ## Status
 
-- **Priority:** P3. Prose, the common case, already merges well.
 - **State:** IDEAS AND CANDIDATES. The first round (Markdown list, table and
   link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function
   moves) is implemented and not deployed; see [status](../../status.md), the
   [transfer rules](../../docs/architecture/canopyd/merge-tool.md#transfers) and
-  the [release gate](../release-and-soak.md#server-refinements).
-  Everything below is a menu. Promote an item into `soon/` when a real edit has
-  asked for it.
+  the [release gate](../small-work.md#server-refinements).
+  Everything below is a menu. Take an item when a real edit has asked for it.
 
 ## What a good merge does
 
@@ -220,7 +220,7 @@ merge with a note) or **review**.
 33. **Suggested resolutions.** Where a review has a likely combination (items 2,
     9 and 25), offer it as an alternative marked as a suggestion, so a review is
     one click. See the "rule-provided combination previews" candidate in the
-    [catalog](../catalog.md#native-clients).
+    [ideas](../ideas.md#product-design-needed).
 34. **Why it merged.** On request, show "merged: your move and Alex's edit" from
     the recorded evidence.
 
@@ -230,5 +230,5 @@ Per candidate: tests in both arrival orders giving one result, a case that must
 still go to review, a replay check, the rule's revision bumped, the
 [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)
 updated, and the release gate recorded in
-[release and soak](../release-and-soak.md#server-refinements)
+[small work](../small-work.md#server-refinements)
 before any client relies on it.

@@ -1,8 +1,9 @@
 # Postgres 002: Database observation and semantic synchronization
 
+**Why and when:** longer term. For now the point is that the design shows Postgres backings, SQLite projections and moving a collection between representations are possible.
+
 ## Status
 
-- **Priority:** P1
 - **Effort:** XL
 - **State:** PLANNED — extracted from Data 002 after rejecting whole-database
   exact revisions; the change-log/checkpoint design requires review before

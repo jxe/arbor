@@ -1,5 +1,7 @@
 # canopyd 006: Record who submitted each update and show line provenance
 
+**Why and when:** parked, and after canopyd 007: who submitted each current line.
+
 Historical identifier: **Smaller project 006**. Rewritten 2026-09-24 for the current
 host: migration 016 squashed each tree's accepted history to its head, canopyd 016
 made each accepted update an immutable log entry, and every editor is a direct
@@ -8,7 +10,6 @@ route, full actor backfill) is in git history.
 
 ## Status
 
-- **Priority:** P2
 - **Effort:** L
 - **Risk:** HIGH. It adds durable identity metadata, a schema migration, a
   public protocol change, and a read route over private history.

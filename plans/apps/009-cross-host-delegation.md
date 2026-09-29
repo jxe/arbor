@@ -1,8 +1,9 @@
 # Apps 009: Code on one host using access held on another
 
+**Why and when:** after Apps 008, once apps span hosts. A design sketch; no timing yet.
+
 ## Status
 
-- **Priority:** P3
 - **Effort:** L
 - **Risk:** HIGH. It defines delegated authorization across servers, which the
   spec defers.

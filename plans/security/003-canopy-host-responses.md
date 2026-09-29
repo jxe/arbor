@@ -1,5 +1,7 @@
 # Security 003: Harden canopyd responses and rate limiting
 
+**Why and when:** nothing is in production, so these leaks are tolerable for now; what matters is that the spec states the requirement. Do it before a host serves people other than Joe.
+
 > **Drift check**: inspect `packages/canopyd/src/host.ts`,
 > `tests/integration/canopyd`, and `packages/canopyd/deploy/` before editing.
 > Rechecked 2026-09-24 at `b7141f61`: nothing below has landed. The throttle key
@@ -11,7 +13,6 @@
 
 ## Status
 
-- **Priority**: P2
 - **Effort**: S–M
 - **Risk**: LOW
 - **Depends on**: none

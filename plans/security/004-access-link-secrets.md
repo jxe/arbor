@@ -1,5 +1,7 @@
 # Security 004: Complete access-link sharing without leaking secrets
 
+**Why and when:** when Joe shares by link, alongside Web 025: an access link must not leak its secret into URLs, history or logs. Nothing is in production yet, so until then the spec carries the requirement.
+
 > **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
 > gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
 > required where this plan changes browser behavior: establish focused coverage
@@ -17,7 +19,6 @@
 
 ## Status
 
-- **Priority:** P1
 - **Effort:** L
 - **Risk:** HIGH
 - **Progress:** TODO

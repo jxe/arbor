@@ -30,8 +30,8 @@ refused. It was canopyd 005, cut over live on 2026-09-26 by
 - **No account configuration.** A profile tree's configuration holds the
   person's devices and app entries, and an account is host state. One kind of
   configuration, one policy and one way to find it, `;arbor-config`, replace
-  two. The cost is one host per profile until
-  [Security 007](../../../plans/soon/007-placement-hosts.md) lets a profile place
+  two. The cost was one host per profile until
+  [Security 007](../../../status.md#trees-on-other-hosts--2026-09-28) let a profile place
   trees on other hosts. Merging now, rather than later, avoids a second live
   migration.
 - **Administrators are an operation in `access.yaml`, not a separate list.**

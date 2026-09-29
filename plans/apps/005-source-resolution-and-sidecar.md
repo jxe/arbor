@@ -1,8 +1,10 @@
 # Apps 005: Source resolution and the HTTP execution sidecar
 
+**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code. This is the first step: a headless sidecar that runs them under canopyd's authorization.
+
 ## Status, prerequisites and target
 
-**P1 · PLANNED · L effort · high authority-boundary risk.** Replanned at
+**PLANNED · L effort · high authority-boundary risk.** Replanned at
 `d55f4142`, 2026-09-21. Execute after
 Apps 007, declarative CDDL collection schemas, which is implemented
 ([status](../../status.md#declarative-collection-schemas--2026-09-24)): collection
@@ -22,7 +24,7 @@ the supported scoped snapshot subset, and implement exact provider enforcement
 before exposing the operation, resolution and whole-object/watch projection forms
 that currently reject; never substitute broad read or write access to make them
 work. The consent, revocation and configuration-conflict soak is in
-[release and soak](../release-and-soak.md#manual-recipes-retained-from-the-deleted-checkpoints)
+[small work](../small-work.md#manual-recipes)
 and still applies before enabling a real application.
 
 The outcome is an independently shippable **headless HTTP execution sidecar**.
@@ -106,7 +108,7 @@ access without the caller's approval. Today a grant with no lender allows it
 can do anything that person can. Proposed: code gets `everyone` access and the
 tree's own `app` rules, and anything more of the caller's needs the caller's
 `who: me` entry in `apps.yaml`. This matches what code on a placement host gets
-([Security 007](../soon/007-placement-hosts.md#code-on-b)), where no
+([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)), where no
 `apps.yaml` is readable. The decision edits access control §1.1.
 Strip all client-supplied context headers; never forward browser credentials as
 sidecar service credentials. Sidecar canopyd calls use the host-private execution

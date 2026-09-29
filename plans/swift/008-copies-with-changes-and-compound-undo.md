@@ -1,5 +1,7 @@
 # Native 008: Capture copies with changes and compound undo
 
+**Why and when:** when merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should have merged. Needs Quagmire 0.9.0.
+
 Historical identifier: **Reliability 008 / Sync 008**; formerly "Complete native move, copy,
 and undo capture". Status: PLANNED; in-page moves and Move to Document are done
 ([status](../../status.md#implemented)).
@@ -41,7 +43,7 @@ from retaining already-authored undo requests.
 - Do not retarget an old action to a newer basis, infer identity from equal bytes, or silently
   discard captured operations. Preserve local work and show a problem if it cannot be stated.
 - canopyd must execute every emitted form before a client that emits it is installed
-  ([release and soak](../release-and-soak.md)).
+  ([small work](../small-work.md)).
 
 Browser integration belongs to [Web 025](../canopy-web/025-arbor-web.md).
 

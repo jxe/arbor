@@ -1,15 +1,16 @@
 # Apps 008: App approvals and lending on placement hosts
 
+**Why and when:** part of the lending test that follows Apps 005: an app approved at a profile's home host should work on its placement hosts too.
+
 ## Status
 
-- **Priority:** P3
 - **Effort:** M
 - **Risk:** MEDIUM. A placement host enforces lends it read from another host.
 - **State:** PLANNED 2026-09-27, split from the portable-profiles design
   (Security 008). Waits until apps run on hosts at all
   ([Apps 005](005-source-resolution-and-sidecar.md)). One decision is Joe's
   (marked **Decide**).
-- **Builds on:** [Security 007](../soon/007-placement-hosts.md) and
+- **Builds on:** [Security 007](../../status.md#trees-on-other-hosts--2026-09-28) and
   [Security 009](../../status.md#trees-on-other-hosts--2026-09-28) (its refresh and
   grace).
 - **Trust:** the home host, over HTTPS, as for devices. That a compromised home

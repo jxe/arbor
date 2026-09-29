@@ -1,8 +1,10 @@
 # Apps 006: Combined authority and durable query/mutation authoring
 
+**Why and when:** part of the same push as Apps 005, after it: the authoring API that declares author and user authority together is what exercises the permissions and lending models.
+
 ## Status and ownership
 
-**P1 · PLANNED · after Apps
+**PLANNED · after Apps
 [005](005-source-resolution-and-sidecar.md); coordinates [003](003-development-compiler-and-editor-tooling.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another

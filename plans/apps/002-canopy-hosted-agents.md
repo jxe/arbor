@@ -1,5 +1,7 @@
 # Apps 002: Host authored agents on canopyd
 
+**Why and when:** after the Supplies site (Apps 001): authored agents hosted beside an app, calling its own query and mutation handles. No timing yet.
+
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
 > [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
 > by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /

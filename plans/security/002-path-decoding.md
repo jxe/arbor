@@ -1,5 +1,7 @@
 # Security 002: Decode percent-encoding once, at the HTTP boundary
 
+**Why and when:** nothing is in production, so this leak is tolerable for now; what matters is that the spec states the requirement. Do it before a host serves people other than Joe.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
@@ -21,7 +23,6 @@
 
 ## Status
 
-- **Priority**: P1
 - **Effort**: M
 - **Risk**: MED — path handling is load-bearing for both correctness and the
   traversal-rejection security property. Read the whole plan before starting.

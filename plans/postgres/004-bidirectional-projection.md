@@ -1,8 +1,9 @@
 # Postgres 004: Add Overstory-managed bidirectional database projections
 
+**Why and when:** longer term. For now the point is that the design shows Postgres backings, SQLite projections and moving a collection between representations are possible.
+
 ## Status
 
-- **Priority:** P2
 - **Effort:** XL
 - **Risk:** HIGH — offline writes, authority replay, database effects, accepted
   updates, and two physical materializations must converge without creating two
