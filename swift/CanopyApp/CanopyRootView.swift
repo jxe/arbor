@@ -1626,6 +1626,7 @@ struct CanopyRootView: View {
     private func sidebarPagesList<Content: View>(@ViewBuilder content: () -> Content) -> some View {
 #if os(macOS)
         List(selection: $sidebarListSelection, content: content)
+            .tint(.gray)
             .contextMenu(forSelectionType: WorkspaceIdentity.self) { identities in
                 if let result = model.searchResults.first(where: { identities.contains($0.id) }) {
                     Button("Open", systemImage: "arrow.right") {
@@ -1677,6 +1678,7 @@ struct CanopyRootView: View {
                 result: result,
                 showsBacklinkCount: showsBacklinkCount,
                 opensThroughListSelection: true,
+                isSelected: sidebarPageRowIsSelected(result),
                 acceptsBlockDrop: !isCurrent(.reference(result.reference)),
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }
@@ -1694,13 +1696,25 @@ struct CanopyRootView: View {
 #if os(iOS)
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
 #endif
+#if os(macOS)
+        .modifier(CanopySidebarPageSelection(selected: sidebarPageRowIsSelected(result)))
+#else
         .canopyKeyboardSelectedRow(sidebarKeyboardSelection == result.id)
+#endif
         .tag(result.id)
         .id(result.id)
     }
 
     private var keyboardNavigableSidebarResults: [WorkspaceSearchResult] {
         CanopySidebarPages.displayOrder(model.searchResults, by: sidebarPageOrder)
+    }
+
+    private func sidebarPageRowIsSelected(_ result: WorkspaceSearchResult) -> Bool {
+#if os(macOS)
+        (sidebarKeyboardSelection ?? sidebarListSelection) == result.id
+#else
+        sidebarKeyboardSelection == result.id
+#endif
     }
 
     private func handleSidebarSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {

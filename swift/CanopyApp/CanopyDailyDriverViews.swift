@@ -127,11 +127,58 @@ struct CanopySidebarSurface: ViewModifier {
     }
 }
 
+#if os(macOS)
+/// Keeps native List selection and keyboard handling while drawing a quieter fill.
+struct CanopySidebarPageSelection: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let selected: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.045))
+                    .padding(.horizontal, -8)
+                    .padding(.vertical, -1)
+                    .opacity(selected ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            .background(CanopySidebarNativeSelectionStyle())
+    }
+}
+
+private struct CanopySidebarNativeSelectionStyle: NSViewRepresentable {
+    func makeNSView(context: Context) -> SelectionStyleView { SelectionStyleView() }
+    func updateNSView(_ view: SelectionStyleView, context: Context) { view.applyStyle() }
+
+    final class SelectionStyleView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyStyle()
+        }
+
+        func applyStyle() {
+            var ancestor = superview
+            while let view = ancestor {
+                if let table = view as? NSTableView {
+                    table.selectionHighlightStyle = .none
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
+    }
+}
+#endif
+
 struct CanopySidebarSearchRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
     var opensThroughListSelection = false
+    var isSelected = false
     var acceptsBlockDrop = true
     var movePage: (() -> Void)?
     let open: () -> Void
@@ -206,7 +253,7 @@ struct CanopySidebarSearchRow: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(titleParts.text)
-                    .foregroundStyle(CanopySidebarPalette.foreground(colorScheme))
+                    .foregroundStyle(isSelected ? Color.primary : CanopySidebarPalette.foreground(colorScheme))
 #if os(macOS)
                     .font(.system(size: 14))
 #endif
