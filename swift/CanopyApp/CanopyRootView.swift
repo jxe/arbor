@@ -2528,7 +2528,9 @@ struct CanopyRootView: View {
                 ScrollView { Text(arborsyncLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
                     .navigationTitle("arborsync Logs")
             }
+#if os(macOS)
             .frame(minWidth: 560, minHeight: 420)
+#endif
         case .networkLog:
             CanopyNetworkLogView()
         default:
@@ -4944,7 +4946,9 @@ private struct CanopyPersonalProfileSheet: View {
                 }
             }
         }
+#if os(macOS)
         .frame(minWidth: 420, minHeight: 260)
+#endif
         .fileImporter(isPresented: $selectingPhoto, allowedContentTypes: [.image]) { result in
             do {
                 selectedPhoto = try CanopyProfilePhotoImport.load(from: result.get())
@@ -5165,7 +5169,9 @@ private struct CanopyProfileMembersSheet: View {
                 Text("Removing a person from this community disables that account.")
             }
         }
+#if os(macOS)
         .frame(minWidth: 440, minHeight: 420)
+#endif
         .onAppear {
             inviteByCode = reservesHostHandle && prefill == nil
             guard let prefill, let person = workspace.directory.first(where: { $0.entry.profile == prefill }) else {

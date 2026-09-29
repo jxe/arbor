@@ -537,7 +537,9 @@ struct CanopyMoveDestinationSheet: View {
                 }
             }
         }
+#if os(macOS)
         .frame(minWidth: 480, minHeight: 500)
+#endif
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
@@ -754,7 +756,9 @@ struct CanopyStructuralMoveSheet: View {
                 }
             }
         }
+#if os(macOS)
         .frame(minWidth: 440, minHeight: 420)
+#endif
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
@@ -1227,7 +1231,9 @@ struct CanopySourceInspector: View {
             }
             .navigationTitle("Source and Properties")
         }
+#if os(macOS)
         .frame(minWidth: 520, minHeight: 480)
+#endif
     }
 }
 
@@ -1286,7 +1292,9 @@ struct CanopyHistoryView: View {
                 Button("Cancel", role: .cancel) { pendingRecovery = nil }
             }
         }
+#if os(macOS)
         .frame(minWidth: 500, minHeight: 420)
+#endif
     }
 }
 
@@ -1409,7 +1417,9 @@ struct CanopyMutationForm: View {
                 }
             }
         }
+#if os(macOS)
         .frame(minWidth: 420, minHeight: mode == .createMarkdown ? 360 : 180)
+#endif
     }
 
     private var title: String {

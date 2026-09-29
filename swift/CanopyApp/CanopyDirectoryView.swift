@@ -373,7 +373,9 @@ struct CanopyNewGroupSheet: View {
                 }
             }
         }
+#if os(macOS)
         .frame(minWidth: 460, minHeight: 440)
+#endif
         .onAppear {
             name = request.name
             slug = CanopyGroupSlug.make(from: request.name)
