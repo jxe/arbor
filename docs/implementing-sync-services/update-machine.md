@@ -201,5 +201,5 @@ acknowledge a resolution or evaluate an authority guard.
 Shared `coalesced-publication.json` fixtures check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
 The runner vectors cover exact retries, restart, ambiguous extensions and discard.
-Further byte reductions are ordered in [Clients 002](../../plans/clients/002-identity-preserving-coalescing.md),
+Further byte reductions are ordered in [Clients 002](../../plans/merge/002-identity-preserving-coalescing.md),
 starting with plain edits across records, then moves with edits and selections.

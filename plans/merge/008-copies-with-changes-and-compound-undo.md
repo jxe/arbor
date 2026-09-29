@@ -13,7 +13,7 @@ a command that touched two pages, the Native editor should send canopyd a record
 you did, not only the resulting text. That record is what lets canopyd combine your action
 with another device's edits; final text alone cannot tell a copy from matching text typed
 independently. This plan covers capture in the editor and its Quagmire bridge. Merge
-policy is [canopyd 014](../canopyd/014-merge-handles-many-cases.md)'s.
+policy is [canopyd 014](014-merge-handles-many-cases.md)'s.
 
 The change log, source publication, moves (`source-moves.json`) and Move to Document as
 one change already exist. Do not rebuild them.
@@ -26,7 +26,7 @@ one change already exist. Do not rebuild them.
 | Quagmire 0.9.0 | Paste and inline need Quagmire to report, generically, which host block each reminted block came from, and to carry host pasteboard data. The same release replaces today's convention (a move hands over the original block IDs) with an explicit move-to-document hook. |
 | Inline a child page | State the child's text as a cross-document `moveSource` into the parent. Retiring the child stays a separate change, because a change mixing moves and entry removals is not merged automatically. |
 | Undo of compound commands | Undoing an in-page rearrangement already publishes moves back, because Quagmire's undo restores the same block identities. Undoing Move to Document and inline-and-retire must publish the inverse over both documents (a move back; restoring the retired page as snapshot creation), using Quagmire's `TransactionEvidence`, which Canopy does not read yet. When the destination changed meanwhile, publish the origin's side as an ordinary edit and show that the blocks also remain there; never retarget to a newer basis. |
-| Move to Document of blocks apart from each other | Copied exactly today. State it as one change once canopyd reconciles a move anchored on material an earlier move carried into another page in both arrival orders (canopyd 014 item 1). |
+| Move to Document of blocks apart from each other | Refused without changing either page today; separate copy/delete can conflict. State it as one change once canopyd reconciles a move anchored on material an earlier move carried into another page in both arrival orders (canopyd 014 item 1). |
 | Creation, import and nested-tree boundaries | Check which existing actions can truthfully use supported operation forms and which must remain snapshots. Preserve TreeID and destination boundaries. |
 | Exact-text edge cases for copies | Verify multiple selections, equal-byte blocks, CRLF and combining characters for copies as `source-moves.json` does for moves. |
 

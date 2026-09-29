@@ -12,6 +12,72 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Unchanged-content resolutions publish — 2026-09-29
+
+A live retained request showed that “Keep current contents” was marked settled
+locally without a POST: the coordinator treated a snapshot with the same root as
+having nothing to publish, overlooking its `resolves` declaration. Swift and
+TypeScript now require publication for resolution declarations and `ifCurrent`
+guards as well as traces. Ordinary unguarded unchanged snapshots can still settle
+locally. The app confirms the reviewed choices are absent before saying resolved.
+The failed live attempt and draft remain untouched; retry from the fixed app.
+The affected gate passes, including a disposable live-server resolution that
+keeps the root unchanged, advances accepted identity and clears the choice.
+All 18 TypeScript runner tests pass, including resolution-only, guard-only and
+ordinary unchanged snapshots. The full app-hosted test run also passes.
+
+Merge improvement plans now live together in [plans/merge](plans/merge/README.md):
+command capture, identity-preserving coalescing, broader merge rules and explicit
+automatic reconciliation remain separate, linked scopes. History and line
+provenance are grouped under `plans/history/`; sparse iOS placement and pack
+storage under `plans/performance/`. The collection projection plan follows Joe’s
+move into Apps, numbered 010 to avoid colliding with Apps 003. No remaining work
+was discarded or declared complete.
+
+## Page transfers and directory conflict review — 2026-09-29
+
+A destination with a title heading now accepts appended blocks as one source
+transfer: validation accounts for Markdown heading nesting. The previous check
+rejected this valid shape and fell back to a separate copy and deletion, which
+could become competing whole-tree choices. Unsupported same-tree transfers now
+leave both pages intact. A private read-only reproduction against captured
+alternatives validated one transfer; no live resolution was submitted.
+
+Moving or copying a page beneath a Markdown leaf now promotes the destination
+inside the same local transaction, preserving its sibling Markdown body. The
+trace adds an empty directory and names that operation as the transfer’s parent;
+the journal retains this intermediate object for publication and restart.
+
+Directory conflict cards load changed Markdown descendants from both alternatives,
+show differing lines and nearby context, and expose full page text. Unchanged
+subtrees are skipped. This addresses identical “changed” labels that concealed
+whether content was copied or deleted. The selected alternative is labelled as
+a conflict version: later edits may differ from both alternatives. Read-only
+inspection confirmed that later accepted content already combined the intended
+transfer, while its older conflict remained unresolved. No live data was changed.
+
+The reviewer also shows which changed files in the current accepted tree match
+which captured alternatives. An independent whole-tree choice has an explicit
+“Keep current contents” action: it preserves the pinned root, carries complete
+resolution guards and `ifCurrent`, and refuses stale content or coupled choices.
+Automatic discharge of existing choices is not implemented; remaining work is in
+[canopyd 015](plans/merge/015-resolve-reconciled-choices.md).
+
+Batch preflight now validates a non-plain traced suffix on its complete authored
+prefix, instead of merging it against the tree before that prefix. This prevents
+a just-created parent from appearing deleted when a later queued operation moves
+or renames its child. Validation does not emit accepted decisions; acceptance
+still merges against the actual head and retains hidden ancestor choices.
+
+Evidence: focused validation and hidden-ancestor regressions pass; the disposable
+live mixed structural scenario passes promotion, move, copy, subsequent rename,
+publication and uncertain-response recovery. The protocol run passes 122
+working-tree tests and seven live editor tests. The full editor package passes
+86 tests. The affected gate passes typecheck, 60 product test files, the full
+protocol gate, editor tests, links and whitespace. A separate full app-hosted run
+passed 86 tests with one skipped; all 14 review tests pass after tightening stale
+current-content guards. These changes are not installed or deployed by this task.
+
 ## Option-arrow capture cost — 2026-09-29
 
 The native Markdown ledger reuses context-free block parses keyed by exact UTF-8
@@ -72,7 +138,7 @@ result no longer reached the final candidate; both compilers now retain such
 material as an object and keep deltas only for final reachable results.
 
 Further reduction is ordered by likely frequency and byte savings in
-[Clients 002](plans/clients/002-identity-preserving-coalescing.md): plain edits across
+[Clients 002](plans/merge/002-identity-preserving-coalescing.md): plain edits across
 records, moves with edits, then repeated selection/subtree moves. These priorities
 are source-based estimates; the plan requires encoded-byte and preparation-cost
 measurements before broadening the implementation.
@@ -107,11 +173,11 @@ measurements before broadening the implementation.
 | Canopy working-tree editors: the Mac and iOS apps edit placed trees directly as working trees over the object store; the daemon is the folder's client plus loopback bootstrap, credential, and object services and has no editor path (its leftover mutation path and write journal were deleted 2026-09-24; old `journal/` state directories are orphaned on disk) | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#native-working-trees), [client design](docs/implementing-editors/design.md) |
 | Canopy navigation: observable Back availability, editor-link pushes, exact cross-tree destinations, and Back/Forward/native-pop provider reopening without resetting tab history | implemented; Mac user-verified | [client design](docs/implementing-editors/design.md) |
 | Canopy editor recovery: edits recover from the change log, with no recovery store, admission debounce or local conflict review; History shows an empty state until Canopy serves history (Clients 001 phase 3) | installed, verified (Mac, iPhone) | [local system](docs/architecture/canopy-browser/local-state.md#editor-recovery), [editor sources](docs/implementing-editors/editor-source.md#4-recovery) |
-| Canopy operation capture: ordinary and compound sibling-body entry moves and copies, explicit current-page path rename with subtree relocation and proactive link healing, post-copy page-ID edits, explicit removals for private Trash, same-document and cross-document copies, page-conversion undo and redo, exact CRLF and BOM preservation | installed | [client design](docs/implementing-editors/design.md#labels-and-actions), [Native 008](plans/swift/008-copies-with-changes-and-compound-undo.md) |
-| Canopy block moves (Native 008): a generation that only rearranges blocks (reorder, drag, indent, outdent, move under another parent, several blocks at once) publishes `moveSource` of each relocated block's exact source plus edits to re-indented leading spaces, instead of a retyped replacement; a peer's concurrent edit to a moved paragraph follows it. Shared vectors in `source-moves.json` (Swift and TypeScript executors and change logs); codec tests in `CanopyEditorTests`; live acceptance, restart replay and a peer edit in `LiveEditorAdmissionTests`. A final block moved up gains the blank line it needs, where it used to run into its new successor | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [Native 008](plans/swift/008-copies-with-changes-and-compound-undo.md) |
-| Canopy Move to Document as one change (Native 008): moving blocks to another page of the same tree appends one record over both pages whose frame moves their exact source (`moveSource` into the destination, plus re-indentation and separators), with a `transfer` capture of the destination beside the record's document; its basis is decided from record ancestry, and diverged local work is published and retried once before an exact copy. Blocks apart from each other are copied (canopyd 014). Tested by `TransferPlanTests`, the live `Move to Document publishes one change over both pages` (restart replay, a peer edit to the moved paragraph arriving in the destination, diverged local work, the destination open in a second editor), and the cross-page fast-path engine tests | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [local system](docs/architecture/canopy-browser/local-state.md#change-logs) |
+| Canopy operation capture: ordinary and compound sibling-body entry moves and copies, explicit current-page path rename with subtree relocation and proactive link healing, post-copy page-ID edits, explicit removals for private Trash, same-document and cross-document copies, page-conversion undo and redo, exact CRLF and BOM preservation | installed | [client design](docs/implementing-editors/design.md#labels-and-actions), [Native 008](plans/merge/008-copies-with-changes-and-compound-undo.md) |
+| Canopy block moves (Native 008): a generation that only rearranges blocks (reorder, drag, indent, outdent, move under another parent, several blocks at once) publishes `moveSource` of each relocated block's exact source plus edits to re-indented leading spaces, instead of a retyped replacement; a peer's concurrent edit to a moved paragraph follows it. Shared vectors in `source-moves.json` (Swift and TypeScript executors and change logs); codec tests in `CanopyEditorTests`; live acceptance, restart replay and a peer edit in `LiveEditorAdmissionTests`. A final block moved up gains the blank line it needs, where it used to run into its new successor | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [Native 008](plans/merge/008-copies-with-changes-and-compound-undo.md) |
+| Canopy Move to Document as one change (Native 008): moving blocks to another page of the same tree appends one record over both pages whose frame moves their exact source (`moveSource` into the destination, plus re-indentation and separators), with a `transfer` capture of the destination beside the record's document; its basis is decided from record ancestry, and diverged local work is published and retried once. Unsupported selections leave both pages unchanged; separated spans await canopyd 014. Tested by `TransferPlanTests`, the live `Move to Document publishes one change over both pages` (restart replay, a peer edit to the moved paragraph arriving in the destination, diverged local work, the destination open in a second editor), and the cross-page fast-path engine tests | implemented, not installed; needs the fast-path deploy first | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [local system](docs/architecture/canopy-browser/local-state.md#change-logs) |
 | Canopy conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [client design](docs/implementing-editors/design.md#synchronization-conflicts-and-devices), [accepted-state review](docs/overstory-spec/09-client-synchronization.md#accepted-state-review) |
-| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16); `/entry-metadata` serves the dates, and the versions wait for [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md)'s history routes; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/canopyd/migrations/README.md#schema-history) |
+| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16); `/entry-metadata` serves the dates, and the versions wait for [canopyd 007](plans/history/007-document-history-routes-and-restore.md)'s history routes; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/canopyd/migrations/README.md#schema-history) |
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `arbor me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/canopyd/deploy/README.md) |
@@ -129,8 +195,8 @@ measurements before broadening the implementation.
 
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
-| Canopy editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/swift/008-copies-with-changes-and-compound-undo.md), [release gate](plans/small-work.md#native-release-and-hands-on-review) |
-| Markdown source-transfer policy | paragraphs deployed, not hand-verified; the extensions below implemented, not deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order (deployed). Implemented, not deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/canopyd/merge-tool.md#transfers)); their deploy and hand checks are in [small work](plans/small-work.md#server-refinements). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [canopyd 014](plans/canopyd/014-merge-handles-many-cases.md) |
+| Canopy editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/merge/008-copies-with-changes-and-compound-undo.md), [release gate](plans/small-work.md#native-release-and-hands-on-review) |
+| Markdown source-transfer policy | paragraphs deployed, not hand-verified; the extensions below implemented, not deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order (deployed). Implemented, not deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/canopyd/merge-tool.md#transfers)); their deploy and hand checks are in [small work](plans/small-work.md#server-refinements). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [canopyd 014](plans/merge/014-merge-handles-many-cases.md) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/apps/005-source-resolution-and-sidecar.md), [small work](plans/small-work.md#manual-recipes) |
 | Working-tree client transition | installed | The explicit soak closeout | [small work](plans/small-work.md#observation-and-soak-closeout) |
 | Canopy for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/canopy-web/025-arbor-web.md) |
@@ -150,13 +216,13 @@ measurements before broadening the implementation.
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/canopyd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/canopyd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving canopyd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.arbor/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.arbor/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [small work](plans/small-work.md#schedule-the-object-collector); packing is [canopyd 001](plans/canopyd/001-pack-object-storage.md).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/canopyd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/canopyd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving canopyd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.arbor/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.arbor/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [small work](plans/small-work.md#schedule-the-object-collector); packing is [canopyd 001](plans/performance/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome** (`arbor mv` between Canopy accounts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone. After canopyd 005 a profile has one home host, so `arbor mv` refuses any move to another host; placing trees on other hosts is [Security 007](#trees-on-other-hosts--2026-09-28).
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward. Live on 2026-09-24 (255 update requests after the canopyd 016 deploy, all accepted, no 503s): median 48 ms, p90 302 ms, max 1.4 s; single fast-forwards 39 ms median; requests that asked the sidecar 201 ms median, the slowest being batched catch-up uploads of 5–12 updates (0.4–0.9 s in the sidecar) and slow client uploads. Locally, from the client, a plain traced edit on the head takes 2 ms with 1 file, 8 ms with 110 and 41 ms with 1,000 files in one directory, so the 20 ms target at 1,000 files is not met; no live directory exceeds 63 entries. The first merge after a restart replays history (the production main tree's 282 entries in about 1.2 s locally, an estimated 3.5–4.5 s live) and answers retryably past 10 s; saved sidecar states (below, not deployed) make it replay only from the nearest save.
-- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of canopyd 016 hold that history as a hash chain, which a listing can walk. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
+- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of canopyd 016 hold that history as a hash chain, which a listing can walk. [canopyd 007](plans/history/007-document-history-routes-and-restore.md) owns it.
 - **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`, deleted with its directory after 2026-10-10. Workspace registries require complete object records and keep path-derived `rt_` root IDs as valid identities (106 on the Mac at the 2026-09-21 cutoff). From the schema-26 cutover, scalar group members are ignored, not read.
 - **Moves made outside Canopy are not link-healed.** A Rename or Move in the Canopy app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Arbor Sync heal those; Joe dropped it on 2026-09-25 as not needed.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
@@ -208,7 +274,7 @@ review of canopyd for legacy and redundant surface, and the fixes it led to:
 - **Left as they are.** The execution-token and app-runtime routes (dormant
   until [Apps 005](plans/apps/005-source-resolution-and-sidecar.md));
   `document_versions`, whose history columns nothing reads yet ([canopyd
-  007](plans/canopyd/007-document-history-routes-and-restore.md)); the
+  007](plans/history/007-document-history-routes-and-restore.md)); the
   well-known resolution's `historical` and `stableKey`, and the error
   envelope's `tree` and `path`, which the spec defines.
 
@@ -1352,7 +1418,7 @@ Retired all three after checking implementation, tests and the live cutover
   leaves the existing whole-directory choice, as two moves into one name do.
 - **013 entry metadata.** `entry_metadata` and `document_versions` (canopyd
   007's storage half; its routes, access rule, restore and UI remain in
-  [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md)) are written
+  [canopyd 007](plans/history/007-document-history-routes-and-restore.md)) are written
   inside every accepted transaction and were backfilled by migration 014: 2,515
   updates, 113 entries, 2,569 versions over 90 documents, all roots unchanged.
   Every client reads `/entry-metadata` directly; the Arbor Sync bootstrap no

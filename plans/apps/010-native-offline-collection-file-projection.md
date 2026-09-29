@@ -1,8 +1,9 @@
-# Native 003: Project synchronized collection-file rows in native offline replicas
+# Apps 010: Project synchronized collection-file rows in native offline replicas
 
 **Why and when:** when browsing collection rows offline on native becomes a real need.
 
-Historical identifier: **Smaller project 003**. The filename number is preserved; this plan now belongs to native.
+Historical identifiers: **Smaller project 003 / Native 003**. Moved into Apps as
+010 to distinguish it from Apps 003, the executable-document compiler plan.
 
 ## Status
 

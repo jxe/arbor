@@ -1,4 +1,4 @@
-# canopyd 014: The merge handles many cases brilliantly
+# canopyd 014: Handle more merge cases
 
 **Why and when:** prose already merges well. Take an item from this menu when a real edit reaches review that should have merged.
 

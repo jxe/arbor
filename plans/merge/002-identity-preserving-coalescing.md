@@ -15,7 +15,7 @@ Read the implementation and tests before selecting a case:
 - [Source intent and provenance](../../docs/overstory-spec/10-source-intent.md).
 - Swift `ChangePublication.swift` and TypeScript `publication.ts` in their
   working-tree packages; `tests/fixtures/coalesced-publication.json`.
-- [Native 008](../swift/008-copies-with-changes-and-compound-undo.md) owns missing
+- [Native 008](008-copies-with-changes-and-compound-undo.md) owns missing
   editor evidence for copies with changes and compound undo. Coalescing must use
   such evidence, not infer it from matching text.
 

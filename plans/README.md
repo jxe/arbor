@@ -6,7 +6,17 @@ and open design questions are in [ideas](ideas.md). Current behavior is in
 [status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
 its evidence in status.
 
+Related plans are grouped in [merge improvements](merge/README.md),
+[history and revisions](history/README.md), and [performance](performance/README.md).
+
 ## Soon
+
+**[canopyd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
+Joe encountered a whole-tree conflict after moving blocks into a new page. Later
+accepted edits already produced the intended contents, but the conflict remained
+and its cards showed only older alternatives. Address this after the page-transfer
+fixes: canopyd should clear choices it can prove reconciled, and Canopy should
+explain the current result and make explicit resolution easy.
 
 **[Filesystem 024: disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md).**
 Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
@@ -28,7 +38,7 @@ placement hosts too. After Apps 005.
 
 ## Later
 
-**[Clients 002: more identity-preserving coalescing](clients/002-identity-preserving-coalescing.md).**
+**[Clients 002: more identity-preserving coalescing](merge/002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
 with enough identity for canopyd to merge concurrent work correctly. After the
 idle-based publication baseline, extend simplification beyond repeated moves of
@@ -63,29 +73,29 @@ After Apps 008, once apps span hosts. A design sketch; no timing yet.
 
 ## Parked
 
-**[canopyd 014: the merge handles many cases](canopyd/014-merge-handles-many-cases.md).**
+**[canopyd 014: the merge handles many cases](merge/014-merge-handles-many-cases.md).**
 Prose already merges well. Take an item from its menu when a real edit reaches review that
 should have merged.
 
-**[Native 008: copies with changes and compound undo](swift/008-copies-with-changes-and-compound-undo.md).**
+**[Native 008: copies with changes and compound undo](merge/008-copies-with-changes-and-compound-undo.md).**
 When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
 have merged. Needs Quagmire 0.9.0.
 
-**[canopyd 007: document history and restore](canopyd/007-document-history-routes-and-restore.md).**
+**[canopyd 007: document history and restore](history/007-document-history-routes-and-restore.md).**
 Parked. Seeing and restoring earlier versions of a page; it also decides how long document
 versions are kept, which is most of what canopyd retains.
 
-**[canopyd 006: line provenance](canopyd/006-line-provenance.md).** Parked, and after
+**[canopyd 006: line provenance](history/006-line-provenance.md).** Parked, and after
 canopyd 007: who submitted each current line.
 
-**[canopyd 001: pack object storage](canopyd/001-pack-object-storage.md).** When size hurts:
+**[canopyd 001: pack object storage](performance/001-pack-object-storage.md).** When size hurts:
 the live volume or backups grow until loose objects cost startup, audit or backup time.
 Space is not pressing.
 
-**[Native 006: sparse iOS placement](swift/006-sparse-ios-placement.md).** When size hurts:
+**[Native 006: sparse iOS placement](performance/006-sparse-ios-placement.md).** When size hurts:
 a tree too big to place on the iPhone in one download.
 
-**[Native 003: collection rows in native offline replicas](swift/003-native-offline-collection-file-projection.md).**
+**[Apps 010: collection rows in native offline replicas](apps/010-native-offline-collection-file-projection.md).**
 When browsing collection rows offline on native becomes a real need.
 
 **[Security 002: decode URL paths once](security/002-path-decoding.md)** and

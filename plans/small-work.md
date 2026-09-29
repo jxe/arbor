@@ -50,7 +50,7 @@ MCP server, no new arborsync routes.
 
 Formerly canopyd 017; the first live run is recorded in
 [status](../status.md#known-gaps). A bound on `document_versions`, which holds most retained
-bytes, is part of [canopyd 007](canopyd/007-document-history-routes-and-restore.md).
+bytes, is part of [canopyd 007](history/007-document-history-routes-and-restore.md).
 
 - [ ] Schedule the `railway ssh` collection command
   ([deployment](../packages/canopyd/deploy/README.md#collecting-unreferenced-objects))
@@ -147,7 +147,7 @@ modules and did not compile on Linux.
 
 ## Server refinements
 
-Owner: [canopyd 014](canopyd/014-merge-handles-many-cases.md).
+Owner: [canopyd 014](merge/014-merge-handles-many-cases.md).
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the Markdown
   transfer/list-insertion refinements (deployed with `5ef1fe20`, not hand-verified). Record
