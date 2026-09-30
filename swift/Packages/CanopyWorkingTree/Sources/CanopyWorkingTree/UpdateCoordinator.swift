@@ -448,17 +448,31 @@ public actor UpdateCoordinator {
             if heads.acceptedUpdate != current.update || heads.acceptedCursor != current.observedThrough {
                 try await workingTree.recordAccepted(root: current.root, update: current.update, cursor: current.observedThrough)
             }
+            Self.syncLog.notice("install update=\(current.update, privacy: .public): already materialized")
             return installed
         }
         let tree = await workingTree.treeID().rawValue
         let snapshot: ProtocolSnapshot
-        if let projection { snapshot = projection }
-        else if let sparse = try? await sparseDirectoryGraph(treeID: tree, root: current.root) { snapshot = sparse }
-        else { snapshot = try await transport.snapshot(tree: tree, root: current.root) }
+        var started = Date()
+        if let projection {
+            snapshot = projection
+            Self.syncLog.notice("install update=\(current.update, privacy: .public): own projection, objects=\(projection.objects.count)")
+        } else {
+            do {
+                snapshot = try await sparseDirectoryGraph(treeID: tree, root: current.root)
+            } catch {
+                Self.syncLog.error("install update=\(current.update, privacy: .public): sparse graph failed after \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s, fetching the snapshot: \(String(describing: error), privacy: .public)")
+                started = Date()
+                snapshot = try await transport.snapshot(tree: tree, root: current.root)
+                Self.syncLog.notice("install update=\(current.update, privacy: .public): snapshot objects=\(snapshot.objects.count) seconds=\(Date().timeIntervalSince(started), format: .fixed(precision: 1))")
+            }
+        }
         guard snapshot.root == current.root else { throw UpdateError.returnedSnapshotMismatch }
         try faultInjector.reached(.duringMaterialization)
+        started = Date()
         try await workingTree.replaceFromSystem(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
             update: current.update, cursor: current.observedThrough, mode: .sparseFiles))
+        Self.syncLog.notice("install update=\(current.update, privacy: .public): materialized seconds=\(Date().timeIntervalSince(started), format: .fixed(precision: 1))")
         try faultInjector.reached(.afterMaterialization)
         return installed
     }
@@ -466,15 +480,21 @@ public actor UpdateCoordinator {
     /// Clean catch-up: replay the watch transition the cursor names when it chains
     /// from the installed state, otherwise install the host's current state.
     private func catchUp(cursor: String?) async {
+        let started = Date()
+        var note = ProtocolNetworkLogEntry(kind: .note, name: "catch-up")
+        func seconds() -> Double { Date().timeIntervalSince(started) }
+        Self.syncLog.notice("catch-up begin cursor=\(cursor ?? "none", privacy: .public)")
         do {
             let installed: UpdateMachine.AcceptedBase
             if let cursor, let event = watchEvent, event.id == cursor,
                let replayed = try? await applyAcceptedTransitions(event) {
                 installed = replayed
+                Self.syncLog.notice("catch-up replayed watch transitions to update=\(replayed.update, privacy: .public)")
             } else {
                 let tree = await workingTree.treeID().rawValue
                 let descriptor = try await transport.descriptor(tree: tree)
                 guard descriptor.tree.id == tree, !descriptor.tree.update.isEmpty else { throw UpdateError.replicaIsNotPlaced }
+                Self.syncLog.notice("catch-up descriptor update=\(descriptor.tree.update, privacy: .public) after \(seconds(), format: .fixed(precision: 1))s")
                 installed = try await install(current: .init(update: descriptor.tree.update, root: descriptor.tree.root,
                     conflicted: descriptor.tree.conflicted, observedThrough: descriptor.observedThrough), projection: nil)
             }
@@ -483,8 +503,14 @@ public actor UpdateCoordinator {
             try writeControl()
             failure = nil
             await workingTree.invalidateDocumentViews()
+            Self.syncLog.notice("catch-up done update=\(installed.update, privacy: .public) seconds=\(seconds(), format: .fixed(precision: 1))")
+            note.durationMs = seconds() * 1000; note.updateIDs = [installed.update]
+            ProtocolNetworkLog.current?.record(note)
             dispatch(.applied(installed: installed))
         } catch {
+            Self.syncLog.error("catch-up failed after \(seconds(), format: .fixed(precision: 1))s: \(String(describing: error), privacy: .public)")
+            note.durationMs = seconds() * 1000; note.error = String(describing: error)
+            ProtocolNetworkLog.current?.record(note)
             fail(error, id: nil)
         }
     }
@@ -825,7 +851,8 @@ public actor UpdateCoordinator {
     /// small reads rather than a snapshot. Other files stay absent and are
     /// served by hash. Nested trees are separate boundaries and are not entered.
     private func sparseDirectoryGraph(treeID: String, root: String) async throws -> ProtocolSnapshot {
-        var objects: [ProtocolObjectEnvelope] = []
+        let started = Date()
+        var objects: [ProtocolObjectEnvelope] = [], fromHost = 0
         var pending: [(hash: String, kind: ProtocolEntryKind)] = [(root, .directory)], seen = Set<String>()
         while let next = pending.popLast() {
             guard seen.insert(next.hash).inserted else { continue }
@@ -836,6 +863,7 @@ public actor UpdateCoordinator {
             do { bytes = try await workingTree.objectBytes(hash: next.hash) }
             catch ObjectStoreError.missing {
                 bytes = try await transport.object(tree: treeID, hash: next.hash)
+                fromHost += 1
                 guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
             }
             objects.append(ProtocolObjectEnvelope(hash: next.hash, bytes: bytes))
@@ -847,6 +875,9 @@ public actor UpdateCoordinator {
         }
         let graph = ProtocolSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        // Store reads go through the platform store (the Mac's Arbor Sync
+        // daemon), which may itself fetch from the host.
+        Self.syncLog.notice("sparse graph objects=\(objects.count) store=\(objects.count - fromHost) host=\(fromHost) seconds=\(Date().timeIntervalSince(started), format: .fixed(precision: 1))")
         return graph
     }
 }

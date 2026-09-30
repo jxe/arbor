@@ -176,7 +176,9 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
 7. **Clean catch-up.** A watch event in `current` applies a contiguous
    transport transition batch (including a net transition spanning
    intermediate accepted updates) in memory and materializes its final state
-   once, or pulls the current snapshot when the batch does not chain. A watch
+   once, or pulls the current snapshot when the batch does not chain. A
+   catch-up that fails for transport or authentication enters `offline` and
+   is retried on reconnection or the next poll, like any other work. A watch
    event under pending work never overwrites local changes and triggers
    publication only when the pending idle window permits it. A client that
    polls for freshness treats a poll as an authoritative catch-up boundary

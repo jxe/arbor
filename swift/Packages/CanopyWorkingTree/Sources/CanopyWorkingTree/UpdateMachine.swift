@@ -487,6 +487,13 @@ public enum UpdateMachine {
             case let .locallyPending(tip, _):
                 next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: tip)
                 return (next, [])
+            case let .acceptedPendingApply(_, nil, tip):
+                // A catch-up that could not finish is retried on reconnection
+                // like everything else. (An accepted request's apply is
+                // durable knowledge and is retried locally.)
+                if id != nil { return (state, []) }
+                next.phase = .offline(availability: .transport, request: nil, transmitted: false, tip: tip)
+                return (next, [])
             default:
                 return (state, [])
             }
@@ -504,6 +511,9 @@ public enum UpdateMachine {
                 next.phase = .offline(availability: availability, request: request, transmitted: true, tip: tip)
                 return (next, [])
             case let .locallyPending(tip, _):
+                next.phase = .offline(availability: availability, request: nil, transmitted: false, tip: tip)
+                return (next, [])
+            case let .acceptedPendingApply(_, nil, tip):
                 next.phase = .offline(availability: availability, request: nil, transmitted: false, tip: tip)
                 return (next, [])
             default:

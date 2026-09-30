@@ -473,8 +473,16 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
             state: { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, tip: state.tip },
             effects: [],
           };
+        case "accepted-pending-apply":
+          // A catch-up that could not finish is retried on reconnection like
+          // everything else. An accepted request's apply is durable knowledge
+          // and is retried locally.
+          if (state.request || event.id !== undefined) return { state, effects: [] };
+          return {
+            state: { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, ...(state.tip ? { tip: state.tip } : {}) },
+            effects: [],
+          };
         default:
-          // An accepted decision is durable knowledge; its apply is retried locally.
           return { state, effects: [] };
       }
     }
@@ -492,6 +500,9 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
           };
         case "locally-pending":
           return { state: { ...ctx(state), kind: "offline", base: state.base, availability, transmitted: false, tip: state.tip }, effects: [] };
+        case "accepted-pending-apply":
+          if (state.request) return { state, effects: [] };
+          return { state: { ...ctx(state), kind: "offline", base: state.base, availability, transmitted: false, ...(state.tip ? { tip: state.tip } : {}) }, effects: [] };
         default:
           return { state, effects: [] };
       }

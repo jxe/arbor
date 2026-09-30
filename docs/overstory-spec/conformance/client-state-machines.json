@@ -158,6 +158,19 @@
           ]
         },
         {
+          "name": "a catch-up that fails goes offline and is retried like any other work",
+          "options": { "pollIntervalMs": 30000 },
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": [], "transitions": true }, "state": "accepted-pending-apply", "effects": ["catchUp"] },
+            { "event": { "type": "transportFailed" }, "state": "offline", "effects": [], "expect": { "availability.kind": "transport", "transmitted": false } },
+            { "event": { "type": "pollElapsed" }, "state": "accepted-pending-apply", "effects": ["catchUp", "schedule"] },
+            { "event": { "type": "authenticationFailed", "reason": "expired" }, "state": "offline", "effects": [], "expect": { "availability.kind": "authentication" } },
+            { "event": { "type": "credentialsRefreshed" }, "state": "accepted-pending-apply", "effects": ["catchUp"] },
+            { "event": { "type": "applied", "installed": { "root": "B", "update": "uB", "cursor": "cB" } }, "state": "current", "effects": [], "expect": { "base.root": "B" } }
+          ]
+        },
+        {
           "name": "restart in prepared resubmits the persisted request exactly",
           "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
