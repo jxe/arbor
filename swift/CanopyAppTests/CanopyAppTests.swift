@@ -207,6 +207,18 @@ struct CanopyAppTests {
         #expect(large.status == "Highlighting unavailable for this large comparison")
     }
 
+    @Test("A whole-tree conflict lists only the lines one version alone added that current lacks")
+    func conflictMissingLines() {
+        let kept = "# Flight\n- Kevin\n\n- IFS\n"
+        let setAside = "# Flight\n▸ Tweets\n  - The Prestige?\n\n- IFS\n- Lunch\n"
+        let current = "# Flight\n- Kevin\n  - IFS\n"
+        // Re-indented and blank lines count as present; lines both versions held don't count.
+        #expect(CanopyChoiceVersionCards.missingLines(in: setAside, others: [kept], current: current)
+            == ["▸ Tweets", "  - The Prestige?", "- Lunch"])
+        #expect(CanopyChoiceVersionCards.missingLines(in: kept, others: [setAside], current: current).isEmpty)
+        #expect(CanopyChoiceVersionCards.missingLines(in: nil, others: [kept], current: current).isEmpty)
+    }
+
     @Test("Profile toolbar summarizes synchronization into four visible states")
     func profileToolbarSyncStatus() {
         for synchronization in [WorkspaceSynchronization.current, .autoMerged] {

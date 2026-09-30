@@ -559,11 +559,21 @@ struct CanopyChoiceVersionCards: View {
     @Bindable var review: CanopyConflictReviewModel
     let decision: ConflictReviewDecision
     let busy: Bool
+    /// A whole-tree version waiting for the person to confirm its restoration.
+    @State private var restoring: ConflictReviewAlternative?
 
+    /// The tree shows the selected version until the choice is resolved; the
+    /// others were set aside, not lost.
     private func label(_ alternative: ConflictReviewAlternative, _ index: Int) -> String {
-        if alternative.id == decision.selected { return "Selected conflict version" }
-        return decision.alternatives.count == 2 ? "Other version" : "Version \(index + 1)"
+        if alternative.id == decision.selected { return "Kept for now" }
+        let setAside = decision.alternatives.filter { $0.id != decision.selected }
+        guard setAside.count > 1, let position = setAside.firstIndex(where: { $0.id == alternative.id }) else { return "Set aside" }
+        return "Set aside \(position + 1)"
     }
+
+    /// Keeping a whole-tree version replaces every page with its captured
+    /// state, discarding any edit accepted since.
+    private var restoresWholeTree: Bool { decision.kind == "directory" && decision.path == "/" }
 
     var body: some View {
         let contents = decision.alternatives.map { review.content(of: $0, in: decision) }
@@ -571,31 +581,124 @@ struct CanopyChoiceVersionCards: View {
         let listings = contents.map { content -> [ProtocolDirectoryEntry]? in if case let .directory(entries) = content { entries } else { nil } }
         VStack(alignment: .leading, spacing: 8) {
             if listings.contains(where: { $0 != nil }) {
-                Text("These are the versions captured by the conflict. Later edits may differ from both.")
+                Text("Two sets of edits to this folder could not be merged. It kept one for now and set the other aside. Pages edited since may differ from both.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if review.draft?.supportsKeepingCurrent == true,
                decision.alternatives.allSatisfy({ review.directoryDifferences["current:" + $0.id] != nil }) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Current contents").font(.headline)
-                    Text("Later edits may have already reconciled this choice. Keeping the current contents clears it without replacing any pages.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    let paths = Set(decision.alternatives.flatMap { review.directoryDifferences[$0.id]?.map(\.path) ?? [] }).sorted()
-                    ForEach(paths, id: \.self) { path in
-                        let matches = decision.alternatives.enumerated().filter { _, alternative in
-                            !(review.directoryDifferences["current:" + alternative.id] ?? []).contains { $0.path == path }
-                        }.map { label($0.element, $0.offset).lowercased() }
-                        Text("\(path) · \(matches.isEmpty ? "edited further" : "matches " + matches.joined(separator: ", "))")
-                            .font(.callout)
-                    }
-                    Button("Keep current contents") { Task { await review.keepCurrent() } }.disabled(busy)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                currentContents
             }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 10) { cards(contents, texts, listings) }
                 VStack(alignment: .leading, spacing: 10) { cards(contents, texts, listings) }
             }
+        }
+        .confirmationDialog("Restore the whole tree to this version?", isPresented: restoringBinding) {
+            Button("Restore this version", role: .destructive) {
+                guard let id = restoring?.id else { return }
+                Task { await review.keep(id) }
+            }
+        } message: {
+            Text("Every page returns to how it was in this version. Edits made anywhere in the tree since the conflict are discarded.")
+        }
+    }
+
+    private var restoringBinding: Binding<Bool> {
+        Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } })
+    }
+
+    /// What the tree holds now, measured against each version: which pages
+    /// match, and which lines a version alone added that are now missing.
+    private var currentContents: some View {
+        let paths = Set(decision.alternatives.flatMap { review.directoryDifferences[$0.id]?.map(\.path) ?? [] }).sorted()
+        var missing: [MissingLines] = []
+        for (index, alternative) in decision.alternatives.enumerated() {
+            let others = decision.alternatives.filter { $0.id != alternative.id }
+            for path in paths {
+                let lines = Self.missingLines(in: text(of: alternative, at: path),
+                                              others: others.map { text(of: $0, at: path) },
+                                              current: currentText(at: path, comparedTo: alternative))
+                if !lines.isEmpty { missing.append(.init(version: label(alternative, index), path: path, lines: lines)) }
+            }
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Current contents").font(.headline)
+            ForEach(paths, id: \.self) { path in
+                let matches = decision.alternatives.enumerated().filter { _, alternative in
+                    !(review.directoryDifferences["current:" + alternative.id] ?? []).contains { $0.path == path }
+                }.map { label($0.element, $0.offset).lowercased() }
+                Text("\(path) · \(matches.isEmpty ? "edited since" : "matches " + matches.joined(separator: ", "))")
+                    .font(.callout)
+            }
+            if missing.isEmpty {
+                Label("Everything either version added is in the current contents.", systemImage: "checkmark.circle")
+                    .font(.callout)
+            } else {
+                ForEach(missing) { page in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Only in \(page.version.lowercased()), missing from \(page.path)", systemImage: "exclamationmark.triangle")
+                            .font(.callout.weight(.semibold))
+                        ForEach(Array(page.lines.enumerated()), id: \.offset) { _, line in
+                            Text(line).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.orange.opacity(0.18))
+                        }
+                    }
+                }
+                Text("Copy anything you want to keep into the page before keeping the current contents.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Keeping the current contents resolves the conflict without changing any page.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Keep current contents") { Task { await review.keepCurrent() } }
+                .buttonStyle(.borderedProminent).disabled(busy)
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    struct MissingLines: Identifiable {
+        var id: String { version + "\u{0}" + path }
+        let version: String
+        let path: String
+        let lines: [String]
+    }
+
+    /// A version's text of `path`, or nil when it is not a Markdown page there.
+    private func text(of alternative: ConflictReviewAlternative, at path: String) -> String? {
+        if let difference = review.directoryDifferences[alternative.id]?.first(where: { $0.path == path }) {
+            return difference.content.flatMap { String(data: $0, encoding: .utf8) }
+        }
+        // Unchanged against the other version: read it from that comparison.
+        for other in decision.alternatives where other.id != alternative.id {
+            if let difference = review.directoryDifferences[other.id]?.first(where: { $0.path == path }) {
+                return difference.otherContent.flatMap { String(data: $0, encoding: .utf8) }
+            }
+        }
+        return nil
+    }
+
+    /// The current text of `path`, from its comparison with `alternative`, or
+    /// that version's own text when the current page matches it.
+    private func currentText(at path: String, comparedTo alternative: ConflictReviewAlternative) -> String? {
+        guard let difference = review.directoryDifferences["current:" + alternative.id]?.first(where: { $0.path == path }) else {
+            return text(of: alternative, at: path)
+        }
+        return difference.content.flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// Lines only `version` holds, compared with every other version, that the
+    /// current text no longer contains. Indentation and blank lines are
+    /// ignored, so a moved or re-indented line still counts as present.
+    static func missingLines(in version: String?, others: [String?], current: String?) -> [String] {
+        guard let version else { return [] }
+        func lines(_ text: String?) -> Set<String> {
+            Set((text ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+        }
+        let present = lines(current).union(others.reduce(into: Set<String>()) { $0.formUnion(lines($1)) })
+        var seen = Set<String>()
+        return version.split(whereSeparator: \.isNewline).map(String.init).filter { line in
+            let key = line.trimmingCharacters(in: .whitespaces)
+            return !key.isEmpty && !present.contains(key) && seen.insert(key).inserted
         }
     }
 
@@ -609,10 +712,12 @@ struct CanopyChoiceVersionCards: View {
                 directoryDifferences: review.directoryDifferences[alternative.id],
                 keepTitle: {
                     if case .removed = contents[index] { return decision.sourceRange != nil ? "Keep removed" : "Keep deleted" }
-                    return "Keep this"
+                    return restoresWholeTree ? "Restore this version…" : "Keep this"
                 }(),
                 busy: busy
-            ) { Task { await review.keep(alternative.id) } }
+            ) {
+                if restoresWholeTree { restoring = alternative } else { Task { await review.keep(alternative.id) } }
+            }
         }
     }
 }
