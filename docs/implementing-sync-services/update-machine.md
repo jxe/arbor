@@ -132,11 +132,32 @@ an edit against an accepted file travels as a delta when that is smaller.
 Reconciliation replay runs on the change's sparse candidate plus every delta
 base, fetched once each through the working tree's object store.
 
-**One chain.** A change authored on a change that is not yet settled names it
-as its basis, so the request repeats that prefix exactly (without objects once
-it is settled) and appends the new changes once. A change made after its
-predecessor settled starts from the new accepted state. Sibling branches (edits to different documents from the
-same accepted basis) publish one after another; the host reconciles them.
+**One chain.** Unsettled local changes form one chain: each names the previous
+one as its basis, and the first rests on the accepted state (or on a settled
+change). An editor opened while work is pending reads the chain's tip, and an
+edit captured on an earlier view is authored on the tip when no change since
+that view touched its document (checked change by change, never by equal
+bytes). A structural action and a Move to Document are authored on the tip.
+The change log refuses any other fork (`ChangeLog.retain(_:settled:)` in Swift,
+`retain(value, settled)` in TypeScript).
+
+The one exception is a merge: an edit captured before work it must be merged
+with, either an update from the host installed while its generation was in
+flight, or a change of our own to the same document. It keeps its own basis,
+declared to the log (`merging:`), and canopyd merges it. Requests go out one at
+a time, so that merge is the only one in flight. A Move to Document whose
+documents changed since the editor read them reports `basesDiverged`; the editor
+publishes pending work and retries on the accepted view. Each request repeats
+the chain's prefix exactly (without objects once settled) and appends the new
+changes once. Journals from earlier builds may hold sibling branches; those
+publish one after another, and new work rejoins one chain once they settle.
+
+**Reconnection.** A request that may have reached the host is only ever
+repeated unchanged; it is never extended. While an earlier attempt of it is
+still in flight, no second copy is sent, and that attempt's answer settles it.
+Work appended meanwhile waits for the answer and then publishes as one
+coalesced update, so a reconnection sends at most two updates however long the
+outage and however many retries it took.
 
 **Re-seed.** A working tree rebuilt from the host while the durable request
 carried the work (a Mac relaunch) replays the exact request, installs the
@@ -152,8 +173,7 @@ retained.
 stream, feeds every event to the coordinator, reconnects with backoff, and
 recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and visits
 share it. A watch frame under a transport failure is evidence that transport
-works. An exact retry can proceed immediately; extending an ambiguous
-request with active local work waits for idle.
+works. The exact retry proceeds immediately.
 
 **Structural gating.** Structural actions, imports and assets are available
 only when unsettled changes form one chain from the installed accepted graph;
@@ -227,6 +247,6 @@ acknowledge a resolution or evaluate an authority guard.
 
 Shared `coalesced-publication.json` fixtures check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
-The runner vectors cover exact retries, restart, ambiguous extensions and discard.
+The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
 Further byte reductions are ordered in [Clients 002](../../plans/merge/002-identity-preserving-coalescing.md),
 starting with plain edits across records, then moves with edits and selections.

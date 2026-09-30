@@ -491,3 +491,15 @@ test("shared source moves execute exactly, refuse ambiguity, and publish as move
     expect(executed.root, c.name).toBe(record.candidate.root);
   }
 });
+
+test("with its settled set, the log refuses a record that forks the unsettled chain", async () => withQueue(async (q) => {
+  const [first] = records();
+  await q.retain(first!, new Set());
+  // A sibling of `first` on the same accepted basis.
+  const sibling = { ...structuredClone(first!), change: "sibling", update: { ...structuredClone(first!.update), change: "sibling" } } as LocalChange;
+  await expect(q.retain(sibling, new Set())).rejects.toThrow("one chain");
+  expect(await q.retained()).toHaveLength(1);
+  // Once `first` settles, a record may start from the accepted state again.
+  await q.retain(sibling, new Set([first!.change]));
+  expect(await q.retained()).toHaveLength(2);
+}));

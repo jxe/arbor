@@ -122,7 +122,7 @@
           ]
         },
         {
-          "name": "an offline burst retains only the latest durable head and appends it once to the ambiguous prefix on reconnection",
+          "name": "an offline burst retains only the latest durable head, repeats the ambiguous request exactly, then publishes the head once",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
@@ -131,9 +131,11 @@
             { "event": { "type": "localChange", "change": "c-h3", "root": "h3" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h3" } },
             { "event": { "type": "localChange", "change": "c-h4", "root": "h4" }, "state": "offline", "effects": ["schedule"], "expect": { "tip.root": "h4", "request.candidate": "h1" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "expect": { "request.id": "q1", "tip.root": "h4" } },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h4", "tip": "c-h4", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q1", "q2"] } },
-            { "event": { "type": "submitStarted", "id": "q2" }, "state": "submitting", "effects": [] }
+            { "event": { "type": "transportAvailable", "available": true }, "state": "prepared", "effects": ["submit"], "expect": { "request.id": "q1", "request.candidate": "h1", "tip.root": "h4" } },
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "applied", "installed": { "root": "h1", "update": "u1" } }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "tip.root": "h4" } },
+            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "u1", "candidate": "h4", "tip": "c-h4", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.digests": ["q2"] } }
           ]
         },
         {
@@ -292,7 +294,7 @@
             { "event": { "type": "recovered", "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] } }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
             { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "offline", "effects": ["schedule"] },
             { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "effectExpect": { "1.tip.change": "c-h2", "1.extends.id": "q1" } }
+            { "event": { "type": "transportAvailable", "available": true }, "state": "prepared", "effects": ["submit"], "effectExpect": { "0.request.id": "q1" }, "expect": { "tip.change": "c-h2" } }
           ]
         },
         {
@@ -360,15 +362,16 @@
           ]
         },
         {
-          "name": "losing transport under a hanging request extends it once on reconnection",
+          "name": "losing transport under a hanging request repeats it exactly, then publishes later work after its answer",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c-h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "localChange", "change": "c-h2", "root": "h2" }, "state": "submitting-pending", "effects": ["schedule"] },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [], "expect": { "transmitted": true, "tip.change": "c-h2" } },
             { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": [] },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": ["cancelTimers", "persistRequest"], "effectExpect": { "1.extends.id": "q1" } },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uA", "candidate": "h2", "tip": "c-h2", "digests": ["q1", "q2"] } }, "state": "prepared", "effects": ["submit"] },
-            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "prepared", "effects": [] }
+            { "event": { "type": "transportAvailable", "available": true }, "state": "prepared", "effects": ["submit"], "effectExpect": { "0.request.id": "q1" } },
+            { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting-pending", "effects": [] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
+            { "event": { "type": "applied", "installed": { "root": "h1", "update": "u1" } }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "effectExpect": { "1.tip.change": "c-h2" } }
           ]
         },
         {
@@ -414,13 +417,23 @@
           ]
         },
         {
-          "name": "reconnection waits for an active suffix before extending an ambiguous request",
+          "name": "the attempt still in flight can answer its repeated request before the repeat starts",
+          "initial": { "kind": "offline", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c1", "digests": ["q1"] }, "transmitted": true, "availability": { "kind": "transport" }, "tip": { "change": "c2", "root": "h2" }, "transportAvailable": false },
+          "steps": [
+            { "event": { "type": "transportAvailable", "available": true }, "state": "prepared", "effects": ["submit"] },
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "tip.change": "c2" } },
+            { "event": { "type": "applied", "installed": { "root": "h1", "update": "u1" } }, "state": "locally-pending", "effects": [] },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
+          ]
+        },
+        {
+          "name": "reconnection repeats an ambiguous request at once, and later work waits for its answer",
           "initial": { "kind": "offline", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "tip": "c1", "digests": ["q1"] }, "transmitted": true, "availability": { "kind": "transport" }, "transportAvailable": false },
           "steps": [
             { "event": { "type": "localChange", "change": "c2", "root": "h2" }, "state": "offline", "effects": ["schedule"] },
-            { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": [] },
-            { "event": { "type": "localChange", "change": "c3", "root": "h3" }, "state": "offline", "effects": ["schedule"] },
-            { "event": { "type": "publishDelayElapsed" }, "state": "offline", "effects": ["cancelTimers", "persistRequest"] }
+            { "event": { "type": "transportAvailable", "available": true }, "state": "prepared", "effects": ["submit"], "effectExpect": { "0.request.id": "q1" } },
+            { "event": { "type": "localChange", "change": "c3", "root": "h3" }, "state": "prepared", "effects": ["schedule"], "expect": { "tip.change": "c3" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "prepared", "effects": [], "expect": { "request.id": "q1" } }
           ]
         }
       ]

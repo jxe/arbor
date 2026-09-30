@@ -55,6 +55,12 @@ includes it repeats the same element with the same digest. Records keep
 hashes and the wire element, never document sources or editor transactions.
 
 The **change log** is the ordered, durable set of local changes for one tree.
+Its unsettled changes form **one chain**: each names the previous one as its
+basis, and the first rests on an accepted state or a settled change. A client
+MUST author a new change on the chain's newest change, except for an edit
+captured before work it must be merged with (an accepted update from the host,
+or a local change to the same document), which keeps its own basis for the
+host to merge.
 A change is durable in the log, together with its basis and the objects it
 introduces, before the machine learns of it and before any editor or scan
 treats it as saved. The log's newest change is its **tip**. A change is
@@ -202,12 +208,13 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    `unsupported`; it requires an upgrade or explicit author action.
    Validation failure is `terminal`.
 10. **Ambiguous recovery.** On reconnection, a request that may have reached
-    the host is retried exactly. If newer local changes exist behind it, the
-    client persists one longer request that repeats the transmitted prefix
-    exactly and appends the chain through the tip once. Together with the
-    successor handoff in rule 4, these are the only transitions that issue a
-    longer append-only string; all rely on the host trimming the already
-    accepted prefix by request digest.
+    the host is retried exactly, and never extended. While an earlier attempt
+    of it is still in flight the client sends no second copy; that attempt's
+    answer settles it. Newer local changes wait for the answer and then
+    publish through the tip as one request (rule 4), so a reconnection issues
+    at most two requests. The successor handoff in rule 4 is the only
+    transition that issues a longer append-only string; it relies on the host
+    trimming the already accepted prefix by request digest.
 11. **A persisted request is transmitted as persisted.** The runner sends
     exactly the elements the persisted request names. A change appended
     after preparation is the retained successor, never a longer version of
@@ -256,6 +263,11 @@ The reference editor source is described in
   byte guards happen to match, or require a local compare-and-swap conflict
   resolution. The host reconciles the original intent and preserves genuine
   overlap as accepted state.
+- An edit captured on an earlier view of the client's own chain is authored
+  on the chain's newest change only when no change since that view touched
+  its document, established change by change from the changes' own records.
+  Equal bytes alone do not establish it. Otherwise the edit keeps its captured
+  basis and the host merges it.
 - Appending MUST validate that the edits applied to the captured basis
   produce the declared candidate exactly, frame by frame: the operations a
   client states for one generation MUST reproduce the root that generation

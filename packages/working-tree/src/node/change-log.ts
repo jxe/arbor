@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@overstory/protocol";
-import { equal, localChangeRequest, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
+import { equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
   type StoredLocalChange, type StoredSnapshot } from "../local-change.ts";
 import { publicationTip } from "../update-machine.ts";
 
@@ -53,16 +53,21 @@ export class ChangeLog {
     if (!this.records || !equal(fingerprint, this.fingerprint)) await this.load();
     return structuredClone(this.records!);
   }
-  async retain(value: LocalChange | LocalChange[]): Promise<void> {
+  /** With `settled`, each new record must extend the one chain of unsettled
+   * records (`requireOneChain`). */
+  async retain(value: LocalChange | LocalChange[], settled?: ReadonlySet<string>): Promise<void> {
     const batch = structuredClone(Array.isArray(value) ? value : [value]);
     const previous = writers.get(this.path) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
       const records = await this.retained();
+      const added: LocalChange[] = [];
       for (const record of batch) {
         const prior = records.find(r => r.change === record.change);
         if (prior && !equal(prior, record)) throw new Error("Authored identity was reused");
-        if (!prior) records.push(record);
+        if (!prior) added.push(record);
       }
+      if (settled) requireOneChain(added, records.filter(record => !settled.has(record.change)));
+      records.push(...added);
       // Repeat the durable write on an exact retry: an earlier rename may have
       // succeeded before directory synchronization failed.
       validateLocalChanges(records, this.tree);

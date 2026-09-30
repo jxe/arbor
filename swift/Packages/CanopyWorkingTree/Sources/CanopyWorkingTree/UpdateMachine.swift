@@ -228,10 +228,8 @@ public enum UpdateMachine {
         case schedule(Timer, Duration)
         /// Cancel the trailing and maximum publication timers; the poll timer is independent.
         case cancelTimers
-        /// Persist one exact request: the change log's chain from `base` through
-        /// `tip`. `extends` names a transmitted request the new one repeats
-        /// exactly as its prefix.
-        case persistRequest(base: AcceptedBase, tip: LocalTip, extends: PreparedRequest?)
+        /// Persist one exact request: the change log's chain from `base` through `tip`.
+        case persistRequest(base: AcceptedBase, tip: LocalTip)
         case submit(PreparedRequest)
         /// Validate, durably materialize, then dispatch `applied`.
         case apply(AuthorityResult)
@@ -398,6 +396,9 @@ public enum UpdateMachine {
             switch state.phase {
             case let .submitting(value): request = value
             case let .submittingPending(value, tip): request = value; retained = tip
+            // A request repeated after reconnection may be answered by the
+            // attempt that was still in flight, before the repeat starts.
+            case let .prepared(value, tip): request = value; retained = tip
             default: return (state, [])
             }
             guard request.id == id else { return (state, []) }
@@ -572,7 +573,7 @@ public enum UpdateMachine {
             return (next, [.cancelTimers, .settle(tip: tip)])
         }
         next.phase = .locallyPending(tip: tip, preparing: true)
-        return (next, [.cancelTimers, .persistRequest(base: base, tip: tip, extends: nil)])
+        return (next, [.cancelTimers, .persistRequest(base: base, tip: tip)])
     }
 
     private static func catchUp(_ state: State, cursor: String?) -> (State, [Effect]) {
@@ -619,7 +620,9 @@ public enum UpdateMachine {
         }
     }
 
-    /// Reconnection: retry the exact retained request, or append the latest tip to an ambiguous prefix once.
+    /// Reconnection: retry the exact retained request. A request that may have
+    /// reached the host is only ever repeated unchanged; later work waits for
+    /// its answer and then publishes as one update.
     private static func resume(
         _ state: State,
         availability: Availability,
@@ -630,14 +633,6 @@ public enum UpdateMachine {
         var next = state
         guard let base = state.base else { return (state, []) }
         if let request {
-            if transmitted, tip != nil, !state.publicationReady, !state.publicationForced { return (next, []) }
-            if transmitted, state.publicationReady || state.publicationForced, let tip, tip.change != request.tip {
-                // Ambiguous-recovery transition: the only place a longer append-only request is issued.
-                next.phase = .offline(availability: availability, request: request, transmitted: true, tip: tip)
-                next.publicationWindowOpen = false
-                next.publicationForced = false
-                return (next, [.cancelTimers, .persistRequest(base: base, tip: tip, extends: request)])
-            }
             next.phase = .prepared(request: request, tip: tip.flatMap { successor($0, of: request) })
             return (next, [.submit(request)])
         }

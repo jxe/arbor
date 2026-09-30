@@ -132,7 +132,7 @@ extension UpdateCoordinator {
                 await staging.close()
             } catch { await staging.close(); throw error }
         }
-        try await changeLog().retain(prepared.record)
+        try await changeLog().retain(prepared.record, settled: Set(control.settled))
         preparedStructures[key] = nil
         await ensureEntered()
         await publishTip()
@@ -169,6 +169,17 @@ extension UpdateCoordinator {
         else { records = try await changeLog().retained() }
         let settled = Set(control.settled)
         return records.filter { !settled.contains($0.change) }
+    }
+
+    /// The tip of the one local chain: the newest unsettled change, which every
+    /// new change is authored on. Nil when nothing is unsettled, or while a
+    /// journal from an earlier build still holds sibling branches; those publish
+    /// one after another and new work rejoins one chain once they settle.
+    func chainTip(_ retained: [LocalChange]? = nil) async throws -> LocalChange? {
+        let pending = try await pendingLocalChanges(retained)
+        guard let last = pending.last,
+              zip(pending, pending.dropFirst()).allSatisfy({ $1.basis == .authored(change: $0.change) }) else { return nil }
+        return last
     }
 
     /// Local candidates are authored branches, not merged tree projections. Only
@@ -301,6 +312,13 @@ extension UpdateCoordinator {
 
     public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
+        // An editor opened while work is pending edits on the chain's tip, so
+        // its changes extend that chain instead of branching from the base.
+        if let tip = try await chainTip() {
+            let view = try await localSourceView(tip, reference: reference)
+            sourceViews[view.document.contentRevision] = view
+            return view.document
+        }
         if let pending = try await pendingSourceSnapshot(reference) { return pending }
         let captured = try await workingTree.captureSourceBasis(reference)
         // A change can be appended while the accepted basis is captured.
@@ -399,22 +417,68 @@ extension UpdateCoordinator {
         let existing = try await queue.retained().last { $0.document?.intentDigest == digest }
         let record: LocalChange
         if let existing { record = existing }
+        else if let prepared = preparedSourceIntents[intentBytes] { record = prepared }
         else {
-            let view = try await sourceView(for: intent)
             let parent = try localPredecessor(intent.basis.contentRevision)
-            if let prepared = preparedSourceIntents[intentBytes] { record = prepared }
-            else {
+            let view = try await sourceView(for: intent)
+            if let tip = try await chainTip(), parent != tip.change,
+               let onTip = try await rebased(intent, view: view, parent: parent, onto: tip) {
+                record = onTip
+            } else {
                 record = try view.prepare(intent: intent, predecessor: parent)
-                preparedSourceIntents[intentBytes] = record
             }
+            preparedSourceIntents[intentBytes] = record
         }
-        try await queue.retain(record)
+        try await queue.retain(record, settled: Set(control.settled), merging: try await needsMerge(record))
         let local = try await localSourceView(record)
         sourceViews[local.document.contentRevision] = local
         await ensureEntered()
         await publishTip()
         await workingTree.invalidateDocumentViews()
         return local.document
+    }
+
+    /// `intent`, captured on an earlier view of its document, authored on the
+    /// chain's tip instead, when that is provably the same edit: the view is
+    /// on the chain, and no change after it touched the document. Nil
+    /// otherwise; the edit then keeps its own basis and canopyd merges it.
+    /// The record keeps the original intent's digest, so an exact retry finds it.
+    private func rebased(_ intent: WorkspaceDocumentIntent, view: CapturedSourceBasis, parent: String?,
+                         onto tip: LocalChange) async throws -> LocalChange? {
+        guard let suffix = chainSuffix(after: parent, accepted: view.accepted, pending: try await pendingLocalChanges()),
+              try suffix.allSatisfy({ try $0.leaves(intent.basis.reference, at: view.sourcePath) }) else { return nil }
+        let onTip = try await localSourceView(tip, reference: intent.basis.reference)
+        guard Data(onTip.document.source.utf8) == Data(intent.basis.source.utf8) else { return nil }
+        let revision = onTip.document.contentRevision
+        func moved(_ patch: WorkspaceDocumentPatch) -> WorkspaceDocumentPatch {
+            var patch = patch; patch.baseContentRevision = revision; return patch
+        }
+        let rebasedIntent = try WorkspaceDocumentIntent(basis: onTip.document, patch: moved(intent.patch), source: intent.source,
+            generations: intent.generations.map { .init(patch: moved($0.patch), source: $0.source) })
+        var record = try onTip.prepare(intent: rebasedIntent, predecessor: tip.change)
+        record.document?.intentDigest = LocalChange.intentDigest(intent)
+        return record
+    }
+
+    /// The chain's changes after a view, when the view is on the chain: after
+    /// its parent change, or all of them when it is the accepted state the
+    /// chain rests on. Nil for a view captured before an update from the host
+    /// was installed.
+    private func chainSuffix(after parent: String?, accepted: ProtocolUpdateBase?, pending: [LocalChange]) -> ArraySlice<LocalChange>? {
+        if let parent {
+            if let index = pending.firstIndex(where: { $0.change == parent }) { return pending[(index + 1)...] }
+            return pending.first?.basis == .authored(change: parent) ? pending[...] : nil
+        }
+        guard let accepted, pending.first?.basis == .accepted(accepted) else { return nil }
+        return pending[...]
+    }
+
+    /// Whether `record` is off the one chain and must be merged by canopyd:
+    /// an edit that could not be authored on the tip. The change log accepts
+    /// such a record only when it is declared.
+    private func needsMerge(_ record: LocalChange) async throws -> Bool {
+        guard let tip = try await chainTip() else { return false }
+        return record.basis != .authored(change: tip.change) && record.change != tip.change
     }
 
     /// Append one Move to Document as a single local change over both
@@ -444,15 +508,38 @@ extension UpdateCoordinator {
                   Data(destination.document.source.utf8) == Data(transfer.destination.source.utf8) else {
                 throw ProtocolValidationError.invalidValue("A transfer does not name its documents' captured sources")
             }
-            guard let basis = try transferBasis(origin: origin, originRevision: transfer.origin.contentRevision,
-                                                destination: destination, destinationRevision: transfer.destination.contentRevision,
-                                                records: records) else {
-                throw WorkspaceTransferError.basesDiverged
+            // One chain: the transfer is authored on the tip, which must hold
+            // both documents exactly as the editor read them.
+            let pending = try await pendingLocalChanges(records)
+            func untouched(_ view: CapturedSourceBasis, _ revision: String, _ reference: WorkspaceReference) throws -> Bool {
+                guard let suffix = chainSuffix(after: try localPredecessor(revision), accepted: view.accepted, pending: pending) else { return false }
+                return try suffix.allSatisfy { try $0.leaves(reference, at: view.sourcePath) }
             }
-            record = try LocalChange(tree: transfer.origin.reference.tree.rawValue, basis: basis.basis, graph: basis.graph,
-                                     originPath: origin.sourcePath, destinationPath: destination.sourcePath, transfer: transfer)
+            if let tip = try await chainTip(records),
+               try untouched(origin, transfer.origin.contentRevision, transfer.origin.reference),
+               try untouched(destination, transfer.destination.contentRevision, transfer.destination.reference) {
+                let onTip = (origin: try await localSourceView(tip, reference: transfer.origin.reference),
+                             destination: try await localSourceView(tip, reference: transfer.destination.reference))
+                guard Data(onTip.origin.document.source.utf8) == Data(transfer.origin.source.utf8),
+                      Data(onTip.destination.document.source.utf8) == Data(transfer.destination.source.utf8) else {
+                    throw WorkspaceTransferError.basesDiverged
+                }
+                record = try LocalChange(tree: transfer.origin.reference.tree.rawValue, basis: .authored(change: tip.change), graph: tip.candidate,
+                                         originPath: onTip.origin.sourcePath, destinationPath: onTip.destination.sourcePath, transfer: transfer)
+            } else {
+                // Work on the chain changed a document since the editor read it:
+                // the editor publishes that work and moves on the accepted view.
+                guard try await chainTip(records) == nil,
+                      let basis = try transferBasis(origin: origin, originRevision: transfer.origin.contentRevision,
+                                                    destination: destination, destinationRevision: transfer.destination.contentRevision,
+                                                    records: records) else {
+                    throw WorkspaceTransferError.basesDiverged
+                }
+                record = try LocalChange(tree: transfer.origin.reference.tree.rawValue, basis: basis.basis, graph: basis.graph,
+                                         originPath: origin.sourcePath, destinationPath: destination.sourcePath, transfer: transfer)
+            }
         }
-        try await queue.retain(record)
+        try await queue.retain(record, settled: Set(control.settled))
         let origin = try await localSourceView(record, reference: transfer.origin.reference)
         let destination = try await localSourceView(record, reference: transfer.destination.reference)
         sourceViews[origin.document.contentRevision] = origin

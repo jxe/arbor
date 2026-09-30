@@ -624,8 +624,8 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("Offline changes append once to an ambiguous prefix on reconnection")
-    func offlineChangesAppendToAmbiguousPrefix() async throws {
+    @Test("Reconnection repeats an ambiguous request exactly, then publishes offline work as one update")
+    func offlineChangesFollowAmbiguousRequest() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_offlinecompaction"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
@@ -646,20 +646,25 @@ struct UpdateCoordinatorTests {
             try await Task.sleep(for: .milliseconds(50))
             #expect(await transport.requests.count == 1)
 
-            // The hanging first attempt is still in flight; reconnection extends it once.
+            // The hanging first attempt may have reached the host. It is never
+            // extended or duplicated while in flight; the offline work follows
+            // its answer as one update.
             let reconnect = Task { await coordinator.setTransportAvailable(true) }
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await transport.requests.count == 1)
+            await gate.release()
             try await waitUntil { await transport.requests.count == 2 }
             let requests = await transport.requests
-            let prefix = try requests[0].decodedRequest()
-            let resumed = try requests[1].decodedRequest()
-            #expect(prefix.updates.count == 1)
-            #expect(resumed.updates.count == 2)
-            #expect(Array(resumed.updates.prefix(1)) == prefix.updates)
+            #expect(try requests[0].decodedRequest().updates.count == 1)
+            let following = try requests[1].decodedRequest()
+            #expect(following.updates.count == 2)
             #expect(Array(requests[1].requestDigests.prefix(1)) == requests[0].requestDigests)
+            #expect(following.updates[0].objects.isEmpty)
+            #expect(following.updates[1].trace?.count == 37)
 
-            await gate.release()
             await reconnect.value
             try await waitUntil { await coordinator.syncState.kind == "current" }
+            #expect(await transport.requests.count == 2)
             #expect((try await session.snapshot()).source.hasSuffix("Offline 37\n"))
         }
     }
@@ -2038,8 +2043,8 @@ extension SourceSessionPublicationTests {
 }
 
 extension SourceSessionPublicationTests {
-    @Test("A stale editor branch keeps pending creations visible and gates structure across restart")
-    func branchedAdmissions() async throws {
+    @Test("An editor opened before other local work still extends the one chain, across restart")
+    func staleEditorJoinsChain() async throws {
         try await withTemporaryRoot { root in
             let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
             let transport = SourceModeTransport(initial: initial, peer: initial)
@@ -2049,19 +2054,10 @@ extension SourceSessionPublicationTests {
             let old = try await provider.openDocument(.init(tree: treeID, path: "/note"))
             let r1 = try await old.snapshot()
             let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "created", source: "New\n")))
+            // The editor's view predates the creation; its edit is authored on the chain's tip.
             let edited = try await replace("Old editor edit\n", session: old, basis: r1)
             #expect(try await provider.children(of: parent).contains { $0.reference.path == created.reference.path })
-            #expect(await provider.capabilities().structuralActions == false)
-            #expect(await provider.capabilities().assets == false)
-            await #expect(throws: UpdateError.awaitingHostReconciliation) {
-                try await provider.perform(.rename(reference: created.reference, name: "renamed"))
-            }
-            await #expect(throws: UpdateError.awaitingHostReconciliation) {
-                try await provider.importFile(name: "blocked.bin", bytes: Data([1]), in: parent)
-            }
-            await #expect(throws: UpdateError.awaitingHostReconciliation) {
-                try await provider.store(asset: .init(name: "blocked.bin", bytes: Data([1])), in: parent)
-            }
+            #expect(await provider.capabilities().structuralActions)
             _ = try await replace("Still editable\n", session: old, basis: edited)
             let added = try await provider.openDocument(created.reference)
             let addedBasis = try await added.snapshot()
@@ -2069,19 +2065,88 @@ extension SourceSessionPublicationTests {
             let queue = try await ChangeLog(tree: treeID.rawValue, stateRoot: root)
             let records = try await queue.retained()
             #expect(records.count == 4)
-            #expect(records[1].basis == .accepted(.init(root: initial.root, update: "up_initial")))
-            #expect(records[2].basis == .authored(change: records[1].change))
-            #expect(records[3].basis == .authored(change: records[0].change))
-            #expect(try await coordinator.presentation().localRoot == records[0].candidate.root)
+            #expect(records[0].basis == .accepted(.init(root: initial.root, update: "up_initial")))
+            for (previous, next) in zip(records, records.dropFirst()) { #expect(next.basis == .authored(change: previous.change)) }
+            #expect(try await coordinator.presentation().localRoot == records[3].candidate.root)
             await old.close(); await added.close(); await coordinator.close()
             let reopened = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
             let recovered = WorkingTreeProvider(workingTree: tree, coordinator: reopened)
-            #expect(await recovered.capabilities().structuralActions == false)
+            #expect(await recovered.capabilities().structuralActions)
             #expect(try await recovered.resolve(created.reference).reference.path == created.reference.path)
             #expect(try await recovered.openDocument(created.reference).snapshot().source == addedBasis.source + "More\n")
             #expect(try await recovered.openDocument(.init(tree: treeID, path: "/note")).snapshot().source == "Still editable\n")
             #expect(try await queue.retained() == records)
             await reopened.close(); await tree.close()
+        }
+    }
+
+    @Test("Editors of two documents, both opened before any edit, write one chain")
+    func twoDocumentsOneChain() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(files: ["fidelity.md": "Fidelity\n", "index.md": "Index\n"])
+            let tree = try await makeTree(initial, update: "up_initial")
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial), stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+            let fidelity = try await provider.openDocument(.init(tree: treeID, path: "/fidelity"))
+            let index = try await provider.openDocument(.init(tree: treeID, path: "/index"))
+            let f0 = try await fidelity.snapshot(), i0 = try await index.snapshot()
+            let f1 = try await replace("Fidelity\nSara\n", session: fidelity, basis: f0)
+            let i1 = try await replace("Moved\nIndex\n", session: index, basis: i0)
+            _ = try await replace("Fidelity\nSara's comments\n", session: fidelity, basis: f1)
+            _ = try await replace("Moved\nIndex\nMore\n", session: index, basis: i1)
+            let records = try await ChangeLog(tree: treeID.rawValue, stateRoot: root).retained()
+            #expect(records.count == 4)
+            #expect(records[0].basis == .accepted(.init(root: initial.root, update: "up_initial")))
+            for (previous, next) in zip(records, records.dropFirst()) { #expect(next.basis == .authored(change: previous.change)) }
+            await fidelity.close(); await index.close(); await coordinator.close(); await tree.close()
+        }
+    }
+
+    @Test("An edit from a view the chain has since changed keeps its basis for canopyd to merge")
+    func changedUnderneathMerges() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial), stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+            let first = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            let second = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            let stale = try await second.snapshot()
+            _ = try await replace("From the first\n", session: first, basis: try await first.snapshot())
+            // Never a local conflict, and never replayed on bytes it did not read.
+            _ = try await replace("From the second\n", session: second, basis: stale)
+            let queue = try await ChangeLog(tree: treeID.rawValue, stateRoot: root)
+            let records = try await queue.retained()
+            #expect(records.count == 2)
+            #expect(records[1].basis == records[0].basis)
+            // The editor's next edit continues from its own change.
+            let after = try await second.snapshot()
+            _ = try await replace("From the second, again\n", session: second, basis: after)
+            #expect(try await queue.retained().last?.basis == .authored(change: records[1].change))
+            await first.close(); await second.close(); await coordinator.close(); await tree.close()
+        }
+    }
+
+    @Test("The change log refuses a record that forks the unsettled chain")
+    func changeLogRefusesFork() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial), stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
+            let session = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            let basis = try await session.snapshot()
+            _ = try await replace("First\n", session: session, basis: basis)
+            let queue = try await ChangeLog(tree: treeID.rawValue, stateRoot: root)
+            let first = try #require(try await queue.retained().first)
+            // A sibling of `first` on the same accepted basis.
+            let sibling = try LocalChange(change: "sibling", tree: treeID.rawValue, basis: first.basis, graph: first.graph, candidate: first.candidate,
+                update: .init(candidate: first.candidate.root, change: "sibling", trace: nil, objects: first.update.objects), sourcePath: nil, document: nil,
+                entryTransfer: nil, entryActions: nil, creation: nil, localTrash: nil)
+            await #expect(throws: ProtocolValidationError.self) { try await queue.retain(sibling, settled: []) }
+            #expect(try await queue.retained().count == 1)
+            // The record itself is valid: only the chain requirement refused it.
+            try await queue.retain(sibling)
+            #expect(try await queue.retained().count == 2)
+            await session.close(); await coordinator.close(); await tree.close()
         }
     }
 

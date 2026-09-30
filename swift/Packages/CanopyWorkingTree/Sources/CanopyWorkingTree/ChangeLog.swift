@@ -52,7 +52,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
     public let basis: LocalChangeBasis
     public let graph: ProtocolSnapshot
     public let sourcePath: String?
-    public let document: SourceDocumentCapture?
+    public internal(set) var document: SourceDocumentCapture?
     public let candidate: ProtocolSnapshot
     public let update: ProtocolCandidateUpdate
     public var entryTransfer: EntryTransfer?
@@ -665,12 +665,18 @@ public actor ChangeLog {
     }
 
     /// Acknowledges only after the complete record and its basis are fsynced.
-    public func retain(_ record: LocalChange) async throws {
-        try await retain([record])
+    public func retain(_ record: LocalChange, settled: Set<String>? = nil, merging: Bool = false) async throws {
+        try await retain([record], settled: settled, merging: merging)
     }
 
-    /// One durable boundary for a batch of records.
-    public func retain(_ batch: [LocalChange]) async throws {
+    /// One durable boundary for a batch of records. With `settled`, each new
+    /// record must extend the one chain of unsettled records: its basis is the
+    /// newest of them (any basis when none is unsettled). The one exception is
+    /// declared with `merging`: an edit captured before work it must be merged
+    /// with, which keeps its own basis for canopyd to merge. A journal from an
+    /// earlier build that already holds sibling branches is not checked; its
+    /// branches publish one after another.
+    public func retain(_ batch: [LocalChange], settled: Set<String>? = nil, merging: Bool = false) async throws {
         while true {
             // Resolve platform objects before locking. Actor reentrancy must
             // never leave another call synchronously waiting on our own flock.
@@ -694,6 +700,7 @@ public actor ChangeLog {
                 }
                 // Retained records were validated when they were loaded or retained.
                 try Self.validate(added, tree: tree, after: records)
+                if let settled, !merging { try Self.requireOneChain(added, after: records, settled: settled) }
                 try persist(records + added)
                 files.unlockChangeLog(descriptor)
                 return
@@ -942,6 +949,18 @@ public actor ChangeLog {
         )
     }
 
+    /// Every record in `added` extends the unsettled chain in `retained`.
+    static func requireOneChain(_ added: [LocalChange], after retained: [LocalChange], settled: Set<String>) throws {
+        var pending = retained.filter { !settled.contains($0.change) }
+        guard zip(pending, pending.dropFirst()).allSatisfy({ $1.basis == .authored(change: $0.change) }) else { return }
+        for record in added {
+            if let tip = pending.last, record.basis != .authored(change: tip.change) {
+                throw ProtocolValidationError.invalidValue("A local change must extend the one chain of unsettled changes")
+            }
+            pending.append(record)
+        }
+    }
+
     /// Validate `records` in order as successors of the already valid `retained`.
     private static func validate(_ records: [LocalChange], tree: String, after retained: [LocalChange] = []) throws {
         var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
@@ -956,6 +975,33 @@ public actor ChangeLog {
             }
             prior[record.change] = record
         }
+    }
+}
+
+extension LocalChange {
+    /// Whether this change leaves the document `reference`, which is at `path`
+    /// before it, exactly as it was: a source change touches only the documents
+    /// it names; any other change must keep the file object at that path.
+    func leaves(_ reference: WorkspaceReference, at path: String) throws -> Bool {
+        if documentReferences.contains(where: { $0.identity == reference.identity }) { return false }
+        if document != nil { return true }
+        guard let before = try Self.file(at: path, in: graph), let after = try Self.file(at: path, in: candidate) else { return false }
+        return before == after
+    }
+
+    /// The file object at an absolute `path` in `snapshot`, when there is one.
+    static func file(at path: String, in snapshot: ProtocolSnapshot) throws -> String? {
+        let objects = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        var hash = snapshot.root
+        let parts = path.split(separator: "/").map(String.init)
+        for (index, part) in parts.enumerated() {
+            guard let bytes = objects[hash], case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
+                  let entry = entries.first(where: { $0.name == part }) else { return nil }
+            if index == parts.count - 1 { return entry.file }
+            guard let directory = entry.directory else { return nil }
+            hash = directory
+        }
+        return nil
     }
 }
 

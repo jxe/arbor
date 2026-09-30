@@ -143,8 +143,8 @@ export type UpdateEffect =
   | { type: "schedule"; timer: "trailing" | "max" | "poll"; delay: number }
   /** Cancel the trailing and maximum publication timers; the poll timer is independent. */
   | { type: "cancelTimers" }
-  /** Persist one exact request: the change log's chain from `base` through `tip`; `extends` names a transmitted request it repeats exactly as its prefix. */
-  | { type: "persistRequest"; base: AcceptedBase; tip: LocalTip; extends?: PreparedRequest }
+  /** Persist one exact request: the change log's chain from `base` through `tip`. */
+  | { type: "persistRequest"; base: AcceptedBase; tip: LocalTip }
   | { type: "submit"; request: PreparedRequest }
   /** Validate, durably materialize, then dispatch `applied`. */
   | { type: "apply"; result: AuthorityResult }
@@ -351,9 +351,11 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
     }
 
     case "accepted": {
-      if (state.kind !== "submitting" && state.kind !== "submitting-pending") return { state, effects: [] };
+      // A request repeated after reconnection may be answered by the attempt
+      // that was still in flight, before the repeat starts.
+      if (state.kind !== "submitting" && state.kind !== "submitting-pending" && state.kind !== "prepared") return { state, effects: [] };
       if (state.request.id !== event.id) return { state, effects: [] };
-      const tip = state.kind === "submitting-pending" ? state.tip : undefined;
+      const tip = state.kind === "submitting" ? undefined : state.tip;
       return {
         state: { ...ctx(state), kind: "accepted-pending-apply", base: state.base, result: event.result, request: state.request, ...(tip ? { tip } : {}) },
         effects: [{ type: "apply", result: event.result }],
@@ -534,17 +536,11 @@ export function reduceUpdate(input: UpdateState, event: UpdateEvent, options: Up
   return { state, effects: [] };
 }
 
-/** Reconnection: retry the exact retained request, or append the latest tip to an ambiguous prefix once. */
+/** Reconnection: retry the exact retained request. A request that may have
+ * reached the host is only ever repeated unchanged; later work waits for its
+ * answer and then publishes as one update. */
 function resume(state: Extract<UpdateState, { kind: "offline" }>): UpdateTransition {
   if (state.request) {
-    if (state.transmitted && state.tip && !state.publicationReady && !state.publicationForced) return { state, effects: [] };
-    if (state.transmitted && (state.publicationReady || state.publicationForced) && state.tip && state.tip.change !== state.request.tip) {
-      // Ambiguous-recovery transition: the only place a longer append-only request is issued.
-      return {
-        state: { ...state, publicationWindowOpen: false, publicationForced: false },
-        effects: [{ type: "cancelTimers" }, { type: "persistRequest", base: state.base, tip: state.tip, extends: state.request }],
-      };
-    }
     const tip = successor(state.tip, state.request);
     return {
       state: { ...ctx(state), kind: "prepared", base: state.base, request: state.request, ...(tip ? { tip } : {}) },

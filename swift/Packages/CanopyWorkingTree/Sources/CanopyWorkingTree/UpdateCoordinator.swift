@@ -278,8 +278,8 @@ public actor UpdateCoordinator {
 
     private func perform(_ effect: UpdateMachine.Effect) async {
         switch effect {
-        case let .persistRequest(_, tip, extends):
-            await persistRequest(tip: tip, extends: extends)
+        case let .persistRequest(_, tip):
+            await persistRequest(tip: tip)
         case let .submit(request):
             guard submissions[request.id] == nil else { return }
             submissions[request.id] = Task { [weak self] in
@@ -301,8 +301,8 @@ public actor UpdateCoordinator {
         }
     }
 
-    private func persistRequest(tip: UpdateMachine.LocalTip, extends: UpdateMachine.PreparedRequest?) async {
-        if let existing = control.attempt, extends == nil {
+    private func persistRequest(tip: UpdateMachine.LocalTip) async {
+        if let existing = control.attempt {
             // A retained request is resubmitted exactly; it is never re-cut from the log.
             dispatch(.requestPersisted(preparedRequest(existing)))
             return
@@ -311,11 +311,6 @@ public actor UpdateCoordinator {
             var prepared = try await changeLog().request(through: tip.change, accepted: Set(control.settled))
             prepared.request = try await composePublication(in: prepared.request)
             let attempt = try Self.attempt(tree: await workingTree.treeID().rawValue, base: prepared.base, request: prepared.request)
-            if let extends, !attempt.allRequestDigests.starts(with: extends.digests) {
-                // The tip no longer descends from the transmitted request: retry it exactly.
-                dispatch(.requestPersisted(extends))
-                return
-            }
             try faultInjector.reached(.beforeRequestPersistence)
             control.attempt = attempt
             control.attemptTip = tip.change

@@ -538,7 +538,7 @@ export class FolderSync implements AcceptedTree {
       this.previewed = undefined;
       const change = previewed && equal(previewed.basis, known.basis) && previewed.candidate.root === lazy.root
         ? previewed : await this.prepare(known, lazy);
-      await this.log.retain(change);
+      await this.log.retain(change, await this.coordinator.settledChanges());
       await this.saveKnown({ root: lazy.root, basis: { kind: "authored", change: change.change } });
       this.recentObjects = lazy.objects;
       return true;

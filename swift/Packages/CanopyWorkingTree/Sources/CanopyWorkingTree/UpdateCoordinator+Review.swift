@@ -175,7 +175,7 @@ extension UpdateCoordinator {
         var journal = try loadReview()
         journal.submitted[change] = try draft.fingerprint()
         try writeReview(journal)
-        try await changeLog().retain(record)
+        try await changeLog().retain(record, settled: Set(control.settled))
         await publishTip()
         _ = try await syncOnce()
         if case let .held(_, _, request, _) = syncState.phase, request.tip == change {

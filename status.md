@@ -12,6 +12,36 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## One local chain and exact reconnection — 2026-09-30
+
+During a flight Joe edited `Fidelity.md`, then `_index.md`, in one Mac session.
+The `_index.md` editor captured its first view from the accepted state, so its
+125 operations formed a sibling branch of the `Fidelity.md` chain. One request
+(`base=6131`, two updates) was retried unchanged for 54 minutes. After it landed
+as 6132–6133, the branch went out still based on 6131. canopyd merged Joe's two
+branches as if they were from two devices and recorded a whole-tree choice (6134).
+
+canopyd now judges Markdown transfer policy only on files both sides changed. A
+within-file transfer it cannot replay becomes a content choice about that file,
+not a whole-tree choice. Replaying the captured entry 6134 locally reproduces the
+live refusal on the old engine and merges without a decision on the new one.
+
+Both clients keep unsettled local changes as one chain. An editor opened during
+pending work reads the tip. An edit captured on an earlier view is authored on
+the tip when no change since touched its document, checked change by change.
+Otherwise it keeps its basis as the single merge for canopyd. The change log
+refuses any other fork. On reconnection, a request that may have reached the host
+is only repeated unchanged; later work follows its answer as one coalesced update.
+Work never extends an ambiguous request any more. Swift and TypeScript machines,
+fixtures and runner vectors were updated together. The conflict card now names
+versions "Kept for now" and "Set aside" and lists lines missing from current
+contents.
+
+Evidence: CanopyWorkingTree (132 tests) and Overstory (68) pass. The merge engine
+suite passes 322 tests. The TypeScript machine, runner, and change-log suites pass.
+The live conflict on `/~joe/todos` remains for Joe to resolve; the fixes are not
+yet deployed or installed.
+
 ## Editor activity and compact move payloads — 2026-09-29
 
 The Swift and TypeScript publication machines now distinguish editor activity
@@ -163,7 +193,7 @@ local records into a fresh authored update. Repeated pure moves of the same span
 reduce to one original-source move at its final anchor. Mixed work retains its
 frames; snapshots, resolutions and guards form boundaries. Control schema 5
 retains local-to-published change and operation-result mappings with the immutable
-request. Retry, restart, ambiguous extension, settlement and discard use that
+request. Retry, restart, work after an ambiguous request, settlement and discard use that
 mapping. Original local records and editor undo remain independent.
 
 The native codec consumes actual moved-block evidence from the sibling Quagmire

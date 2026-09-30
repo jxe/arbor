@@ -388,6 +388,22 @@ export function validateLocalChange(record: LocalChange): void {
   if (record.entryTransfer && record.entryActions) throw new Error("Multiple entry intent representations");
 }
 
+/** Every record in `added` extends the one chain of unsettled records in
+ * `pending`: its basis is the newest of them (any basis when there are none).
+ * A journal from an earlier build that already holds sibling branches is not
+ * checked; its branches publish one after another. */
+export function requireOneChain(added: readonly LocalChange[], pending: readonly LocalChange[]): void {
+  const chain = [...pending];
+  if (chain.some((record, i) => i > 0 && (record.basis.kind !== "authored" || record.basis.change !== chain[i - 1]!.change))) return;
+  for (const record of added) {
+    const tip = chain.at(-1);
+    if (tip && (record.basis.kind !== "authored" || record.basis.change !== tip.change)) {
+      throw new Error("A local change must extend the one chain of unsettled changes");
+    }
+    chain.push(record);
+  }
+}
+
 export function validateLocalChanges(records: LocalChange[], tree: string): void {
   const prior = new Map<string, LocalChange>();
   for (const record of records) {

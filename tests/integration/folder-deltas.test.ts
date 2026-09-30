@@ -112,11 +112,15 @@ test("a change chained on an unsettled change sends its objects whole", async ()
       await writeFile(join(folder, "large.md"), second);
       offline(false);
       await daemon.synchronizeNow();
-      expect(requests).toHaveLength(1);
-      const chain = requests[0]!;
+      // The ambiguous first request is repeated exactly; the chained change
+      // follows its answer, repeating the settled head without objects.
+      expect(requests).toHaveLength(2);
+      expect(requests[0]!.updates).toHaveLength(1);
+      expect(requests[0]!.updates[0]!.deltas.map((delta) => delta.result)).toContain(hashObject(new TextEncoder().encode(first)));
+      const chain = requests[1]!;
       expect(chain.updates).toHaveLength(2);
       const [head, chained] = chain.updates;
-      expect(head!.deltas.map((delta) => delta.result)).toContain(hashObject(new TextEncoder().encode(first)));
+      expect(head!.change).toBe(requests[0]!.updates[0]!.change);
       expect(chained!.deltas).toEqual([]);
       expect(chained!.objects.map((object) => object.hash)).toContain(hashObject(new TextEncoder().encode(second)));
     });

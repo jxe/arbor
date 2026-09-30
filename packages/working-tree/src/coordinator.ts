@@ -297,7 +297,7 @@ export class UpdateCoordinator {
 
   private async perform(effect: UpdateEffect): Promise<void> {
     switch (effect.type) {
-      case "persistRequest": return this.persistRequest(effect.tip, effect.extends);
+      case "persistRequest": return this.persistRequest(effect.tip);
       case "submit": {
         const id = effect.request.id;
         if (this.submissions.has(id)) return;
@@ -335,9 +335,9 @@ export class UpdateCoordinator {
     this.startWorker();
   }
 
-  private async persistRequest(tip: LocalTip, extended?: PreparedRequest): Promise<void> {
+  private async persistRequest(tip: LocalTip): Promise<void> {
     const existing = this.control.attempt;
-    if (existing && !extended) {
+    if (existing) {
       // A retained request is resubmitted exactly; it is never re-cut from the log.
       this.dispatch({ type: "requestPersisted", request: this.prepared(existing) });
       return;
@@ -346,11 +346,6 @@ export class UpdateCoordinator {
       const prepared = await this.log.request(tip.change, this.settledSet());
       prepared.request = await this.composePublication(prepared.request);
       const attempt = encodeAttempt(this.tree, prepared.base, prepared.request);
-      if (extended && !extended.digests.every((digest, index) => attempt.requestDigests[index] === digest)) {
-        // The tip no longer descends from the transmitted request: retry it exactly.
-        this.dispatch({ type: "requestPersisted", request: extended });
-        return;
-      }
       this.control.attempt = attempt;
       this.control.attemptTip = tip.change;
       await this.writeControl();
@@ -756,6 +751,12 @@ export class UpdateCoordinator {
   }
 
   /** Local changes not yet settled, oldest first. */
+  /** Local changes the host has accepted, which the one chain may rest on. */
+  async settledChanges(): Promise<ReadonlySet<string>> {
+    await this.load();
+    return this.settledSet();
+  }
+
   async pendingChanges(): Promise<LocalChange[]> {
     await this.load();
     const settled = this.settledSet();
