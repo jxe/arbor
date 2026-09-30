@@ -1001,6 +1001,79 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    @Test("Ambiguous HTTP failures retry the exact intent", arguments: [
+        ProtocolHTTPError(status: 404, code: "http-error", message: nil, retryable: false),
+        ProtocolHTTPError(status: 403, code: "http-error", message: nil, retryable: true),
+        ProtocolHTTPError(status: 409, code: "temporarily-unavailable", message: nil, retryable: true)
+    ])
+    func ambiguousHTTPRetries(error: ProtocolHTTPError) async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_http"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = acceptingTransport(tree: tree, initial: initial) { call in
+                if call == 1 { throw error }
+            }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            try await admitAppend(session, "Local\n")
+            _ = try await coordinator.syncOnce()
+            #expect(await coordinator.syncState.kind == "offline")
+            #expect(try UpdateControlFiles(root: root).load().held == nil)
+            await coordinator.setTransportAvailable(false)
+            await coordinator.setTransportAvailable(true)
+            let requests = await transport.requests
+            #expect(requests.count == 2)
+            #expect(requests[0].body == requests[1].body)
+            #expect(requests[0].requestDigests == requests[1].requestDigests)
+            #expect(await coordinator.syncState.kind == "current")
+            await coordinator.close()
+        }
+    }
+
+    @Test("Restart releases legacy generic HTTP holds without losing the request or later edits")
+    func legacyHTTPHoldRecovery() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_legacyhttp"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = acceptingTransport(tree: tree, initial: initial) { call in
+                if call == 1 { throw ProtocolHTTPError(status: 404, code: "not-found", message: nil, retryable: false) }
+            }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            try await admitAppend(session, "Local\n")
+            _ = try await coordinator.syncOnce()
+            #expect(await coordinator.syncState.kind == "held")
+            try await admitAppend(session, "Later\n")
+            await coordinator.close()
+            let files = try UpdateControlFiles(root: root)
+            var control = try files.load()
+            let retained = try #require(control.attempt)
+            control.held = .init(reason: .rejected, detail: "http-error")
+            try files.write(control, phase: "legacy-test")
+
+            let restarted = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root, transportAvailable: false)
+            #expect(try files.load().attempt == retained)
+            #expect(try files.load().held == nil)
+            let recoveredSession = try await noteSession(workingTree, restarted, tree: tree)
+            await restarted.setTransportAvailable(true)
+            _ = try await restarted.syncOnce()
+            let requests = await transport.requests
+            let resumed = try #require(requests.dropFirst().first)
+            #expect(resumed.requestDigests.first == retained.allRequestDigests.first)
+            #expect(try resumed.decodedRequest().updates.first == requests[0].decodedRequest().updates.first)
+            #expect((try await recoveredSession.snapshot()).source.hasSuffix("Local\nLater\n"))
+            #expect(await restarted.syncState.kind == "current")
+            #expect(try await pendingChanges(root, tree: tree).isEmpty)
+            await restarted.close()
+        }
+    }
+
     @Test("An unsupported operation holds the exact request instead of stopping the tree")
     func unsupportedRequestIsHeld() async throws {
         try await withTemporaryRoot { root in

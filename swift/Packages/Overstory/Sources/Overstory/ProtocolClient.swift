@@ -505,7 +505,7 @@ public actor ProtocolClient {
             status: status,
             code: envelope?.error ?? "http-error",
             message: envelope?.message,
-            retryable: envelope?.retryable ?? (status >= 500),
+            retryable: envelope?.retryable ?? (envelope == nil || status >= 500),
             homeHost: envelope?.homeHost,
             challenge: envelope?.challenge
         )

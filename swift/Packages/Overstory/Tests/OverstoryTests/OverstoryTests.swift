@@ -614,6 +614,22 @@ struct UpdateProtocolTests {
         }
     }
 
+    @Test("A gateway 404 is an ambiguous retryable HTTP failure")
+    func gateway404IsRetryable() async throws {
+        await HostURLProtocolStub.state.install { _, _ in
+            (404, Data(#"{"status":"error","code":404,"message":"Application not found"}"#.utf8))
+        }
+        let client = ProtocolClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: protocolStubSession())
+        do {
+            _ = try await client.trees()
+            Issue.record("A gateway failure throws")
+        } catch let error as ProtocolHTTPError {
+            #expect(error.status == 404)
+            #expect(error.code == "http-error")
+            #expect(error.retryable)
+        }
+    }
+
     @Test("Every shared error decodes, and only the placement errors name a home host")
     func sharedErrorsNameHomeHost() async throws {
         let values = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixtures.appending(path: "errors.json"))) as? [[String: Any]])

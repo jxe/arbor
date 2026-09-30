@@ -118,6 +118,13 @@ public actor UpdateCoordinator {
                 throw ProtocolValidationError.invalidValue("Durable update intent does not match its digests")
             }
         }
+        // Older clients mistook an unrecognized HTTP response (for example a
+        // gateway's 404) for a definitive host refusal. Keep the validated
+        // request and every later change; recover it through normal resubmission.
+        if control.attempt != nil, control.held?.reason == .rejected, control.held?.detail == "http-error" {
+            control.held = nil
+            try files.write(control, phase: "recover-ambiguous-http")
+        }
         self.machine = UpdateMachine.State(transportAvailable: transportAvailable)
         self.options = UpdateMachine.Options(publicationDelay: publicationDelay, publicationMaxDelay: publicationMaxDelay, pollInterval: pollInterval)
     }
@@ -637,7 +644,11 @@ public actor UpdateCoordinator {
     /// Classify a failure into the machine's taxonomy.
     private func fail(_ error: any Error, id: String?) {
         failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-        if let http = error as? ProtocolHTTPError, http.status == 401 || http.status == 403 {
+        if let http = error as? ProtocolHTTPError, http.code == "http-error" || http.retryable {
+            // Only a protocol refusal can reject an intent. An intermediary's
+            // status is ambiguous, even when it is a 4xx response.
+            dispatch(.transportFailed(id: id))
+        } else if let http = error as? ProtocolHTTPError, http.status == 401 || http.status == 403 {
             dispatch(.authenticationFailed(reason: http.code))
             // A key device's session expires within the hour. The client has
             // already dropped the rejected token, so one prompt retry carries a
