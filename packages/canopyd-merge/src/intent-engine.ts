@@ -2250,6 +2250,15 @@ class Engine {
               same(b.pieces, next.pieces)
             )
               continue;
+            // Only one side changed this file and the replay reproduced that
+            // side exactly: nothing concurrent met here for a rule to judge.
+            const now = current.nodes[id]?.pieces,
+              mine = authored.nodes[id]?.pieces;
+            if (
+              (same(b.pieces, now) && same(next.pieces, mine)) ||
+              (same(b.pieces, mine) && same(next.pieces, now))
+            )
+              continue;
             const path = basePath(id),
               config = request.rules.config?.formats?.[path];
             const evidence = await evaluateTransfer(path, [
@@ -2274,9 +2283,35 @@ class Engine {
           rethrowUnlessFallback(error);
         }
       }
+      // A transfer between files cannot merge file by file; one within a file
+      // is that file's content, merged (or chosen) with the rest of it.
+      const pathOf = (ref: MaterialRef) =>
+        ref.material.kind === "basis" ? ref.material.path : undefined;
+      const crossFile =
+        operations.some((op) =>
+          (op.kind === "moveSource" || op.kind === "copySource") &&
+          (!pathOf(op.source) || pathOf(op.source) !== pathOf(op.at))
+        ) ||
+        this.addedEffects(current, base).some((e) =>
+          ["moveSource", "copySource"].includes(e.kind) &&
+          new Set([...Object.keys(e.before), ...Object.keys(e.after)]).size !== 1
+        );
       const merged = this.cloneState(current),
         affected: string[] =
-          structuralTransfer && !transported ? [base.root] : [];
+          structuralTransfer && crossFile && !transported ? [base.root] : [];
+      // Files a within-file transfer that could not be replayed touched: both
+      // sides' edits there stay one choice, as the transfer policy asks.
+      const transferPaths = new Set<string>();
+      if (structuralTransfer && !crossFile && !transported) {
+        for (const op of operations)
+          if (op.kind === "moveSource" || op.kind === "copySource") {
+            const path = pathOf(op.source);
+            if (path) transferPaths.add(path);
+          }
+        for (const e of this.addedEffects(current, base))
+          if (["moveSource", "copySource"].includes(e.kind))
+            for (const id of Object.keys(e.before)) transferPaths.add(basePath(id));
+      }
       // Merging edits `merged` only, so the candidate records once as well.
       let candidateRecord: Promise<{ object: string; state: string }> | undefined;
       const recordCandidate = () => (candidateRecord ??= this.record(authored));
@@ -2492,7 +2527,9 @@ class Engine {
                 remoteEdits = await this.edits(b.pieces, remote.pieces, current);
               let basisBytes: Promise<Uint8Array> | undefined;
               const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
+              const transferred = transferPaths.has(basePath(id));
               if (
+                !transferred &&
                 !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
               ) {
                 const proposal = normalize(
@@ -2579,6 +2616,7 @@ class Engine {
                 if (policies.every((p) => p.outcome === "resolved"))
                   coupledByFormat = false;
               }
+              if (transferred) coupledByFormat = true;
               if (coupledByFormat) groups.splice(0, groups.length, edits);
               const selected = [];
               for (const group of groups) {

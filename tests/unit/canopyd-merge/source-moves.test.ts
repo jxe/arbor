@@ -233,3 +233,53 @@ for (const reverse of [false, true])
       expect(f.content(merged.result.object, "a.md")).toBe(a);
     }
   });
+
+/** Moves within one page that change its list structure, arriving after a
+ * peer edited only another page. No concurrent edit touched the moved page, so
+ * its result is exactly the author's and the peer's page merges beside it. */
+for (const reverse of [false, true])
+  test(`structural moves in one page merge with a peer's edit to another page${reverse ? ", peer second" : ""}`, async () => {
+    const f = new Fixture();
+    const shape = shapes.find(s => s.name === "an item moves under a sibling and is re-indented")!;
+    const other = "Other page\n";
+    const root = f.tree({ "a.md": shape.text, "b.md": other });
+    const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", shape.text, [0, 0]), text: "" }], "start"))).result;
+    const arranged = f.request(basis, f.tree({ "a.md": shape.expected, "b.md": other }), operations(f, shape), "arranged");
+    const peer = f.request(basis, f.tree({ "a.md": shape.text, "b.md": "Other PEER\n" }), [
+      { key: "peer", kind: "editSource", source: f.ref("/b.md", other, at(other, "page")), text: "PEER" },
+    ], "peer");
+    const first = await f.run(reverse ? arranged : peer);
+    const second = reverse ? peer : arranged;
+    second.current = first.result;
+    const merged = await differential(f, second);
+    expect(merged.decisions).toEqual([]);
+    expect(f.content(merged.result.object, "a.md")).toBe(shape.expected);
+    expect(f.content(merged.result.object, "b.md")).toBe("Other PEER\n");
+  });
+
+/** When moves in one page cannot be reconciled with a peer's edit to that same
+ * page, the choice is about that page: a peer's edit to another page merges. */
+test("an unreconciled move is a choice about its page, not the whole tree", async () => {
+  const f = new Fixture();
+  const shape = shapes.find(s => s.name === "an item moves under a sibling and is re-indented")!;
+  const other = "Other page\n";
+  const root = f.tree({ "a.md": shape.text, "b.md": other });
+  const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", shape.text, [0, 0]), text: "" }], "start"))).result;
+  const peerText = shape.text.replace("three", "THREE");
+  const peer = f.request(basis, f.tree({ "a.md": peerText, "b.md": "Other PEER\n" }), [
+    { key: "peer-a", kind: "editSource", source: f.ref("/a.md", shape.text, at(shape.text, "three")), text: "THREE" },
+    { key: "peer-b", kind: "editSource", source: f.ref("/b.md", other, at(other, "page")), text: "PEER" },
+  ], "peer");
+  const arranged = f.request(basis, f.tree({ "a.md": shape.expected, "b.md": other }), operations(f, shape), "arranged");
+  arranged.current = (await f.run(peer)).result;
+  const merged = await differential(f, arranged);
+  expect(merged.decisions).toHaveLength(1);
+  const [choice] = merged.decisions;
+  expect(choice!.kind).toBe("content");
+  expect(choice!.subject?.material).toMatchObject({ kind: "basis", path: "/a.md" });
+  // Nothing is lost: each side's contribution is one alternative.
+  const contributions = choice!.alternatives.flatMap(a => a.contributions.map(c => c.change));
+  expect(contributions).toContain("arranged");
+  expect(contributions).toContain("peer");
+  expect(f.content(merged.result.object, "b.md")).toBe("Other PEER\n");
+});

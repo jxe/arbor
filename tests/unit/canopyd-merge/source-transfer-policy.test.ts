@@ -133,12 +133,14 @@ for (const kind of ["copySource", "moveSource"] as const)
           expect(f.content(result.result.object, "target.md")).toBe(
             target + selected
           );
+          // A move changes the source page on both sides, which the transfer
+          // policy judges. A copy leaves it to the peer alone: nothing to judge.
           expect(
             result.evidence.formats.some(
               (e) =>
                 e.id === "markdown-source-transfer" && e.outcome === "resolved"
             )
-          ).toBe(true);
+          ).toBe(kind === "moveSource");
           // Load the retained result in a later request, not just the immediate projection.
           const continued = await f.run(
             f.request(
