@@ -132,7 +132,12 @@ Documentation ownership is summarized in [docs/README.md](docs/README.md).
 
 ## Verification
 
-Before each commit, run the checks the change can reach:
+Use affected checks as the normal validation while developing a change:
+
+Committing does not require a fresh test run. Reuse checks already run against
+unchanged code; run them again when further edits or unresolved failures warrant
+it. A request to commit is not a request to broaden verification. Report known
+failures and respect Joe's explicit instruction to commit without more checks.
 
 ```sh
 bun run test:affected
@@ -153,15 +158,16 @@ changed data file selects the tests that name it. Root configuration, the
 test preload, and any file no test names run the whole product suite.
 `--list` prints the plan without running it. The closure follows imports and
 literal `.ts` paths that tests spawn, not paths computed at runtime, so it is
-a pre-commit gate, not a substitute for the full one.
+a focused development check, not a substitute for release verification.
 
 Also run `bun run test:protocol` when an Arbor Sync or canopyd HTTP route or
 response shape changes: its live scenarios drive those servers from the Swift
 clients, which the import graph cannot see.
 
-The full gate runs before pushing `main` (which deploys canopyd), before any
-live migration or install, when a plan is closed, and after a change that
-spans most packages:
+Run the full gate for periodic releases, before a live migration or install,
+or when Joe explicitly requests it. Ordinary commits and plan closure do not
+trigger it by themselves. Pushing `main` still deploys canopyd and requires Joe's
+explicit go-ahead:
 
 ```sh
 bun run typecheck

@@ -318,10 +318,15 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
     func makeNSView(context: Context) -> SizerView { SizerView() }
     func updateNSView(_ view: SizerView, context: Context) { view.resize() }
 
+    static func dismantleNSView(_ view: SizerView, coordinator: ()) {
+        view.tearDown()
+    }
+
     final class SizerView: NSView {
         private static let toolbarLayoutAllowance: CGFloat = 32
         private static let minimumWidth: CGFloat = 60
 
+        private var isDismantled = false
         private var observers: [NSObjectProtocol] = []
         private weak var itemView: NSView?
         private var widthConstraint: NSLayoutConstraint?
@@ -332,7 +337,12 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             super.viewDidMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
-            guard let window else { return }
+            guard !isDismantled, let window else {
+                widthConstraint?.isActive = false
+                widthConstraint = nil
+                itemView = nil
+                return
+            }
             let center = NotificationCenter.default
             let resizeOnNotification: (Notification) -> Void = { [weak self] _ in
                 MainActor.assumeIsolated { self?.resize() }
@@ -355,8 +365,22 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in self?.resize() }
         }
 
+        func tearDown() {
+            isDismantled = true
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            widthConstraint?.isActive = false
+            widthConstraint = nil
+            itemView = nil
+        }
+
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            widthConstraint?.isActive = false
+        }
+
         func resize() {
-            guard let window, let splitView, let sidebar = splitView.arrangedSubviews.first,
+            guard !isDismantled, let window, let splitView, let sidebar = splitView.arrangedSubviews.first,
                   let item = searchItem(in: window), let view = item.view else { return }
             // Dragging the sidebar closed collapses it without removing the
             // sidebar's toolbar items, which would leave the search in the
