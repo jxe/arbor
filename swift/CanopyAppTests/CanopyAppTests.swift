@@ -1180,7 +1180,9 @@ struct CanopyAppTests {
 
         #expect(model.linkedPageTrashPrompt == nil)
         #expect(model.editorLease?.id == lease.id)
-        #expect(try await workspace.provider.resolve(orphan.reference).reference.path == "/Trash/Orphan")
+        // Trashing preserves the original parent path beneath /Trash.
+        let trashedOrphan = try await workspace.provider.resolve(orphan.reference)
+        #expect(trashedOrphan.reference.path == "/Trash/welcome/Orphan")
 
         let retained = try #require(try await workspace.perform(.createMarkdown(
             parent: source,
