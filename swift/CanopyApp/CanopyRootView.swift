@@ -77,6 +77,26 @@ private struct CanopyVoiceRecordingToolbarButton: View {
     }
 }
 
+/// Covers the page while a button, menu or Shortcut recording runs, so a tap
+/// or click anywhere stops it, as a held pinch lock does. The tap is consumed
+/// rather than placing the caret; inline delivery already captured its block.
+private struct CanopyRecordingStopLayer: View {
+    let session: VoiceRecordingSession<String>
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(perform: stop)
+            .accessibilityElement()
+            .accessibilityLabel("Recording")
+            .accessibilityAction(named: "Stop Recording", stop)
+    }
+
+    private func stop() {
+        Task { await session.stopAndDeliver() }
+    }
+}
+
 /// Editing at the moment recording starts takes precedence over the page's
 /// ordinary voice destination. Capture both the command bridge and block id
 /// now so delayed transcription cannot drift into a different row.
@@ -899,7 +919,8 @@ struct CanopyRootView: View {
                     onDraft: onDraft
                 )
             },
-            finish: { [weak recordingSession] in
+            finish: { [weak model, weak recordingSession] in
+                defer { model?.endPinchVoiceRecording() }
                 guard let recordingSession else { return .failed }
                 return switch await recordingSession.stopAndReturnTranscript() {
                 case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
@@ -907,8 +928,9 @@ struct CanopyRootView: View {
                 case .failed: EditorPinchDictation.Completion.failed
                 }
             },
-            cancel: { [weak recordingSession] in
+            cancel: { [weak model, weak recordingSession] in
                 recordingSession?.cancel()
+                model?.endPinchVoiceRecording()
             }
         ))
     }
@@ -2581,6 +2603,13 @@ struct CanopyRootView: View {
                                 open: { destination in Task { await model.navigate(to: destination) } },
                                 showStatus: showStatusPanel
                             )
+                        }
+                    }
+                    .overlay {
+                        if location == model.currentLocation,
+                           recordingSession.state == .recording,
+                           !model.isPinchRecording {
+                            CanopyRecordingStopLayer(session: recordingSession)
                         }
                     }
                 } else {

@@ -2242,6 +2242,9 @@ final class CanopyAppModel {
     }
 
     let workspace: CanopyWorkspaceState
+    /// The shared recording session is running for a pinch-open dictation,
+    /// whose lock overlay in the editor owns taps on the page.
+    private(set) var isPinchRecording = false
     private(set) var tabs: BrowserTabController
     private(set) var node: WorkspaceNode?
     private(set) var children: [WorkspaceNode] = []
@@ -3074,7 +3077,17 @@ final class CanopyAppModel {
         onDraft: @escaping @MainActor @Sendable (String) -> Void
     ) async -> Bool {
         guard let node, node.isWritable, binding != nil else { return false }
-        return await session.startLiveTranscription(onDraft: onDraft)
+        // Set before starting: the session reports `.recording` before this
+        // call returns, and the page's stop-on-tap layer must not cover the
+        // pinch's own lock overlay in between.
+        isPinchRecording = true
+        let started = await session.startLiveTranscription(onDraft: onDraft)
+        if !started { isPinchRecording = false }
+        return started
+    }
+
+    func endPinchVoiceRecording() {
+        isPinchRecording = false
     }
 
     func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<String>) async {
