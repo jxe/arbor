@@ -238,6 +238,11 @@ final class CanopyWorkspaceState {
     private var syncCoordinator: UpdateCoordinator?
     private(set) var conflictReview: CanopyConflictReviewModel?
     private var serverWatchTask: Task<Void, Never>?
+    /// The open tree's watch, kept so it can be stopped while the app is
+    /// suspended and started again from its cursor on return.
+    private var serverWatchRunner: HostWatchRunner?
+    /// The connections the open tree's client uses, renewed on return from suspension.
+    private let hostSessions = ProtocolSession()
 #if os(macOS)
     private var supervisor: ArborSyncProcessSupervisor?
     private var arborsyncClient: ArborSyncRESTClient?
@@ -364,6 +369,7 @@ final class CanopyWorkspaceState {
         try await conflictReview?.flushDraft()
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        serverWatchRunner = nil
         let store = KeychainDeviceCredentialStore()
         // A tree on one of the account's placement hosts syncs with this
         // device's session there, which its home device key opens (accounts §1.3).
@@ -372,7 +378,7 @@ final class CanopyWorkspaceState {
         let credentialProvider = placementOrigin.map {
             AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
         } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
-        let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
+        let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider, sessions: hostSessions)
         let transport = ProtocolReplicaTransport(client: client)
         let platform = HostObjectStore(client: client, tree: tree.id)
         let root = CanopySupportDirectories.root
@@ -551,6 +557,7 @@ final class CanopyWorkspaceState {
         nativePlacements = try await nativePlacementStore.loadAll()
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        serverWatchRunner = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         conflictReview = nil
@@ -1192,6 +1199,7 @@ final class CanopyWorkspaceState {
         if let locator = openVisitLocator { navigationLocators[home.tree] = locator }
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        serverWatchRunner = nil
         visitFollowTask?.cancel()
         visitFollowTask = nil
         initialSyncTask?.cancel()
@@ -2017,6 +2025,7 @@ final class CanopyWorkspaceState {
         await editorWorkspace.closeAll()
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        serverWatchRunner = nil
         nativePathMonitor.cancel()
 #if os(macOS)
         visitFollowTask?.cancel()
@@ -2095,9 +2104,30 @@ final class CanopyWorkspaceState {
         tree: ProtocolTreeDescriptor,
         coordinator: UpdateCoordinator
     ) {
-        serverWatchTask = HostWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
+        let runner = HostWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
             await self?.refreshSyncPresentation(from: coordinator)
-        }.start()
+        }
+        serverWatchRunner = runner
+        serverWatchTask?.cancel()
+        serverWatchTask = runner.start()
+    }
+
+    /// Stop the open tree's watch while the app is not active. iOS may
+    /// suspend the app with the stream apparently open, and its connection
+    /// can die without notice; the tree polls instead until `resumeLiveSync`.
+    func suspendLiveSync() {
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
+    }
+
+    /// Follow the open tree again on fresh connections. The watch resumes
+    /// after its stored cursor, so the host replays what was missed, or asks
+    /// for a resync that the runner recovers through the coordinator.
+    func resumeLiveSync() {
+        guard let runner = serverWatchRunner, syncCoordinator != nil else { return }
+        hostSessions.renew()
+        serverWatchTask?.cancel()
+        serverWatchTask = runner.start()
     }
 
     /// The placement host a tree's session is for: its canonical `endpoint`

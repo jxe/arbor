@@ -964,13 +964,15 @@ struct CanopyRootView: View {
 #if os(macOS)
                 Task { await workspace.refreshLocalArborSyncOverview() }
 #else
-                // iOS may suspend an apparently open streaming request while
-                // backgrounded. Foregrounding is therefore also a deterministic
-                // snapshot-then-follow catch-up boundary.
-                Task { await workspace.syncNow(reportTransientNetworkErrors: false) }
+                // The watch was stopped on the way out; it resumes after its
+                // cursor on fresh connections, replaying what was missed.
+                workspace.resumeLiveSync()
                 Task { await workspace.refreshDirectory() }
 #endif
             } else {
+#if os(iOS)
+                workspace.suspendLiveSync()
+#endif
                 Task { await workspace.flush() }
             }
         }

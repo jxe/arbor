@@ -1,6 +1,7 @@
 import Overstory
 import CanopyWorkingTree
 import Foundation
+import os
 
 /// Follows one tree's protocol watch stream and feeds every event to an
 /// `UpdateCoordinator`, reconnecting with backoff and recovering an expired
@@ -42,11 +43,16 @@ public struct HostWatchRunner: Sendable {
                     _ = try await coordinator.recoverWatchGap()
                     cursor = try await coordinator.watchCursor()
                 }
+                let opened = OSAllocatedUnfairLock(initialState: false)
                 let events = try await client.watch(tree: tree, after: cursor, onOpen: {
+                    opened.withLock { $0 = true }
                     await coordinator.setWatching(true)
                 })
                 // However this connection ends, the tree polls again until the next one opens.
                 defer { Task { await coordinator.setWatching(false) } }
+                // A stream the host answered has proved itself even if it then
+                // drops before any event, as an idle tree's often does.
+                defer { if opened.withLock({ $0 }) { connected() } }
                 for try await event in events {
                     connected()
                     try Task.checkCancellation()

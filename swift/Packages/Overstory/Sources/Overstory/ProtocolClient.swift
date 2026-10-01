@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public protocol ProtocolCredentialProvider: Sendable {
     func credential() async throws -> String?
@@ -28,7 +29,8 @@ public actor ProtocolClient {
 
     private let origin: URL
     private let credentialProvider: any ProtocolCredentialProvider
-    private let session: URLSession
+    private let sessionSource: @Sendable () -> URLSession
+    private var session: URLSession { sessionSource() }
     private let retryDelay: RetryDelay
     /// How requests that carry objects travel (tree operations §4.4).
     private let wireEncoding: ProtocolWireEncoding
@@ -49,7 +51,7 @@ public actor ProtocolClient {
     ) {
         self.origin = origin
         self.credentialProvider = StaticProtocolCredential(credential)
-        self.session = session
+        self.sessionSource = { session }
         self.retryDelay = retryDelay
         self.wireEncoding = encoding
     }
@@ -63,7 +65,23 @@ public actor ProtocolClient {
     ) {
         self.origin = origin
         self.credentialProvider = credentialProvider
-        self.session = session
+        self.sessionSource = { session }
+        self.retryDelay = retryDelay
+        self.wireEncoding = encoding
+    }
+
+    /// A client whose requests use `sessions`' current session, so renewing it
+    /// moves this client to fresh connections too.
+    public init(
+        origin: URL,
+        credentialProvider: any ProtocolCredentialProvider,
+        sessions: ProtocolSession,
+        retryDelay: @escaping RetryDelay = ProtocolClient.defaultRetryDelay,
+        encoding: ProtocolWireEncoding = .cbor
+    ) {
+        self.origin = origin
+        self.credentialProvider = credentialProvider
+        self.sessionSource = { sessions.current }
         self.retryDelay = retryDelay
         self.wireEncoding = encoding
     }
@@ -366,12 +384,20 @@ public actor ProtocolClient {
         try await get(path: "/.arbor/directory")
     }
 
+    /// How long a watch stream may go without a byte before it is taken for
+    /// dead: two of the keepalive intervals a host may leave (tree operations
+    /// §4.2), as the TypeScript transport allows.
+    public static let watchIdleTimeout: Duration = .seconds(60)
+
     /// A tree's watch stream, resuming strictly after the observation `after`
     /// names, or at the tree's current head without it. `onOpen` runs once the
-    /// host has answered with an event stream, before any event arrives.
+    /// host has answered with an event stream, before any event arrives. The
+    /// stream fails with `URLError(.timedOut)` after `idleTimeout` without a
+    /// byte, keepalives included.
     public func watch(
         tree: String,
         after: String? = nil,
+        idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
         let query = after.map { "?after=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)" } ?? ""
@@ -382,6 +408,7 @@ public actor ProtocolClient {
         let finalRequest = request
         let log = ProtocolNetworkLog.current
         return AsyncThrowingStream { continuation in
+            let idle = WatchIdleClock()
             let task = Task {
                 let connectedAt = Date()
                 var frames = 0
@@ -396,6 +423,7 @@ public actor ProtocolClient {
                 }
                 do {
                     let (bytes, response) = try await session.bytes(for: finalRequest)
+                    idle.heard()
                     guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
                     connect.status = http.statusCode
                     connect.durationMs = Date().timeIntervalSince(connectedAt) * 1000
@@ -412,6 +440,7 @@ public actor ProtocolClient {
                     await onOpen?()
                     var parser = ProtocolSSEParser()
                     for try await byte in bytes {
+                        idle.heard()
                         for frame in try parser.append(byte: byte) {
                             if frame.event == "resync-required" {
                                 let change = try JSONDecoder().decode(ProtocolResyncChange.self, from: Data(frame.data.utf8))
@@ -448,6 +477,11 @@ public actor ProtocolClient {
                     _ = try parser.finish()
                     disconnect(nil)
                     continuation.finish()
+                } catch where idle.expired {
+                    let error = URLError(.timedOut)
+                    if connect.status == nil { connect.error = Self.describe(error); log?.record(connect) }
+                    disconnect(error)
+                    continuation.finish(throwing: error)
                 } catch is CancellationError {
                     if connect.status == nil { connect.error = "cancelled"; log?.record(connect) }
                     disconnect(CancellationError())
@@ -458,7 +492,11 @@ public actor ProtocolClient {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            let watchdog = Task {
+                await idle.expire(after: idleTimeout)
+                if idle.expired { task.cancel() }
+            }
+            continuation.onTermination = { _ in task.cancel(); watchdog.cancel() }
         }
     }
 
@@ -708,5 +746,28 @@ private struct ProtocolErrorEnvelope: Decodable {
         let details = (try? values.decodeIfPresent(Details.self, forKey: .details)) ?? nil
         homeHost = details?.homeHost
         challenge = details?.challenge
+    }
+}
+
+/// When a watch stream last heard from its host, and whether it then went
+/// quiet for longer than its idle timeout.
+private final class WatchIdleClock: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: (heard: ContinuousClock.now, expired: false))
+
+    func heard() { state.withLock { $0.heard = .now } }
+
+    var expired: Bool { state.withLock { $0.expired } }
+
+    /// Return once `timeout` passes without `heard()`, marking the clock
+    /// expired, or once the calling task is cancelled.
+    func expire(after timeout: Duration) async {
+        while !Task.isCancelled {
+            let deadline = state.withLock { $0.heard } + timeout
+            if ContinuousClock.now >= deadline {
+                state.withLock { $0.expired = true }
+                return
+            }
+            try? await Task.sleep(until: deadline)
+        }
     }
 }
