@@ -2259,6 +2259,9 @@ final class CanopyAppModel {
     private(set) var isLoading = false
     private(set) var titleRenameProposal: TitleRenameProposal?
     private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
+    /// New pages open in this window that wait for a title, by identity.
+    private var drafts: [WorkspaceIdentity: DraftDocumentSession] = [:]
+    @ObservationIgnored private var draftCreation: Task<Void, Never>?
     private var retainedPagePresentations: [PagePresentationKey: PagePresentation] = [:]
     private var observedWorkspaceGeneration: Int
     private var observedProviderRevision: Int
@@ -2350,6 +2353,8 @@ final class CanopyAppModel {
     var selectedTabID: UUID { tabs.selectedTabID }
     var tabItems: [BrowserTab] { tabs.tabs }
     var binding: CanopyDocumentBinding? { editorLease?.binding }
+    /// The open page is new and is not created until its H1 has a title.
+    var isShowingDraft: Bool { editorLease.map { drafts[$0.identity] != nil } ?? false }
     var navigationRoot: WorkspaceLocation { tabs.navigationRoot }
     var navigationPath: [WorkspaceLocation] { tabs.navigationPath }
 
@@ -2408,6 +2413,11 @@ final class CanopyAppModel {
 
     func load() async {
         observeLocalRetentions()
+        // A new page awaiting its title is not in the provider: it stays as it is.
+        if isShowingDraft, node?.location == currentLocation { return }
+        if let retained = retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)],
+           let lease = retained.editorLease, drafts[lease.identity] != nil,
+           restoreCurrentPagePresentation() { return }
         loadRequestID += 1
         let requestID = loadRequestID
         isLoading = true
@@ -2453,23 +2463,7 @@ final class CanopyAppModel {
                     lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
                 editorLease = lease
-                editorHost = CanopyEditorHost(
-                    binding: lease.binding,
-                    provider: workspace.provider,
-                    linkPreviewService: workspace.linkPreviewService,
-                    sourceDirectory: resolved.sourceDirectory,
-                    open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
-                    navigateBack: { [weak self] in Task { await self?.goBack() } },
-                    reportError: { [weak self] message in self?.errorMessage = message },
-                    performStructuralAction: { [weak self, weak workspace] action in
-                        guard let receipt = try await workspace?.performWithReceipt(action) else { return nil }
-                        await self?.reconcile(receipt)
-                        return receipt.result
-                    },
-                    offerTrashAfterDeletingLink: { [weak self] target, source in
-                        self?.offerToTrashLinkedPage(target, from: source)
-                    }
-                )
+                editorHost = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
             }
             errorMessage = nil
             titleRenameProposal = nil
@@ -2487,8 +2481,139 @@ final class CanopyAppModel {
         }
     }
 
+    private func makeEditorHost(binding: CanopyDocumentBinding, sourceDirectory: String) -> CanopyEditorHost {
+        CanopyEditorHost(
+            binding: binding,
+            provider: workspace.provider,
+            linkPreviewService: workspace.linkPreviewService,
+            sourceDirectory: sourceDirectory,
+            open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
+            navigateBack: { [weak self] in Task { await self?.goBack() } },
+            reportError: { [weak self] message in self?.errorMessage = message },
+            performStructuralAction: { [weak self, weak workspace] action in
+                guard let receipt = try await workspace?.performWithReceipt(action) else { return nil }
+                await self?.reconcile(receipt)
+                return receipt.result
+            },
+            offerTrashAfterDeletingLink: { [weak self] target, source in
+                self?.offerToTrashLinkedPage(target, from: source)
+            }
+        )
+    }
+
     func navigate(to location: WorkspaceLocation) async {
         await transition(preparing: location) { tabs.navigate(to: location) }
+    }
+
+    /// Open a new child of the current page. It lives only in memory, and
+    /// nothing is written until its leading H1 has a title and the caret
+    /// leaves it, or the page is left with a title; one left untitled is
+    /// discarded when its presentation is released.
+    func newDraftPage() async {
+        guard let current = node, current.isWritable else { return }
+        let parent: WorkspaceReference = switch current.surface {
+        case .markdown, .directory, .directoryDocument, .collection: current.reference
+        default: current.reference.parent ?? WorkspaceReference(tree: current.reference.tree, path: "/")
+        }
+        let draft = DraftDocumentSession(parent: parent)
+        let lease: CanopyEditorLease
+        do { lease = try await workspace.editorWorkspace.leaseDraft(draft) }
+        catch { errorMessage = error.localizedDescription; return }
+        let reference = lease.binding.reference
+        let draftNode = WorkspaceNode(
+            reference: reference,
+            location: location(for: reference),
+            title: DraftDocumentSession.provisionalName,
+            surface: .markdown(source: "", contentRevision: ""),
+            provenance: WorkspaceProvenance(
+                authority: current.provenance.authority,
+                sourceDescription: current.provenance.sourceDescription,
+                treeRootURL: current.provenance.treeRootURL
+            )
+        )
+        drafts[lease.identity] = draft
+        // The caret starts in the empty title; the editor applies it once mounted.
+        if let title = lease.binding.document.children.first {
+            lease.binding.editorState.edit(title.id)
+        }
+        retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: draftNode.location)] = PagePresentation(
+            node: draftNode,
+            children: children,
+            editorLease: lease,
+            editorHost: makeEditorHost(binding: lease.binding, sourceDirectory: draftNode.sourceDirectory),
+            backlinks: []
+        )
+        await transition { tabs.navigate(to: draftNode.location) }
+    }
+
+    /// The caret moved in the open page: a draft whose caret has left its
+    /// title is created once the title has text.
+    func draftCaretMoved() {
+        guard isShowingDraft, let binding,
+              let cursor = binding.editorState.cursor,
+              cursor != binding.document.children.first?.id else { return }
+        Task { await createDraftPageIfTitled() }
+    }
+
+    /// Create the open draft's page when its leading H1 has a title. The
+    /// editor stays mounted and continues on the created page.
+    func createDraftPageIfTitled() async {
+        if let draftCreation { return await draftCreation.value }
+        guard let lease = editorLease, let draft = drafts[lease.identity] else { return }
+        let creation = Task { await createPage(from: draft, lease: lease) }
+        draftCreation = creation
+        await creation.value
+        draftCreation = nil
+    }
+
+    private func createPage(from draft: DraftDocumentSession, lease: CanopyEditorLease) async {
+        await lease.binding.flush()
+        // Before the receipt is reconciled, which renames the binding's reference.
+        let draftLocation = location(for: lease.binding.reference)
+        do {
+            let source = try await draft.snapshot().source
+            guard let title = DraftDocumentSession.title(in: source) else { return }
+            let name = await availableName(for: title, in: draft.parent)
+            let receipt = try await workspace.performWithReceipt(.createMarkdown(parent: draft.parent, name: name, source: source))
+            guard let created = receipt.result else { return }
+            try await workspace.editorWorkspace.promoteDraft(lease, to: created.reference)
+            drafts.removeValue(forKey: lease.identity)
+            let createdLocation = location(for: created.reference)
+            tabs.replaceLocation(draftLocation, with: createdLocation)
+            if editorLease?.id == lease.id {
+                node = created
+            } else if let key = retainedPagePresentations.first(where: { $0.value.editorLease?.id == lease.id })?.key,
+                      let retained = retainedPagePresentations.removeValue(forKey: key) {
+                retainedPagePresentations[PagePresentationKey(tabID: key.tabID, location: createdLocation)] = PagePresentation(
+                    node: created,
+                    children: retained.children,
+                    editorLease: retained.editorLease,
+                    editorHost: retained.editorHost,
+                    backlinks: retained.backlinks
+                )
+            }
+            await reconcile(receipt)
+        } catch {
+            errorMessage = "The new page was not created: \(error.localizedDescription)"
+        }
+    }
+
+    /// The title's filename slug, with a numeric suffix when a sibling other
+    /// than `identity` already has it.
+    private func availableName(for title: String, in parent: WorkspaceReference, excluding identity: WorkspaceIdentity? = nil) async -> String {
+        let siblings = (try? await workspace.provider.children(of: parent)) ?? []
+        let occupied = Set(siblings.compactMap { sibling -> String? in
+            guard sibling.reference.identity != identity else { return nil }
+            return sibling.reference.path.split(separator: "/").last.map(String.init)?.lowercased()
+        })
+        let stem = WorkspaceTitleSlug.name(for: title)
+        var name = stem
+        var suffix = 2
+        while occupied.contains(name.lowercased()) {
+            name = "\(stem)-\(suffix)"
+            suffix += 1
+        }
+        return name
     }
 
     /// Leave the current page for the one `move` makes current: retain edits
@@ -2496,6 +2621,7 @@ final class CanopyAppModel {
     /// names another one, then show the destination.
     private func transition(preparing destination: WorkspaceLocation? = nil, _ move: () -> Void) async {
         await binding?.flush()
+        await createDraftPageIfTitled()
         if let destination {
             guard await prepareWorkspace(for: destination) else { return }
         }
@@ -2665,6 +2791,7 @@ final class CanopyAppModel {
 
     func closeSelectedTab() async {
         await binding?.flush()
+        await createDraftPageIfTitled()
         let closedTabID = selectedTabID
         retainCurrentPagePresentation()
         tabs.closeTab(selectedTabID)
@@ -2775,13 +2902,21 @@ final class CanopyAppModel {
     private func release(_ presentation: PagePresentation) async {
         Self.cancelMoveRequests(of: presentation.editorHost)
         if let lease = presentation.editorLease {
+            discardDraft(lease, at: presentation.node.location)
             await workspace.editorWorkspace.release(lease)
         }
+    }
+
+    /// An untitled draft whose editor is released is gone; so is its place in history.
+    private func discardDraft(_ lease: CanopyEditorLease, at location: WorkspaceLocation) {
+        guard drafts.removeValue(forKey: lease.identity) != nil else { return }
+        tabs.removeFromHistory(location)
     }
 
     private func releaseAllPagePresentations() async {
         if let editorLease {
             Self.cancelMoveRequests(of: editorHost)
+            if let node { discardDraft(editorLease, at: node.location) }
             await workspace.editorWorkspace.release(editorLease)
         }
         for presentation in retainedPagePresentations.values {
@@ -2885,7 +3020,7 @@ final class CanopyAppModel {
     }
 
     func evaluateTitleRenameProposal() async {
-        guard let binding, let node, node.isWritable,
+        guard let binding, let node, node.isWritable, !isShowingDraft,
               binding.reference.path != "/",
               !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
               binding.lastError == nil else {
@@ -2899,18 +3034,7 @@ final class CanopyAppModel {
             return
         }
         let parent = binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
-        let siblings = (try? await workspace.provider.children(of: parent)) ?? []
-        let occupied = Set(siblings.compactMap { sibling -> String? in
-            guard sibling.reference.identity != binding.reference.identity else { return nil }
-            return sibling.reference.path.split(separator: "/").last.map(String.init)?.lowercased()
-        })
-        let stem = WorkspaceTitleSlug.name(for: title)
-        var proposed = stem
-        var suffix = 2
-        while occupied.contains(proposed.lowercased()) {
-            proposed = "\(stem)-\(suffix)"
-            suffix += 1
-        }
+        let proposed = await availableName(for: title, in: parent, excluding: binding.reference.identity)
         let proposal = TitleRenameProposal(reference: binding.reference, proposedName: proposed)
         guard !dismissedTitleRenameProposals.contains(proposal.id) else { return }
         titleRenameProposal = proposal

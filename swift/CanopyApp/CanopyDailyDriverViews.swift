@@ -6,8 +6,6 @@ import Quagmire
 import SwiftUI
 
 enum CanopyPresentedSheet: String, Identifiable {
-    case createMarkdown
-    case createDirectory
     case openLocation
     case source
     case history
@@ -27,8 +25,7 @@ struct CanopyWindowCommands {
     var goParent: () -> Void
     var newTab: () -> Void
     var closeTab: () -> Void
-    var newDocument: () -> Void
-    var newFolder: () -> Void
+    var newPage: () -> Void
     var openLocation: () -> Void
     var focusSidebarSearch: () -> Void
     var showSearch: () -> Void
@@ -55,6 +52,7 @@ struct CanopyWindowCommands {
     var canGoParent: Bool
     var canGoHome: Bool
     var canCloseTab: Bool
+    var canCreatePage: Bool
     var hasDocument: Bool
     var hasNode: Bool
     var canRecordAudio: Bool
@@ -1455,60 +1453,32 @@ private struct CanopyConflictReviewControl: View {
     }
 }
 
-struct CanopyMutationForm: View {
-    let mode: CanopyPresentedSheet
-    let submit: (_ first: String, _ source: String) -> Void
+/// Open Location: a path in the current tree, a placed tree's path, or a locator.
+struct CanopyOpenLocationForm: View {
+    let open: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var first = ""
-    @State private var source = ""
+    @State private var location = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField(prompt, text: $first)
-                if mode == .createMarkdown {
-                    TextField("Initial Markdown", text: $source, axis: .vertical)
-                        .lineLimit(8...20)
-                }
+                TextField("Location path", text: $location)
             }
-            .navigationTitle(title)
+            .navigationTitle("Open Location")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(actionTitle) {
-                        submit(first, source)
+                    Button("Open") {
+                        open(location)
                         dismiss()
                     }
-                    .disabled(first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
 #if os(macOS)
-        .frame(minWidth: 420, minHeight: mode == .createMarkdown ? 360 : 180)
+        .frame(minWidth: 420, minHeight: 180)
 #endif
-    }
-
-    private var title: String {
-        switch mode {
-        case .createMarkdown: "New Document"
-        case .createDirectory: "New Folder"
-        case .openLocation: "Open Location"
-        default: "Action"
-        }
-    }
-
-    private var prompt: String {
-        switch mode {
-        case .openLocation: "Location path"
-        default: "Name"
-        }
-    }
-
-    private var actionTitle: String {
-        switch mode {
-        case .openLocation: "Open"
-        default: "Create"
-        }
     }
 }
 

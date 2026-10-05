@@ -144,7 +144,11 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             let parentNode = try await resolve(parent)
             let path = parentNode.reference.path == "/" ? "/\(name)" : "\(parentNode.reference.path)/\(name)"
             let node = WorkspaceNode(
-                reference: WorkspaceReference(tree: parent.tree, path: path, stableKey: markdownStableKey("pg_\(UUID().uuidString.lowercased())")),
+                reference: WorkspaceReference(
+                    tree: parent.tree,
+                    path: path,
+                    stableKey: markdownStableKey(Self.frontmatterID(in: source) ?? "pg_\(UUID().uuidString.lowercased())")
+                ),
                 title: name,
                 surface: .markdown(source: source, contentRevision: "r1"),
                 provenance: parentNode.provenance
@@ -370,6 +374,22 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         if let copiedRoot { childrenByIdentity[parent.id, default: []].append(copiedRoot.id) }
         guard let copiedRoot else { throw WorkspaceProviderError.notFound(node.reference) }
         return copiedRoot
+    }
+}
+
+extension InMemoryWorkspaceProvider {
+    /// The PageID a created page's frontmatter supplies, as a working tree honours it.
+    static func frontmatterID(in source: String) -> String? {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.first == "---" else { return nil }
+        for line in lines.dropFirst() {
+            if line == "---" { return nil }
+            if line.hasPrefix("id:") {
+                let id = line.dropFirst(3).trimmingCharacters(in: .whitespaces)
+                return id.isEmpty ? nil : id
+            }
+        }
+        return nil
     }
 }
 

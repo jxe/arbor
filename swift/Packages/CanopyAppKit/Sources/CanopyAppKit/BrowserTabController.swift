@@ -150,6 +150,24 @@ public final class BrowserTabController {
         }
     }
 
+    /// Rename one location wherever a tab holds it, as when a new page gets its path.
+    public func replaceLocation(_ location: WorkspaceLocation, with replacement: WorkspaceLocation) {
+        let replace: (WorkspaceLocation) -> WorkspaceLocation = { $0 == location ? replacement : $0 }
+        for index in tabs.indices {
+            tabs[index].current = replace(tabs[index].current)
+            tabs[index].back = tabs[index].back.map(replace)
+            tabs[index].forward = tabs[index].forward.map(replace)
+        }
+    }
+
+    /// Drop a location that no longer exists from every tab's Back and Forward trail.
+    public func removeFromHistory(_ location: WorkspaceLocation) {
+        for index in tabs.indices {
+            tabs[index].back.removeAll { $0 == location }
+            tabs[index].forward.removeAll { $0 == location }
+        }
+    }
+
     /// Reconciles a system NavigationStack pop with this tab's browser history.
     /// Programmatic pushes continue to flow through `navigate(to:)`, while a
     /// native back gesture or toolbar action writes the shorter visible path.

@@ -953,6 +953,9 @@ struct CanopyRootView: View {
             guard let receipt = workspace.latestStructuralReceipt else { return }
             await model.reconcile(receipt)
         }
+        .onChange(of: model.binding?.editorState.cursor) {
+            model.draftCaretMoved()
+        }
         .task(id: model.binding?.acceptedTitle) {
             guard model.binding != nil else { return }
             try? await Task.sleep(for: .seconds(2))
@@ -1911,6 +1914,7 @@ struct CanopyRootView: View {
     /// can be renamed, moved, or trashed.
     private var currentPageIsMovable: Bool {
         model.node?.isWritable == true
+            && !model.isShowingDraft
             && model.currentReference.path != "/"
             && !currentPageIsInTrash
     }
@@ -2014,8 +2018,7 @@ struct CanopyRootView: View {
             goParent: { Task { await model.goParent() } },
             newTab: { Task { await model.newTab() } },
             closeTab: { Task { await model.closeSelectedTab() } },
-            newDocument: { presentedSheet = .createMarkdown },
-            newFolder: { presentedSheet = .createDirectory },
+            newPage: { Task { await model.newDraftPage() } },
             openLocation: { presentedSheet = .openLocation },
             focusSidebarSearch: {
 #if os(macOS)
@@ -2060,12 +2063,13 @@ struct CanopyRootView: View {
             canGoParent: model.canGoParent,
             canGoHome: model.canGoHome,
             canCloseTab: model.tabItems.count > 1,
+            canCreatePage: model.node?.isWritable == true && !currentPageIsInTrash,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
             canRecordAudio: recordingSession.state != .idle || (
                 model.node?.isWritable == true && model.binding != nil
             ),
-            canShare: model.node != nil,
+            canShare: model.node != nil && !model.isShowingDraft,
             canRevealPageInFinder: revealablePageURL != nil,
             canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
@@ -2646,31 +2650,12 @@ struct CanopyRootView: View {
 #endif
         case .networkLog:
             CanopyNetworkLogView()
-        default:
-            CanopyMutationForm(mode: sheet, submit: submitMutation)
-        }
-    }
-
-    private func submitMutation(_ value: String, source: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        switch presentedSheet {
-        case .createMarkdown:
-            Task { await model.perform(.createMarkdown(parent: mutationParent, name: trimmed, source: source.isEmpty ? "# \(trimmed)\n" : source)) }
-        case .createDirectory:
-            Task { await model.perform(.createDirectory(parent: mutationParent, name: trimmed)) }
         case .openLocation:
-            Task { await openLocation(trimmed) }
-        default:
-            break
-        }
-    }
-
-    private var mutationParent: WorkspaceReference {
-        guard let node = model.node else { return model.currentReference }
-        switch node.surface {
-        case .markdown, .directory, .directoryDocument, .collection: return node.reference
-        default: return node.reference.parent ?? workspace.home
+            CanopyOpenLocationForm { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                Task { await openLocation(trimmed) }
+            }
         }
     }
 

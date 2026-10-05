@@ -47,6 +47,16 @@ heading's chevron to unfold all headings. Tapping the chevron still affects only
 that section. An individual heading's block action menu also offers **Fold
 Section** or **Unfold Section**.
 
+**New Page** (Command-N) is how pages are made from the File menu. It opens an
+empty child of the current page with the caret in an empty H1. On an iPad the
+menu needs a hardware keyboard. Until that H1 has a title, the page exists only in
+memory. Nothing is written, and leaving it untitled discards it along with its
+history entry. The page is created once the caret leaves a titled H1, or when
+the page is left with a title. Its filename is the title's slug, with a numeric
+suffix if that name is taken. The page carries its PageID from the start, so the
+editor continues on the created page without reopening. Rename, Move, Trash and
+Share are unavailable until the page is created.
+
 On iOS, pinch-to-insert also starts Overstory's on-device voice recorder after
 crossing the insertion threshold. Hold the gap open while speaking: Apple's
 changing live draft appears in a provisional paragraph or list row with the

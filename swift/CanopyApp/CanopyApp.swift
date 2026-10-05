@@ -49,6 +49,10 @@ private struct CanopyNavigationCommands: Commands {
                 .disabled(commands == nil)
         }
         CommandGroup(replacing: .newItem) {
+            Button("New Page") { commands?.newPage() }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(commands?.canCreatePage != true)
+            Divider()
             Menu("Jump to Local Tree") {
                 if let commands, !commands.localTrees.isEmpty {
                     ForEach(commands.localTrees) { tree in
@@ -102,10 +106,9 @@ private struct CanopyNavigationCommands: Commands {
         }
 #else
         CommandGroup(after: .newItem) {
-            Button("New Document…") { commands?.newDocument() }
-                .disabled(commands == nil)
-            Button("New Folder…") { commands?.newFolder() }
-                .disabled(commands == nil)
+            Button("New Page") { commands?.newPage() }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(commands?.canCreatePage != true)
             Divider()
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)

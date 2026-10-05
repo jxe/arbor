@@ -1155,6 +1155,81 @@ struct CanopyAppTests {
         #expect(model.currentReference.path != original.path)
     }
 
+    @Test("New Page writes nothing until its title is set, then keeps its editor on the created page")
+    func newPageCreatedFromTitle() async throws {
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
+        await model.load()
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        await model.navigate(to: welcome)
+        let before = try await workspace.provider.children(of: welcome)
+
+        await model.newDraftPage()
+        #expect(model.isShowingDraft)
+        #expect(model.errorMessage == nil)
+        let lease = try #require(model.editorLease)
+        let binding = lease.binding
+        let heading = try #require(binding.document.children.first)
+        await model.createDraftPageIfTitled()
+        #expect(model.isShowingDraft)
+        #expect(try await workspace.provider.children(of: welcome) == before)
+
+        binding.document.transaction(name: "Type") { _ = binding.document.setText(heading.id, AttributedString("Draft Plans")) }
+        await binding.flush()
+        #expect(try await workspace.provider.children(of: welcome) == before)
+
+        await model.createDraftPageIfTitled()
+        #expect(model.errorMessage == nil)
+        #expect(!model.isShowingDraft)
+        #expect(model.editorLease?.id == lease.id)
+        #expect(model.binding === binding)
+        #expect(binding.reference.path == "/welcome/Draft-Plans")
+        #expect(model.currentReference.path == "/welcome/Draft-Plans")
+        #expect(model.children.contains { $0.reference.path == "/welcome/Draft-Plans" })
+
+        binding.document.transaction(name: "Type") { _ = binding.document.setText(heading.id, AttributedString("Draft Plans for June")) }
+        await binding.flush()
+        let created = try await workspace.provider.resolve(binding.reference)
+        guard case let .markdown(source, _) = created.surface else {
+            Issue.record("The created page is \(created.surface)")
+            return
+        }
+        #expect(source.contains("# Draft Plans for June"))
+
+        await model.goBack()
+        #expect(model.currentReference.identity == welcome.identity)
+        await model.goForward()
+        #expect(model.errorMessage == nil)
+        #expect(model.currentReference.path == "/welcome/Draft-Plans")
+    }
+
+    @Test("An untitled new page is discarded with its history entry once it is released")
+    func untitledNewPageDiscarded() async throws {
+        let workspace = CanopyWorkspaceState(provider: .sample())
+        let model = CanopyAppModel(workspace: workspace)
+        await model.load()
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        await model.navigate(to: welcome)
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let before = try await workspace.provider.children(of: welcome)
+
+        await model.newDraftPage()
+        let draftLocation = model.currentLocation
+        #expect(model.isShowingDraft)
+        await model.goBack()
+        #expect(!model.isShowingDraft)
+        await model.goForward()
+        #expect(model.isShowingDraft)
+        #expect(model.errorMessage == nil)
+
+        await model.goBack()
+        await model.navigate(to: root)
+        #expect(!model.tabs.selectedTab.back.contains(draftLocation))
+        #expect(!model.tabs.selectedTab.forward.contains(draftLocation))
+        #expect(try await workspace.provider.children(of: welcome) == before)
+        #expect(model.errorMessage == nil)
+    }
+
     @Test("Linked-page trash confirmation rechecks backlinks and preserves the editor lease")
     func linkedPageTrashConfirmation() async throws {
         let workspace = CanopyWorkspaceState(provider: .sample())

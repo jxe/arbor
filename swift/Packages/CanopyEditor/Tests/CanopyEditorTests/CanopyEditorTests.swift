@@ -972,6 +972,57 @@ struct CanopyEditorTests {
     }
 
     @MainActor
+    @Test("A draft opens as an empty H1 and keeps its binding when its page is created")
+    func draftPromotion() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let workspace = CanopyEditorWorkspace(provider: provider)
+        let parent = WorkspaceReference(tree: "tr_sample", path: "/")
+        let draft = DraftDocumentSession(parent: parent, pageID: "pg_drafted")
+        let lease = try await workspace.leaseDraft(draft)
+        let binding = lease.binding
+        let heading = try #require(binding.document.children.first)
+        guard case let .heading(level, text) = heading.kind else {
+            Issue.record("A draft opens on \(heading.kind)")
+            return
+        }
+        #expect(level == .h1)
+        #expect(text.characters.isEmpty)
+        #expect(workspace.isAwaitingCreation(lease))
+
+        binding.document.transaction(name: "Type") { _ = binding.document.setText(heading.id, AttributedString("Plans")) }
+        binding.appendCurrentGeneration()
+        await binding.flush()
+        let titled = try await draft.snapshot()
+        #expect(DraftDocumentSession.title(in: titled.source) == "Plans")
+        #expect(try await provider.children(of: parent).allSatisfy { $0.reference.stableKey != markdownStableKey("pg_drafted") })
+
+        let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "Plans", source: titled.source)))
+        try await workspace.promoteDraft(lease, to: created.reference)
+        #expect(!workspace.isAwaitingCreation(lease))
+        #expect(binding.reference.path == "/Plans")
+
+        binding.document.transaction(name: "Type") { _ = binding.document.setText(heading.id, AttributedString("Plans for June")) }
+        binding.appendCurrentGeneration()
+        await binding.flush()
+        #expect(binding.lastError == nil)
+        let session = try await provider.openDocument(created.reference)
+        #expect(try await session.snapshot().source.contains("# Plans for June"))
+        await workspace.release(lease)
+    }
+
+    @MainActor
+    @Test("Releasing an untitled draft creates nothing")
+    func draftDiscard() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let workspace = CanopyEditorWorkspace(provider: provider)
+        let parent = WorkspaceReference(tree: "tr_sample", path: "/")
+        let before = try await provider.children(of: parent)
+        let lease = try await workspace.leaseDraft(DraftDocumentSession(parent: parent))
+        await workspace.release(lease)
+        #expect(try await provider.children(of: parent) == before)
+    }
+
+    @MainActor
     @Test("Provider-backed transcript delivery updates an active PageID binding")
     func activeTranscriptDelivery() async throws {
         let provider = InMemoryWorkspaceProvider.sample()

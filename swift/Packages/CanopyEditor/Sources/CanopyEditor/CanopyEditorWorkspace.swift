@@ -13,7 +13,11 @@ public struct CanopyEditorLease {
 public final class CanopyEditorWorkspace {
     private struct Entry {
         var binding: CanopyDocumentBinding
-        var workspaceLeases: [UUID: WorkspaceDocumentLease]
+        /// Each editor lease's document lease; nil for a lease on an uncreated draft.
+        var workspaceLeases: [UUID: WorkspaceDocumentLease?]
+        var draft: DraftDocumentSession?
+        /// The draft has no page yet: its edits stay in memory and are not retained.
+        var awaitsCreation = false
     }
 
     public let provider: any WorkspaceProvider
@@ -46,12 +50,59 @@ public final class CanopyEditorWorkspace {
             return CanopyEditorLease(id: id, identity: workspaceLease.identity, binding: entry.binding)
         }
         let binding = try await CanopyDocumentBinding.open(reference: reference, session: workspaceLease.session)
-        binding.onLocalRetention = { [weak self] change in
-            guard let self else { return }
-            for observer in self.retentionObservers.values { observer.yield(change) }
-        }
+        observeRetentions(of: binding, identity: workspaceLease.identity)
         entries[workspaceLease.identity] = Entry(binding: binding, workspaceLeases: [id: workspaceLease])
         return CanopyEditorLease(id: id, identity: workspaceLease.identity, binding: binding)
+    }
+
+    /// An editor on a new page that exists only in `draft` until
+    /// `promoteDraft(_:to:)` hands it the created page.
+    public func leaseDraft(_ draft: DraftDocumentSession) async throws -> CanopyEditorLease {
+        let identity = draft.identity
+        guard entries[identity] == nil else { throw WorkspaceProviderError.invalidAction("This draft is already open") }
+        let snapshot = try await draft.snapshot()
+        let binding = try await CanopyDocumentBinding.open(reference: snapshot.reference, session: draft)
+        binding.document.fallbackTitle = DraftDocumentSession.provisionalName
+        observeRetentions(of: binding, identity: identity)
+        let id = UUID()
+        entries[identity] = Entry(binding: binding, workspaceLeases: [id: nil], draft: draft, awaitsCreation: true)
+        return CanopyEditorLease(id: id, identity: identity, binding: binding)
+    }
+
+    /// Continue a draft's editor on `created`, the page made from the draft's
+    /// source. The binding stays mounted; edits the draft held after the page
+    /// was made carry over.
+    public func promoteDraft(_ lease: CanopyEditorLease, to created: WorkspaceReference) async throws {
+        guard let draft = entries[lease.identity]?.draft, entries[lease.identity]?.awaitsCreation == true else { return }
+        let workspaceLease = try await coordinator.leaseDocument(created)
+        do {
+            guard workspaceLease.identity == lease.identity else {
+                throw WorkspaceProviderError.invalidAction("The created page is not this draft")
+            }
+            try await draft.promote(to: workspaceLease.session)
+        } catch {
+            await coordinator.release(workspaceLease)
+            throw error
+        }
+        guard var entry = entries[lease.identity] else {
+            await coordinator.release(workspaceLease)
+            return
+        }
+        entry.workspaceLeases[lease.id] = workspaceLease
+        entry.awaitsCreation = false
+        entries[lease.identity] = entry
+        await entry.binding.adoptCurrentSnapshot()
+    }
+
+    public func isAwaitingCreation(_ lease: CanopyEditorLease) -> Bool {
+        entries[lease.identity]?.awaitsCreation == true
+    }
+
+    private func observeRetentions(of binding: CanopyDocumentBinding, identity: WorkspaceIdentity) {
+        binding.onLocalRetention = { [weak self] change in
+            guard let self, self.entries[identity]?.awaitsCreation != true else { return }
+            for observer in self.retentionObservers.values { observer.yield(change) }
+        }
     }
 
     public func release(_ lease: CanopyEditorLease) async {
@@ -60,10 +111,11 @@ public final class CanopyEditorWorkspace {
             entry.binding.stopObserving()
             await entry.binding.flush()
             entries.removeValue(forKey: lease.identity)
+            await entry.draft?.close()
         } else {
             entries[lease.identity] = entry
         }
-        await coordinator.release(workspaceLease)
+        if let workspaceLease { await coordinator.release(workspaceLease) }
     }
 
     public func retryFailedSaves() async {
@@ -257,7 +309,8 @@ public final class CanopyEditorWorkspace {
         for entry in entries.values {
             entry.binding.stopObserving()
             await entry.binding.flush()
-            for lease in entry.workspaceLeases.values { await coordinator.release(lease) }
+            for case let lease? in entry.workspaceLeases.values { await coordinator.release(lease) }
+            await entry.draft?.close()
         }
         entries.removeAll()
     }
