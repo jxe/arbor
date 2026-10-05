@@ -20,8 +20,10 @@ first. The points below are the ones that most often go wrong for an agent.
 - Never `swift build` or `swift test` the `CanopyEditor` package standalone
   while its Quagmire dependency is in editable mode; use
   `swift/scripts/test-canopy-editor-local.sh`, which preserves the
-  tracked lock. Both Quagmire pins must name the same exact release, and a
-  local path never lands in a committed manifest.
+  tracked lock. Commits, including those pushed to main, may use Quagmire
+  API that is not yet released; local builds take it from the sibling
+  checkout. Quagmire is released, and both pins bumped to that exact release,
+  as a separate step. A local path never lands in a committed manifest.
 - Run git as plain, single commands from your working directory, one per
   shell call: `git status`, then `git add path`, then `git commit -m ...`.
   No `cd dir && git`, `git -C`, `--git-dir`/`--work-tree`, pipes, `$(...)`,

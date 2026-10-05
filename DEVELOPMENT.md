@@ -18,6 +18,12 @@ Overstory's committed project metadata pins an exact released Quagmire version f
 GitHub. That is the default for contributors who are not changing the editor. Do
 not replace those committed dependencies with local paths.
 
+Overstory and Quagmire are developed together, so committed Overstory code,
+including code on main, may use Quagmire API that the pinned release does not
+have yet. Building that code needs the local override below until the next
+Quagmire release. Releasing Quagmire and moving both pins to that release is a
+separate step from pushing to main.
+
 To develop Overstory and Quagmire together, clone Quagmire beside this checkout
 so the layout is as below. The Quagmire directory must be named exactly
 `quagmire`: Xcode's package-identity override matches on that name.
