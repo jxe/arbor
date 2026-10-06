@@ -184,6 +184,87 @@ private struct CanopySidebarNativeSelectionStyle: NSViewRepresentable {
 }
 #endif
 
+#if os(macOS)
+/// SwiftUI's selectable List can treat the first Control-click as selection
+/// only. Handle that event before the table consumes it, using the row under
+/// the pointer rather than the List's previous selection.
+struct CanopySidebarControlClickMenu: NSViewRepresentable {
+    let open: () -> Void
+    let movePage: (() -> Void)?
+
+    func makeNSView(context: Context) -> MenuView { MenuView() }
+
+    func updateNSView(_ view: MenuView, context: Context) {
+        view.open = open
+        view.movePage = movePage
+    }
+
+    static func dismantleNSView(_ view: MenuView, coordinator: ()) {
+        view.stopMonitoring()
+        view.open = nil
+        view.movePage = nil
+    }
+
+    final class MenuView: NSView {
+        var open: (() -> Void)?
+        var movePage: (() -> Void)?
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stopMonitoring()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self, self.handles(event) else { return event }
+                NSMenu.popUpContextMenu(self.makeMenu(), with: event, for: self)
+                return nil
+            }
+        }
+
+        func stopMonitoring() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        isolated deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        func handles(_ event: NSEvent) -> Bool {
+            guard event.type == .leftMouseDown, event.modifierFlags.contains(.control),
+                  let window, event.window === window, open != nil else { return false }
+            // Include the table's row insets, but exclude clipped/offscreen rows.
+            var ancestor = superview
+            while let view = ancestor {
+                if let row = view as? NSTableRowView {
+                    return !row.isHiddenOrHasHiddenAncestor
+                        && row.visibleRect.contains(row.convert(event.locationInWindow, from: nil))
+                }
+                ancestor = view.superview
+            }
+            return false
+        }
+
+        func makeMenu() -> NSMenu {
+            let menu = NSMenu()
+            let openItem = menu.addItem(withTitle: "Open", action: #selector(openPage), keyEquivalent: "")
+            openItem.target = self
+            if movePage != nil {
+                menu.addItem(.separator())
+                let moveItem = menu.addItem(withTitle: "Move Page…", action: #selector(move), keyEquivalent: "")
+                moveItem.target = self
+            }
+            return menu
+        }
+
+        @objc private func openPage() { open?() }
+        @objc private func move() { movePage?() }
+    }
+}
+#endif
+
 struct CanopySidebarSearchRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let result: WorkspaceSearchResult
@@ -197,8 +278,8 @@ struct CanopySidebarSearchRow: View {
     var body: some View {
 #if os(macOS)
         if opensThroughListSelection {
-            // A selectable List owns the menu so its row insets participate too.
             rowContent
+                .background(CanopySidebarControlClickMenu(open: open, movePage: movePage))
         } else {
             rowContent.contextMenu { contextMenuActions }
         }

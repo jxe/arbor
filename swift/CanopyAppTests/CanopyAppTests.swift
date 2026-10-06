@@ -14,6 +14,49 @@ import AppKit
 
 @MainActor
 struct CanopyAppTests {
+#if os(macOS)
+    @Test("The first sidebar Control-click targets the pointer row without requiring selection")
+    func sidebarControlClickTargetsUnselectedRow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+                              styleMask: [], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let row = NSTableRowView(frame: NSRect(x: 0, y: 20, width: 320, height: 40))
+        content.addSubview(row)
+        let menuView = CanopySidebarControlClickMenu.MenuView(frame: NSRect(x: 16, y: 0, width: 288, height: 40))
+        var opened = 0
+        var moved = 0
+        menuView.open = { opened += 1 }
+        menuView.movePage = { moved += 1 }
+        row.addSubview(menuView)
+        defer { menuView.stopMonitoring() }
+
+        func click(_ point: NSPoint, flags: NSEvent.ModifierFlags = .control,
+                   type: NSEvent.EventType = .leftMouseDown) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        #expect(!row.isSelected)
+        #expect(menuView.handles(try click(NSPoint(x: 4, y: 30)))) // row inset
+        #expect(menuView.handles(try click(NSPoint(x: 150, y: 30))))
+        #expect(!menuView.handles(try click(NSPoint(x: 150, y: 80))))
+        #expect(!menuView.handles(try click(NSPoint(x: 150, y: 30), flags: [])))
+        #expect(!menuView.handles(try click(NSPoint(x: 150, y: 30), type: .rightMouseDown)))
+        #expect(opened == 0 && moved == 0)
+        #expect(!row.isSelected)
+        let menu = menuView.makeMenu()
+        #expect(menu.items.map(\.title) == ["Open", "", "Move Page…"])
+        menu.performActionForItem(at: 0)
+        menu.performActionForItem(at: 2)
+        #expect(opened == 1 && moved == 1)
+        row.isHidden = true
+        #expect(!menuView.handles(try click(NSPoint(x: 150, y: 30))))
+        CanopySidebarControlClickMenu.dismantleNSView(menuView, coordinator: ())
+        row.isHidden = false
+        #expect(!menuView.handles(try click(NSPoint(x: 150, y: 30))))
+    }
+#endif
+
     @Test("Profile frontmatter edits preserve the Markdown body")
     func profileFrontmatterEdits() throws {
         let personSource = "---\r\nid: pg_me\r\ntype: person\r\navatar: images/me.png\r\n---\r\n\r\n# Hello\r\n"
@@ -1118,6 +1161,54 @@ struct CanopyAppTests {
         #expect(model.binding === binding)
         #expect(model.editorHost === host)
         #expect(model.children.contains { $0.reference.path == "/Receipt-Page" })
+    }
+
+    @Test("Child projections refresh after structural changes and returning to a retained page")
+    func childProjectionsRefreshWithoutReplacingEditor() async throws {
+        let root = WorkspaceNode(
+            reference: WorkspaceReference(tree: "tr_sample", path: "/"),
+            title: "Home",
+            surface: .directoryDocument(source: "# Home\n", contentRevision: "r1", stored: true),
+            provenance: .init(authority: .local, sourceDescription: "Test")
+        )
+        let workspace = CanopyWorkspaceState(provider: InMemoryWorkspaceProvider(nodes: [root]))
+        let model = CanopyAppModel(workspace: workspace)
+        await model.load()
+        let binding = try #require(model.binding)
+        let leaseID = try #require(model.editorLease).id
+        let heading = try #require(binding.document.children.first)
+        binding.document.transaction(name: "Type") {
+            _ = binding.document.setText(heading.id, AttributedString("Local title"))
+        }
+        func links(_ blocks: [Block]) -> [String] {
+            blocks.flatMap { block in
+                let own: [String]
+                if case let .documentLink(label, _) = block.kind {
+                    own = [String(label.characters)]
+                } else { own = [] }
+                return own + links(block.children)
+            }
+        }
+
+        await model.perform(.createMarkdown(parent: root.reference, name: "First", source: "# First\n"), navigateToResult: false)
+        #expect(model.binding === binding)
+        #expect(model.editorLease?.id == leaseID)
+        #expect(links(binding.document.children) == ["First"])
+        #expect(binding.document.title == "Local title")
+        let first = try #require(model.children.first)
+        await model.navigate(to: first.reference)
+        await model.perform(.createMarkdown(parent: root.reference, name: "Second", source: "# Second\n"), navigateToResult: false)
+        await model.goBack()
+        #expect(model.binding === binding)
+        #expect(model.editorLease?.id == leaseID)
+        #expect(links(binding.document.children) == ["First", "Second"])
+        #expect(binding.document.title == "Local title")
+
+        await model.perform(.trash(reference: first.reference), navigateToResult: false)
+        #expect(links(binding.document.children) == ["Second"])
+        let snapshot = try await binding.snapshot()
+        #expect(snapshot.source.contains("Local title"))
+        #expect(!snapshot.source.contains("Second"))
     }
 
     @Test("Moving the open page reconciles browser history before reopening it")

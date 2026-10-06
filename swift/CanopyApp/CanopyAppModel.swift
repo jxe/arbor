@@ -2775,6 +2775,7 @@ final class CanopyAppModel {
             }
         } else {
             Task {
+                await refreshPageChildren()
                 await loadBacklinks()
                 await pruneRetainedPagePresentations()
             }
@@ -2871,6 +2872,7 @@ final class CanopyAppModel {
     private func loadOrRestoreCurrentPage() async {
         guard await prepareWorkspace(for: currentLocation) else { return }
         if restoreCurrentPagePresentation() {
+            await refreshPageChildren()
             await loadBacklinks()
         } else {
             await load()
@@ -3176,10 +3178,42 @@ final class CanopyAppModel {
             }
         }
         pageIndexIsStale = true
+        await refreshPageChildren()
+        await search(lastSearchQuery)
+    }
+
+    /// Child links are a projection of tree structure, not of the page's
+    /// Markdown revision. Refresh them without replacing the editor lease or
+    /// reparsing local edits, including when a retained page is shown again.
+    func refreshPageChildren() async {
+        guard let currentNode = node, !isShowingDraft else { return }
+        let requestID = loadRequestID
+        let workspaceGeneration = workspace.generation
+        let currentBinding = binding
         do {
-            children = try await workspace.provider.children(of: sidebarLocation)
-            await search(lastSearchQuery)
+            let resolved = try await workspace.provider.resolve(currentNode.reference)
+            let sidebarBase: WorkspaceLocation = switch resolved.surface {
+            case .directory, .directoryDocument, .collection: resolved.location
+            default: resolved.location.parent ?? workspace.launchLocation
+            }
+            let refreshed = nestedProfileTitles(
+                in: try await workspace.provider.children(of: sidebarBase), parent: resolved
+            )
+            guard !Task.isCancelled, requestID == loadRequestID,
+                  workspaceGeneration == workspace.generation,
+                  node?.reference.identity == currentNode.reference.identity,
+                  binding === currentBinding else { return }
+            node = resolved
+            sidebarLocation = sidebarBase
+            children = refreshed
+            if case .directoryDocument = resolved.surface {
+                currentBinding?.projectDirectoryChildren(refreshed, in: resolved)
+            }
         } catch {
+            // A background projection refresh must not replace the mounted
+            // page with an error or discard its locally retained edits.
+            guard requestID == loadRequestID,
+                  node?.reference.identity == currentNode.reference.identity else { return }
             errorMessage = error.localizedDescription
         }
     }
