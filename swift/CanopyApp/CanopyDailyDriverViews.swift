@@ -216,7 +216,13 @@ struct CanopySidebarSearchRow: View {
 #if os(macOS)
             if opensThroughListSelection {
                 rowLabel(titleParts: titleParts, contextPath: contextPath)
-                    .onTapGesture(perform: open)
+                    // Let the List recognize its context-menu gesture alongside
+                    // activation. Control-click must never navigate away while
+                    // AppKit is preparing the menu for this row.
+                    .simultaneousGesture(TapGesture().onEnded {
+                        guard !NSEvent.modifierFlags.contains(.control) else { return }
+                        open()
+                    })
             } else {
                 Button(action: open) {
                     rowLabel(titleParts: titleParts, contextPath: contextPath)
