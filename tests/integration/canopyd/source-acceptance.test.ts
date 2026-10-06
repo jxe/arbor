@@ -1,10 +1,11 @@
+import { compactTransport } from "../../../packages/working-tree/src/publication.ts";
 import { CANOPY_SCHEMA_VERSION } from "../../../packages/canopyd/src/schema.ts";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@overstory/canopyd";
-import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, encodeCandidateUpdateJSON, decodeCandidateUpdateJSON, encodeTreeSnapshotJSON, encodeWireBody, type CandidateUpdate, type ObjectHash } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -1167,3 +1168,55 @@ test("the integrity audit reads every row's log entry and the chain behind it", 
   await stop(); await start();
   await running.canopy.verifyIntegrity();
 });
+
+for (const encoding of ["json", "cbor"] as const) for (const peer of [false, true]) {
+  test(`chained deltas reconstruct pending candidates and replay after restart (${encoding}, peer ${peer})`, async () => {
+    client = await deviceClient(running.url, token, {encoding});
+    const large = await edit("a".repeat(70_000), root, [0, 3]);
+    base = (await client.submitUpdates(tree, {base, updates: [large]})).results[0]!.update.id;
+    root = large.candidate;
+    const first = await edit("X", root, [0, 1]);
+    const second = await edit("Y", first.candidate, [1, 2]);
+    function graph(root: ObjectHash) {
+      const reachable = new Map<ObjectHash, Uint8Array>();
+      function visit(hash: ObjectHash, directory: boolean) {
+        const bytes = objects.get(hash)!;
+        reachable.set(hash, bytes);
+        if (directory) for (const entry of decodeProtocolDirectory(bytes).entries) {
+          if (entry.file) visit(entry.file, false);
+          if (entry.directory) visit(entry.directory, true);
+        }
+      }
+      visit(root, true);
+      return encodeTreeSnapshotJSON({root, objects: reachable});
+    }
+    const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeCandidateUpdateJSON(compactTransport(
+      encodeCandidateUpdateJSON(update), graph(basis), graph(update.candidate),
+    ));
+    const updates = [compact(first, root), compact(second, first.candidate)];
+    expect(updates.every(update => update.deltas.length > 0)).toBe(true);
+    expect(encodeWireBody({base, updates}, encoding).byteLength).toBeLessThan(5000);
+    // Even a retained object is not a valid delta base if the preceding
+    // candidate no longer reaches it. Reject the whole traced preflight.
+    const originalFile = decodeProtocolDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
+    const before = records().length;
+    const invalid = {...updates[1]!, deltas: updates[1]!.deltas.map(delta => ({...delta, base: originalFile}))};
+    await expect(client.submitUpdates(tree, {base, updates: [updates[0]!, invalid]})).rejects.toThrow();
+    expect(records()).toHaveLength(before);
+    if (peer) await client.submitUpdates(tree, {base, updates: [await edit("Z", root, [2, 3])]});
+    const request = {base, updates};
+    const accepted = await client.submitUpdates(tree, request);
+    expect(accepted.results).toHaveLength(2);
+    const snapshot = await client.snapshot(tree, accepted.results[1]!.update.root);
+    const file = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e => e.name === "note.md")!.file!;
+    expect(new TextDecoder().decode(snapshot.objects.get(file)!)).toBe("XY" + (peer ? "Z" : "a") + "a".repeat(69_997) + "\r\n");
+    await stop(); await start();
+    client = await deviceClient(running.url, token, {encoding});
+    const replay = await client.submitUpdates(tree, request);
+    expect(replay.results.map(r => r.update.id)).toEqual(accepted.results.map(r => r.update.id));
+    const third = compact(await edit("W", second.candidate, [3, 4]), second.candidate);
+    const extended = await client.submitUpdates(tree, {base, updates: [...updates.map(u => ({...u, objects: [], deltas: []})), third]});
+    expect(extended.results.slice(0, 2).map(r => r.update.id)).toEqual(accepted.results.map(r => r.update.id));
+    expect(extended.results[2]!.outcome).toBe("accepted");
+  });
+}

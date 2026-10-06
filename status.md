@@ -12,6 +12,33 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 **verified** (exercised by hand against live data).
 
+## Chained candidate deltas — 2026-10-06
+
+Both publication coordinators now compact later elements against the preceding
+submitted candidate when its graph is available locally. canopyd resolves delta
+bases through the accumulated request objects as well as stored objects, checks
+reachability from that element's basis, and hash-verifies the base and result.
+This implements the existing tree-operations §2.5 rule; no wire format or
+semantic identity changes. Frozen requests and settled prefix receipts remain
+unchanged. This supersedes the first-element limitation recorded below on
+2026-09-29.
+
+Regression coverage keeps a tiny successor edit to a 70 KB document under 5 KB
+in both clients. JSON and CBOR host tests cover two delta-bearing candidates,
+concurrent peer merges, replay after restart, a new delta after a settled prefix,
+and rejection of an unreachable delta base before any traced prefix commits.
+The folder test covers an ambiguous request's exact retry followed by a compact
+successor.
+
+Validation: the affected run passed typecheck, build and the performance gate;
+its product suite had 501 passes and one obsolete whole-file expectation. After
+updating that expectation and strengthening the negative coverage, the affected
+recheck passed all 65 tests in the two integration files. The standalone
+CanopyWorkingTree suite passed 132 tests. The protocol gate's TypeScript tests
+passed, but its app-hosted stage was blocked by LaunchServices failing to launch
+CanopyAppTests (xcodebuild exit 65); subsequent live Swift stages did not run.
+Not installed or deployed.
+
 ## One local chain and exact reconnection — 2026-09-30
 
 During a flight Joe edited `Fidelity.md`, then `_index.md`, in one Mac session.

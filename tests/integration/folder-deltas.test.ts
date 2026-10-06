@@ -99,7 +99,7 @@ test("a folder edit to a large Markdown file submits a delta against the accepte
   } finally { await daemon[Symbol.asyncDispose](); }
 }, 20_000);
 
-test("a change chained on an unsettled change sends its objects whole", async () => {
+test("a change chained on an unsettled change sends deltas after exact retry", async () => {
   process.env.ARBOR_DATA_HOME = state;
   const daemon = await ArborSyncDaemon.openControl({ autoSync: false });
   try {
@@ -121,8 +121,9 @@ test("a change chained on an unsettled change sends its objects whole", async ()
       expect(chain.updates).toHaveLength(2);
       const [head, chained] = chain.updates;
       expect(head!.change).toBe(requests[0]!.updates[0]!.change);
-      expect(chained!.deltas).toEqual([]);
-      expect(chained!.objects.map((object) => object.hash)).toContain(hashObject(new TextEncoder().encode(second)));
+      const delta = chained!.deltas.find(delta => delta.result === hashObject(new TextEncoder().encode(second)));
+      expect(delta?.base).toBe(hashObject(new TextEncoder().encode(first)));
+      expect(chained!.objects.map((object) => object.hash)).not.toContain(hashObject(new TextEncoder().encode(second)));
     });
     expect(await accepted("large.md")).toBe(second);
     expect(await readFile(join(folder, "large.md"), "utf8")).toBe(second);

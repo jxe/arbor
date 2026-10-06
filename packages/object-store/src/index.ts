@@ -210,10 +210,12 @@ export class ObjectStore {
       }
       results.add(delta.result);
       if (!delta.instructions.length) throw new Error("Object delta instructions must not be empty");
-      if (!await this.contains(baseRoot, delta.base)) {
-        throw new Error(`Object delta base is not reachable from retained base: ${delta.base}`);
+      if (!await this.contains(baseRoot, delta.base, proposed)) {
+        throw new Error(`Object delta base is not reachable from basis: ${delta.base}`);
       }
-      const bytes = applyObjectDelta(await this.read(delta.base), delta);
+      const base = await this.load(delta.base, proposed);
+      if (hashObject(base) !== delta.base) throw new Error(`Object delta base hash mismatch: ${delta.base}`);
+      const bytes = applyObjectDelta(base, delta);
       if (hashObject(bytes) !== delta.result) throw new Error(`Object delta result hash mismatch: ${delta.result}`);
       proposed.set(delta.result, bytes);
       reconstructed.push({ hash: delta.result, bytes });

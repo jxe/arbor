@@ -3,8 +3,8 @@ import Overstory
 
 extension LocalChange {
     /// Transport compression is independent of authored intent. Only final
-    /// reachable envelopes may become deltas, and every base is in the request's
-    /// accepted graph (never an unpublished intermediate frame).
+    /// reachable envelopes may become deltas, and every base is in the element's
+    /// basis graph (accepted for the first, preceding candidate thereafter).
     static func compactTransport(_ update: ProtocolCandidateUpdate, basis: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> ProtocolCandidateUpdate {
         guard !update.objects.isEmpty else { return update }
         var result = update

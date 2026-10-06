@@ -562,9 +562,9 @@ export class UpdateCoordinator {
     const transportBase = [...records.values()].find(record => record.basis.kind === "accepted" && record.basis.update === request.base && record.basis.root === record.graph.root)?.graph;
     const compact = (update: LocalChange["update"], change: string) => {
       const candidate = records.get(change)?.candidate;
-      // Later elements start at the preceding authored candidate. Until that
-      // graph is retained by the host, keep their self-contained envelopes.
-      return updates.length === 0 && transportBase && candidate ? compactTransport(update, transportBase, candidate) : update;
+      const previous = updates.at(-1)?.candidate;
+      const basis = previous ? [...records.values()].find(record => record.candidate.root === previous)?.candidate : transportBase;
+      return basis && candidate ? compactTransport(update, basis, candidate) : update;
     };
     const groups = this.control.publications ??= [];
     const frozen = new Set(this.control.attempt ? attemptRequest(this.control.attempt).updates.map(update => update.change) : []);

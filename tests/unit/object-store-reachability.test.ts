@@ -78,3 +78,17 @@ test("current membership does not enumerate historical roots", async () => {
   function* roots() { yield root; throw Error("History should not be queried"); }
   expect(await store.containsAny(roots(), file)).toBe(true);
 });
+
+test("delta bases use the preceding proposed graph, with reachability and hash checks", async () => {
+  const store = new ReadTrace();
+  const base = new TextEncoder().encode("pending file"), baseHash = hashObject(base);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note", file: baseHash}]}), root = hashObject(directory);
+  const result = new TextEncoder().encode("pending file!"), resultHash = hashObject(result);
+  const delta = {base: baseHash, result: resultHash, instructions: [{copy: {offset: 0, length: base.length}}, {insert: new TextEncoder().encode("!")}]};
+  const proposed = new Map([[root, directory], [baseHash, base]]);
+  expect(await store.reconstructDeltas(root, [delta], proposed)).toEqual([{hash: resultHash, bytes: result}]);
+  expect(store.reads).toEqual([]);
+  const unrelated = store.directory([]);
+  await expect(store.reconstructDeltas(unrelated, [delta], new Map([[baseHash, base]]))).rejects.toThrow("not reachable");
+  await expect(store.reconstructDeltas(root, [delta], new Map([[root, directory], [baseHash, result]]))).rejects.toThrow("base hash mismatch");
+});

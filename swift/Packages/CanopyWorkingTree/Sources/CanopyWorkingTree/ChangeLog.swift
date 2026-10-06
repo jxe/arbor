@@ -277,10 +277,9 @@ public struct LocalChange: Codable, Equatable, Sendable {
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Against an accepted basis the server can rebuild the edited file from
         // its retained base, so send the patch as a delta rather than the file.
-        // A chained authored basis is not retained server-side when Canopy
-        // preflights the request (its delta bases are resolved against the
-        // accepted base root before the request's own objects are stored),
-        // so its file goes whole.
+        // Chained authored records retain complete changed objects here.
+        // Publication preparation compacts them against the preceding candidate
+        // after the final publication boundaries are known.
         if case .accepted = basis {
             var deltas: [ProtocolObjectDelta] = []
             if let file = basisFile,

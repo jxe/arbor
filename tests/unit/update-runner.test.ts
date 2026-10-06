@@ -314,3 +314,31 @@ test("source activity holds automatic publication across slow admission and over
     expect(host.requests[0]!.updates).toHaveLength(1);
   } finally { coordinator.close(); await rm(stateRoot, {recursive: true, force: true}); }
 });
+
+
+test("a successor to an in-flight edit sends deltas against its settled candidate", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-chained-deltas-"));
+  const initial = snapshot("a".repeat(70_000));
+  const host = new GatedHost(initial, []);
+  const working = new MemoryWorkingTree({base: {root: initial.root, update: "up_initial"}, snapshot: initial});
+  const log = new ChangeLog(TREE, stateRoot);
+  const coordinator = new UpdateCoordinator(TREE, log, new FileControlStore(stateRoot), host, working,
+    {publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000});
+  try {
+    await appendSource(coordinator, log, working, "/note.md", () => ({offset: 0, length: 1, replacement: "X"}));
+    const syncing = coordinator.syncOnce();
+    while (!host.held) await Bun.sleep(5);
+    await appendSource(coordinator, log, working, "/note.md", () => ({offset: 1, length: 1, replacement: "Y"}));
+    host.open();
+    await syncing;
+    await coordinator.syncOnce();
+    const request = host.requests.at(-1)!;
+    expect(request.updates).toHaveLength(2);
+    expect(request.updates[0]!.objects).toEqual([]);
+    expect(request.updates[0]!.deltas).toEqual([]);
+    expect(request.updates[1]!.deltas.length).toBeGreaterThan(0);
+    expect(JSON.stringify(encodeUpdateRequestJSON(request)).length).toBeLessThan(5000);
+    expect(host.digests.at(-1)![0]).toBe(host.digests[0]![0]);
+    expect(await coordinator.pendingChanges()).toEqual([]);
+  } finally { host.open(); coordinator.close(); await rm(stateRoot, {recursive: true, force: true}); }
+});

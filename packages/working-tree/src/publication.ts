@@ -199,7 +199,7 @@ export function branchPublications(group: ChangePublication, shared: number, bra
 }
 
 
-/** Compress final reachable envelopes against the request's accepted basis.
+/** Compress final reachable envelopes against the element's basis graph.
  * Transport matching never establishes semantic provenance. */
 export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): CandidateUpdateJSON {
   if (!update.objects.length) return update;

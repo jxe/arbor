@@ -468,7 +468,7 @@ struct UpdateCoordinatorTests {
     func oneRequestInFlightWithOneSuccessor() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_successor"
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\n" + String(repeating: "a", count: 70_000) + "\n")
             let gate = FirstRequestGate()
             let transport = acceptingTransport(tree: tree, initial: initial) { call in if call == 1 { await gate.hold() } }
             let workingTree = try await placeWorkingTree(
@@ -500,6 +500,8 @@ struct UpdateCoordinatorTests {
             // One chain: the settled first change is repeated without its objects, then the successor once.
             #expect(successor.base == "up_initial")
             #expect(successor.updates.count == 2)
+            #expect(requests[1].body.count < 5_000)
+            #expect(successor.updates[1].deltas.count >= 1)
             #expect(requests[1].requestDigests.first == requests[0].requestDigests.first)
             #expect(successor.updates[0].objects.isEmpty && successor.updates[0].deltas.isEmpty)
             #expect(try await workingTree.heads().acceptedRoot == successor.updates.last?.candidate)

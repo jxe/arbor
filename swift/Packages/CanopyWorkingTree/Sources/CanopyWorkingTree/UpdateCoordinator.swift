@@ -578,9 +578,11 @@ public actor UpdateCoordinator {
         }?.graph
         var updates: [ProtocolCandidateUpdate] = [], index = 0
         func compact(_ update: ProtocolCandidateUpdate, change: String) throws -> ProtocolCandidateUpdate {
-            // Later elements may start at a graph the host has not retained yet.
-            guard updates.isEmpty, let transportBase, let candidate = byChange[change]?.candidate else { return update }
-            return try LocalChange.compactTransport(update, basis: transportBase, candidate: candidate)
+            let basis = updates.last.map { previous in
+                records.first { $0.candidate.root == previous.candidate }?.candidate
+            } ?? transportBase
+            guard let basis, let candidate = byChange[change]?.candidate else { return update }
+            return try LocalChange.compactTransport(update, basis: basis, candidate: candidate)
         }
         let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])
         while index < request.updates.count {
