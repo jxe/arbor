@@ -9,9 +9,10 @@ Historical identifier: **canopyd storage 001**. The filename number is preserved
 - **Effort:** M
 - **Risk:** MEDIUM — an index row pointing at the wrong bytes would corrupt reads;
   every read is checked against its hash
-- **State:** READY FOR DESIGN REVIEW
-- **Depends on:** nothing; space is not pressing (6% of the live volume), so this
-  is taken up for read locality, startup, audit, and backup cost
+- **State:** READY FOR GROUPING EXPERIMENTS AND DESIGN REVIEW
+- **Depends on:** nothing; measure storage, read locality, startup, audit, and
+  backup cost before selecting the grouping policy. The old 6% volume baseline
+  is superseded by the 2026-10-07 inspection below.
 
 ## Baseline (2026-09-19)
 
@@ -36,6 +37,15 @@ result, which does not justify delta chains.
 On Railway the full integrity audit reads every object and takes minutes;
 downloading a 590 MB volume archive took about twenty minutes.
 
+## Current inspection (2026-10-07)
+
+Read-only inspection of the live Railway host found 418.0 MiB in `objects/`.
+The whole volume used 1.16 GiB (26%), including 410.3 MiB of merge cache and
+334.0 MiB of backups. These are separate costs: this plan packs accepted objects;
+[Performance 002](002-shared-merge-cache.md) addresses the private merge cache.
+The September compression numbers remain historical evidence, not a forecast
+for the current retained store.
+
 ## Decision
 
 Group files on disk, indexed in SQLite, with a process cache of decompressed
@@ -45,9 +55,50 @@ recently used group files fit in the OS page cache, and old groups become files
 that are simply never read. Transactional coupling with SQLite and single-file
 backup were considered and are not requirements.
 
-Git-style deltas, pack generations, and geometric repacking are out: grouping
-captures most of the redundancy, and without deltas no object depends on
-another, so there are no base chains to protect when pruning.
+Keep independent compressed groups rather than Git-style delta chains. The
+September experiment supports grouping, but tested only write-order grouping;
+it did not establish the best grouping policy. Joe favors the hybrid below as
+the starting hypothesis, with experiments before selecting a policy. No object's
+canonical bytes or hash changes, and decoding a group requires no other group.
+
+## Grouping experiments
+
+Compare four policies on the same copied retained store and read workloads:
+
+| Policy | Hypothesis | Cost to measure |
+| --- | --- | --- |
+| Write order / acceptance batches | Objects written together may be read together during tree access or replay. | Weaker compression when unrelated documents interleave; timestamps are only a proxy for shared reads. |
+| Document versions | Nearby versions of one document share bytes and favor history reads. | A whole-tree read may decompress many groups; paths change, and one hash can belong to several documents. |
+| Hybrid (preferred hypothesis) | Keep recent or frequently read objects loose; group cold document versions together, and handle directories, log entries, and other objects in appropriate separate batches. | Hot/cold classification, small groups, and the cost of maintaining locality as usage changes. |
+| Content similarity | Group similar canonical bytes regardless of document or write time, using inexpensive sketches or fingerprints, optionally partitioned by object kind and size. | Classifier CPU/memory, stability across incremental batches, grouping overhead, and loss of read locality. |
+
+The fourth policy could find repeated structure across different documents,
+directory objects, and log entries that document grouping misses. Treat it as
+an experimental candidate, not an assumption that similarity beats locality.
+Compare a similarity-based cold tier inside the hybrid too, if the standalone
+results justify it. Exact duplicate bytes already share an object hash; the
+opportunity is similarity among different objects.
+
+Use document identity or retained version metadata where available, never path
+alone. Specify how renamed documents, copies, shared hashes, and objects without
+a document association are assigned. Store each object once; grouping metadata
+is private physical organization, not a new semantic identity or retention rule.
+Group membership must not imply that every member is live.
+
+Start around 256 KiB raw per group and compare smaller and larger groups.
+Large individual objects may exceed the target; define an oversize policy without
+changing canonical bytes. Compare zstd levels and compression bypass for already
+compressed/incompressible assets. Hold the codec, cache budget, and object set
+constant when comparing grouping policies.
+
+Measure total allocated disk bytes including index and padding, compressed bytes,
+group count, classifier/packing cost, peak memory and temporary disk, and bytes
+read/decompressed per requested object. Replay representative current-tree reads,
+warm edits, concurrent merges, document history, full-history loads, cold startup,
+full audit, and backup/restore. Include repeated-version and diverse/binary-heavy
+fixtures. Report p50/p95 latency, cache hits, and incremental behavior as new
+updates arrive; a one-off packing ratio is insufficient. Select the policy from
+size and latency together, and retain loose storage if reads regress materially.
 
 ## Design
 
@@ -61,16 +112,37 @@ another, so there are no base chains to protect when pruning.
   today.
 - **Reads.** `ObjectStore.load` checks loose first, then the index, then a
   small LRU of decompressed groups (sized in bytes, a few MiB to start) before
-  reading and decompressing the group file. Objects written together are read
-  together, so an edit's ~260 reads should mostly hit the cache.
+  reading and decompressing the group file. Grouping experiments must establish
+  locality and cache hit rates rather than assume write order matches read order.
 - **Writes.** Unchanged: new objects are written loose.
-- **Packing pass.** Runs after an accepted update's response, never on its
-  path, at most one at a time, when loose objects exceed a count or byte
-  threshold, or at startup. It takes loose objects in write order, fills
-  groups, writes and fsyncs each group file, inserts its index rows in one
-  transaction, then deletes the loose files. A crash at any point leaves each
-  object readable loose, packed, or both; startup deletes group files that no
-  index row references.
+- **Trigger and scheduling.** One process-local maintenance coordinator owns
+  packing, group rewrites, and orphan cleanup. Maintain incremental loose-object
+  count and byte counters at publication (count newly created files, not repeated
+  stores/freshens); reconcile at startup and after collection. After an accepted
+  update responds, notify the coordinator when eligible loose objects cross
+  configurable high thresholds. Coalesce notifications and debounce bursts;
+  pack toward lower thresholds so the worker does not oscillate. Select count,
+  byte, minimum-age, and idle/cooldown defaults from the experiments, recording
+  them and the rationale. Recent writes may remain loose even above a threshold.
+  A startup check and an internal low-frequency idle check handle leftover work
+  and objects that become eligible without another acceptance. No external cron
+  is needed, and an idle check performs no full scan when counters show no work.
+- **Bounded background pass.** Use the selected grouping policy, with bounded
+  object/byte/time batches and yielding between batches. Keep foreground requests
+  independent of the maintenance queue; benchmark contention, including a burst
+  arriving while compression is active. Avoid repeatedly reopening healthy groups
+  to add a single new version: pack eligible batches, and rewrite only for a
+  measured fragmentation or locality benefit. Defer on insufficient temporary
+  disk headroom or foreground load; retain loose files and retry without a busy
+  loop. Startup readiness must not wait for compression of the existing store.
+- **Publication and recovery.** Write and fsync complete group files, insert their
+  index rows transactionally, then remove corresponding loose files. Coordinate
+  concurrent stores/freshens, reads, pruning, and group rewrites explicitly so
+  neither packing nor collection can create missing references. A crash leaves
+  every object readable loose, packed, or both. Startup recovers interrupted work
+  and removes unreferenced groups only after excluding in-flight publications.
+  Report eligible/backlog bytes, trigger reasons, deferred work, packing time,
+  compression ratio, and group-cache hits.
 - **Pruning.** When retained objects are deleted (as migration 013 did), a
   group whose live share falls below a threshold is rewritten with its live
   objects and the old file removed after the index moves. Nothing else
@@ -87,15 +159,25 @@ another, so there are no base chains to protect when pruning.
 
 ## Work
 
-1. `ObjectStore` gains the index, the group reader, and the decompressed-group
-   cache behind its existing interface; callers do not change.
-2. The packing pass and its trigger, with startup orphan cleanup.
-3. A one-off migration packs the existing loose store, rehearsed on a copy
-   with the usual report (objects, bytes before/after, audit identical).
-4. Group rewrite on prune.
-5. Measure on the rehearsal copy: warm edit latency, the full-history load
-   (currently ~9,000 reads, 1.3 s), cold start warm-up, and audit time, each
-   before and after. Keep the loose store if reads regress materially.
+1. Build the copied-store benchmark and grouping experiments above. Revalidate
+   the retention closure and record the current baseline, including allocated
+   disk usage and read traces. No live migration or audit is needed for this
+   experimental step.
+2. Record the selected grouping policy, group size, codec settings, hot/cold
+   criteria, and trigger thresholds with their evidence. The hybrid is the
+   preferred hypothesis, not a predetermined benchmark result.
+3. `ObjectStore` gains the index, group reader, and decompressed-group cache behind
+   its existing interface. Cover all read, presence, freshening, publication,
+   collection, integrity, and sidecar paths; a packed object must not look absent
+   to a loose-file-only existence check.
+4. Implement the coordinator, bounded packing, counters, idle/startup checks,
+   publication recovery, and group rewrite on prune. Do not delete retained
+   objects merely because their loose files have been packed.
+5. Rehearse packing the existing store on a copy with an objects/bytes before-and-
+   after report, equivalent audit and merge answers, failure injection, and the
+   performance measurements above. Prepare the rollout and rollback procedure;
+   live migration/deployment requires Joe's explicit go-ahead and the repository's
+   full verification gate.
 
 ## Verification
 
@@ -104,8 +186,14 @@ another, so there are no base chains to protect when pruning.
 - Killing the process at each step of a packing pass leaves every object
   readable and a rerun converges.
 - A group file whose bytes do not hash to the index's claim fails the read.
-- Accepted-update latency does not depend on a packing pass in progress.
-- The measurements in step 5 are recorded here.
+- Accepted updates never await packing. Measured foreground latency and resource
+  contention meet the recorded limits while maintenance is active.
+- Bursts coalesce, only one maintenance pass runs at a time, thresholds have
+  hysteresis, and idle/startup checks drain eligible leftovers without cron.
+- Hot or newly freshened objects, collection races, insufficient disk, interrupted
+  publication, and sustained writes preserve readability and bounded work.
+- All four grouping experiments and the selected policy's incremental results
+  are recorded before rollout; rejected policies include measured tradeoffs.
 
 ## Non-goals
 

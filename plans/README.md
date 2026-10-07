@@ -44,6 +44,9 @@ placement hosts too. After Apps 005.
 
 ## Later
 
+**[Performance 002: share and compress saved merge states](performance/002-shared-merge-cache.md).**
+Joe requested this work on 2026-10-07 after the live merge cache reached 410 MiB for two checkpoints of one tree. Reduce repeated storage and save/restore work while preserving computed merge states across restarts and memory eviction. Prototype and measure before choosing the final storage layout; no deployment date is set.
+
 **[Clients 002: more identity-preserving coalescing](merge/002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
 with enough identity for canopyd to merge concurrent work correctly. After the
