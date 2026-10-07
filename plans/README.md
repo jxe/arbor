@@ -11,10 +11,11 @@ Related plans are grouped in [merge improvements](merge/README.md),
 
 ## Soon
 
-**[Rename 001: Arbor and Canopy names become Overstory, ost and Hunch](rename/001-overstory-names.md).**
+**[Rename 001: Arbor and Canopy names become Overstory and Story](rename/001-overstory-names.md).**
 The commands, daemons, dot directories, env vars, routes and the app still say Arbor
-or Canopy. Joe settled the new names on 2026-10-06 and wants them applied in one
-cutover: `overstoryd`, `ostd`, `ost`, `.ost`, `.ostignore`, `overstory://`, and Hunch.app.
+or Canopy. Joe settled the new names on 2026-10-07 and wants them applied in one
+cutover: `overstoryd`, `overstory://`, `.overstory`, `.overstoryignore`, and Story's
+`story`, `storyd` and Story.app.
 
 **[canopyd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
