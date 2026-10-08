@@ -1337,7 +1337,11 @@ struct CanopyRootView: View {
         .toolbar {
             if columnVisibility != .detailOnly {
                 ToolbarItem {
-                    sidebarPagesHeader
+                    HStack(spacing: 4) {
+                        macSidebarToggle
+                        sidebarPagesHeader
+                            .frame(maxWidth: .infinity)
+                    }
                         .frame(maxWidth: .infinity)
                         // AppKit reserves more room after this item than before it.
                         // Use part of the toolbar layout allowance to center the
@@ -1695,6 +1699,28 @@ struct CanopyRootView: View {
         List(content: content)
 #endif
     }
+
+#if os(macOS)
+    private var macSidebarToggle: some View {
+        Button {
+            withAnimation {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            }
+        } label: {
+            Image(systemName: columnVisibility == .detailOnly
+                ? "chevron.right.2"
+                : "chevron.left.2")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(mutedMacToolbarForeground)
+                .frame(width: 32, height: 32)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .mutedMacToolbarHover()
+        .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+        .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+    }
+#endif
 
     private var sidebarPagesHeader: some View {
         CanopySidebarSearchControls(
@@ -2345,26 +2371,12 @@ struct CanopyRootView: View {
 #endif
         .toolbar {
 #if os(macOS)
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    withAnimation {
-                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-                    }
-                } label: {
-                    Image(systemName: columnVisibility == .detailOnly
-                        ? "chevron.right.2"
-                        : "chevron.left.2")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(mutedMacToolbarForeground)
-                        .frame(width: 32, height: 32)
-                        .contentShape(.rect)
+            if columnVisibility == .detailOnly {
+                ToolbarItem(placement: .navigation) {
+                    macSidebarToggle
                 }
-                .buttonStyle(.plain)
-                .mutedMacToolbarHover()
-                .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-                .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                .sharedBackgroundVisibility(.hidden)
             }
-            .sharedBackgroundVisibility(.hidden)
             if model.canGoBack {
                 ToolbarItem(placement: .navigation) {
                     Button {
