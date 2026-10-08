@@ -1335,15 +1335,17 @@ struct CanopyRootView: View {
         // toolbar's sidebar section, over the sidebar in the titlebar. The
         // sizer sets the item's width; the controls fill it.
         .toolbar {
-            ToolbarItem {
-                sidebarPagesHeader
-                    .frame(maxWidth: .infinity)
-                    // AppKit reserves more room after this item than before it.
-                    // Use part of the toolbar layout allowance to center the
-                    // visible search controls without increasing the item width.
-                    .offset(x: 10)
+            if columnVisibility != .detailOnly {
+                ToolbarItem {
+                    sidebarPagesHeader
+                        .frame(maxWidth: .infinity)
+                        // AppKit reserves more room after this item than before it.
+                        // Use part of the toolbar layout allowance to center the
+                        // visible search controls without increasing the item width.
+                        .offset(x: 10)
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
-            .sharedBackgroundVisibility(.hidden)
         }
 #else
         VStack(spacing: 0) {
