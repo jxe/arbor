@@ -312,8 +312,7 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
                     moves: moves.map { .init(source: .init(file: file, range: $0.source), anchor: .init(file: file, range: $0.anchor), side: $0.side) },
                     edits: edits.map { .init(span: .init(file: file, range: $0.utf8Range), text: Data($0.replacement.utf8)) }
                 )
-                guard let value = String(data: arranged[file] ?? original, encoding: .utf8) else { throw WorkspacePatchError.invalidUTF8 }
-                return value
+                return try exactUTF8(arranged[file] ?? original)
             } catch let failure as WorkspaceSourceArrangement.Failure {
                 throw WorkspacePatchError.invalidMoves(failure)
             }
@@ -328,8 +327,14 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
             cursor = edit.utf8Range.upperBound
         }
         result.append(original.subdata(in: cursor..<original.count))
-        guard let value = String(data: result, encoding: .utf8) else { throw WorkspacePatchError.invalidUTF8 }
-        return value
+        return try exactUTF8(result)
+    }
+
+    /// The bytes as a string, exactly: Foundation's UTF-8 decoding drops a
+    /// leading byte order mark, which would change a source no edit touched.
+    private func exactUTF8(_ bytes: Data) throws -> String {
+        guard String(data: bytes, encoding: .utf8) != nil else { throw WorkspacePatchError.invalidUTF8 }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
