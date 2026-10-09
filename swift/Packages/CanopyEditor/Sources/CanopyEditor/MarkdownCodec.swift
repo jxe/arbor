@@ -445,9 +445,19 @@ public enum CanopyMarkdownCodec {
                                  blocks: [Block], ledger: CanopySourceLedger, moved: Set<BlockID>) -> (CanopyMarkdownAdmission, CanopySourceLedger)? {
         let old = placed.map(\.record.range.lowerBound)
         // Blocks that keep their relative order stay; the rest move.
-        let stays = moved.isEmpty
+        var stays = moved.isEmpty
             ? Set(longestIncreasingSubsequence(old).map { placed[$0].record.block.id })
             : Set(placed.map { $0.record.block.id }).subtracting(moved)
+        // A block the editor reports as moved that still directly follows a
+        // staying block (or the envelope) did not move: an outdented last child
+        // keeps its place. Only the leading part of a run qualifies; a block
+        // after one that really moved is anchored on moved material.
+        var staysEnd: Int? = ledger.envelope.utf8.count
+        for item in placed {
+            let id = item.record.block.id
+            if !stays.contains(id), item.record.range.lowerBound == staysEnd { stays.insert(id) }
+            staysEnd = stays.contains(id) ? item.record.range.upperBound : nil
+        }
         // Explicitly stationary blocks must really retain their relative order.
         let stationary = placed.filter { stays.contains($0.record.block.id) }.map { $0.record.range.lowerBound }
         guard stationary == stationary.sorted(), !stays.isEmpty else { return nil }

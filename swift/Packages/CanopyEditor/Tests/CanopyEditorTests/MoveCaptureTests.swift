@@ -133,3 +133,23 @@ func bindingCacheSurvivesEditAndReplacement() async throws {
     #expect(binding.lastError == nil)
     await binding.close()
 }
+
+@MainActor @Test("Sliding a last child out of its parent outdents it in place without a move")
+func outdentedLastChildIsNotAMove() throws {
+    let source = "- Parent\n  - First child\n  - Last child\n- Next\n"
+    let opened = CanopyMarkdownCodec.open(source: source, revision: "r", identitySeed: "outdent")
+    let document = Document(id: DocumentID("outdent"), children: opened.blocks)
+    let parent = try #require(document.children.first)
+    let last = try #require(parent.children.last)
+    #expect(document.canSlideSiblings([last.id], by: 1))
+    var moved: Set<BlockID> = []
+    document.didCommitTransaction = { _ in moved = document.movedBlocksForCurrentCommit }
+    document.transaction(name: "Move") { _ = document.slideSiblings([last.id], by: 1) }
+    #expect(moved.contains(last.id))
+    let (captured, _) = CanopyMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger, moved: moved)
+    // The editor reports the block as moved, but its bytes stay where they
+    // were: only the indentation changes, so no move is published.
+    #expect(captured.source == "- Parent\n  - First child\n- Last child\n- Next\n")
+    #expect(captured.patch.moves?.isEmpty ?? true)
+    #expect(try captured.patch.applying(to: source) == captured.source)
+}
