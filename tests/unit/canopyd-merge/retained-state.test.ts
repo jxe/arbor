@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { IntentState } from "../../../packages/canopyd-merge/src/intent-model.ts";
-import { loadState, retainState, viewState, type RetainedState } from "../../../packages/canopyd-merge/src/retained-state.ts";
+import { cloneState, loadState, retainState, since, viewState, type RetainedState } from "../../../packages/canopyd-merge/src/retained-state.ts";
 
 const piece = (origin: string) => ({ origin, start: 0, object: `sha256:${"a".repeat(64)}`, offset: 0, length: 3 });
 function state(order: number[]): IntentState {
@@ -166,4 +166,45 @@ test("record packs preserve wide buckets, integer keys and dependent decision st
   expect(await child.exited).toBe(0);
   const { encodeRetainedState } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
   expect(actual).toEqual([...states].map(([id, s]) => ({ id, encoded: JSON.stringify(encodeRetainedState(s)) })));
+});
+
+
+test("lazy history edits, forks and deletion fallback preserve eager values and ordering", () => {
+  const states = new Map<string, RetainedState>();
+  const initial = state(Array.from({ length: 80 }, (_, i) => i));
+  initial.changes["9"] = "nine";
+  initial.changes["10"] = "ten";
+  const saved = retainState(states, initial, "object", true);
+  const retained = states.get(saved.id)!;
+  for (const enumerateFirst of [false, true]) {
+    const lazy = loadState(retained), eager = structuredClone(viewState(retained));
+    if (enumerateFirst) expect(Object.entries(lazy.changes)).toEqual(Object.entries(eager.changes));
+    for (const map of [lazy.changes, eager.changes]) {
+      delete map["change-3"];
+      map["change-3"] = "reinserted";
+      map["change-20"] = "replaced";
+      map["2"] = "two";
+      map["new"] = "appended";
+      map["undefined"] = undefined as unknown as string;
+      delete map["change-4"];
+    }
+    const fork = cloneState(lazy);
+    fork.changes.new = "fork";
+    expect(lazy.changes.new).toBe("appended");
+    expect(Object.entries(lazy.changes)).toEqual(Object.entries(eager.changes));
+    expect(Object.entries(since(lazy.changes, loadState(retained).changes)))
+      .toEqual(Object.entries(since(eager.changes, viewState(retained).changes)));
+    expect(retainState(states, lazy, "object", true).id).toBe(retainState(states, eager, "object", true).id);
+  }
+});
+
+test("cloned lazy maps detach mutable new history records", () => {
+  const states = new Map<string, RetainedState>();
+  const first = retainState(states, state([1]), "object", true);
+  const loaded = loadState(states.get(first.id)!);
+  loaded.origins.new = [piece("new")];
+  const fork = cloneState(loaded);
+  fork.origins.new![0]!.length = 20;
+  expect(loaded.origins.new![0]!.length).toBe(3);
+  expect(viewState(states.get(first.id)!).origins.new).toBeUndefined();
 });

@@ -175,6 +175,70 @@ function entriesOf(bucket: Bucket, into: Array<readonly [string, unknown]> = [])
  * did not change. */
 const sources = new WeakMap<object, Bucket | readonly IntentDecision[]>();
 
+/** Counters for complexity benchmarks, independent of wall-clock timing. */
+export const historyMapDiagnostics = { enumerated: 0, compared: 0, recorded: 0 };
+export function resetHistoryMapDiagnostics(): void {
+  historyMapDiagnostics.enumerated = historyMapDiagnostics.compared = historyMapDiagnostics.recorded = 0;
+}
+
+interface WorkingHistory {
+  bucket: Bucket;
+  values: Map<string, unknown>;
+  removed: Set<string>;
+  appended: Set<string>;
+}
+const histories = new WeakMap<object, WorkingHistory>();
+
+/** History records are immutable values. Keep a bucket plus this evaluation's
+ * writes until a caller actually enumerates the map. In particular, loading,
+ * cloning, comparing and recording an ordinary head edit need not visit every
+ * historical operation. Nodes still use mutable, detached working copies. */
+function historyMap<T>(bucket: Bucket, values = new Map<string, unknown>(), removed = new Set<string>(), appended = new Set<string>()): Record<string, T> {
+  const working = { bucket, values, removed, appended };
+  const target = {} as Record<string, T>;
+  let materialized = false;
+  const value = (key: string) => removed.has(key) ? undefined : values.has(key) ? values.get(key) : lookup(bucket, key);
+  const define = (key: string, next: unknown) => Object.defineProperty(target, key, { value: next, enumerable: true, configurable: true, writable: true });
+  const keys = () => {
+    if (!materialized) {
+      const entries = entriesOf(bucket);
+      historyMapDiagnostics.enumerated += entries.length;
+      for (const [key, next] of entries) if (!removed.has(key) && !appended.has(key)) define(key, next);
+      for (const [key, next] of values) if (!removed.has(key)) define(key, next);
+      materialized = true;
+    }
+    return Object.keys(target);
+  };
+  const result = new Proxy(target, {
+    get: (target, key, receiver) => {
+      if (materialized || typeof key !== "string" || removed.has(key)) return Reflect.get(target, key, receiver);
+      if (values.has(key)) return values.get(key);
+      const known = lookup(bucket, key);
+      return known !== undefined ? known : Reflect.get(target, key, receiver);
+    },
+    set: (_target, key, next) => {
+      if (typeof key !== "string") throw Error("History keys must be strings");
+      if (removed.has(key)) { appended.add(key); values.delete(key); }
+      values.set(key, next); removed.delete(key);
+      if (materialized) define(key, next);
+      return true;
+    },
+    deleteProperty: (_target, key) => {
+      if (typeof key === "string") { values.delete(key); removed.add(key); delete target[key]; }
+      return true;
+    },
+    has: (target, key) => materialized ? Reflect.has(target, key)
+      : typeof key === "string" && !removed.has(key) && (values.has(key) || lookup(bucket, key) !== undefined) || Reflect.has(target, key),
+    ownKeys: keys,
+    getOwnPropertyDescriptor: (_target, key) => materialized ? Reflect.getOwnPropertyDescriptor(target, key)
+      : typeof key === "string" && !removed.has(key) && (values.has(key) || lookup(bucket, key) !== undefined)
+        ? { value: value(key), enumerable: true, writable: true, configurable: true } : undefined,
+  });
+  histories.set(result, working);
+  sources.set(result, bucket);
+  return result;
+}
+
 /** A plain map of a bucket's frozen values, in the order every recorded map
  * keeps its keys: bucket order, except that a map of nodes whose canonical
  * JSON is 2 KiB or less is in key order. */
@@ -199,10 +263,12 @@ export function viewState(retained: RetainedState): IntentState {
 
 /** A recorded state to edit: nodes and decisions copied, records shared. */
 export function loadState(retained: RetainedState): IntentState {
-  const state = viewState(retained), nodes = copy(state.nodes), decisions = copy(state.decisions);
+  const { format, tree, root } = retained;
+  const nodes = copy(materialize<Node>(retained.nodes, true)), decisions = copy(retained.decisions) as IntentDecision[];
   sources.set(nodes, retained.nodes);
   sources.set(decisions, retained.decisions);
-  return { ...state, nodes, decisions };
+  return { format, tree, root, nodes, decisions,
+    ...(Object.fromEntries(HISTORY.map((field) => [field, historyMap(retained.history[field])])) as Pick<IntentState, HistoryField>) };
 }
 
 /** A value to keep in a working state: frozen values are shared (nothing can
@@ -212,6 +278,8 @@ export const own = <T>(value: T): T =>
 
 /** A history map to write: its records as `own` gives them. */
 export function cloneMap<T extends Record<string, unknown>>(map: T): T {
+  const lazy = histories.get(map);
+  if (lazy) return historyMap(lazy.bucket, new Map([...lazy.values].map(([key, value]) => [key, own(value)])), new Set(lazy.removed), new Set(lazy.appended)) as T;
   const result = Object.fromEntries(Object.entries(map).map(([key, value]) => [key, own(value)])) as T;
   const source = sources.get(map);
   if (source) sources.set(result, source);
@@ -254,11 +322,11 @@ export function shareState(state: IntentState): IntentState {
     ...rest,
     nodes: shared(nodes),
     decisions: copy(decisions),
-    outputs: shared(outputs),
-    effects: shared(effects),
-    origins: shared(origins),
-    alternatives: shared(alternatives),
-    changes: shared(changes),
+    outputs: cloneMap(outputs),
+    effects: cloneMap(effects),
+    origins: cloneMap(origins),
+    alternatives: cloneMap(alternatives),
+    changes: cloneMap(changes),
   };
   const decisionSource = Object.isFrozen(decisions) ? decisions : sources.get(decisions);
   if (decisionSource) sources.set(result.decisions, decisionSource);
@@ -268,8 +336,16 @@ export function shareState(state: IntentState): IntentState {
 /** Records of `map` that `base` lacks or holds differently. */
 export function since<M extends Record<string, unknown>>(map: M, base: M): M {
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(map))
+  const upper = histories.get(map), lower = histories.get(base);
+  // Appends to an unchanged persistent source preserve insertion order.
+  // Replacements and deletions take the general path, including its ordering.
+  const appended = upper && lower && upper.bucket === lower.bucket && !lower.values.size && !lower.removed.size && !upper.removed.size
+    && [...upper.values.keys()].every((key) => lookup(upper.bucket, key) === undefined);
+  const entries = appended ? Object.entries(Object.fromEntries(upper.values)) : Object.entries(map);
+  for (const [key, value] of entries) {
+    historyMapDiagnostics.compared++;
     if (value !== undefined && !(Object.hasOwn(base, key) && same(base[key], value))) out[key] = value;
+  }
   return out as M;
 }
 
@@ -341,16 +417,21 @@ function freeze(value: unknown, sorted: boolean): Facts & { value: unknown; byte
 /** A map as a bucket, sharing every bucket of its source that holds the same
  * values, and the bytes that added. */
 function freezeMap(map: Record<string, unknown>, history: boolean): { bucket: Bucket; bytes: number } {
-  const source = sources.get(map) as Bucket | undefined;
+  const lazy = histories.get(map);
+  const source = lazy?.bucket ?? sources.get(map) as Bucket | undefined;
   const changes: Array<readonly [string, unknown]> = [];
-  let present = 0, added = 0, bytes = 0;
-  for (const key of Object.keys(map)) {
+  // Deletions use the general rebuilding path. Ordinary immutable history
+  // only adds/replaces records; scan those writes instead of the entire map.
+  const incremental = lazy && !lazy.removed.size && ![...lazy.values.values()].includes(undefined);
+  let present = incremental ? lazy.bucket.count : 0, added = 0, bytes = 0;
+  for (const key of incremental ? lazy.values.keys() : Object.keys(map)) {
+    if (history) historyMapDiagnostics.recorded++;
     const value = map[key];
     if (value === undefined) continue;
-    present++;
+    if (!incremental) present++;
     const prior = source ? lookup(source, key) : undefined;
     if (prior === value || (prior !== undefined && same(value, prior))) continue;
-    if (prior === undefined) added++;
+    if (prior === undefined) { added++; if (incremental) present++; }
     const fresh = isObject(value) && !facts.has(value);
     let entry = freeze(value, false);
     // A history record of 2,048 or fewer UTF-16 units keeps key order within.

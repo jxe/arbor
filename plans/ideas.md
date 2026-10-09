@@ -56,11 +56,6 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 
 Measure before promoting any of these.
 
-- **Merge sidecar replay cost** (measured 2026-09-24). About 4 ms per replayed entry
-  locally, an estimated 10–20 ms live on a 106-file tree; a replayed plain edit clones the
-  whole active state. Split retained state per file; do not start replay partway along a
-  chain, which drops attribution
-  ([status](../status.md#log-entries-and-one-merge-question--2026-09-24)).
 - **Flat-directory acceptance latency** (measured 2026-09-24). 95–130 ms server time with
   1,000 files in one directory; live, no directory exceeds 63 entries. Only if a real tree
   gets that flat.

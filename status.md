@@ -269,6 +269,7 @@ measurements before broadening the implementation.
 | Tree configurations (canopyd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Arbor Sync speak it | deployed and verified 2026-09-26 at schema 22 by [migration 022](packages/canopyd/migrations/022-tree-configurations/README.md) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/canopyd/tree-configurations.md) |
 | Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`canopyd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and canopyd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Arbor Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `arbor device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host canopyd also publishes each profile's key devices at `GET /.arbor/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by [migration 023](packages/canopyd/migrations/023-device-keys/README.md) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
 | Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis. Legacy JSON checkpoints remain readable | implemented locally 2026-10-09, not deployed; legacy snapshot cache observed on the live host that day | [shared checkpoints](docs/architecture/canopyd/merge-cache.md), [rollout](plans/performance/002-shared-merge-cache.md) |
+| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | implemented and verified locally 2026-10-09; not deployed; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [remaining work](plans/performance/003-fast-historical-catch-up.md) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@overstory/tree-merge`, which Arbor Sync tree recovery now declares. Log entries and the question and answer are unchanged | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Transfer merge extensions (canopyd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/canopyd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | implemented, not deployed; gate in [small work](plans/small-work.md#server-refinements) | [transfers](docs/architecture/canopyd/merge-tool.md#transfers) |
 | Moves on the fast paths (Native 008): canopyd accepts a head trace whose frames are basis `moveSource` operations and then `editSource` operations without the sidecar, executing them with `arrangeSources` in `@overstory/protocol`; the sidecar's exact-basis path also takes basis moves and ordered lineage. Tested against eager and full evaluation, with a peer edit in both arrival orders (`tests/unit/canopyd-merge/source-moves.test.ts`, `tests/integration/canopyd/source-acceptance.test.ts`). No wire or schema change | implemented, not deployed | [fast-forward](docs/architecture/canopyd/merge-tool.md#fast-forward) |
@@ -1719,3 +1720,61 @@ Validation on Bun 1.4.2: `bun run test:affected` over the changed implementation
 benchmark, tests and documentation passed typecheck, 733 tests across 59 affected
 files, links (137 Markdown files), and whitespace. No HTTP route or wire shape
 changed, so this private-cache implementation did not require a protocol change.
+
+
+## Historical catch-up improvements — 2026-10-09
+
+Implemented the first measured improvements from Performance 003 locally:
+
+- Loaded history maps use persistent buckets plus local writes. Loading, cloning,
+  append-only comparison and recording an exact-basis edit no longer enumerate
+  unrelated history. Mutable nodes/decisions remain detached; the full evaluator
+  can still enumerate history when required. Retained identities and checkpoint
+  formats are unchanged.
+- After recovering an older requested basis, a successful question saves it with
+  its head. Ordinary successful retention stays at two checkpoints per tree;
+  interrupted recovery still protects the head beside two frontiers. Already-warm
+  bases do not cause a save for each question. This is a narrow requested-basis
+  policy, not geometric coverage or a storage-byte budget.
+
+Local Bun 1.4.2 measurements against the pre-change `c0a68ebf` implementation:
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Fixed edit, 10,000 unrelated history records per map, median | 15.98 ms | 0.17 ms |
+| Synthetic 4,201-entry history, empty cache, answer plus saves | 19.57 s / 2 attempts | 0.96 s / 1 attempt |
+| Same synthetic question after fresh-process restart | 4.09 s / 2,101 replayed | 0.45 s / 0 replayed |
+| Copied original iPhone question, cached head but missing historical basis, immediate retries plus saves | 74.88 s / 7 attempts | 45.43 s / 4 attempts |
+| Copied iPhone question after saving its basis, fresh process | — | 3.73 s / 0 replayed |
+
+The fixed-edit benchmark's after run used 20 measured repetitions; its earlier
+baseline used 10. At both 1,000 and 10,000 unrelated records, deterministic
+counters report zero historical records enumerated, one compared and four
+recorded. The synthetic fixture simulates host fast-forward acceptances without
+warming the worker; it is much simpler than the incident. Peak RSS in its empty
+and restart processes changed from about 592/721 MiB to 406/391 MiB (macOS
+`maxRSS` reports KiB). Timing samples are local and filesystem-warm, without
+host CPU/memory isolation or actual client retry waits; these are not p95 or
+production guarantees.
+
+The copied iPhone benchmark uses the original retained candidate/change and
+read-only accepted-object copy. The baseline and improved implementations return
+the same full answer digest (`sha256:464c1a88a6613efc8031a5f2ffb7bdcbd5993879acebd7345391e79baba412b8`),
+including objects, decisions and evidence. The original accepted root and one
+conflict choice are retained. Restart restored two checkpoints and needed zero
+replay. Its first recovery still misses the 30-second/10x target; native restore,
+full-evaluator work and post-response maintenance remain material. No live data,
+installed application or public host was changed by this work.
+
+Repeatable commands and representation details are in
+[merge checkpoints](docs/architecture/canopyd/merge-cache.md). Private copied-data
+results are under `/tmp/canopy-iphone-diagnosis-20261009/` in
+`history-baseline-replay.jsonl`, `history-lazy-final-replay.jsonl`,
+`history-lazy-restart.jsonl`, and `verify-{baseline,optimized}.jsonl`.
+Synthetic outputs are `/tmp/catch-up-4200{,-baseline}.jsonl`.
+
+Validation: affected checks passed with 736 tests across 59 files, TypeScript
+checking and whitespace checks; subsequent focused checks cover the added warm
+basis write regression and broader unrelated-history counters. The plan remains
+open for host-class profiling, general historical coverage, cheaper divergent
+replay and bounded maintenance/queue latency.

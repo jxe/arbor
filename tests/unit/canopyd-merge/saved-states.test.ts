@@ -169,3 +169,38 @@ test("rebuilding an old concurrent basis preserves the already rebuilt head", as
   }
   expect(completed).toBe(true);
 });
+
+
+test("a returning device's historical basis survives restart alongside its head", async () => {
+  const f = new Fixture(), saves = memorySaves();
+  const { head } = await history(f, sidecar(f, undefined, true), 45);
+  let base = head;
+  for (let i = 0; i < 12; i++) base = decodeLogEntry(f.objects.get(base)!).previous!;
+  const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, { "a.md": "offline" }),
+    change: "offline", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+  const cold = sidecar(f, saves);
+  const expected = await cold.answer(question);
+  await cold.save();
+  expect(saves.files.has(base)).toBe(true);
+  expect(saves.files.has(head)).toBe(true);
+  expect(saves.files.size).toBe(2);
+  const restarted = sidecar(f, saves);
+  expect(await restarted.answer(question)).toEqual(expected);
+  expect(restarted.restored).toBe(2);
+  expect(restarted.replayed).toBe(0);
+  await restarted.save();
+  expect(saves.files.size).toBe(2);
+});
+
+
+test("warm historical bases do not trigger a checkpoint write on every question", async () => {
+  const f = new Fixture(), saves = memorySaves();
+  const warm = sidecar(f, saves, true);
+  const { head } = await history(f, warm, 12);
+  const base = decodeLogEntry(f.objects.get(head)!).previous!;
+  const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, { "a.md": "offline" }),
+    change: "offline", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+  await warm.answer(question);
+  await warm.save();
+  expect(saves.files.size).toBe(0);
+});

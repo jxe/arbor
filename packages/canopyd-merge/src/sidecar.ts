@@ -61,10 +61,9 @@ export interface SavedCheckpoint {
   objects: Array<[string, Uint8Array]>;
 }
 
-/** A tree's head state is saved once this many of its entries were replayed
- * since its last save, and the newest `SAVES_KEPT` saves per tree are kept:
- * a restart replays at most about `SAVE_AFTER` entries more than a warm
- * sidecar would. */
+/** Save a head after this many replayed entries. Also retain a requested
+ * historical basis: a new head alone cannot answer that basis after restart.
+ * This does not bound replay for bases outside the retained checkpoints. */
 const SAVE_AFTER = 32;
 const SAVES_KEPT = 2;
 const SAVED_FORMAT = "arbor-merge-saved-entry";
@@ -117,6 +116,8 @@ export class Sidecar {
   private unsaved = new Map<string, number>();
   /** The last question's head, whose state `save` may write. */
   private lastHead?: string;
+  private lastBase?: string;
+  private saveBasis = false;
   /** Latest verified replay frontier, including an interrupted rebuild. */
   private frontier?: string;
   private interrupted = false;
@@ -193,6 +194,8 @@ export class Sidecar {
     this.replayed = 0;
     this.restored = 0;
     this.lastHead = question.head;
+    this.lastBase = question.base;
+    this.saveBasis = question.base !== question.head && !this.states.has(question.base);
     this.frontier = undefined;
     this.interrupted = false;
     this.replayDeadline = performance.now() + this.replayMillis;
@@ -326,17 +329,23 @@ export class Sidecar {
       // and force the next attempt to rebuild it again.
       if (this.lastHead && this.states.has(this.lastHead)) await this.saveEntry(this.lastHead);
       if (this.frontier && this.frontier !== this.lastHead) await this.saveEntry(this.frontier);
-    } else if (this.lastHead) await this.saveEntry(this.lastHead);
+    } else if (this.lastHead) {
+      await this.saveEntry(this.lastHead);
+      // Saving the head resets the replay counter. The independently requested
+      // older basis is useful even when it needed fewer than SAVE_AFTER steps.
+      if (this.saveBasis && this.lastBase && this.states.has(this.lastBase))
+        await this.saveEntry(this.lastBase, true);
+    }
   }
 
-  private async saveEntry(head: string): Promise<void> {
+  private async saveEntry(head: string, requestedBasis = false): Promise<void> {
     const saved = this.stores.saved;
     // When replay stops before the head, persist the verified frontier. A
     // retry after eviction/restart can then advance instead of starting over.
     if (!saved || !head) return;
-    if (this.interrupted && (await this.savedIndex()).has(head)) return;
+    if ((this.interrupted || requestedBasis) && (await this.savedIndex()).has(head)) return;
     const cached = this.states.get(head), tree = (await this.entry(head)).tree;
-    if (!cached || (!this.interrupted && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
+    if (!cached || (!this.interrupted && !requestedBasis && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
     // The state and every state its decisions name, and the objects they
     // name that only this sidecar holds.
     const states = new Map<string, RetainedState>();
@@ -384,11 +393,13 @@ export class Sidecar {
     const index = await this.savedIndex();
     index.set(head, { tree, savedAt: Date.now() });
     this.unsaved.set(tree, 0);
-    const protectedHead = this.interrupted ? this.lastHead : undefined;
+    const protectedEntries = new Set([this.lastHead, ...(!this.interrupted ? [this.lastBase] : [])]
+      .filter((entry): entry is string => !!entry && index.get(entry)?.tree === tree));
+    const remaining = this.interrupted ? SAVES_KEPT : Math.max(0, SAVES_KEPT - protectedEntries.size);
     const ordered = [...index].filter(([, s]) => s.tree === tree).sort((a, b) => b[1].savedAt - a[1].savedAt);
     let kept = 0;
     for (const [entry] of ordered) {
-      if (entry === protectedHead || kept++ < SAVES_KEPT) continue;
+      if (protectedEntries.has(entry) || kept++ < remaining) continue;
       index.delete(entry);
       await saved.remove(tree, entry);
     }

@@ -44,6 +44,12 @@ placement hosts too. After Apps 005.
 
 ## Later
 
+**[Performance 003: fast catch-up from an older authored basis](performance/003-fast-historical-catch-up.md).**
+Joe requested this on 2026-10-09 after the iPhone caught up but needed several minutes
+of server history reconstruction. Retain useful historical checkpoints within a byte
+budget, reduce replay work as history grows, and measure end-to-end catch-up after
+restart and with an empty cache. Preserve exact authored and conflict semantics.
+
 **[Performance 002: verify the shared merge cache rollout](performance/002-shared-merge-cache.md).**
 Shared compressed checkpoints and resumable replay are implemented locally. Joe intends to push the candidate; verify deployment and the iPhone's original queued request, then record live convergence.
 

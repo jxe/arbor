@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test";
 import { engineDiagnostics, mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
-import { retainState } from "../../../packages/canopyd-merge/src/retained-state.ts";
+import { historyMapDiagnostics, resetHistoryMapDiagnostics, retainState } from "../../../packages/canopyd-merge/src/retained-state.ts";
 import { Fixture, refusal } from "./fixture.ts";
 import { keyOf } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
 test("exact-basis execution preserves complete state and does not read unrelated history", async () => {
   const readCounts: number[] = [];
+  const historyWork: Array<typeof historyMapDiagnostics> = [];
   for (const count of [100, 10_000]) {
     const f = new Fixture(),
       base = f.tree({ "a.md": "abc\r\n" });
@@ -26,7 +27,13 @@ test("exact-basis execution preserves complete state and does not read unrelated
     );
     const state = structuredClone(f.state(initial.result));
     const envelope = state.changes["first-change"]!;
-    for (let i = 0; i < count; i++) state.changes[`historic-${i}`] = envelope;
+    const effect = Object.values(state.effects)[0]!, output = Object.values(state.outputs)[0]!, origin = Object.values(state.origins)[0]!;
+    for (let i = 0; i < count; i++) {
+      state.changes[`historic-${i}`] = envelope;
+      state.effects[`historic-${i}`] = effect;
+      state.outputs[`historic-${i}`] = output;
+      state.origins[`historic-${i}`] = origin;
+    }
     const indexed = retainState(f.states, state, initial.result.object, true).id;
     const request = f.request(
       { object: initial.result.object, state: indexed },
@@ -55,7 +62,9 @@ test("exact-basis execution preserves complete state and does not read unrelated
         for (const value of values) f.objects.set(value.hash, value.bytes);
       },
     };
+    resetHistoryMapDiagnostics();
     const fast = await mergeIntent(request, objects);
+    historyWork.push({ ...historyMapDiagnostics });
     readCounts.push(reads);
     expect(readBytes).toBeLessThan(50_000);
     const full = await mergeIntent(request, objects, { incremental: false });
@@ -66,6 +75,11 @@ test("exact-basis execution preserves complete state and does not read unrelated
     expect(retained.effects[keyOf("first-change", "first")]).toBeDefined();
   }
   expect(readCounts[1]! - readCounts[0]!).toBeLessThan(10);
+  // Loading, cloning, diffing and recording must not enumerate the unrelated
+  // history, even though it remains in the complete retained state.
+  expect(historyWork[1]!.enumerated).toBe(0);
+  expect(historyWork[1]!.compared).toBeLessThanOrEqual(historyWork[0]!.compared + 4);
+  expect(historyWork[1]!.recorded).toBeLessThanOrEqual(historyWork[0]!.recorded + 4);
 });
 
 test("incremental replacements and deletions match full execution across snapshot barriers", async () => {
