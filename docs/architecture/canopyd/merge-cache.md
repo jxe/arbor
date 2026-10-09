@@ -7,35 +7,43 @@ merge rule changes with this format.
 
 ## Representation and publication
 
-`records-v1.sqlite` contains checkpoint manifests, content-addressed state
-records, compressed record packs and compressed binary cache-only objects.
-Persistent map branches, ordered object members, arrays and long strings are
-shared by record hash within and across checkpoints and trees. Small scalar
-values stay inline. Encoding-record hashes are distinct from semantic state
-identities. The codec preserves bucket shape and object iteration order,
-including integer-like keys, and recomputes semantic identities on restoration.
+`records-v2.sqlite` contains checkpoint manifests and content-addressed state
+records and cache-only objects, stored once by hash as raw bytes in zstd packs.
+Persistent map branches, frozen arrays and objects of at least 256 canonical
+bytes, and strings of at least 256 characters are shared by record hash within
+and across checkpoints and trees; smaller values are written in place inside
+their parent (`[tag, data]`, beside the `[id]` reference). Encoding-record hashes
+are distinct from semantic state identities. The codec preserves bucket shape and
+object iteration order, including integer-like keys, and recomputes semantic
+identities on restoration, building each frozen value directly from its decoded
+members.
 
-Packs hold approximately 1 MiB of uncompressed records before gzip compression.
-An indexed database amortizes filesystem and compression overhead across small
-records. Frozen values and persistent branches have weakly memoized encoding
-identities, so an incremental save need not traverse or rehash unchanged state
-branches. Binary objects are verified and stored once, without snapshot base64.
-Object dependency discovery visits each shared in-memory value once per save;
-presence checks against the accepted store run in batches of 64.
+Packs hold approximately 1 MiB of uncompressed records before zstd (level 3)
+compression; the index maps each binary hash to its pack, offset and length in a
+`WITHOUT ROWID` table, about a third of the size of a text-keyed rowid table and
+its separate unique index. Frozen values and persistent branches have weakly
+memoized encoding identities, so an incremental save need not traverse or rehash
+unchanged state branches. Binary objects are verified and stored once, without
+snapshot base64. Object dependency discovery visits each shared in-memory value
+once per save; presence checks against the accepted store run in batches of 64.
+A restore reads every record location in one query.
 
 Dependencies and the manifest publish in one SQLite transaction. A failed save
 leaves the preceding checkpoint intact. Reads use a transaction snapshot;
 writers and collection serialize with immediate transactions. External writes
-invalidate a writer's encoding memo before its next publication. Collection
-marks the records reachable from retained manifests using a sequential scan of
-compressed packs and a compact adjacency index. It deletes unreachable records
-and objects, drops empty packs and repacks groups with at least 25% dead records.
-SQLite reuses freed pages; the database's allocated size can retain its previous
-high-water mark. Restore keeps at most 16 MiB of decompressed packs, plus the
-hydrated state graph and decoded cache-only objects.
+invalidate a writer's encoding memo before its next publication. Removing a
+checkpoint drops only its manifest. Once the packs' raw bytes exceed twice what
+the last collection found live (and 16 MiB), collection marks the records and
+objects reachable from retained manifests using a sequential scan of the packs
+and a compact adjacency index, deletes the rest, drops empty packs and repacks
+packs with at least 25% dead bytes. SQLite reuses freed pages; the database's
+allocated size can retain its previous high-water mark. Restore keeps at most
+16 MiB of decompressed packs, plus the hydrated state graph and decoded
+cache-only objects.
 
 The database filename and manifest format version isolate incompatible codecs.
-Legacy `<tree>/<entry digest>.json` checkpoints remain readable. A successfully
+A `records-v1.sqlite` from the earlier, undeployed layout is deleted on open. Legacy
+`<tree>/<entry digest>.json` checkpoints remain readable. A successfully
 published replacement removes its matching legacy duplicate; superseded saves
 are collected through normal retention. If the database cannot open or list,
 the sidecar falls back to legacy checkpoints and replay. A corrupt shared record
@@ -81,7 +89,9 @@ bun packages/canopyd-merge/scripts/benchmark-cache.ts CHECKPOINT.json CHECKPOINT
 It writes only a fresh temporary cache, verifies exact serialized state shape
 and key order against each original, and launches fresh processes for cold
 restore measurements. See the implementation evidence in [status](../../../status.md)
-for the recorded results. Timing depends on the machine and filesystem cache;
+for the recorded results. `tests/performance/storage/git-history-fixture.ts --traces`
+and `merge-cache-fixture.ts` make disposable inputs for it from a Git
+repository's history. Timing depends on the machine and filesystem cache;
 local measurements are not a production latency guarantee.
 
 Tests cover identical cold/warm answers with open decisions, wide buckets and

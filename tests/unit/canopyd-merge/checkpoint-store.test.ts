@@ -51,7 +51,7 @@ test("incremental checkpoints share unchanged records and collection preserves o
   const { f, id } = await fixture();
   const path = await directory(), store = new CheckpointStore(path);
   const first = checkpoint(f.states, id, "first"); store.write(first);
-  const inspect = new Database(join(path, "records-v1.sqlite"));
+  const inspect = new Database(join(path, "records-v2.sqlite"));
   const count = () => (inspect.query("SELECT count(*) AS n FROM records").get() as { n: number }).n;
   const before = count();
   const state = loadState(f.states.get(id)!); state.changes.another = hashObject(Buffer.from("another"));
@@ -59,11 +59,14 @@ test("incremental checkpoints share unchanged records and collection preserves o
   const second = checkpoint(new Map([[next.id, f.states.get(next.id)!]]), next.id, "second"); store.write(second);
   expect(count() - before).toBeLessThan(before / 2);
   store.remove(first.tree, first.entry);
+  store.collect();
   expect(store.read(second.tree, second.entry)!.state).toBe(next.id);
   // Saving a formerly collected state republishes all its dependencies.
   store.write(first);
   expect(store.read(first.tree, first.entry)!.state).toBe(id);
   store.remove(first.tree, first.entry); store.remove(second.tree, second.entry);
+  // Removal drops manifests; collection, once garbage has grown, the records.
+  store.collect();
   expect(count()).toBe(0);
   expect(inspect.query("SELECT count(*) AS n FROM packs").get()).toEqual({ n: 0 });
   inspect.close(); store.close();
@@ -72,7 +75,7 @@ test("incremental checkpoints share unchanged records and collection preserves o
 test("missing records and corrupt packs invalidate the shared cache and can be rebuilt", async () => {
   const { f, id } = await fixture(); const path = await directory(), store = new CheckpointStore(path);
   const c = checkpoint(f.states, id, "entry"); store.write(c);
-  const db = new Database(join(path, "records-v1.sqlite"));
+  const db = new Database(join(path, "records-v2.sqlite"));
   db.exec("UPDATE packs SET bytes = X'00'");
   expect(() => store.read(c.tree, c.entry)).toThrow();
   expect(store.list()).toHaveLength(0);
@@ -87,7 +90,7 @@ test("missing records and corrupt packs invalidate the shared cache and can be r
 test("failed publication rolls back dependencies and preserves the previous checkpoint", async () => {
   const { f, id } = await fixture(); const path = await directory(), store = new CheckpointStore(path);
   const c = checkpoint(f.states, id, "first"); store.write(c);
-  const db = new Database(join(path, "records-v1.sqlite"));
+  const db = new Database(join(path, "records-v2.sqlite"));
   db.exec("CREATE TRIGGER interrupt BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT, 'interrupted'); END;");
   const second = { ...c, entry: hashObject(Buffer.from("second")) };
   expect(() => store.write(second)).toThrow("interrupted");
@@ -103,9 +106,17 @@ test("another writer's collection cannot leave memoized unpublished dependencies
   const { f, id } = await fixture(); const path = await directory();
   const a = new CheckpointStore(path), b = new CheckpointStore(path);
   const c = checkpoint(f.states, id, "entry"); a.write(c);
-  b.remove(c.tree, c.entry);
+  b.remove(c.tree, c.entry); b.collect();
   expect(a.list()).toHaveLength(0);
   a.write(c);
   expect(b.read(c.tree, c.entry)!.state).toBe(id);
   a.close(); b.close();
+});
+
+test("a store in the undeployed previous layout is discarded", async () => {
+  const path = await directory();
+  new Database(join(path, "records-v1.sqlite")).close();
+  const store = new CheckpointStore(path);
+  expect(await Bun.file(join(path, "records-v1.sqlite")).exists()).toBe(false);
+  store.close();
 });

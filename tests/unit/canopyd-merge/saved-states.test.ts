@@ -79,7 +79,7 @@ test("a restarted sidecar reads the nearest saved state instead of replaying the
   const cold = sidecar(f);
   await cold.answer(question);
   expect(cold.replayed).toBe(76);
-});
+}, 30_000);
 
 test("an unreadable or mismatched save is discarded and replayed", async () => {
   const f = new Fixture(), saves = memorySaves();

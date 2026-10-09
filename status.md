@@ -270,6 +270,7 @@ measurements before broadening the implementation.
 | Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`canopyd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and canopyd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Arbor Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `arbor device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host canopyd also publishes each profile's key devices at `GET /.arbor/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by [migration 023](packages/canopyd/migrations/023-device-keys/README.md) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
 | Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis. Legacy JSON checkpoints remain readable | implemented locally 2026-10-09, not deployed; legacy snapshot cache observed on the live host that day | [shared checkpoints](docs/architecture/canopyd/merge-cache.md), [rollout](plans/performance/002-shared-merge-cache.md) |
 | Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | implemented and verified locally 2026-10-09; not deployed; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [remaining work](plans/performance/003-fast-historical-catch-up.md) |
+| Object packing (canopyd 001): `ObjectStore` reads, presence checks and freshens fall back from loose files to immutable packs under `objects/packs/` indexed in their own SQLite file (raw, zstd, a zstd delta against the previous version of the same document at most 10 deep, or a shared frame for small objects; every read hash-checked); canopyd's `PackMaintenance` packs loose objects older than an hour outside every current tree after acceptances cross a threshold, at startup and when idle, and removes loose files only after reading each packed object back; the collector drops dead packed rows under the same retention and grace rules, keeping delta bases, and rewrites half-empty packs. On the repository-history fixture (259 MB raw, 322 MB loose) deltas took 37 MB with 0.6 ms p95 single reads; see [the plan](plans/performance/001-pack-object-storage.md) for the layouts compared | implemented, off by default (`ARBOR_OBJECT_PACKING=1`), not deployed; live measurement pending | [plan](plans/performance/001-pack-object-storage.md) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@overstory/tree-merge`, which Arbor Sync tree recovery now declares. Log entries and the question and answer are unchanged | implemented, not deployed | [merge sidecar](docs/architecture/canopyd/merge-tool.md#retained-state) |
 | Transfer merge extensions (canopyd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/canopyd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | implemented, not deployed; gate in [small work](plans/small-work.md#server-refinements) | [transfers](docs/architecture/canopyd/merge-tool.md#transfers) |
 | Moves on the fast paths (Native 008): canopyd accepts a head trace whose frames are basis `moveSource` operations and then `editSource` operations without the sidecar, executing them with `arrangeSources` in `@overstory/protocol`; the sidecar's exact-basis path also takes basis moves and ordered lineage. Tested against eager and full evaluation, with a peer edit in both arrival orders (`tests/unit/canopyd-merge/source-moves.test.ts`, `tests/integration/canopyd/source-acceptance.test.ts`). No wire or schema change | implemented, not deployed | [fast-forward](docs/architecture/canopyd/merge-tool.md#fast-forward) |
@@ -1778,3 +1779,38 @@ checking and whitespace checks; subsequent focused checks cover the added warm
 basis write regression and broader unrelated-history counters. The plan remains
 open for host-class profiling, general historical coverage, cheaper divergent
 replay and bounded maintenance/queue latency.
+
+## Checkpoint store v2 — 2026-10-09
+
+The shared checkpoint store moved to `records-v2.sqlite`. These changes come from
+a parallel Performance 002 prototype; its store was dropped in favor of this one.
+
+- **Packs:** raw records in zstd packs indexed by binary hash in a `WITHOUT ROWID`
+  table, instead of gzip JSON packs with a text-keyed rowid table plus its unique
+  index.
+- **Objects:** cache-only objects go into the same packs instead of one gzip per
+  object.
+- **In-place values:** frozen values under 256 canonical bytes are written inside
+  their parent.
+- **Restore:** one index query per restore, and frozen values are built directly
+  from their decoded members.
+- **Collection:** it runs once garbage doubles, not on every checkpoint removal.
+
+A `records-v1.sqlite` (never deployed) is deleted on open. Semantics,
+identities and the sidecar's retention policy are unchanged.
+
+Measured with `packages/canopyd-merge/scripts/benchmark-cache.ts` on two saves
+(54.5 and 57.2 MB of JSON). The saves were made by `tests/performance/storage/`
+from this repository's history with traced Markdown edits (1,500 entries). Timings
+are single local runs in a shared container:
+
+| | v1 | v2 |
+| --- | ---: | ---: |
+| Database | 64.9 MB | 27.0 MB |
+| Index rows | 160,781 | 100,884 |
+| First / incremental save | 7.6 / 2.6 s | 2.5 / 1.7 s |
+| Fresh-process restore | 7.4–7.6 s | 5.2–5.4 s |
+
+In v1 the index (28.6 MB) and per-object gzip (18.4 MB) outweighed the packs.
+The live cache has not been measured with v2. Validation: canopyd-merge unit
+tests pass.

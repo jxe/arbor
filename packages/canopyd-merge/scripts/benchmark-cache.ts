@@ -56,5 +56,5 @@ for (const [tree, entry] of identities) {
   cold.push(JSON.parse(await new Response(child.stdout).text()));
   if (await child.exited !== 0) throw new Error("Cold restore failed");
 }
-console.log(JSON.stringify({ directory, rows, cold, databaseBytes: (await stat(join(directory, "records-v1.sqlite"))).size,
+console.log(JSON.stringify({ directory, rows, cold, databaseBytes: (await stat(join(directory, "records-v2.sqlite"))).size,
   peakRSS: process.resourceUsage().maxRSS }, null, 2));

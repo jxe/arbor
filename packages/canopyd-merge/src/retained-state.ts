@@ -542,19 +542,28 @@ export function decodeRetainedState(value: unknown): { id: string; state: Retain
 /** `freeze` for a saved value: the same facts, but the key order it has. A
  * recorded object is in key order or, when bucketed, in `radix` order;
  * interning shares it only with an object recorded in that same order. */
-function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
+type Thawed = Facts & { value: unknown; bytes: number };
+
+function thaw(value: unknown): Thawed {
   if (isObject(value) && facts.has(value)) return { value, ...facts.get(value)!, bytes: 0 };
   if (!isObject(value)) return { value, ...factsOf(value), bytes: factsOf(value).size };
-  let keys: string[], children: Array<Facts & { value: unknown; bytes: number }>, text: string;
-  if (Array.isArray(value)) {
+  if (Array.isArray(value)) return intern(null, value.map(thaw));
+  const record = value as Record<string, unknown>, order = Object.keys(record);
+  return intern(order, order.map((key) => thaw(record[key])));
+}
+
+/** The frozen, interned value of an array (`order` null) or of an object
+ * whose keys are `order`, from its members already thawed in that order. */
+function intern(order: string[] | null, members: Thawed[]): Thawed {
+  let keys: string[], children: Thawed[], text: string;
+  if (!order) {
     keys = [];
-    children = value.map(thaw);
+    children = members;
     text = `[${children.map((child) => child.hash).join(",")}]`;
   } else {
-    const record = value as Record<string, unknown>;
-    keys = Object.keys(record);
-    const values = new Map(keys.map((key) => [key, thaw(record[key])]));
-    keys = [...keys].sort();
+    const values = new Map(order.map((key, index) => [key, members[index]!]));
+    if (values.size !== order.length) throw new Error("Saved value repeats a key");
+    keys = [...order].sort();
     children = keys.map((key) => values.get(key)!);
     text = `{${keys.map((key, index) => `${JSON.stringify(key)}:${children[index]!.hash}`).join(",")}}`;
   }
@@ -569,16 +578,15 @@ function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
   // (integer-like keys first).
   const laid = (order: string[]) => Object.keys(Object.fromEntries(order.map((key) => [key, 0])));
   const inOrder = (order: string[], expected: string[]) => order.every((key, index) => key === expected[index]);
-  const order = Array.isArray(value) ? null : Object.keys(value);
   const kind = !order || inOrder(order, laid(keys)) ? "k"
     : keys.length > 16 && inOrder(order, laid(radix(keys, 0))) ? "b" : null;
   if (kind === null) throw new Error("Saved value is in no recorded order");
   const existing = interned.get(`${kind}${hash}`)?.deref();
   if (existing) return { value: existing, ...facts.get(existing)!, bytes: 0 };
   const byKey = order ? new Map(keys.map((key, index) => [key, children[index]!.value])) : null;
-  const frozen = Object.freeze(Array.isArray(value)
+  const frozen = Object.freeze(!order
     ? children.map((child) => child.value)
-    : Object.fromEntries(order!.map((key) => [key, byKey!.get(key)]))) as object;
+    : Object.fromEntries(order.map((key) => [key, byKey!.get(key)]))) as object;
   facts.set(frozen, { hash, size, length });
   interned.set(`${kind}${hash}`, new WeakRef(frozen));
   released.register(frozen, `${kind}${hash}`);
@@ -586,6 +594,9 @@ function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
   return { value: frozen, hash, size, length, bytes: own + children.reduce((n, child) => n + child.bytes, 0) };
 }
 
+
+/** Frozen values of fewer canonical bytes are written inside their parent. */
+const INLINE_BYTES = 256;
 
 /** Private cache records have their own hashes, distinct from semantic state
  * identities. Objects and buckets are encoded once while they remain alive;
@@ -598,9 +609,13 @@ export class StateRecordWriter {
     if (!isObject(value)) return typeof value === "string" && value.length >= 256 ? [this.record(["scalar", value])] : value;
     const known = this.known.get(value);
     if (known) return [known];
-    const id = this.record(Array.isArray(value)
+    const body = Array.isArray(value)
       ? ["array", value.map((v) => this.value(v))]
-      : ["object", Object.keys(value).map((key) => [key, this.value((value as Record<string, unknown>)[key])])]);
+      : ["object", Object.keys(value).map((key) => [key, this.value((value as Record<string, unknown>)[key])])];
+    // A small value is written in place (`[tag, data]`, where a reference is
+    // `[id]`): a record and its index row would cost more than it shares.
+    if ((facts.get(value)?.size ?? Infinity) < INLINE_BYTES) return body;
+    const id = this.record(body);
     this.known.set(value, id);
     return [id];
   }
@@ -650,22 +665,44 @@ export class StateRecordReader {
       if (isObject(ref)) throw new Error("Invalid cache value reference");
       return ref;
     }
+    const built = this.member(ref);
+    this.addedBytes += built.bytes;
+    return built.value;
+  }
+  /** A member as interned, with the bytes it newly added (none for a
+   * record already decoded, which counted them then). */
+  private member(ref: unknown): Thawed {
+    if (!Array.isArray(ref)) {
+      if (isObject(ref)) throw new Error("Invalid cache value reference");
+      return { value: ref, ...factsOf(ref), bytes: factsOf(ref).size };
+    }
+    // A small value written in place.
+    if (ref.length === 2 && (ref[0] === "array" || ref[0] === "object")) return this.composite(ref[0], ref[1]);
     if (ref.length !== 1 || typeof ref[0] !== "string") throw new Error("Invalid cache value reference");
     const id = ref[0];
-    if (this.values.has(id)) return this.values.get(id);
-    const value = this.read(id, ([tag, data]) => {
-      if (tag === "scalar" && !isObject(data)) return data;
-      if (tag === "array" && Array.isArray(data)) return data.map((ref) => this.value(ref));
-      if (tag === "object" && Array.isArray(data)) return Object.fromEntries(data.map((pair) => {
-        if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") throw new Error("Invalid cache member");
-        return [pair[0], this.value(pair[1])];
-      }));
-      throw new Error("Invalid cache value");
+    if (this.values.has(id)) {
+      const value = this.values.get(id);
+      return { value, ...factsOf(value), bytes: 0 };
+    }
+    const built = this.read(id, ([tag, data]): Thawed => {
+      if (tag === "scalar" && !isObject(data)) return { value: data, ...factsOf(data), bytes: factsOf(data).size };
+      return this.composite(tag, data);
     });
-    const frozen = thaw(value);
-    this.addedBytes += frozen.bytes;
-    this.values.set(id, frozen.value);
-    return frozen.value;
+    this.addedBytes += built.bytes;
+    this.values.set(id, built.value);
+    return { ...built, bytes: 0 };
+  }
+  /** An array or object built directly from its decoded members, in their
+   * recorded order. */
+  private composite(tag: unknown, data: unknown): Thawed {
+    if (tag === "array" && Array.isArray(data)) return intern(null, data.map((ref) => this.member(ref)));
+    if (tag === "object" && Array.isArray(data)) {
+      for (const pair of data)
+        if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") throw new Error("Invalid cache member");
+      const pairs = data as Array<[string, unknown]>;
+      return intern(pairs.map(([key]) => key), pairs.map(([, ref]) => this.member(ref)));
+    }
+    throw new Error("Invalid cache value");
   }
   private bucket(id: string): Bucket {
     const known = this.buckets.get(id);
