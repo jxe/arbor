@@ -194,7 +194,7 @@ async function inventory(root: string, hotDays: number, progress: (m: string) =>
   const random = Array.from({ length: Math.min(2000, all.length) }, () => all[(seed = (seed * 1103515245 + 12345) % 2 ** 31) % all.length]!);
   const audit = all;
   // Hot: the current trees, recent objects, and the newest log entries.
-  const newest = Math.max(...[...objects.values()].map((o) => o.mtime));
+  const newest = [...objects.values()].reduce((n, o) => Math.max(n, o.mtime), 0);
   const hot = new Set<string>([...current, ...rows.slice(-200).map((row) => row.entry)]);
   for (const o of objects.values()) if (o.mtime >= newest - hotDays * 86_400_000) hot.add(o.hash);
   return { objects, rows, workloads: { current, edits, history, log, random, audit }, hot, looseAllocated };
