@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { constants, zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { constants, gunzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { hashObject } from "@overstory/protocol";
 import { StateRecordReader, StateRecordWriter } from "./retained-state.ts";
 import type { SavedCheckpoint } from "./sidecar.ts";
@@ -32,16 +32,17 @@ const compress = (bytes: Uint8Array) => zstdCompressSync(bytes, { params: { [con
  * hash; checkpoint manifests name them. Dependencies and manifest commit in
  * one transaction. Removing a checkpoint drops only its manifest; records no
  * manifest reaches are collected once garbage doubles. A `records-v1.sqlite`
- * from the undeployed previous layout is deleted: the cache is disposable. */
+ * from the previous layout (deployed 2026-10-09) is listed and read until its
+ * checkpoints are removed, then deleted, so the upgrade replays nothing. */
 export class CheckpointStore {
   private db: Database;
   private writer: StateRecordWriter;
   private pending = new Map<string, Uint8Array>();
   private pendingBytes = 0;
   private dataVersion?: number;
-  constructor(directory: string) {
+  private legacy?: LegacyCheckpointStore;
+  constructor(private readonly directory: string) {
     mkdirSync(directory, { recursive: true });
-    for (const suffix of ["", "-wal", "-shm"]) rmSync(join(directory, `records-v1.sqlite${suffix}`), { force: true });
     this.db = new Database(join(directory, FILE));
     this.db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
@@ -50,10 +51,14 @@ export class CheckpointStore {
       CREATE INDEX IF NOT EXISTS records_pack ON records(pack);
       CREATE TABLE IF NOT EXISTS checkpoints (tree TEXT NOT NULL, entry TEXT NOT NULL, savedAt REAL NOT NULL, manifest TEXT NOT NULL, PRIMARY KEY(tree, entry));`);
     this.writer = new StateRecordWriter((bytes) => this.put(bytes));
+    if (existsSync(join(directory, "records-v1.sqlite"))) this.legacy = new LegacyCheckpointStore(directory);
   }
-  close(): void { this.db.close(); }
+  close(): void { this.db.close(); this.legacy?.close(); }
   list(): Array<{ tree: string; entry: string; savedAt: number }> {
-    return this.db.query("SELECT tree, entry, savedAt FROM checkpoints").all() as Array<{ tree: string; entry: string; savedAt: number }>;
+    const rows = this.db.query("SELECT tree, entry, savedAt FROM checkpoints").all() as Array<{ tree: string; entry: string; savedAt: number }>;
+    for (const row of this.legacy?.list() ?? [])
+      if (!rows.some((r) => r.tree === row.tree && r.entry === row.entry)) rows.push(row);
+    return rows;
   }
   private has(hash: string): boolean {
     return this.pending.has(hash) || !!this.db.query("SELECT 1 FROM records WHERE hash = ?").get(key(hash));
@@ -115,7 +120,8 @@ export class CheckpointStore {
   }
   read(tree: string, entry: string): SavedCheckpoint | null {
     try {
-      return this.db.transaction(() => this.load(tree, entry))();
+      const native = this.db.transaction(() => this.load(tree, entry))();
+      if (native) return native;
     } catch (error) {
       // A damaged shared pack can affect several manifests. Drop the private
       // graph together, so future saves cannot reuse its broken dependencies.
@@ -123,6 +129,12 @@ export class CheckpointStore {
         this.db.exec("DELETE FROM checkpoints; DELETE FROM records; DELETE FROM packs; DELETE FROM meta;");
       }).immediate();
       this.writer.clear();
+      throw error;
+    }
+    try {
+      return this.legacy?.read(tree, entry) ?? null;
+    } catch (error) {
+      this.dropLegacy();
       throw error;
     }
   }
@@ -169,9 +181,19 @@ export class CheckpointStore {
   /** Drop a checkpoint's manifest; collect when garbage has doubled. */
   remove(tree: string, entry: string): void {
     this.db.query("DELETE FROM checkpoints WHERE tree = ? AND entry = ?").run(tree, entry);
+    if (this.legacy) {
+      this.legacy.remove(tree, entry);
+      if (!this.legacy.list().length) this.dropLegacy();
+    }
     const stored = (this.db.query("SELECT coalesce(sum(raw), 0) AS n FROM packs").get() as { n: number }).n;
     const live = (this.db.query("SELECT value FROM meta WHERE key = 'live'").get() as { value: number } | null)?.value ?? 0;
     if (stored > Math.max(COLLECT_FLOOR, COLLECT_RATIO * live)) this.collect();
+  }
+  private dropLegacy(): void {
+    if (!this.legacy) return;
+    this.legacy.close();
+    this.legacy = undefined;
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(join(this.directory, `records-v1.sqlite${suffix}`), { force: true });
   }
   /**
    * Keep what retained manifests reach (any hash a record names), drop the
@@ -241,5 +263,61 @@ export class CheckpointStore {
     }).immediate();
     this.writer.clear();
     return liveBytes;
+  }
+}
+
+/** The previous layout (`records-v1.sqlite`: gzip JSON packs of
+ * `[hash, text]` by slot, text hashes, gzip objects), read until its
+ * checkpoints are gone. Its records are the same codec's. To be removed once
+ * no deployed host has one (Performance 002). */
+class LegacyCheckpointStore {
+  private db: Database;
+  constructor(directory: string) {
+    this.db = new Database(join(directory, "records-v1.sqlite"));
+    this.db.exec("PRAGMA busy_timeout = 5000");
+  }
+  close(): void { this.db.close(); }
+  list(): Array<{ tree: string; entry: string; savedAt: number }> {
+    try { return this.db.query("SELECT tree, entry, savedAt FROM checkpoints").all() as Array<{ tree: string; entry: string; savedAt: number }>; }
+    catch { return []; }
+  }
+  remove(tree: string, entry: string): void {
+    try { this.db.query("DELETE FROM checkpoints WHERE tree = ? AND entry = ?").run(tree, entry); } catch { /* no table: nothing to remove */ }
+  }
+  read(tree: string, entry: string): SavedCheckpoint | null {
+    const row = this.db.query("SELECT manifest FROM checkpoints WHERE tree = ? AND entry = ?").get(tree, entry) as { manifest: string } | null;
+    if (!row) return null;
+    const manifest = JSON.parse(row.manifest) as Manifest;
+    if (manifest.format !== FORMAT || manifest.tree !== tree || manifest.entry !== entry) throw new Error("Invalid checkpoint manifest");
+    const packs = new Map<number, Array<[string, string]>>();
+    const reader = new StateRecordReader((hash) => {
+      const index = this.db.query("SELECT pack, slot FROM records WHERE hash = ?").get(hash) as { pack: number; slot: number } | null;
+      if (!index) throw new Error("Missing checkpoint record");
+      let pack = packs.get(index.pack);
+      if (!pack) {
+        const stored = this.db.query("SELECT bytes FROM packs WHERE id = ?").get(index.pack) as { bytes: Uint8Array } | null;
+        if (!stored) throw new Error("Missing checkpoint pack");
+        pack = JSON.parse(gunzipSync(stored.bytes).toString()) as Array<[string, string]>;
+        packs.set(index.pack, pack);
+      }
+      const record = pack[index.slot];
+      if (!record || record[0] !== hash) throw new Error("Invalid checkpoint index");
+      const bytes = new TextEncoder().encode(record[1]);
+      if (hashObject(bytes) !== hash) throw new Error("Corrupt checkpoint record");
+      return bytes;
+    });
+    const states = new Map(manifest.states.map(([id, ref]) => {
+      const decoded = reader.state(ref);
+      if (decoded.id !== id || decoded.state.tree !== tree) throw new Error("Invalid checkpoint state identity");
+      return [id, decoded.state] as const;
+    }));
+    const objects = manifest.objects.map((hash): [string, Uint8Array] => {
+      const stored = this.db.query("SELECT bytes FROM objects WHERE hash = ?").get(hash) as { bytes: Uint8Array } | null;
+      if (!stored) throw new Error("Missing checkpoint object");
+      const bytes = gunzipSync(stored.bytes);
+      if (hashObject(bytes) !== hash) throw new Error("Corrupt checkpoint object");
+      return [hash, new Uint8Array(bytes)];
+    });
+    return { ...manifest, states, objects };
   }
 }

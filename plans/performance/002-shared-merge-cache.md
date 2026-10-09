@@ -19,23 +19,27 @@ and [status](../../status.md). Joe intends to push the candidate himself.
    and repeated history rebuilds do not cycle. Record live timing and checkpoint
    size separately from local-copy measurements. Record the deployed revision and
    physical-phone result in status, then delete this plan.
-4. Retire the whole-JSON checkpoint format (`<tree>/<entry digest>.json`).
-   - Today the sidecar still reads it and, when the database is unavailable, still
-     writes it (`SavedStates.read`/`write`, `encodeRetainedState`,
-     `decodeRetainedState`).
-   - **Precondition:** on the deployed host, every tree's retained checkpoints are
-     native rows in `records-v2.sqlite`, and no `.json` file remains under
-     `merge-cache/`. A native write removes its own JSON duplicate; retention
-     removes the rest. Record when that held.
-   - **Change:**
-     - Delete the JSON read path and the JSON write fallback. A store that cannot
-       open is treated as an empty cache (replay), as a missing cache already is.
-     - Have `savedStatesIn` delete any leftover `<tree>/` JSON directories on
-       startup.
-     - Remove `encodeRetainedState`/`decodeRetainedState` once tests and
-       `benchmark-cache.ts` no longer need them as an input format. The benchmark
-       can take saves from `tests/performance/storage/merge-cache-fixture.ts`
-       re-emitted as native stores.
-   - **Risk:** a host that still has only JSON checkpoints replays from each
-     chain's start once. That is slow (the 4,200-entry rebuild), so do not ship
-     the removal before the precondition is recorded.
+4. Retire the earlier formats once nothing deployed holds them. Removing a
+   reader early costs a full replay from each chain's start (the 4,200-entry
+   rebuild), so record each precondition before the change ships.
+   - **Whole-JSON saves (`<tree>/<entry digest>.json`).** Read by
+     `SavedStates.read`, and written by the fallback in `Sidecar.save` when the
+     database cannot open (`encodeRetainedState`, `decodeRetainedState`).
+     - *Precondition:* none remains on the host. Observed on a read-only copy at
+       2026-10-09 13:43Z: `merge-cache/tr_owozr6aegt5z7x6qyllvzljl5u/` is empty
+       and the cache is `records-v1.sqlite`.
+     - *Change:*
+       - delete the JSON read path and the write fallback; a database that
+         cannot open becomes an empty cache, as a missing cache already is;
+       - have `savedStatesIn` delete leftover `<tree>/` directories;
+       - drop the two functions once tests and `benchmark-cache.ts` take native
+         stores as input.
+     - *Status:* the precondition holds, so this can be done in the same push as
+       the v2 store.
+   - **`records-v1.sqlite`.** Read by `LegacyCheckpointStore` in
+     `checkpoint-store.ts` until its checkpoints are removed, then deleted.
+     - *Precondition:* after v2 is deployed, the host's cache directory has no
+       `records-v1.sqlite`. Normal retention replaces each tree's two
+       checkpoints after about 64 replayed entries, or as soon as a basis is
+       saved.
+     - *Change:* delete `LegacyCheckpointStore` and its test.

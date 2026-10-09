@@ -1796,7 +1796,7 @@ a parallel Performance 002 prototype; its store was dropped in favor of this one
   from their decoded members.
 - **Collection:** it runs once garbage doubles, not on every checkpoint removal.
 
-A `records-v1.sqlite` (never deployed) is deleted on open. Semantics,
+A deployed `records-v1.sqlite` is read until its checkpoints are removed, then deleted. Semantics,
 identities and the sidecar's retention policy are unchanged.
 
 Measured with `packages/canopyd-merge/scripts/benchmark-cache.ts` on two saves

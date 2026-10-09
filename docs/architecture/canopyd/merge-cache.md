@@ -42,7 +42,10 @@ allocated size can retain its previous high-water mark. Restore keeps at most
 cache-only objects.
 
 The database filename and manifest format version isolate incompatible codecs.
-A `records-v1.sqlite` from the earlier, undeployed layout is deleted on open. Legacy
+A `records-v1.sqlite` from the earlier layout (deployed 2026-10-09: gzip JSON
+packs, text hashes, separately gzipped objects; the same record syntax) is listed
+and read until its checkpoints are removed, and then deleted, so the upgrade
+replays nothing. Legacy
 `<tree>/<entry digest>.json` checkpoints remain readable. A successfully
 published replacement removes its matching legacy duplicate; superseded saves
 are collected through normal retention. If the database cannot open or list,

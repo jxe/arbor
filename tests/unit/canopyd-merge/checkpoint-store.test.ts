@@ -113,10 +113,39 @@ test("another writer's collection cannot leave memoized unpublished dependencies
   a.close(); b.close();
 });
 
-test("a store in the undeployed previous layout is discarded", async () => {
-  const path = await directory();
-  new Database(join(path, "records-v1.sqlite")).close();
+test("checkpoints in the previous layout are read until removed, then its file goes", async () => {
+  const { f, id } = await fixture(); const path = await directory();
+  // A records-v1.sqlite as the previous layout wrote it: gzip JSON packs of
+  // [hash, text] by slot, text hashes, gzip objects.
+  const { gzipSync } = await import("node:zlib");
+  const { StateRecordWriter } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
+  const v1 = new Database(join(path, "records-v1.sqlite"));
+  v1.exec(`CREATE TABLE packs (id INTEGER PRIMARY KEY, bytes BLOB NOT NULL);
+    CREATE TABLE records (hash TEXT PRIMARY KEY, pack INTEGER NOT NULL, slot INTEGER NOT NULL);
+    CREATE TABLE objects (hash TEXT PRIMARY KEY, bytes BLOB NOT NULL);
+    CREATE TABLE checkpoints (tree TEXT NOT NULL, entry TEXT NOT NULL, savedAt REAL NOT NULL, manifest TEXT NOT NULL, PRIMARY KEY(tree, entry));`);
+  const records: Array<[string, string]> = [];
+  const writer = new StateRecordWriter((bytes) => { const hash = hashObject(bytes); records.push([hash, new TextDecoder().decode(bytes)]); return hash; });
+  const c = checkpoint(f.states, id, "legacy");
+  const bytes = Buffer.from("private object");
+  c.objects.push([hashObject(bytes), bytes]);
+  const states = [...c.states].map(([sid, s]) => [sid, writer.state(s)]);
+  v1.query("INSERT INTO packs VALUES (1, ?)").run(gzipSync(JSON.stringify(records)));
+  records.forEach(([hash], slot) => v1.query("INSERT OR IGNORE INTO records VALUES (?, 1, ?)").run(hash, slot));
+  v1.query("INSERT INTO objects VALUES (?, ?)").run(hashObject(bytes), gzipSync(bytes));
+  v1.query("INSERT INTO checkpoints VALUES (?, ?, 1, ?)").run(c.tree, c.entry, JSON.stringify({
+    format: "arbor-merge-records-1", tree: c.tree, entry: c.entry, object: c.object, state: c.state, decisions: [], states, objects: [hashObject(bytes)] }));
+  v1.close();
   const store = new CheckpointStore(path);
+  expect(store.list().map((e) => e.entry)).toEqual([c.entry]);
+  const restored = store.read(c.tree, c.entry)!;
+  expect([...restored.states].map(([sid, s]) => [sid, encodeRetainedState(s)])).toEqual([...c.states].map(([sid, s]) => [sid, encodeRetainedState(s)]));
+  expect(restored.objects).toEqual([[hashObject(bytes), new Uint8Array(bytes)]]);
+  // A new checkpoint goes to the current layout; removing the last old one
+  // removes the old file.
+  store.write({ ...c, entry: hashObject(Buffer.from("newer")) });
+  store.remove(c.tree, c.entry);
+  expect(store.list().map((e) => e.entry)).toEqual([hashObject(Buffer.from("newer"))]);
   expect(await Bun.file(join(path, "records-v1.sqlite")).exists()).toBe(false);
   store.close();
 });
