@@ -64,7 +64,7 @@ export class PackMaintenance {
   constructor(private readonly db: Database, private readonly objects: ObjectStore, private readonly root: string, options: PackMaintenanceOptions = {}) {
     this.options = {
       minAgeMs: 60 * 60_000, highObjects: 4000, highBytes: 64 << 20, debounceMs: 30_000, idleMs: 30 * 60_000,
-      batchObjects: 4000, batchBytes: 64 << 20, ...options,
+      batchObjects: 4000, batchBytes: 32 << 20, ...options,
     };
   }
 
@@ -152,7 +152,7 @@ export class PackMaintenance {
       const candidates: PackCandidate[] = [];
       for (const f of batch) {
         const bytes = await this.objects.find(f.hash);
-        if (bytes) candidates.push({ hash: f.hash, bytes, key: keys.get(f.hash) ?? `object:${f.hash}` });
+        if (bytes) candidates.push({ hash: f.hash, bytes, key: keys.get(f.hash) ?? `object:${f.hash}`, usedAt: f.mtimeMs });
       }
       const result = await this.objects.pack(candidates);
       report.packed += result.packed; report.bytes += result.bytes; report.packBytes += result.packBytes; report.batches++;

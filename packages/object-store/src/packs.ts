@@ -35,8 +35,8 @@ export interface PackedLocation {
 /** One object's record as a packing pass prepared it. Records sharing a
  * `frame` (the same `Uint8Array`) are members of one zstd frame. */
 export type PackRecord =
-  | { hash: string; encoding: Encoding.Raw | Encoding.Zstd; body: Uint8Array; size: number }
-  | { hash: string; encoding: Encoding.Member; frame: Uint8Array; start: number; size: number };
+  | { hash: string; encoding: Encoding.Raw | Encoding.Zstd; body: Uint8Array; size: number; usedAt?: number }
+  | { hash: string; encoding: Encoding.Member; frame: Uint8Array; start: number; size: number; usedAt?: number };
 
 const HASH = /^sha256:([a-f0-9]{64})$/;
 const digest = (hash: string) => {
@@ -256,7 +256,7 @@ export class Packs {
       id = (insertPack.get(name, offset, now) as { id: number }).id;
       for (const { record, offset: o, length } of placed)
         insertObject.run(digest(record.hash), id, o, length, record.encoding,
-          record.encoding === Encoding.Member ? record.start : 0, record.size, now);
+          record.encoding === Encoding.Member ? record.start : 0, record.size, Math.min(record.usedAt ?? now, now));
     })();
     return id;
   }
@@ -355,7 +355,7 @@ export class Packs {
       if ((name.endsWith(".pack") && !known.has(name)) || name.endsWith(".tmp")) {
         // A pass in another process may have written it and not yet indexed it.
         const info = await stat(join(this.directory, name)).catch(() => null);
-        if (!info || info.mtimeMs > Date.now() - minAgeMs) continue;
+        if (!info || (minAgeMs > 0 && info.mtimeMs > Date.now() - minAgeMs)) continue;
         await unlink(join(this.directory, name)).catch(() => {});
         removed.push(name);
       }
@@ -377,6 +377,9 @@ export interface PackCandidate {
   /** Document identity (a stable key, a path, a tree's log): versions of one
    * document are packed together. */
   key: string;
+  /** When the object was last used (its loose file's time); packing keeps
+   * it, so the collector's grace period is not restarted. */
+  usedAt?: number;
 }
 
 export interface PackOptions {
@@ -409,7 +412,7 @@ export function prepareRecords(candidates: PackCandidate[], options: PackOptions
     let at = 0;
     const starts = members.map((m) => { joined.set(m.bytes, at); at += m.bytes.byteLength; return at - m.bytes.byteLength; });
     const frame = zstd(joined, level);
-    members.forEach((m, i) => records.push({ hash: m.hash, encoding: Encoding.Member, frame, start: starts[i]!, size: m.bytes.byteLength }));
+    members.forEach((m, i) => records.push({ hash: m.hash, encoding: Encoding.Member, frame, start: starts[i]!, size: m.bytes.byteLength, ...(m.usedAt === undefined ? {} : { usedAt: m.usedAt }) }));
     members = []; size = 0;
   };
   for (const versions of byKey.values()) {
@@ -417,9 +420,10 @@ export function prepareRecords(candidates: PackCandidate[], options: PackOptions
     for (const version of versions) {
       if (version.bytes.byteLength >= frameBytes) {
         const alone = zstd(version.bytes, level);
+        const usedAt = version.usedAt === undefined ? {} : { usedAt: version.usedAt };
         records.push(alone.byteLength < version.bytes.byteLength
-          ? { hash: version.hash, encoding: Encoding.Zstd, body: alone, size: version.bytes.byteLength }
-          : { hash: version.hash, encoding: Encoding.Raw, body: version.bytes, size: version.bytes.byteLength });
+          ? { hash: version.hash, encoding: Encoding.Zstd, body: alone, size: version.bytes.byteLength, ...usedAt }
+          : { hash: version.hash, encoding: Encoding.Raw, body: version.bytes, size: version.bytes.byteLength, ...usedAt });
         continue;
       }
       if (size + version.bytes.byteLength > frameBytes) flush();

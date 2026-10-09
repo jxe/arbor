@@ -259,8 +259,9 @@ export class ObjectStore {
    */
   async pack(candidates: PackCandidate[], options: PackOptions = {}): Promise<{ packed: number; bytes: number; packBytes: number }> {
     for (const c of candidates) if (hashObject(c.bytes) !== c.hash) throw new Error(`Object hash mismatch: ${c.hash}`);
+    // Candidates an interrupted pass already indexed are not written again,
+    // but their loose files are still checked against the pack and removed.
     const id = await this.packs.write(prepareRecords(candidates, options));
-    if (id === null) return { packed: 0, bytes: 0, packBytes: 0 };
     for (const c of candidates) {
       const back = await this.packs.read(c.hash);
       if (!back || hashObject(back) !== c.hash) throw new Error(`Packed object does not read back: ${c.hash}`);
@@ -271,7 +272,7 @@ export class ObjectStore {
       this.durable.delete(c.hash);
       bytes += c.bytes.byteLength;
     }
-    const packBytes = (this.packs.index()!.query("SELECT bytes FROM packs WHERE id = ?").get(id) as { bytes: number }).bytes;
+    const packBytes = id === null ? 0 : (this.packs.index()!.query("SELECT bytes FROM packs WHERE id = ?").get(id) as { bytes: number }).bytes;
     return { packed: candidates.length, bytes, packBytes };
   }
 
@@ -283,8 +284,10 @@ export class ObjectStore {
   async unpack(): Promise<{ objects: number; bytes: number }> {
     const db = this.packs.index();
     if (!db) return { objects: 0, bytes: 0 };
-    const hashes = (db.query("SELECT hash FROM packed_objects").all() as Array<{ hash: Uint8Array }>)
-      .map(({ hash }) => `sha256:${Buffer.from(hash).toString("hex")}`);
+    const rows = (db.query("SELECT hash, used_at FROM packed_objects").all() as Array<{ hash: Uint8Array; used_at: number }>)
+      .map(({ hash, used_at }) => ({ hash: `sha256:${Buffer.from(hash).toString("hex")}`, usedAt: used_at }));
+    const usedAt = new Map(rows.map((r) => [r.hash, r.usedAt]));
+    const hashes = rows.map((r) => r.hash);
     let bytes = 0;
     for (let i = 0; i < hashes.length; i += 1000) {
       const batch: Array<{ hash: ObjectHash; bytes: Uint8Array }> = [];
@@ -295,6 +298,12 @@ export class ObjectStore {
         bytes += value.byteLength;
       }
       await this.publish(batch, true, { loose: true });
+      // The loose file keeps the packed object's last use, so the
+      // collector's grace period is unchanged by unpacking.
+      for (const { hash } of batch) {
+        const time = new Date(Math.min(usedAt.get(hash)!, Date.now()));
+        await utimes(this.path(hash), time, time);
+      }
       const drop = db.query("DELETE FROM packed_objects WHERE hash = ?");
       db.transaction(() => { for (const { hash } of batch) drop.run(Buffer.from(hash.slice(7), "hex")); })();
     }

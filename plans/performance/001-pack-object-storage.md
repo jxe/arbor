@@ -41,7 +41,7 @@ schema is unchanged and the merge sidecar opens it read-only.
   tree's log.
 - **Triggers.** A pass is triggered when acceptances push the loose count or bytes
   over 4,000 objects or 64 MiB (debounced 30 s), at startup, and on a 30-minute idle
-  check. Passes run in batches of 4,000 objects or 64 MiB, defer when free disk is
+  check. Passes run in batches of 4,000 objects or 32 MiB, defer when free disk is
   under twice a batch, and run one at a time. An accepted update never waits for one.
 - **Collection.** Freshening a packed object updates its row's `used_at`. The
   collector drops dead packed rows under the same retention definition and grace
@@ -90,6 +90,36 @@ copy is the authority.
 
 The fixture results (`git-history-fixture.ts`, 259 MB raw) remain in git history
 under this plan's earlier revisions.
+
+## Rehearsal on a copy of live data (2026-10-09, `d6b6ada1`)
+
+Joe's rehearsal used a read-only copy taken at 14:31:55Z: 22,379 objects, 431 MB.
+
+| Step | Result | Pass/fail |
+| --- | --- | --- |
+| Pack | 22,220 objects (388.5 MB → 12.4 MB of packs) packed in 7 packs, 4.4 s, peak 583 MB. `objects/` went from 431 MB to 25 MB; 159 loose files remained (current trees, and objects under an hour old). | — |
+| Packed audit | `verifyIntegrity` passed in 1.8 s, against 4.1 s loose. At zero grace, the same 18,932 live and 3,447 collectable objects as before packing. | Pass |
+| Second pass | Nothing to pack. | Pass |
+| Serving with packing on | Ready in 0.085 s (0.089 s with packing off). Reads during and after the pass matched an unpacked server; the pass settled in about 12 s. | Pass |
+| `--unpack` | 22,220 objects back loose in 5.1 s. Integrity passed with the baseline's counts. | Pass |
+| Interrupted passes | 4,159 objects stayed both loose and packed. | Fail |
+| `object-store-packs.test.ts` | Intermittent. | Fail |
+
+**Fixes since that rehearsal:**
+
+- **Interrupted passes.** A pass killed after its index commit but before removing
+  loose files left them for good, because later passes skipped already-indexed
+  objects before the removal step. Every pass now reads such candidates back from
+  their pack and removes their loose files.
+- **Intermittent test.** `removeOrphans(0)` compared file times against the clock.
+  It now ignores age entirely.
+- **Grace period.** Packing restarted each object's collector grace period, and so
+  did unpacking. A packed object now keeps its loose file's time as `used_at`, and
+  unpacking restores it.
+- **Memory.** Batches are 32 MiB instead of 64 MiB. On the repository-history
+  fixture this took peak memory from about 371 MB to 324 MB.
+- **Collector report.** Its `live` and `scanned` tallies count loose files only.
+  Packed objects are reported under `packed`.
 
 ## Remaining work
 
