@@ -36,18 +36,28 @@ public func healMarkdownLinks(
     tree: String?,
     target: (_ path: String, _ stableKey: String?) -> MarkdownLinkTarget?
 ) -> String {
-    var healed = ""
-    var copied = source.startIndex
-    for destination in markdownLinkDestinations(in: source) {
+    let edits = markdownLinkHealingEdits(source, resolveFrom: resolveFrom, writeFrom: writeFrom, tree: tree, target: target)
+    return (try? WorkspaceDocumentPatch(baseContentRevision: "", edits: edits).applying(to: source)) ?? source
+}
+
+/// The edits `healMarkdownLinks` makes, one per rewritten href in source order, each replacing only
+/// that href (UTF-8 offsets, with the href it expects). A writer admits these rather than the whole
+/// healed source, so a concurrent edit elsewhere in the page does not overlap the healing.
+public func markdownLinkHealingEdits(
+    _ source: String,
+    resolveFrom: String,
+    writeFrom: String,
+    tree: String?,
+    target: (_ path: String, _ stableKey: String?) -> MarkdownLinkTarget?
+) -> [WorkspaceSourceEdit] {
+    markdownLinkDestinations(in: source).compactMap { destination in
         guard
             let replacement = healedHref(destination.href, resolveFrom: resolveFrom, writeFrom: writeFrom, tree: tree, target: target),
             replacement != destination.href
-        else { continue }
-        healed += source[copied..<destination.range.lowerBound]
-        healed += replacement
-        copied = destination.range.upperBound
+        else { return nil }
+        let start = source.utf8.distance(from: source.startIndex, to: destination.range.lowerBound)
+        return WorkspaceSourceEdit(utf8Range: start..<(start + destination.href.utf8.count), replacement: replacement, expected: destination.href)
     }
-    return copied == source.startIndex ? source : healed + source[copied...]
 }
 
 private func healedHref(

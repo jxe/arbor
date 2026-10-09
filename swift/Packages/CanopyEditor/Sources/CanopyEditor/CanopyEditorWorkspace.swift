@@ -199,18 +199,20 @@ public final class CanopyEditorWorkspace {
                 let session = try await provider.openDocument(resolvedSource.reference)
                 do {
                     let snapshot = try await session.snapshot()
-                    let healed = await healedLinks(
+                    // One edit per rewritten href, never the whole page: a whole-source
+                    // replacement would overlap every concurrent edit to the page.
+                    let edits = await healingEdits(
                         in: snapshot.source,
                         resolveFrom: source.sourceDirectory,
                         writeFrom: resolvedSource.sourceDirectory,
                         tree: snapshot.reference.tree,
                         relocated: relocated
                     )
-                    if healed != snapshot.source {
-                        _ = try await session.admit(
-                            source: healed,
-                            baseContentRevision: snapshot.contentRevision
-                        )
+                    if !edits.isEmpty {
+                        _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                            baseContentRevision: snapshot.contentRevision,
+                            edits: edits
+                        ))
                         try await session.flush()
                     }
                 } catch {
@@ -229,14 +231,14 @@ public final class CanopyEditorWorkspace {
         var stableKey: String?
     }
 
-    /// Look up every same-tree link's current target, then heal the source against those answers.
-    private func healedLinks(
+    /// Look up every same-tree link's current target, then the edits that heal the source against those answers.
+    private func healingEdits(
         in source: String,
         resolveFrom: String,
         writeFrom: String,
         tree: TreeID,
         relocated: (String) -> String
-    ) async -> String {
+    ) async -> [WorkspaceSourceEdit] {
         var targets: [LinkKey: MarkdownLinkTarget] = [:]
         var looked = Set<LinkKey>()
         for destination in markdownLinkDestinations(in: source) {
@@ -253,8 +255,8 @@ public final class CanopyEditorWorkspace {
             else { continue }
             targets[key] = node.markdownLinkTarget
         }
-        guard !targets.isEmpty else { return source }
-        return healMarkdownLinks(source, resolveFrom: resolveFrom, writeFrom: writeFrom, tree: tree.rawValue) { path, stableKey in
+        guard !targets.isEmpty else { return [] }
+        return markdownLinkHealingEdits(source, resolveFrom: resolveFrom, writeFrom: writeFrom, tree: tree.rawValue) { path, stableKey in
             targets[LinkKey(path: path, stableKey: stableKey)]
         }
     }

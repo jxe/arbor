@@ -188,17 +188,28 @@ final class LogicalURLTests: XCTestCase {
         let cases = try conformance([HealingFixture].self, "markdown-link-healing.json")
         XCTAssertFalse(cases.isEmpty)
         for fixture in cases {
-            let healed = healMarkdownLinks(
-                fixture.source,
-                resolveFrom: fixture.resolveFrom,
-                writeFrom: fixture.writeFrom,
-                tree: fixture.tree
-            ) { path, stableKey in
+            let target = { (path: String, stableKey: String?) -> MarkdownLinkTarget? in
                 let node = stableKey.map { key in fixture.nodes.first { $0.stableKey == key } }
                     ?? fixture.nodes.first { $0.path == path }
                 return node.map { MarkdownLinkTarget(path: $0.path, body: $0.body, stableKey: $0.stableKey) }
             }
+            let healed = healMarkdownLinks(fixture.source, resolveFrom: fixture.resolveFrom, writeFrom: fixture.writeFrom,
+                                           tree: fixture.tree, target: target)
             XCTAssertEqual(healed, fixture.expected, fixture.name)
+            // The same healing as edits: each replaces exactly one href, never the page.
+            let edits = markdownLinkHealingEdits(fixture.source, resolveFrom: fixture.resolveFrom, writeFrom: fixture.writeFrom,
+                                                 tree: fixture.tree, target: target)
+            let hrefs = Set(markdownLinkDestinations(in: fixture.source).map {
+                fixture.source.utf8.distance(from: fixture.source.startIndex, to: $0.range.lowerBound)
+            })
+            for edit in edits {
+                XCTAssertTrue(hrefs.contains(edit.utf8Range.lowerBound), fixture.name)
+                XCTAssertNotNil(edit.expected, fixture.name)
+                XCTAssertFalse(edit.expected!.contains("\n"), fixture.name)
+            }
+            XCTAssertEqual(edits.isEmpty, healed == fixture.source, fixture.name)
+            XCTAssertEqual(try WorkspaceDocumentPatch(baseContentRevision: "r", edits: edits).applying(to: fixture.source),
+                           fixture.expected, fixture.name)
         }
     }
 
