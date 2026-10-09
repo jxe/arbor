@@ -19,12 +19,12 @@ function memorySaves(): SavedStates & { files: Map<string, { tree: string; bytes
 
 /** A sidecar over the fixture's objects. Only a sidecar recording history
  * publishes what it stages, as canopyd does when it accepts an answer. */
-function sidecar(f: Fixture, saved?: SavedStates, publish = false) {
+function sidecar(f: Fixture, saved?: SavedStates, publish = false, cacheBytes?: number, replayMillis?: number) {
   return new Sidecar({
     shared: { find: async (hash) => f.objects.get(hash) ?? null, has: async (hash) => f.objects.has(hash) },
     staging: { find: async () => null, stage: async (values) => { if (publish) for (const v of values) f.objects.set(v.hash, v.bytes); } },
     ...(saved ? { saved } : {}),
-  });
+  }, cacheBytes, undefined, replayMillis);
 }
 
 /** `root` with `files` set. */
@@ -96,4 +96,76 @@ test("an unreadable or mismatched save is discarded and replayed", async () => {
   expect(restarted.restored).toBe(0);
   expect(restarted.replayed).toBe(41);
   expect(saves.files.has(entry)).toBe(false);
+});
+
+
+test("interrupted replay advances across eviction and process replacement", async () => {
+  const f = new Fixture(), saves = memorySaves();
+  const { head } = await history(f, sidecar(f, undefined, true), 12);
+  const question = { base: head, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(head)!).root, { "a.md": "next" }),
+    change: "next", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+  const expected = await sidecar(f).answer(question);
+  let completed = false;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    // Zero budget permits exactly one entry per stateOf, then asks for a
+    // retry. Recreate the sidecar: only durable replay frontiers survive.
+    const restarted = sidecar(f, saves, false, 0, 0);
+    try {
+      expect(await restarted.answer(question)).toEqual(expected);
+      completed = true; break;
+    } catch (error) {
+      expect(String(error)).toContain("Rebuilding accepted history");
+      await restarted.save();
+      expect(saves.files.size).toBeGreaterThan(0);
+      expect(saves.files.size).toBeLessThanOrEqual(2);
+    }
+  }
+  expect(completed).toBe(true);
+});
+
+test("native disk checkpoints and legacy fallback produce the same answers", async () => {
+  const { savedStatesIn } = await import("../../../packages/canopyd-merge/src/saved-states.ts");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const path = await mkdtemp(join(tmpdir(), "merge-native-replay-"));
+  try {
+    const f = new Fixture(), legacy = memorySaves();
+    const { head } = await history(f, sidecar(f, legacy, true), 40);
+    const disk = savedStatesIn(path);
+    for (const [entry, file] of legacy.files) await disk.write(file.tree, entry, file.bytes);
+    const question = { base: head, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(head)!).root, { "a.md": "next" }),
+      change: "next", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+    const expected = await sidecar(f).answer(question);
+    expect(await sidecar(f, disk).answer(question)).toEqual(expected);
+    // An interrupted cold replay checkpoints directly into the new store.
+    const partial = sidecar(f, disk, false, 0, 0);
+    await expect(partial.answer(question)).rejects.toThrow("Rebuilding accepted history");
+    await partial.save();
+    const native = (await disk.list()).find((value) => value.entry !== [...legacy.files.keys()][0])!;
+    expect(await disk.readCheckpoint!(native.tree, native.entry)).not.toBeNull();
+    expect(await sidecar(f, disk).answer(question)).toEqual(expected);
+  } finally { await rm(path, { recursive: true, force: true }); }
+});
+
+
+test("rebuilding an old concurrent basis preserves the already rebuilt head", async () => {
+  const f = new Fixture(), saves = memorySaves();
+  const { head } = await history(f, sidecar(f, undefined, true), 18);
+  let base = head;
+  for (let i = 0; i < 8; i++) base = decodeLogEntry(f.objects.get(base)!).previous!;
+  const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, { "a.md": "concurrent" }),
+    change: "concurrent", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+  const expected = await sidecar(f).answer(question);
+  let completed = false;
+  for (let i = 0; i < 80; i++) {
+    const restarted = sidecar(f, saves, false, 0, 0);
+    try { expect(await restarted.answer(question)).toEqual(expected); completed = true; break; }
+    catch (error) {
+      expect(String(error)).toContain("Rebuilding accepted history");
+      await restarted.save();
+      expect(saves.files.size).toBeLessThanOrEqual(3);
+    }
+  }
+  expect(completed).toBe(true);
 });

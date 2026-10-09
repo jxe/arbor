@@ -46,6 +46,19 @@ export interface SavedStates {
   read(tree: string, entry: string): Promise<Uint8Array | null>;
   write(tree: string, entry: string, bytes: Uint8Array): Promise<void>;
   remove(tree: string, entry: string): Promise<void>;
+  readCheckpoint?(tree: string, entry: string): Promise<SavedCheckpoint | null>;
+  writeCheckpoint?(checkpoint: SavedCheckpoint): Promise<void>;
+}
+
+/** Native private checkpoint, with shared retained states and binary objects. */
+export interface SavedCheckpoint {
+  tree: string;
+  entry: string;
+  object: string;
+  state: string;
+  decisions: LogDecision[];
+  states: Map<string, RetainedState>;
+  objects: Array<[string, Uint8Array]>;
 }
 
 /** A tree's head state is saved once this many of its entries were replayed
@@ -104,6 +117,9 @@ export class Sidecar {
   private unsaved = new Map<string, number>();
   /** The last question's head, whose state `save` may write. */
   private lastHead?: string;
+  /** Latest verified replay frontier, including an interrupted rebuild. */
+  private frontier?: string;
+  private interrupted = false;
 
   constructor(
     private readonly stores: SidecarStores,
@@ -177,8 +193,13 @@ export class Sidecar {
     this.replayed = 0;
     this.restored = 0;
     this.lastHead = question.head;
+    this.frontier = undefined;
+    this.interrupted = false;
     this.replayDeadline = performance.now() + this.replayMillis;
-    const { result, evidence } = await this.solve(question, rules);
+    let solved: Awaited<ReturnType<Sidecar["solve"]>>;
+    try { solved = await this.solve(question, rules); }
+    catch (error) { this.interrupted = true; throw error; }
+    const { result, evidence } = solved;
     // An authored prefix can hide an unresolved ancestor. Its private state is
     // valid evidence, but its choices are not decisions in an accepted root.
     // Preflight checks execution only; acceptance produces and records choices.
@@ -243,6 +264,7 @@ export class Sidecar {
         throw new EvaluationFailure(`Rebuilding accepted history: ${index} of ${chain.length} entries replayed; retry to continue`, "unavailable");
       previous = await this.replay(entry, previous, rules);
       this.states.set(entry, previous);
+      this.frontier = entry;
       this.replayed++;
       const tree = (await this.entry(entry)).tree;
       this.unsaved.set(tree, (this.unsaved.get(tree) ?? 0) + 1);
@@ -298,37 +320,75 @@ export class Sidecar {
    * its last save, and drop that tree's older saves. Called after answering;
    * a failure here affects no answer. */
   async save(): Promise<void> {
-    const saved = this.stores.saved, head = this.lastHead;
+    if (this.interrupted) {
+      // A rebuild may reach today's head, then need an older authored basis.
+      // Keep both frontiers, or saving the old basis can evict the new head
+      // and force the next attempt to rebuild it again.
+      if (this.lastHead && this.states.has(this.lastHead)) await this.saveEntry(this.lastHead);
+      if (this.frontier && this.frontier !== this.lastHead) await this.saveEntry(this.frontier);
+    } else if (this.lastHead) await this.saveEntry(this.lastHead);
+  }
+
+  private async saveEntry(head: string): Promise<void> {
+    const saved = this.stores.saved;
+    // When replay stops before the head, persist the verified frontier. A
+    // retry after eviction/restart can then advance instead of starting over.
     if (!saved || !head) return;
+    if (this.interrupted && (await this.savedIndex()).has(head)) return;
     const cached = this.states.get(head), tree = (await this.entry(head)).tree;
-    if (!cached || (this.unsaved.get(tree) ?? 0) < SAVE_AFTER) return;
+    if (!cached || (!this.interrupted && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
     // The state and every state its decisions name, and the objects they
     // name that only this sidecar holds.
-    const states: Record<string, unknown> = {};
+    const states = new Map<string, RetainedState>();
     for (const pending = [cached.state]; pending.length;) {
       const id = pending.pop()!;
-      if (states[id]) continue;
+      if (states.has(id)) continue;
       const retained = this.recorded.get(id);
       if (!retained) return;
-      states[id] = encodeRetainedState(retained);
+      states.set(id, retained);
       for (const decision of retained.decisions) {
         if (decision.context) pending.push(decision.context);
         for (const alternative of decision.alternatives) pending.push(alternative.state);
       }
     }
-    const named = new Set(JSON.stringify(states).match(/sha256:[a-f0-9]{64}/g) ?? []);
-    const objects: Array<[string, string]> = [];
-    for (const hash of named) {
-      const bytes = this.memory.get(hash);
-      if (bytes && !(await this.stores.shared.has(hash))) objects.push([hash, Buffer.from(bytes).toString("base64")]);
+    // Discover object dependencies once per shared value, without expanding
+    // the persistent maps into a snapshot string.
+    const objects: Array<[string, Uint8Array]> = [];
+    const named = new Set<string>();
+    const seen = new WeakSet<object>();
+    const visit = (value: unknown): void => {
+      if (typeof value === "string") {
+        if (/^sha256:[a-f0-9]{64}$/.test(value)) named.add(value);
+      } else if (value && typeof value === "object" && !seen.has(value)) {
+        seen.add(value);
+        for (const child of Object.values(value)) visit(child);
+      }
+    };
+    for (const state of states.values()) visit(state);
+    const candidates = [...named].flatMap((hash): Array<[string, Uint8Array]> => {
+      const bytes = this.memory.get(hash); return bytes ? [[hash, bytes]] : [];
+    });
+    for (let offset = 0; offset < candidates.length; offset += 64) {
+      const batch = candidates.slice(offset, offset + 64);
+      const shared = await Promise.all(batch.map(([hash]) => this.stores.shared.has(hash)));
+      for (const [index, value] of batch.entries()) if (!shared[index]) objects.push(value);
     }
-    const value = { format: SAVED_FORMAT, tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions, states, objects };
-    await saved.write(tree, head, new TextEncoder().encode(JSON.stringify(value)));
+    const checkpoint: SavedCheckpoint = { tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions, states, objects };
+    if (saved.writeCheckpoint) await saved.writeCheckpoint(checkpoint);
+    else {
+      const value = { format: SAVED_FORMAT, tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions,
+        states: Object.fromEntries([...states].map(([id, state]) => [id, encodeRetainedState(state)])),
+        objects: objects.map(([hash, bytes]) => [hash, Buffer.from(bytes).toString("base64")]) };
+      await saved.write(tree, head, new TextEncoder().encode(JSON.stringify(value)));
+    }
     const index = await this.savedIndex();
     index.set(head, { tree, savedAt: Date.now() });
     this.unsaved.set(tree, 0);
-    const older = [...index].filter(([entry, s]) => s.tree === tree && entry !== head).sort((a, b) => b[1].savedAt - a[1].savedAt);
-    for (const [entry] of older.slice(SAVES_KEPT - 1)) {
+    const protectedHead = this.interrupted ? this.lastHead : undefined;
+    const ordered = [...index].filter(([, s]) => s.tree === tree).sort((a, b) => b[1].savedAt - a[1].savedAt);
+    let kept = 0;
+    for (const [entry] of ordered) {
+      if (entry === protectedHead || kept++ < SAVES_KEPT) continue;
       index.delete(entry);
       await saved.remove(tree, entry);
     }
@@ -351,28 +411,36 @@ export class Sidecar {
     const index = await this.savedIndex(), known = index.get(hash);
     if (!known) return false;
     try {
-      const bytes = await saved.read(known.tree, hash);
-      if (!bytes) throw new Error("Saved state is missing");
-      const value = JSON.parse(new TextDecoder().decode(bytes)) as {
-        format: string; tree: string; entry: string; object: string; state: string; decisions: LogDecision[];
-        states: Record<string, unknown>; objects: Array<[string, string]>;
-      };
-      if (value.format !== SAVED_FORMAT || value.entry !== hash || value.tree !== known.tree || !value.states[value.state])
+      let checkpoint: SavedCheckpoint;
+      const native = await saved.readCheckpoint?.(known.tree, hash);
+      if (native) checkpoint = native;
+      else {
+        const bytes = await saved.read(known.tree, hash);
+        if (!bytes) throw new Error("Saved state is missing");
+        const value = JSON.parse(new TextDecoder().decode(bytes)) as {
+          format: string; tree: string; entry: string; object: string; state: string; decisions: LogDecision[];
+          states: Record<string, unknown>; objects: Array<[string, string]>;
+        };
+        if (value.format !== SAVED_FORMAT) throw new Error("Unsupported saved state format");
+        const states = new Map(Object.entries(value.states).map(([id, encoded]) => {
+          const decoded = decodeRetainedState(encoded);
+          if (decoded.id !== id) throw new Error("Saved state does not match its identity");
+          return [id, decoded.state] as const;
+        }));
+        checkpoint = { ...value, states, objects: value.objects.map(([id, base64]) => [id, new Uint8Array(Buffer.from(base64, "base64"))]) };
+      }
+      if (checkpoint.entry !== hash || checkpoint.tree !== known.tree || !checkpoint.states.has(checkpoint.state))
         throw new Error("Saved state does not match its entry");
-      const decoded = Object.entries(value.states).map(([id, encoded]) => {
-        const { id: actual, state } = decodeRetainedState(encoded);
-        if (actual !== id || state.tree !== value.tree) throw new Error("Saved state does not match its identity");
-        return [id, state] as const;
-      });
-      const objects = value.objects.map(([object, base64]) => {
-        const bytes = new Uint8Array(Buffer.from(base64, "base64"));
-        if (hashObject(bytes) !== object) throw new Error("Saved object does not match its hash");
-        return [object, bytes] as const;
-      });
+      for (const state of checkpoint.states.values()) if (state.tree !== checkpoint.tree) throw new Error("Saved state belongs to another tree");
+      for (const [id, bytes] of checkpoint.objects) if (hashObject(bytes) !== id) throw new Error("Saved object does not match its hash");
+      const entry = await this.entry(hash);
+      const current = checkpoint.states.get(checkpoint.state)!;
+      if (checkpoint.object !== entry.root || current.object !== entry.root || !sameDecisions(checkpoint.decisions, entry.decisions))
+        throw new Error("Saved state does not match accepted entry");
       if (this.states.has(hash)) return true;
-      for (const [id, state] of decoded) this.objects.states.set(id, state);
-      for (const [object, bytes] of objects) this.remember(object, bytes);
-      this.states.set(hash, { object: value.object, state: value.state, decisions: value.decisions });
+      for (const [id, state] of checkpoint.states) this.objects.states.set(id, state);
+      for (const [object, bytes] of checkpoint.objects) this.remember(object, bytes);
+      this.states.set(hash, { object: checkpoint.object, state: checkpoint.state, decisions: checkpoint.decisions });
       this.restored++;
       return true;
     } catch (error) {
@@ -525,3 +593,5 @@ export class Sidecar {
     return values.map((v) => v.hash);
   }
 }
+
+function sameDecisions(a: LogDecision[], b: LogDecision[]): boolean { return stableJSONString(a) === stableJSONString(b); }

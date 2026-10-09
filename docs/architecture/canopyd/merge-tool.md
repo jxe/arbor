@@ -185,21 +185,21 @@ partial rebuild, and a long enough chain could never be rebuilt. Replay never st
 partway along a chain: an imported start would lose the retained history a later merge
 reads, including the attribution of the current side of a choice.
 
-**Saved states.** With `--cache DIR` the sidecar also saves some entries' states there,
-so a restart does not replay each chain from its start. After answering, it saves the
-question's head state once 32 of that tree's entries were replayed since the tree's last
-save, and keeps the tree's two newest saves (`DIR/<tree>/<entry digest>.json`, written
-whole and renamed into place). A save holds the entry's state, every state its decisions
-name, and the objects they name that only the sidecar holds. The encoding keeps each
-value's key order and each map's bucket shape, so a saved state loads as the state replay
-built, byte for byte; loading checks every state's identity and every object's hash, and
-a save that fails either is deleted and replayed instead. A restart therefore replays at
-most about 32 entries more than a warm sidecar. On the 2026-09-24 production copy the
-282-entry chain replayed in about 1 s locally; a restarted sidecar answered the same
-question from the save in 37 ms, and the save took 44 ms and 2.5 MB. canopyd passes
-`/data/merge-cache`, never reads it, and does not back it up: deleting it changes no
-answer. A saved state is not an imported start: it is the replayed state itself, retained
-history included, so replay still begins at the chain's start or at a state it built.
+**Saved states.** With `--cache DIR`, the sidecar stores shared computed states in
+compressed SQLite record packs, with binary cache-only objects and small checkpoint
+manifests. It restores persistent buckets and frozen values directly, verifying record
+hashes, semantic state identities and the accepted entry association. Legacy expanded
+JSON saves remain readable and are removed as their replacements commit.
+
+A completed replay saves the head after 32 entries and retains two checkpoints per
+tree. An interrupted replay also checkpoints its verified frontier, so eviction or a
+restart cannot erase its progress. When an older authored basis is rebuilding, the
+already computed head is protected alongside two replay frontiers. Saves run after the
+answer, before the worker reads its next question. Collection and publication serialize
+in SQLite; invalid private state falls back to replay. canopyd passes `/data/merge-cache`
+and does not read or back it up. A checkpoint is the state replay computed, with all its
+retained history; it is never an imported start. See [shared merge checkpoints](merge-cache.md)
+for the codec, recovery boundaries, benchmarks and regression evidence.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than

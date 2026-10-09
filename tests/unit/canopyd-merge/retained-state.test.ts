@@ -143,3 +143,27 @@ test("a saved state whose content changed decodes to another identity", async ()
   expect(decodeRetainedState(saved).id).not.toBe(id);
   expect(() => decodeRetainedState({ ...saved, nodes: { entries: "no" } })).toThrow("Invalid saved bucket");
 });
+
+test("record packs preserve wide buckets, integer keys and dependent decision states in a fresh process", async () => {
+  const { StateRecordWriter } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
+  const { hashObject } = await import("@overstory/protocol");
+  const states = await recorded(), records = new Map<string, string>();
+  const writer = new StateRecordWriter((bytes) => {
+    const hash = hashObject(bytes); records.set(hash, Buffer.from(bytes).toString("base64")); return hash;
+  });
+  const refs = [...states].map(([id, s]) => [id, writer.state(s)]);
+  const before = records.size;
+  for (const s of states.values()) writer.state(s);
+  expect(records.size).toBe(before);
+  const module = new URL("../../../packages/canopyd-merge/src/retained-state.ts", import.meta.url).pathname;
+  const child = Bun.spawn([process.execPath, "-e", `
+    import { StateRecordReader, encodeRetainedState } from ${JSON.stringify(module)};
+    const input = JSON.parse(await Bun.stdin.text()), records = new Map(input.records);
+    const reader = new StateRecordReader(id => Buffer.from(records.get(id), 'base64'));
+    console.log(JSON.stringify(input.refs.map(([id, ref]) => { const d=reader.state(ref); return { id: d.id, encoded: JSON.stringify(encodeRetainedState(d.state)) }; })));
+  `], { stdin: new Blob([JSON.stringify({ refs, records: [...records] })]), stdout: "pipe", stderr: "inherit" });
+  const actual = JSON.parse(await new Response(child.stdout).text());
+  expect(await child.exited).toBe(0);
+  const { encodeRetainedState } = await import("../../../packages/canopyd-merge/src/retained-state.ts");
+  expect(actual).toEqual([...states].map(([id, s]) => ({ id, encoded: JSON.stringify(encodeRetainedState(s)) })));
+});

@@ -462,6 +462,7 @@ export function decodeRetainedState(value: unknown): { id: string; state: Retain
  * recorded object is in key order or, when bucketed, in `radix` order;
  * interning shares it only with an object recorded in that same order. */
 function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
+  if (isObject(value) && facts.has(value)) return { value, ...facts.get(value)!, bytes: 0 };
   if (!isObject(value)) return { value, ...factsOf(value), bytes: factsOf(value).size };
   let keys: string[], children: Array<Facts & { value: unknown; bytes: number }>, text: string;
   if (Array.isArray(value)) {
@@ -502,4 +503,123 @@ function thaw(value: unknown): Facts & { value: unknown; bytes: number } {
   released.register(frozen, `${kind}${hash}`);
   const own = size - children.reduce((n, child) => n + child.size, 0);
   return { value: frozen, hash, size, length, bytes: own + children.reduce((n, child) => n + child.bytes, 0) };
+}
+
+
+/** Private cache records have their own hashes, distinct from semantic state
+ * identities. Objects and buckets are encoded once while they remain alive;
+ * unchanged persistent branches need neither traversal nor hashing on save. */
+export class StateRecordWriter {
+  private known = new WeakMap<object, string>();
+  constructor(private readonly put: (bytes: Uint8Array) => string) {}
+  private record(value: unknown): string { return this.put(encoder.encode(JSON.stringify(value))); }
+  value(value: unknown): unknown {
+    if (!isObject(value)) return typeof value === "string" && value.length >= 256 ? [this.record(["scalar", value])] : value;
+    const known = this.known.get(value);
+    if (known) return [known];
+    const id = this.record(Array.isArray(value)
+      ? ["array", value.map((v) => this.value(v))]
+      : ["object", Object.keys(value).map((key) => [key, this.value((value as Record<string, unknown>)[key])])]);
+    this.known.set(value, id);
+    return [id];
+  }
+  private bucket(b: Bucket): string {
+    const known = this.known.get(b);
+    if (known) return known;
+    const id = this.record("entries" in b
+      ? ["leaf", b.entries.map(([key, value]) => [key, this.value(value)])]
+      : ["branch", b.children.map((child) => child ? this.bucket(child) : null)]);
+    this.known.set(b, id);
+    return id;
+  }
+  state(s: RetainedState): string {
+    const known = this.known.get(s);
+    if (known) return known;
+    const id = this.record(["state", s.format, s.tree, s.root, s.object, s.editable,
+      this.value(s.decisions), this.bucket(s.nodes), HISTORY.map((field) => this.bucket(s.history[field]))]);
+    this.known.set(s, id);
+    return id;
+  }
+  /** Forget identities after a failed transaction or collection: a later save
+   * must publish dependencies again before it can publish their manifest. */
+  clear(): void { this.known = new WeakMap(); }
+}
+
+/** Hydrate shared buckets and frozen values directly. Every record is read and
+ * decoded once per restore; no expanded snapshot JSON is constructed. The
+ * adapter verifies record hashes, and state() recomputes semantic identities. */
+export class StateRecordReader {
+  private values = new Map<string, unknown>();
+  private buckets = new Map<string, Bucket>();
+  private states = new Map<string, { id: string; state: RetainedState }>();
+  private active = new Set<string>();
+  private addedBytes = 0;
+  constructor(private readonly get: (id: string) => Uint8Array) {}
+  private read<T>(id: string, decode: (record: unknown[]) => T): T {
+    if (this.active.has(id)) throw new Error("Cyclic cache record");
+    this.active.add(id);
+    try {
+      const record: unknown = JSON.parse(new TextDecoder().decode(this.get(id)));
+      if (!Array.isArray(record)) throw new Error("Invalid cache record");
+      return decode(record);
+    } finally { this.active.delete(id); }
+  }
+  value(ref: unknown): unknown {
+    if (!Array.isArray(ref)) {
+      if (isObject(ref)) throw new Error("Invalid cache value reference");
+      return ref;
+    }
+    if (ref.length !== 1 || typeof ref[0] !== "string") throw new Error("Invalid cache value reference");
+    const id = ref[0];
+    if (this.values.has(id)) return this.values.get(id);
+    const value = this.read(id, ([tag, data]) => {
+      if (tag === "scalar" && !isObject(data)) return data;
+      if (tag === "array" && Array.isArray(data)) return data.map((ref) => this.value(ref));
+      if (tag === "object" && Array.isArray(data)) return Object.fromEntries(data.map((pair) => {
+        if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") throw new Error("Invalid cache member");
+        return [pair[0], this.value(pair[1])];
+      }));
+      throw new Error("Invalid cache value");
+    });
+    const frozen = thaw(value);
+    this.addedBytes += frozen.bytes;
+    this.values.set(id, frozen.value);
+    return frozen.value;
+  }
+  private bucket(id: string): Bucket {
+    const known = this.buckets.get(id);
+    if (known) return known;
+    const b = this.read(id, ([tag, data]) => {
+      if (tag === "leaf" && Array.isArray(data)) return leaf(data.map((pair) => {
+        if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") throw new Error("Invalid cache leaf");
+        return [pair[0], this.value(pair[1])] as const;
+      }));
+      if (tag === "branch" && Array.isArray(data) && data.length === 16)
+        return branch(data.map((ref) => ref === null ? null : this.bucket(String(ref))));
+      throw new Error("Invalid cache bucket");
+    });
+    this.addedBytes += 256;
+    this.buckets.set(id, b);
+    return b;
+  }
+  state(ref: string): { id: string; state: RetainedState } {
+    const known = this.states.get(ref);
+    if (known) return known;
+    const before = this.addedBytes;
+    const decoded = this.read(ref, ([tag, format, tree, root, object, editable, decisionsRef, nodesRef, historyRefs]) => {
+      if (tag !== "state" || format !== "arbor-merge-intent-state" || typeof tree !== "string"
+        || typeof root !== "string" || typeof object !== "string" || typeof editable !== "boolean"
+        || !Array.isArray(historyRefs) || historyRefs.length !== HISTORY.length) throw new Error("Invalid cache state");
+      const decisions = this.value(decisionsRef);
+      if (!Array.isArray(decisions)) throw new Error("Invalid cache decisions");
+      const nodes = this.bucket(String(nodesRef));
+      const history = Object.fromEntries(HISTORY.map((field, index) => [field, this.bucket(String(historyRefs[index]))])) as Record<HistoryField, Bucket>;
+      const id = digest(stableJSONString({ format, tree, root, editable, nodes: nodes.hash,
+        decisions: facts.get(decisions)!.hash, history: HISTORY.map((field) => history[field].hash) }));
+      const state: RetainedState = { format, tree, root, object, editable, decisions, nodes, history, bytes: this.addedBytes - before };
+      return { id, state };
+    });
+    this.states.set(ref, decoded);
+    return decoded;
+  }
 }

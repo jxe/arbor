@@ -7,7 +7,7 @@ the benefit and the cost to correctness, recovery and offline use.
 | Plan | Why and when |
 | --- | --- |
 | [006: Sparse iOS placement](006-sparse-ios-placement.md) | When a tree becomes too big to place on the iPhone in one download. Fetch and retain a verified spine, then resolve other files on demand. |
-| [002: Shared merge cache](002-shared-merge-cache.md) | Joe requested this work on 2026-10-07 after two checkpoints reached 410 MiB. Share and compress computed states, then measure save/restore costs before selecting a layout. |
+| [002: Shared merge cache rollout](002-shared-merge-cache.md) | Implemented locally after the iPhone replay loop. Verify the deployed revision and original queued request after Joe pushes. |
 | [001: Pack object storage](001-pack-object-storage.md) | When loose objects make storage, startup, audit or backup expensive. Space is not pressing today. |
 
 These retain their historical Native 006 and canopyd 001 identifiers.

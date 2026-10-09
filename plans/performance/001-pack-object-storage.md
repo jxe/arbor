@@ -42,7 +42,7 @@ downloading a 590 MB volume archive took about twenty minutes.
 Read-only inspection of the live Railway host found 418.0 MiB in `objects/`.
 The whole volume used 1.16 GiB (26%), including 410.3 MiB of merge cache and
 334.0 MiB of backups. These are separate costs: this plan packs accepted objects;
-[Performance 002](002-shared-merge-cache.md) addresses the private merge cache.
+[Shared merge checkpoints](../../docs/architecture/canopyd/merge-cache.md) address the private merge cache.
 The September compression numbers remain historical evidence, not a forecast
 for the current retained store.
 
