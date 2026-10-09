@@ -370,8 +370,8 @@ export class HostDaemon implements AsyncDisposable {
   private readonly remoteGroups: RemoteGroups;
   private readonly locatorPins: LocatorPins;
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Background object packing (canopyd 001); on only when
-   * `ARBOR_OBJECT_PACKING=1`, until a rehearsed rollout. */
+  /** Background object packing (canopyd 001); `ARBOR_OBJECT_PACKING=0`
+   * turns it off. */
   readonly packing: PackMaintenance | undefined;
   private disposed = false;
 
@@ -390,7 +390,7 @@ export class HostDaemon implements AsyncDisposable {
     });
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.history = new MergeHistory(this.acceptedStore, this.objects);
-    this.packing = process.env.ARBOR_OBJECT_PACKING === "1"
+    this.packing = process.env.ARBOR_OBJECT_PACKING !== "0"
       ? new PackMaintenance(db, this.objects, join(dataRoot, "objects"))
       : undefined;
     this.observations = new ObservationLog(db);

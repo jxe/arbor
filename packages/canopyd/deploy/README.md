@@ -92,6 +92,7 @@ canopyd reads these variables at start; all are optional.
 | `ARBOR_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects, in canopyd and (passed through) in the merge sidecar. |
 | `ARBOR_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
 | `ARBOR_MERGE_REPLAY_MS` | 10000 | How long one merge question may spend rebuilding the sidecar's cache before it answers a retryable 503 and keeps its progress for the retry. |
+| `ARBOR_OBJECT_PACKING` | on | `0` turns off background packing of cold objects (canopyd 001); packs already written are still read. |
 | `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/canopyd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
 
 ### Health and readiness
@@ -111,6 +112,25 @@ commits but cannot corrupt the database. Objects are fsynced before the commit
 that names them, so a lost commit leaves only unreferenced objects, never a
 reference to missing bytes. Back up with an application-consistent copy
 (`VACUUM INTO`) plus a tar of `objects/`, as the [migration procedure](../migrations/README.md) does.
+`objects/packs/index.sqlite3` is a SQLite database too: copy it with
+`VACUUM INTO` (or `.backup`) and take its packs after it, since a pack is
+written and synced before any index row names it.
+
+### Packed objects
+
+Loose objects older than an hour and outside every tree's current files are
+packed in the background into zstd frames of one document's versions under
+`objects/packs/` (see [canopyd 001](../../../plans/performance/001-pack-object-storage.md));
+reads, presence checks and the collector see packed and loose objects alike.
+A pass runs at startup, after acceptances pass 4,000 loose objects or 64 MiB,
+and on a 30-minute idle check; it removes loose files only after reading every
+packed object back. The same pass runs by hand, against a copy or beside a
+serving host, with `bun run packages/canopyd/src/pack-maintenance.ts <data-root>`
+(`--min-age-hours N`; prints one JSON report). To stop packing, set
+`ARBOR_OBJECT_PACKING=0`; packs stay readable. To roll back to a build without
+pack support, first stop the host and run `pack-maintenance.ts <data-root>
+--unpack`, which writes every packed object back as a loose file and removes
+the packs.
 
 ### Collecting unreferenced objects
 

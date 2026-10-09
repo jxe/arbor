@@ -9,8 +9,10 @@ Historical identifier: **canopyd storage 001**. The filename number is preserved
 - **Effort:** M (most of it built)
 - **Risk:** MEDIUM. An index row pointing at the wrong bytes would corrupt reads,
   but every read is checked against its hash.
-- **State:** BUILT AND OFF BY DEFAULT (`ARBOR_OBJECT_PACKING=1`). The layout was
-  chosen on a copy of live data. Rehearsal and rollout remain.
+- **State:** BUILT. Off on main (`ARBOR_OBJECT_PACKING=1` to enable). The
+  branch `claude/blissful-maxwell-r3sys4` turns it on by default
+  (`ARBOR_OBJECT_PACKING=0` to disable) and awaits the rehearsal below. The
+  layout was chosen on a copy of live data.
 
 ## What is built
 

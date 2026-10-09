@@ -275,6 +275,33 @@ export class ObjectStore {
     return { packed: candidates.length, bytes, packBytes };
   }
 
+  /**
+   * Rollback for packing: write every packed object back as a durable loose
+   * file (each hash-checked), then drop its index row; packs left without
+   * rows are removed. Code that predates packs can then read the store.
+   */
+  async unpack(): Promise<{ objects: number; bytes: number }> {
+    const db = this.packs.index();
+    if (!db) return { objects: 0, bytes: 0 };
+    const hashes = (db.query("SELECT hash FROM packed_objects").all() as Array<{ hash: Uint8Array }>)
+      .map(({ hash }) => `sha256:${Buffer.from(hash).toString("hex")}`);
+    let bytes = 0;
+    for (let i = 0; i < hashes.length; i += 1000) {
+      const batch: Array<{ hash: ObjectHash; bytes: Uint8Array }> = [];
+      for (const hash of hashes.slice(i, i + 1000)) {
+        const value = await this.packs.read(hash);
+        if (!value || hashObject(value) !== hash) throw new Error(`Packed object does not read back: ${hash}`);
+        batch.push({ hash, bytes: value });
+        bytes += value.byteLength;
+      }
+      await this.publish(batch, true, { loose: true });
+      const drop = db.query("DELETE FROM packed_objects WHERE hash = ?");
+      db.transaction(() => { for (const { hash } of batch) drop.run(Buffer.from(hash.slice(7), "hex")); })();
+    }
+    await this.packs.removeOrphans();
+    return { objects: hashes.length, bytes };
+  }
+
   /** Durably publish objects; an object already present must be byte-identical. */
   async store(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
     await this.publish(objects, true);
@@ -302,7 +329,7 @@ export class ObjectStore {
   private readonly durableShards = new Set<string>();
   private rootEntryDurable = false;
 
-  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean): Promise<void> {
+  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean, options: { loose?: boolean } = {}): Promise<void> {
     const unique = new Map<ObjectHash, Uint8Array>();
     for (const object of objects) {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
@@ -322,7 +349,7 @@ export class ObjectStore {
       // stored bytes checked first.
       if (this.durable.has(hash)) {
         if (await touch(path)) return;
-      } else if (durable && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
+      } else if (durable && !options.loose && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
         // Packed: its bytes were hash-checked when packed and are on every read.
         return;
       } else if (await this.verifyExisting(path, hash) && await touch(path)) {
