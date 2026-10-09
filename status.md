@@ -1813,9 +1813,29 @@ A variant that wrote frozen values under 256 bytes inside their parent took
 27.0 MB here, but in Joe's rehearsal on a copy of the live cache (2026-10-09,
 two checkpoints of three states and about 19,500 objects each) its fresh-process
 restores took 3.6–3.9 s against 2.0–2.5 s for the same checkpoints read from v1:
-a small value shared by many records was rebuilt in each. Every frozen value is
-now its own record again; the live restore time without in-place values has not
-been measured. That rehearsal also showed every live checkpoint round-tripping
-exactly (states and objects), v2 at 33.5 MB with in-place values, and the v1 file
-left behind after both checkpoints moved, which is now fixed.
+a small value shared by many records was rebuilt in each. That rehearsal also left the v1 file behind after both checkpoints moved.
+
+Joe re-ran the rehearsal at `57804b80`, where every frozen value is its own record
+again and a checkpoint saved in v2 drops its v1 copy. The input was a fresh
+read-only copy of the live cache (byte-identical to the first) on an Apple M4.
+
+| Checkpoint | v1 read | v2 read (two fresh processes) |
+| --- | ---: | ---: |
+| `80fd4101` | 2,248 ms | 961 / 972 ms |
+| `ef7760e9` | 2,722 ms | 886 / 883 ms |
+
+- **Correctness:** both checkpoints round-tripped exactly (states, shape, key
+  order and objects).
+- **Conversion:** writing them to v2 took 911 and 189 ms.
+- **Resources:** a fresh-process restore took about 1.9 s in total with about
+  0.95 GB peak memory.
+- **Disk:** `records-v2.sqlite` is 34.7 MB. `records-v1.sqlite` and its WAL were
+  removed, and the cache directory went from 93 MB to 34 MB.
+
+Gate on `e9778cd4`:
+
+- **Passed:** typecheck, the product suite (1,738), build, performance, links and
+  whitespace.
+- **Failed:** `test:protocol`, in four `LiveChangeLogTests` (`CanopyWorkingTree`).
+  They fail identically on main at `0b19ced5`.
 tests pass.
