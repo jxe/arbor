@@ -7,3 +7,10 @@ directory graphs from a root. `holdsObject` and `absentFrom` check presence
 without reading. canopyd and the merge sidecar share one store
 and stage generated objects separately; see [the merge tool](../../docs/architecture/canopyd/merge-tool.md#objects-authority-and-failure).
 The Swift twin is `OverstoryObjectStore`.
+
+Objects may also be packed (canopyd 001): records in immutable files under
+`packs/`, indexed in `packs/index.sqlite3` (raw, zstd, a zstd delta against
+the previous version of the same document, or a member of a shared frame).
+Reads, presence checks and freshening fall back to packs when there is no
+loose file; writes are always loose. `ObjectStore.pack` moves loose objects
+into a pack and removes their files only after reading every one back.

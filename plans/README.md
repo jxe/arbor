@@ -105,7 +105,8 @@ canopyd 007: who submitted each current line.
 
 **[canopyd 001: pack object storage](performance/001-pack-object-storage.md).** When size hurts:
 the live volume or backups grow until loose objects cost startup, audit or backup time.
-Space is not pressing.
+Space is not pressing. Built 2026-10-09 and off by default (per-document deltas); live
+measurement, rehearsal and rollout remain.
 
 **[Native 006: sparse iOS placement](performance/006-sparse-ios-placement.md).** When size hurts:
 a tree too big to place on the iPhone in one download.
