@@ -1010,7 +1010,7 @@ struct CanopyRootView: View {
     @State private var topOverscrollArmed = false
     @State private var sidebarDismissDragSuppressesTap = false
 #endif
-    @Environment(\.displayScale) private var displayScale
+    @State private var peopleFooterHovered = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -1600,10 +1600,17 @@ struct CanopyRootView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .glassEffect(.clear.interactive(), in: .rect)
-        .clipShape(.rect)
-        // Keep the glass out of the sidebar's one-pixel boundary.
-        .padding(.trailing, 1 / displayScale)
+#if os(macOS)
+        .background {
+            if peopleFooterHovered {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.06))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+            }
+        }
+        .onHover { peopleFooterHovered = $0 }
+#endif
         .overlay(alignment: .top) { Divider() }
         .task { await refreshSidebarAccounts() }
     }
