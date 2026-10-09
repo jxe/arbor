@@ -595,9 +595,6 @@ function intern(order: string[] | null, members: Thawed[]): Thawed {
 }
 
 
-/** Frozen values of fewer canonical bytes are written inside their parent. */
-const INLINE_BYTES = 256;
-
 /** Private cache records have their own hashes, distinct from semantic state
  * identities. Objects and buckets are encoded once while they remain alive;
  * unchanged persistent branches need neither traversal nor hashing on save. */
@@ -609,13 +606,13 @@ export class StateRecordWriter {
     if (!isObject(value)) return typeof value === "string" && value.length >= 256 ? [this.record(["scalar", value])] : value;
     const known = this.known.get(value);
     if (known) return [known];
-    const body = Array.isArray(value)
+    // Every frozen value is its own record, however small: values are shared
+    // widely within and across states, and a restore decodes each record
+    // once (writing small values in place saved about a third of the bytes
+    // but rebuilt each one wherever it appeared, slowing live restores).
+    const id = this.record(Array.isArray(value)
       ? ["array", value.map((v) => this.value(v))]
-      : ["object", Object.keys(value).map((key) => [key, this.value((value as Record<string, unknown>)[key])])];
-    // A small value is written in place (`[tag, data]`, where a reference is
-    // `[id]`): a record and its index row would cost more than it shares.
-    if ((facts.get(value)?.size ?? Infinity) < INLINE_BYTES) return body;
-    const id = this.record(body);
+      : ["object", Object.keys(value).map((key) => [key, this.value((value as Record<string, unknown>)[key])])]);
     this.known.set(value, id);
     return [id];
   }
@@ -676,8 +673,6 @@ export class StateRecordReader {
       if (isObject(ref)) throw new Error("Invalid cache value reference");
       return { value: ref, ...factsOf(ref), bytes: factsOf(ref).size };
     }
-    // A small value written in place.
-    if (ref.length === 2 && (ref[0] === "array" || ref[0] === "object")) return this.composite(ref[0], ref[1]);
     if (ref.length !== 1 || typeof ref[0] !== "string") throw new Error("Invalid cache value reference");
     const id = ref[0];
     if (this.values.has(id)) {

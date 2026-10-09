@@ -141,11 +141,11 @@ test("checkpoints in the previous layout are read until removed, then its file g
   const restored = store.read(c.tree, c.entry)!;
   expect([...restored.states].map(([sid, s]) => [sid, encodeRetainedState(s)])).toEqual([...c.states].map(([sid, s]) => [sid, encodeRetainedState(s)]));
   expect(restored.objects).toEqual([[hashObject(bytes), new Uint8Array(bytes)]]);
-  // A new checkpoint goes to the current layout; removing the last old one
-  // removes the old file.
-  store.write({ ...c, entry: hashObject(Buffer.from("newer")) });
-  store.remove(c.tree, c.entry);
-  expect(store.list().map((e) => e.entry)).toEqual([hashObject(Buffer.from("newer"))]);
+  // Saving the same checkpoint again moves it to the current layout, and the
+  // old file goes with its last checkpoint.
+  store.write(restored);
+  expect(store.list().map((e) => e.entry)).toEqual([c.entry]);
   expect(await Bun.file(join(path, "records-v1.sqlite")).exists()).toBe(false);
+  expect(store.read(c.tree, c.entry)!.state).toBe(c.state);
   store.close();
 });

@@ -9,13 +9,14 @@ merge rule changes with this format.
 
 `records-v2.sqlite` contains checkpoint manifests and content-addressed state
 records and cache-only objects, stored once by hash as raw bytes in zstd packs.
-Persistent map branches, frozen arrays and objects of at least 256 canonical
-bytes, and strings of at least 256 characters are shared by record hash within
-and across checkpoints and trees; smaller values are written in place inside
-their parent (`[tag, data]`, beside the `[id]` reference). Encoding-record hashes
-are distinct from semantic state identities. The codec preserves bucket shape and
-object iteration order, including integer-like keys, and recomputes semantic
-identities on restoration, building each frozen value directly from its decoded
+Persistent map branches, every frozen array and object, and strings of at least
+256 characters are shared by record hash within and across checkpoints and trees;
+small scalar values stay inline. Writing small arrays and objects in place
+instead saved about a third of the bytes on a fixture but slowed a restore of
+the live cache by half, because a value shared by many records was rebuilt in
+each. Encoding-record hashes are distinct from semantic state identities. The
+codec preserves bucket shape and object iteration order, including integer-like
+keys, and recomputes semantic identities on restoration, building each frozen value directly from its decoded
 members.
 
 Packs hold approximately 1 MiB of uncompressed records before zstd (level 3)

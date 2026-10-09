@@ -1790,13 +1790,11 @@ a parallel Performance 002 prototype; its store was dropped in favor of this one
   index.
 - **Objects:** cache-only objects go into the same packs instead of one gzip per
   object.
-- **In-place values:** frozen values under 256 canonical bytes are written inside
-  their parent.
 - **Restore:** one index query per restore, and frozen values are built directly
   from their decoded members.
 - **Collection:** it runs once garbage doubles, not on every checkpoint removal.
 
-A deployed `records-v1.sqlite` is read until its checkpoints are removed, then deleted. Semantics,
+A deployed `records-v1.sqlite` is read until each of its checkpoints is saved again in v2 or removed, then deleted. Semantics,
 identities and the sidecar's retention policy are unchanged.
 
 Measured with `packages/canopyd-merge/scripts/benchmark-cache.ts` on two saves
@@ -1806,11 +1804,18 @@ are single local runs in a shared container:
 
 | | v1 | v2 |
 | --- | ---: | ---: |
-| Database | 64.9 MB | 27.0 MB |
-| Index rows | 160,781 | 100,884 |
-| First / incremental save | 7.6 / 2.6 s | 2.5 / 1.7 s |
-| Fresh-process restore | 7.4–7.6 s | 5.2–5.4 s |
+| Database | 64.9 MB | 38.0 MB |
+| First / incremental save | 7.6 / 2.6 s | 6.5 / 3.1 s |
+| Fresh-process restore | 7.4–7.6 s | 5.4–6.0 s |
 
 In v1 the index (28.6 MB) and per-object gzip (18.4 MB) outweighed the packs.
-The live cache has not been measured with v2. Validation: canopyd-merge unit
+A variant that wrote frozen values under 256 bytes inside their parent took
+27.0 MB here, but in Joe's rehearsal on a copy of the live cache (2026-10-09,
+two checkpoints of three states and about 19,500 objects each) its fresh-process
+restores took 3.6–3.9 s against 2.0–2.5 s for the same checkpoints read from v1:
+a small value shared by many records was rebuilt in each. Every frozen value is
+now its own record again; the live restore time without in-place values has not
+been measured. That rehearsal also showed every live checkpoint round-tripping
+exactly (states and objects), v2 at 33.5 MB with in-place values, and the v1 file
+left behind after both checkpoints moved, which is now fixed.
 tests pass.

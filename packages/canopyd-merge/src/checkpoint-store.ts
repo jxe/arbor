@@ -113,6 +113,12 @@ export class CheckpointStore {
           .run(checkpoint.tree, checkpoint.entry, Date.now(), JSON.stringify(manifest));
       }).immediate();
       this.dataVersion = (this.db.query("PRAGMA data_version").get() as { data_version: number }).data_version;
+      // Once a checkpoint is in this layout, its copy in the old one is not
+      // needed; the old file goes with its last checkpoint.
+      if (this.legacy) {
+        this.legacy.remove(checkpoint.tree, checkpoint.entry);
+        if (!this.legacy.list().length) this.dropLegacy();
+      }
     } catch (error) {
       this.pending.clear(); this.pendingBytes = 0; this.writer.clear();
       throw error;
