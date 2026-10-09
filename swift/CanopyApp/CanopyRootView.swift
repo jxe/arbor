@@ -2019,18 +2019,18 @@ struct CanopyRootView: View {
                             if wasFocused && !isFocused { commitPageRename() }
                         }
                 }
+        } else if canRenamePage(at: location) {
+            Button(action: beginPageRename) {
+                Text(filename)
+                    .font(.system(size: 15, weight: .regular))
+            }
+            .buttonStyle(.plain)
+            .help("Rename Page")
+            .accessibilityLabel("Rename Page")
+            .accessibilityValue(filename)
         } else {
             Text(filename)
                 .font(.system(size: 15, weight: .regular))
-            if canRenamePage(at: location) {
-                Button(action: beginPageRename) {
-                    mutedMacToolbarIcon("pencil")
-                }
-                .buttonStyle(.plain)
-                .mutedMacToolbarHover()
-                .help("Rename Page")
-                .accessibilityLabel("Rename Page")
-            }
         }
     }
 
