@@ -297,9 +297,96 @@ private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     // FocusState reconciliation happens asynchronously. Release the AppKit
     // field editor now, then let that reconciliation settle before asking the
     // Quagmire editor to run its page-focus pump.
-    NSApp.keyWindow?.makeFirstResponder(nil)
-    DispatchQueue.main.async {
-        commands?.perform(.escape)
+    guard let window = NSApp.keyWindow, let commands,
+          window.attachedSheet == nil, window.makeFirstResponder(nil) else { return }
+    DispatchQueue.main.async { [weak window, weak commands] in
+        guard let window, window.isKeyWindow, window.attachedSheet == nil,
+              window.firstResponder === window || window.firstResponder === window.contentView else { return }
+        commands?.focusNavigation()
+    }
+}
+
+/// A dismissible surface can span multiple native hosts (the sidebar column
+/// and its titlebar controls). Inspect ownership before removing either host.
+@MainActor
+final class MacSurfaceFocusHandoff {
+    let regions = NSHashTable<NSView>.weakObjects()
+    weak var commands: EditorCommands?
+    private var revision = 0
+
+    func cancel() { revision += 1 }
+
+    static func owns(_ responder: NSResponder?, in region: NSView) -> Bool {
+        guard let window = region.window, !region.isHiddenOrHasHiddenAncestor else { return false }
+        var view = responder as? NSView
+        // A field editor is shared by the window; its delegate is the control
+        // whose surface owns focus, even when the editor itself lives elsewhere.
+        if let editor = responder as? NSTextView, editor.isFieldEditor {
+            view = editor.delegate as? NSView
+        }
+        guard let view, view.window === window,
+              !view.isHiddenOrHasHiddenAncestor else { return false }
+        if view === region || view.isDescendant(of: region) { return true }
+        // SwiftUI background probes are siblings of their native controls.
+        // Exclude ancestor hosting views shared by sidebar and document.
+        guard !region.isDescendant(of: view) else { return false }
+        // AppKit may expose the ancestor's clip rect beyond a control's own
+        // bounds. Restrict it before deciding which surface owns the control.
+        let visibleBounds = view.visibleRect.intersection(view.bounds)
+        guard !visibleBounds.isEmpty else { return false }
+        let focusRect = view.convert(visibleBounds, to: nil)
+        let regionRect = region.convert(region.bounds, to: nil)
+        return regionRect.contains(NSPoint(x: focusRect.midX, y: focusRect.midY))
+    }
+
+    func dismiss(isCurrent: @escaping () -> Bool, clearFocusRequests: () -> Void) {
+        cancel()
+        let ticket = revision
+        let region = regions.allObjects.first { Self.owns($0.window?.firstResponder, in: $0) }
+        let window = region?.window
+        let destination = commands
+        clearFocusRequests()
+        guard let window, window.isKeyWindow, window.attachedSheet == nil,
+              let destination, window.makeFirstResponder(nil) else { return }
+        DispatchQueue.main.async { [weak self, weak window, weak destination] in
+            guard let self, self.revision == ticket, isCurrent(),
+                  let window, window.isKeyWindow, window.attachedSheet == nil,
+                  window.firstResponder === window || window.firstResponder === window.contentView,
+                  let destination, self.commands === destination else { return }
+            destination.focusNavigation()
+        }
+    }
+}
+
+private struct MacSurfaceFocusRegion: NSViewRepresentable {
+    let handoff: MacSurfaceFocusHandoff
+
+    func makeNSView(context: Context) -> RegionView {
+        let view = RegionView()
+        handoff.regions.add(view)
+        return view
+    }
+
+    func updateNSView(_ view: RegionView, context: Context) {}
+
+    final class RegionView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+private struct MacSidebarFocusHandoff: ViewModifier {
+    let handoff: MacSurfaceFocusHandoff
+    @FocusedValue(\.editorCommands) private var editorCommands
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: editorCommands.map(ObjectIdentifier.init), initial: true) {
+                if let editorCommands {
+                    handoff.cancel()
+                    handoff.commands = editorCommands
+                }
+            }
+            .onDisappear { handoff.cancel() }
     }
 }
 
@@ -580,10 +667,15 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
         view.request(isFocused)
     }
 
+    static func dismantleNSView(_ view: FocusView, coordinator: ()) {
+        view.stopTracking()
+    }
+
     final class FocusView: NSView {
         var focusChanged: ((Bool) -> Void)?
         private var observation: NSKeyValueObservation?
         private var fieldIsFocused = false
+        private var requestRevision = 0
         private var keyMonitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -612,6 +704,14 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
             }
         }
 
+        func stopTracking() {
+            requestRevision += 1
+            observation = nil
+            focusChanged = nil
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+        }
+
         isolated deinit {
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         }
@@ -632,9 +732,12 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
         }
 
         func request(_ focused: Bool) {
+            requestRevision += 1
+            let revision = requestRevision
             guard focused != fieldIsFocused else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window, let field = self.field else { return }
+                guard let self, self.requestRevision == revision,
+                      let window = self.window, let field = self.field else { return }
                 if focused, !self.fieldIsFocused {
                     window.makeFirstResponder(field)
                 } else if !focused, self.fieldIsFocused {
@@ -876,6 +979,25 @@ struct CanopyRootView: View {
     @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarFocusHandoff = MacSurfaceFocusHandoff()
+
+    private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(get: { columnVisibility }, set: { visibility in
+            guard visibility != columnVisibility else { return }
+            if visibility == .detailOnly {
+                let location = model.currentLocation
+                let tab = model.selectedTabID
+                sidebarFocusHandoff.dismiss(isCurrent: {
+                    model.currentLocation == location && model.selectedTabID == tab
+                }, clearFocusRequests: {
+                    sidebarSearchFocused = false
+                })
+            } else {
+                sidebarFocusHandoff.cancel()
+            }
+            columnVisibility = visibility
+        })
+    }
     @State private var managementPresented = false
     @State private var profileAfterManagementDismiss: String?
     @State private var sheetAfterManagementDismiss: CanopyPresentedSheet?
@@ -1176,7 +1298,7 @@ struct CanopyRootView: View {
             iosSidebarDrawer
         }
 #else
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: sidebarVisibility) {
             sidebarContent
                 .toolbar(removing: .sidebarToggle)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 500)
@@ -1208,6 +1330,9 @@ struct CanopyRootView: View {
             }
         }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .modifier(MacSidebarFocusHandoff(handoff: sidebarFocusHandoff))
+        .onChange(of: model.currentLocation) { sidebarFocusHandoff.cancel() }
+        .onChange(of: model.selectedTabID) { sidebarFocusHandoff.cancel() }
 #endif
     }
 
@@ -1311,6 +1436,9 @@ struct CanopyRootView: View {
     /// toolbar may rebuild.
     private var sidebarContent: some View {
         sidebarColumn
+#if os(macOS)
+            .background { MacSurfaceFocusRegion(handoff: sidebarFocusHandoff) }
+#endif
             .onChange(of: sidebarSearchText) { _, query in
                 sidebarKeyboardSelection = nil
                 sidebarTreeSelection = nil
@@ -1554,7 +1682,7 @@ struct CanopyRootView: View {
         guard let review = workspace.conflictReview else { return }
         reviewingChoices = true
 #if os(macOS)
-        if columnVisibility == .detailOnly { withAnimation { columnVisibility = .all } }
+        if columnVisibility == .detailOnly { withAnimation { sidebarVisibility.wrappedValue = .all } }
 #else
         withAnimation { sidebarRevealProgress = 1 }
 #endif
@@ -1704,7 +1832,7 @@ struct CanopyRootView: View {
     private var macSidebarToggle: some View {
         Button {
             withAnimation {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                sidebarVisibility.wrappedValue = columnVisibility == .detailOnly ? .all : .detailOnly
             }
         } label: {
             Image(systemName: columnVisibility == .detailOnly
@@ -1729,6 +1857,9 @@ struct CanopyRootView: View {
             isFocused: $sidebarSearchFocused,
             handleKeyPress: handleSidebarSearchKeyPress
         )
+#if os(macOS)
+        .background { MacSurfaceFocusRegion(handoff: sidebarFocusHandoff) }
+#endif
 #if os(iOS)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -2027,7 +2158,7 @@ struct CanopyRootView: View {
             toggleSidebar: {
 #if os(macOS)
                 withAnimation {
-                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                    sidebarVisibility.wrappedValue = columnVisibility == .detailOnly ? .all : .detailOnly
                 }
 #endif
             },
@@ -2036,7 +2167,7 @@ struct CanopyRootView: View {
                 sidebarPageOrder = order
 #if os(macOS)
                 if columnVisibility == .detailOnly {
-                    withAnimation { columnVisibility = .all }
+                    withAnimation { sidebarVisibility.wrappedValue = .all }
                 }
 #endif
             },
@@ -2051,11 +2182,14 @@ struct CanopyRootView: View {
             focusSidebarSearch: {
 #if os(macOS)
                 if columnVisibility == .detailOnly {
-                    withAnimation { columnVisibility = .all }
+                    withAnimation { sidebarVisibility.wrappedValue = .all }
                 }
 #endif
                 Task { @MainActor in
                     await Task.yield()
+#if os(macOS)
+                    guard columnVisibility != .detailOnly else { return }
+#endif
                     sidebarSearchFocused = true
                 }
             },

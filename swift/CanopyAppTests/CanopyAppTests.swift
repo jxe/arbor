@@ -15,6 +15,35 @@ import AppKit
 @MainActor
 struct CanopyAppTests {
 #if os(macOS)
+    @Test("Focus regions include native sibling controls and field-editor owners, but exclude document focus")
+    func surfaceFocusOwnership() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let region = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 500))
+        let list = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 250, height: 400))
+        let picker = NSPopUpButton(frame: NSRect(x: 200, y: 450, width: 32, height: 28))
+        final class Field: NSTextField, NSTextViewDelegate {}
+        let search = Field(frame: NSRect(x: 10, y: 450, width: 180, height: 28))
+        let document = NSTextView(frame: NSRect(x: 260, y: 0, width: 540, height: 500))
+        for view in [region, list, picker, search, document] { content.addSubview(view) }
+        #expect(MacSurfaceFocusHandoff.owns(list, in: region))
+        #expect(MacSurfaceFocusHandoff.owns(picker, in: region))
+        #expect(MacSurfaceFocusHandoff.owns(search, in: region))
+        #expect(!MacSurfaceFocusHandoff.owns(document, in: region))
+        #expect(!MacSurfaceFocusHandoff.owns(content, in: region))
+        #expect(!MacSurfaceFocusHandoff.owns(window, in: region))
+
+        let fieldEditor = NSTextView()
+        fieldEditor.isFieldEditor = true
+        fieldEditor.delegate = search
+        #expect(MacSurfaceFocusHandoff.owns(fieldEditor, in: region))
+        fieldEditor.delegate = nil
+        #expect(!MacSurfaceFocusHandoff.owns(fieldEditor, in: region))
+        region.isHidden = true
+        #expect(!MacSurfaceFocusHandoff.owns(list, in: region))
+    }
+
     @Test("The first sidebar Control-click targets the pointer row without requiring selection")
     func sidebarControlClickTargetsUnselectedRow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
