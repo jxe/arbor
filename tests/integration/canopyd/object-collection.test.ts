@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { access, mkdtemp, readdir, rename, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectObjects, serveHost } from "@overstory/canopyd";
+import { collectObjects, PackMaintenance, serveHost } from "@overstory/canopyd";
 import { ObjectStore } from "@overstory/object-store";
 import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
@@ -154,6 +154,34 @@ test("a run that was interrupted after setting an object aside puts it back", as
   expect(report.recovered).toBe(1);
   expect((await stat(path)).isFile()).toBe(true);
   expect((await readdir(join(path, ".."))).some((name) => name.endsWith(".collect"))).toBe(false);
+  await restart();
+  await running.canopy.verifyIntegrity();
+});
+
+test("packed history reads, verifies, accepts and collects like loose history", async () => {
+  // A dead body that will be packed, then found unreferenced.
+  const dead = bytesOf("never named\n");
+  await store.store([dead]);
+  await age();
+  const db = new Database(join(dir, "canopy.sqlite3"), { readonly: true });
+  const packing = new PackMaintenance(db, store, join(dir, "objects"), { minAgeMs: DAY });
+  const report = (await packing.run())!;
+  db.close();
+  expect(report.packed).toBeGreaterThan(0);
+  // The current tree stays loose; older versions and log entries are packed.
+  expect(report.hot).toBeGreaterThan(0);
+  expect(await held(dead.hash)).toBe(false);
+  expect(await store.read(dead.hash)).toEqual(dead.bytes);
+  await restart();
+  await running.canopy.verifyIntegrity();
+  // An update on top of packed history is accepted and read back.
+  root = change(root, { "note.md": { file: file("---\nid: note\n---\nThird\n") } });
+  base = (await submit(snapshot(root))).id;
+  await running.canopy.verifyIntegrity();
+  // Collection drops the packed dead object only, and history stays intact.
+  const collected = await collectObjects(dir, { delete: true, graceMs: 0 });
+  expect(collected.packed.deleted.objects).toBe(1);
+  await expect(new ObjectStore(join(dir, "objects")).read(dead.hash)).rejects.toThrow();
   await restart();
   await running.canopy.verifyIntegrity();
 });

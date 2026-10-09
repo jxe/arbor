@@ -24,6 +24,10 @@ import { assertCurrentHostSchema } from "./schema.ts";
  *
  * Nothing but whole object files is removed: shard directories stay, and
  * files that are not objects (temporary writes) are counted and left.
+ *
+ * Packed objects (canopyd 001) are dropped by index row under the same
+ * definition, cutoff and freshen rule (`Packs.collect`), keeping every base
+ * a kept delta reads; a pack that lost half its bytes is rewritten.
  */
 export interface CollectOptions {
   /** Delete; otherwise report what would be deleted. */
@@ -59,6 +63,10 @@ export interface CollectReport {
   other: number;
   /** Set-aside files from an interrupted run, restored first. */
   recovered: number;
+  /** Packed objects (canopyd 001): dropped (or droppable), used within the
+   * grace period, kept (live, or a base a kept delta reads), and packs
+   * rewritten after losing half their bytes. */
+  packed: { deleted: Tally; young: number; kept: number; rewritten: number };
   ms: number;
 }
 
@@ -134,6 +142,11 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
   }
   if (remove) progress(`deleted ${deleted.objects} objects, ${deleted.bytes} bytes`);
 
+  // Packed objects: the same definition and grace period, by index row.
+  const packedResult = await store.packs.collect(retained.live, cutoff, remove);
+  const packed = { deleted: { objects: packedResult.objects, bytes: packedResult.bytes }, young: packedResult.young, kept: packedResult.kept, rewritten: packedResult.rewritten };
+  if (packedResult.objects) progress(`${remove ? "dropped" : "would drop"} ${packedResult.objects} packed objects; ${packedResult.rewritten} packs rewritten`);
+
   return {
     mode: remove ? "delete" : "dry-run",
     dataRoot: root,
@@ -145,6 +158,7 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
     absent: retained.absent,
     other,
     recovered,
+    packed,
     ms: Math.round(performance.now() - started),
   };
 }

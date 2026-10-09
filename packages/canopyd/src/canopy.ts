@@ -1,5 +1,6 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
+import { PackMaintenance } from "./pack-maintenance.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
 import { LocatorPins } from "./locator-pins.ts";
@@ -369,6 +370,9 @@ export class HostDaemon implements AsyncDisposable {
   private readonly remoteGroups: RemoteGroups;
   private readonly locatorPins: LocatorPins;
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Background object packing (canopyd 001); on only when
+   * `ARBOR_OBJECT_PACKING=1`, until a rehearsed rollout. */
+  readonly packing: PackMaintenance | undefined;
   private disposed = false;
 
   private constructor(
@@ -386,6 +390,9 @@ export class HostDaemon implements AsyncDisposable {
     });
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.history = new MergeHistory(this.acceptedStore, this.objects);
+    this.packing = process.env.ARBOR_OBJECT_PACKING === "1"
+      ? new PackMaintenance(db, this.objects, join(dataRoot, "objects"))
+      : undefined;
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
@@ -445,6 +452,7 @@ export class HostDaemon implements AsyncDisposable {
     canopy.scheduleDeviceKeyRefresh();
     canopy.scheduleRemoteGroupRefresh();
     void canopy.refreshRemoteGroups();
+    canopy.packing?.start();
     return canopy;
   }
 
@@ -2347,6 +2355,7 @@ export class HostDaemon implements AsyncDisposable {
 
   private notifyAccepted(update: AcceptedUpdate): void {
     this.execution.invalidate();
+    this.packing?.notify();
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
@@ -2867,6 +2876,7 @@ export class HostDaemon implements AsyncDisposable {
     this.disposed = true;
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
+    await this.packing?.[Symbol.asyncDispose]();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.db.close();

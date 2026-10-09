@@ -10,6 +10,10 @@ import {
   type TreeSnapshot,
 } from "@overstory/protocol";
 
+import { Packs, prepareRecords, recordDocuments, type PackCandidate, type PackOptions } from "./packs.ts";
+
+export { Encoding, MAX_DELTA_DEPTH, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions, type PackRecord, type PackedLocation } from "./packs.ts";
+
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
 async function syncPath(path: string): Promise<void> {
@@ -40,7 +44,12 @@ export class ObjectStore {
    * memory. Only for stores whose files are never rewritten in place. */
   constructor(private readonly root: string, options: { cacheBytes?: number } = {}) {
     this.cacheLimit = Math.max(0, options.cacheBytes ?? 0);
+    this.packs = new Packs(root);
   }
+
+  /** Objects packed out of their loose files (see `Packs`). Reads and
+   * presence checks fall back to them; writes are always loose. */
+  readonly packs: Packs;
 
   path(hash: ObjectHash): string {
     if (!HASH.test(hash)) throw new Error(`Invalid object hash: ${hash}`);
@@ -58,10 +67,34 @@ export class ObjectStore {
       return cached;
     }
     const started = performance.now();
-    const bytes = new Uint8Array(await readFile(this.path(hash)));
+    const bytes = await this.readStored(hash);
     this.readCounters.files++;
     this.readCounters.bytes += bytes.byteLength;
     this.readCounters.milliseconds += performance.now() - started;
+    if (hashObject(bytes) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
+    this.remember(hash, bytes);
+    return bytes;
+  }
+
+  /** Loose bytes, else packed bytes; ENOENT when neither holds `hash`. A
+   * packing pass indexes an object before removing its loose file, so a
+   * loose miss followed by an index miss means the object is absent. */
+  private async readStored(hash: ObjectHash, depth = 0): Promise<Uint8Array> {
+    try {
+      return new Uint8Array(await readFile(this.path(hash)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const packed = await this.packs.read(hash, (base, next) => this.readBase(base, next), depth);
+      if (packed) return packed;
+      throw error;
+    }
+  }
+
+  /** A delta's base, hash-checked and cached like any read. */
+  private async readBase(hash: ObjectHash, depth: number): Promise<Uint8Array> {
+    const cached = this.cache.get(hash);
+    if (cached) return cached;
+    const bytes = await this.readStored(hash, depth);
     if (hashObject(bytes) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
     this.remember(hash, bytes);
     return bytes;
@@ -185,9 +218,13 @@ export class ObjectStore {
    * it first, and the caller must not commit a reference to it.
    */
   async freshen(hashes: Iterable<ObjectHash>): Promise<void> {
+    const notLoose: ObjectHash[] = [];
     await mapLimit(new Set(hashes), WRITE_CONCURRENCY, async (hash) => {
-      if (!await touch(this.path(hash))) throw new Error(`Stored object vanished: ${hash}`);
+      if (!await touch(this.path(hash))) notLoose.push(hash);
     });
+    // A packed object's index row carries its time instead.
+    const missing = notLoose.length ? this.packs.freshen(notLoose) : [];
+    if (missing.length) throw new Error(`Stored object vanished: ${missing[0]}`);
   }
 
   /**
@@ -221,6 +258,33 @@ export class ObjectStore {
       reconstructed.push({ hash: delta.result, bytes });
     }
     return reconstructed;
+  }
+
+  /**
+   * Move loose objects into one pack (see `prepareRecords`), then remove
+   * their loose files. Each candidate's bytes are hash-checked first, and
+   * every packed object is read back through the index and hash-checked
+   * before any loose file goes, so a crash at any point leaves each object
+   * readable loose, packed, or both. Only one pass may run at a time.
+   */
+  async pack(candidates: PackCandidate[], options: PackOptions = {}): Promise<{ packed: number; bytes: number; packBytes: number }> {
+    for (const c of candidates) if (hashObject(c.bytes) !== c.hash) throw new Error(`Object hash mismatch: ${c.hash}`);
+    const { records, documents } = await prepareRecords(this.packs, candidates, (hash) => this.read(hash), options);
+    const id = await this.packs.write(records);
+    if (id === null) return { packed: 0, bytes: 0, packBytes: 0 };
+    for (const c of candidates) {
+      const back = await this.packs.read(c.hash, (base, depth) => this.readBase(base, depth));
+      if (!back || hashObject(back) !== c.hash) throw new Error(`Packed object does not read back: ${c.hash}`);
+    }
+    recordDocuments(this.packs, documents);
+    let bytes = 0;
+    for (const c of candidates) {
+      await unlink(this.path(c.hash)).catch((error) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+      this.durable.delete(c.hash);
+      bytes += c.bytes.byteLength;
+    }
+    const packBytes = (this.packs.index()!.query("SELECT bytes FROM packs WHERE id = ?").get(id) as { bytes: number }).bytes;
+    return { packed: candidates.length, bytes, packBytes };
   }
 
   /** Durably publish objects; an object already present must be byte-identical. */
@@ -270,6 +334,9 @@ export class ObjectStore {
       // stored bytes checked first.
       if (this.durable.has(hash)) {
         if (await touch(path)) return;
+      } else if (durable && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
+        // Packed: its bytes were hash-checked when packed and are on every read.
+        return;
       } else if (await this.verifyExisting(path, hash) && await touch(path)) {
         // An existing object may have been published as scratch data. Complete
         // file and directory durability without rewriting identical bytes.
@@ -394,7 +461,7 @@ export async function holdsObject(store: ObjectStore, hash: string): Promise<boo
     await access(store.path(hash));
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return store.packs.has(hash);
     throw error;
   }
 }
