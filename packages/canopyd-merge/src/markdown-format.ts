@@ -462,3 +462,22 @@ export function markdownListEdit(document: string | MarkdownSource, start: numbe
   return (before.split(/\r?\n/).some(line => marker.test(line)) || after.split(/\r?\n/).some(line => marker.test(line))) &&
     [before, after].every(value => value.split(/\r?\n/).every(safe));
 }
+
+/** A new ATX heading block: complete heading lines, each with self-contained
+ * inline content, closed by a blank line. */
+const headingBlock = /^(?: {0,3}#{1,6}[ \t]+[^\r\n]*\r?\n(?:[ \t]*\r?\n)+)+$/;
+/** A heading block inserted between blocks changes no neighbour's parse when it
+ * follows a blank line (or the document start) and what follows it is not
+ * indented: an indented line would become code or leave its list item. */
+export function markdownHeadingContext(before: string, after: string): boolean {
+  return (before === "" || /\n[ \t]*\r?\n$/.test(before)) && !/^[ \t]/.test(after);
+}
+export function markdownHeadingInsertion(document: string | MarkdownSource, offset: number, text: string): boolean {
+  const scan = scanned(document), bytes = scan.bytes;
+  if (!headingBlock.test(text)) return false;
+  if (!text.split(/\r?\n/).every(line => !line.trim() ||
+      inlineProse(line.replace(/^ {0,3}#{1,6}[ \t]+/, "").replace(/(?:^|[ \t]+)#+[ \t]*$/, "")))) return false;
+  const prefix = bytes.subarray(0, offset).toString("utf8"), at = prefix.length;
+  if (scan.opaque.some(([start, end]) => at > start && at < end)) return false;
+  return markdownHeadingContext(prefix, bytes.subarray(offset).toString("utf8"));
+}

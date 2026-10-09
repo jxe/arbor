@@ -1,4 +1,4 @@
-import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownTransferStructure, markdownListEdit, MarkdownSource, type LinkPolicy } from "./markdown-format.ts";
+import { markdownLayout, markdownProseInsertion, markdownHeadingInsertion, markdownHeadingContext, markdownTransferShape, markdownTransferStructure, markdownListEdit, MarkdownSource, type LinkPolicy } from "./markdown-format.ts";
 import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -443,7 +443,7 @@ interface ProseBase {
   document: MarkdownSource;
   layout: ReturnType<typeof markdownLayout>;
   /** Whether an edit (by range and text) keeps the base's prose shape. */
-  kept: Map<string, boolean>;
+  kept: Map<string, boolean | "heading">;
 }
 
 /** Normalize verified inline edits and prose insertions before checking transfers.
@@ -477,9 +477,15 @@ function proseTransferShape(scan: ProseBase, changed: Uint8Array, edits: PieceEd
         // blockquotes can change the scope of later edits and remain protected.
         const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
           markdownProseInsertion(document, start, [text]);
-        kept = inline || insertion || markdownListEdit(document, start, end, text);
+        // A complete ATX heading block between blocks parses alone; whether the
+        // following block keeps its parse is checked in each version below.
+        kept = inline || insertion || markdownListEdit(document, start, end, text) ||
+          (start === end && markdownHeadingInsertion(document, start, text) ? "heading" : false);
         scan.kept.set(key, kept);
       }
+      if (kept === "heading" && !markdownHeadingContext(
+        decoder.decode(changed.subarray(0, next)), decoder.decode(changed.subarray(next + size)),
+      )) return null;
       parts.push(kept ? previous : text);
       old = end; next += size;
     }
