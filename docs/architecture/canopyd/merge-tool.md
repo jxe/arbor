@@ -364,6 +364,13 @@ commutation proof in code: why a change means the same in the combined file
 as where it was authored, whichever side arrived first. When the proof does
 not hold the candidate is reviewed as before; a rule never guesses.
 
+When the replay itself fails, the review is as narrow as the transfers allow.
+A transfer between files in the candidate, or one accepted since its base
+joining two or more files the candidate also edited, makes one whole-root
+choice. Otherwise each file a transfer touched is one choice about that file
+(both sides' edits there together), and every other file merges. A transfer
+that changed no file (a move to where its text already was) couples nothing.
+
 - **Markdown** (`markdown-source-transfer`). All four versions keep every
   protected host block and embedded region byte for byte, and differ only in
   plain and self-contained formatted paragraphs, in *list items* within a list

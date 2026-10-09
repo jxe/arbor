@@ -1698,10 +1698,10 @@ class Engine {
   ): Promise<(id: string) => TransferContext> {
     const transfers: Array<{ side: 1 | 2; key: string; operation: SourceOperation }> = [];
     for (const operation of operations)
-      if (operation.kind === "moveSource" || operation.kind === "copySource")
+      if (this.transfers(authored.effects[keyOf(change, operation.key)]))
         transfers.push({ side: 2, key: keyOf(change, operation.key), operation });
     for (const effect of this.addedEffects(current, base))
-      if (effect.kind === "moveSource" || effect.kind === "copySource")
+      if (this.transfers(effect))
         transfers.push({
           side: 1,
           key: keyOf(effect.change, effect.operation),
@@ -1750,6 +1750,13 @@ class Engine {
     return (this.addedEffectList ??= Object.entries(since(current.effects, base.effects))
       .filter(([key]) => !Object.hasOwn(base.effects, key))
       .map(([, effect]) => effect));
+  }
+  /** A move or copy that changed some entry. A move to where its text already
+   * was (an editor reports an outdented last child as moved) changes nothing
+   * and is no transfer: it neither couples files nor needs a transfer rule. */
+  private transfers(effect: Effect | undefined): effect is Effect {
+    return !!effect && (effect.kind === "moveSource" || effect.kind === "copySource") &&
+      (Object.keys(effect.before).length > 0 || Object.keys(effect.after).length > 0);
   }
   private addedChanges(current: IntentState, base: IntentState) {
     return (this.addedChangeList ??= (async () => {
@@ -2093,13 +2100,11 @@ class Engine {
     ) {
       // First enforce the complete causal context. Snapshot equality never invents
       // correspondence; branches without retained identity remain explicit choices.
-      const structuralTransfer =
-        operations.some((op) =>
-          ["moveSource", "copySource"].includes(op.kind)
-        ) ||
-        this.addedEffects(current, base).some((e) =>
-          ["moveSource", "copySource"].includes(e.kind)
-        );
+      const incomingTransfers = operations.filter((op) =>
+          this.transfers(authored.effects[keyOf(request.incoming.change, op.key)])
+        ),
+        concurrentTransfers = this.addedEffects(current, base).filter((e) => this.transfers(e));
+      const structuralTransfer = incomingTransfers.length > 0 || concurrentTransfers.length > 0;
       let transported: IntentState | undefined;
       if (
         structuralTransfer &&
@@ -2284,18 +2289,24 @@ class Engine {
         }
       }
       // A transfer between files cannot merge file by file; one within a file
-      // is that file's content, merged (or chosen) with the rest of it.
+      // is that file's content, merged (or chosen) with the rest of it. A
+      // concurrent transfer between files couples them only for an incoming
+      // change that edited two or more of them; otherwise each file it touched
+      // is merged (or chosen) on its own, below.
       const pathOf = (ref: MaterialRef) =>
         ref.material.kind === "basis" ? ref.material.path : undefined;
+      const edited = new Set(
+        Object.keys(authored.nodes).filter((id) => !same(base.nodes[id], authored.nodes[id]))
+      );
       const crossFile =
-        operations.some((op) =>
+        incomingTransfers.some((op) =>
           (op.kind === "moveSource" || op.kind === "copySource") &&
           (!pathOf(op.source) || pathOf(op.source) !== pathOf(op.at))
         ) ||
-        this.addedEffects(current, base).some((e) =>
-          ["moveSource", "copySource"].includes(e.kind) &&
-          new Set([...Object.keys(e.before), ...Object.keys(e.after)]).size !== 1
-        );
+        concurrentTransfers.some((e) => {
+          const files = new Set([...Object.keys(e.before), ...Object.keys(e.after)]);
+          return files.size > 1 && [...files].filter((id) => edited.has(id)).length > 1;
+        });
       const merged = this.cloneState(current),
         affected: string[] =
           structuralTransfer && crossFile && !transported ? [base.root] : [];
@@ -2303,14 +2314,14 @@ class Engine {
       // sides' edits there stay one choice, as the transfer policy asks.
       const transferPaths = new Set<string>();
       if (structuralTransfer && !crossFile && !transported) {
-        for (const op of operations)
+        for (const op of incomingTransfers)
           if (op.kind === "moveSource" || op.kind === "copySource") {
             const path = pathOf(op.source);
             if (path) transferPaths.add(path);
           }
-        for (const e of this.addedEffects(current, base))
-          if (["moveSource", "copySource"].includes(e.kind))
-            for (const id of Object.keys(e.before)) transferPaths.add(basePath(id));
+        for (const e of concurrentTransfers)
+          for (const id of Object.keys(e.before))
+            if (base.nodes[id]) transferPaths.add(basePath(id));
       }
       // Merging edits `merged` only, so the candidate records once as well.
       let candidateRecord: Promise<{ object: string; state: string }> | undefined;

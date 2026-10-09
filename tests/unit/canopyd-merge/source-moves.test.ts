@@ -59,11 +59,21 @@ const shapes: Shape[] = [
   {
     name: "an item moves under a sibling and is re-indented",
     text: list,
-    // "- three\n" becomes a child of "two", after "child".
-    moves: [{ source: "- three\n", anchor: "  - child\n", side: "after" }],
+    // "- one\n" becomes a child of "two", after "child".
+    moves: [{ source: "- one\n", anchor: "  - child\n", side: "after" }],
     edits: [{ range: [0, 1], text: "  -" }],
-    expected: "Intro\n\n- one\n- two\n  - child\n  - three\n\nOutro\n",
-    peer: { find: "three", replace: "THREE", choice: true },
+    expected: "Intro\n\n- two\n  - child\n  - one\n- three\n\nOutro\n",
+    peer: { find: "one", replace: "ONE", choice: true },
+  },
+  {
+    // An editor reports an outdented last child as moved to where it already
+    // is: the move changes nothing, so the outdent merges as an ordinary edit.
+    name: "an outdented last child is reported as moved where it is",
+    text: list,
+    moves: [{ source: "  - child\n", anchor: "- two\n", side: "after" }],
+    edits: [{ range: [0, 2], text: "" }],
+    expected: "Intro\n\n- one\n- two\n- child\n- three\n\nOutro\n",
+    peer: { find: "child", replace: "CHILD" },
   },
   {
     name: "an item is indented in place",
@@ -283,3 +293,42 @@ test("an unreconciled move is a choice about its page, not the whole tree", asyn
   expect(contributions).toContain("peer");
   expect(f.content(merged.result.object, "b.md")).toBe("Other PEER\n");
 });
+
+/** A peer's Move to Document, with an edit beside where a later change
+ * inserts, arriving before that change. A later change that edited only the
+ * origin page (and another page) gets a choice about the origin page, and the
+ * other page merges; one that edited both pages the transfer joined still
+ * couples them as one whole-tree choice. Before this was narrowed, any
+ * concurrent transfer between files made the whole tree one choice (live
+ * update 8670). */
+for (const both of [false, true])
+  test(`a concurrent transfer between files couples only the pages it touched${both ? ": both edited" : ""}`, async () => {
+    const f = new Fixture();
+    const origin = "Stays here\n\nFirst moved\n\nKept\n\n", destination = "Target\n", other = "Other page\n";
+    const root = f.tree({ "a.md": origin, "b.md": destination, "c.md": other });
+    const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", origin, [0, 0]), text: "" }], "start"))).result;
+    const end = encoder.encode(destination).length, here = at(origin, "here");
+    const target = "Target\n\nFirst moved\n\n";
+    const peer = f.request(basis, f.tree({ "a.md": "Stays HERE\n\nKept\n\n", "b.md": target, "c.md": other }), [
+      { key: "move-0-0", kind: "moveSource", source: f.ref("/a.md", origin, at(origin, "First moved\n\n")), at: f.ref("/b.md", destination, [0, end]), side: "after" },
+      { key: "edit-0-0", kind: "editSource", source: f.ref("/b.md", destination, [end - 1, end]), text: "\n\n", lineage: [{ source: f.ref("/b.md", destination, [end - 1, end]), range: [0, 1] }] },
+      { key: "edit-0-1", kind: "editSource", source: f.ref("/a.md", origin, here), text: "HERE" },
+    ], "peer");
+    const late = f.request(basis, f.tree({ "a.md": origin.replace("here", "here, inserted"), "b.md": both ? "TARGET\n" : destination, "c.md": "Other LATE\n" }), [
+      { key: "late-a", kind: "editSource", source: f.ref("/a.md", origin, [here[1], here[1]]), text: ", inserted" },
+      ...(both ? [{ key: "late-b", kind: "editSource" as const, source: f.ref("/b.md", destination, at(destination, "Target")), text: "TARGET" }] : []),
+      { key: "late-c", kind: "editSource", source: f.ref("/c.md", other, at(other, "page")), text: "LATE" },
+    ], "late");
+    late.current = (await f.run(peer)).result;
+    const merged = await differential(f, late);
+    expect(merged.decisions).toHaveLength(1);
+    const [choice] = merged.decisions;
+    if (both) {
+      expect(choice!.kind).toBe("directory");
+      return;
+    }
+    expect(choice!.kind).toBe("content");
+    expect(choice!.subject?.material).toMatchObject({ kind: "basis", path: "/a.md" });
+    expect(f.content(merged.result.object, "b.md")).toBe(target);
+    expect(f.content(merged.result.object, "c.md")).toBe("Other LATE\n");
+  });
