@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { closeSync, existsSync, mkdirSync, openSync, readSync } from "node:fs";
 import { open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { constants, zstdCompressSync, zstdDecompressSync } from "node:zlib";
 
 /**
@@ -11,24 +11,23 @@ import { constants, zstdCompressSync, zstdDecompressSync } from "node:zlib";
  *
  * - `raw`: the canonical bytes;
  * - `zstd`: one zstd frame of them;
- * - `delta`: one zstd frame compressed with another object's canonical bytes
- *   (`base`) as its dictionary, so reading it reads the base first;
  * - `member`: a slice (`start`, `size`) of a zstd frame shared by several
  *   objects, the frame being the record.
+ *
+ * No object depends on another: decoding one reads only its own record.
  *
  * A hash still names canonical bytes; the index only says where they are, and
  * every read is checked against the hash by the caller, as loose reads are.
  * `used_at` is the packed object's freshened time, which the collector honors
  * as it honors a loose file's modification time.
  */
-export const enum Encoding { Raw = 0, Zstd = 1, Delta = 2, Member = 3 }
+export const enum Encoding { Raw = 0, Zstd = 1, Member = 2 }
 
 export interface PackedLocation {
   pack: number;
   offset: number;
   length: number;
   encoding: Encoding;
-  base: string | null;
   start: number;
   size: number;
 }
@@ -37,7 +36,6 @@ export interface PackedLocation {
  * `frame` (the same `Uint8Array`) are members of one zstd frame. */
 export type PackRecord =
   | { hash: string; encoding: Encoding.Raw | Encoding.Zstd; body: Uint8Array; size: number }
-  | { hash: string; encoding: Encoding.Delta; body: Uint8Array; base: string; size: number }
   | { hash: string; encoding: Encoding.Member; frame: Uint8Array; start: number; size: number };
 
 const HASH = /^sha256:([a-f0-9]{64})$/;
@@ -64,20 +62,11 @@ function createIndex(db: Database): void {
     offset INTEGER NOT NULL,
     length INTEGER NOT NULL,
     encoding INTEGER NOT NULL,
-    base BLOB,
     start INTEGER NOT NULL DEFAULT 0,
     size INTEGER NOT NULL,
     used_at INTEGER NOT NULL
   ) WITHOUT ROWID`);
   db.run("CREATE INDEX IF NOT EXISTS packed_objects_pack ON packed_objects(pack)");
-  // Each document's newest packed version and its delta depth, so a later
-  // pass deltas the next version against it.
-  db.run(`CREATE TABLE IF NOT EXISTS pack_documents (
-    doc BLOB PRIMARY KEY,
-    latest BLOB NOT NULL,
-    depth INTEGER NOT NULL
-  ) WITHOUT ROWID`);
-  db.run("CREATE INDEX IF NOT EXISTS packed_objects_base ON packed_objects(base) WHERE base IS NOT NULL");
 }
 
 /**
@@ -115,7 +104,7 @@ export class Packs {
     createIndex(db);
     this.db = db;
     this.statements = {
-      find: db.query("SELECT pack, offset, length, encoding, base, start, size FROM packed_objects WHERE hash = ?"),
+      find: db.query("SELECT pack, offset, length, encoding, start, size FROM packed_objects WHERE hash = ?"),
       pack: db.query("SELECT name FROM packs WHERE id = ?"),
       touch: db.query("UPDATE packed_objects SET used_at = max(used_at, ?) WHERE hash = ?"),
     };
@@ -124,8 +113,7 @@ export class Packs {
 
   locate(hash: string): PackedLocation | null {
     if (!this.index()) return null;
-    const row = this.statements!.find.get(digest(hash)) as (Omit<PackedLocation, "base"> & { base: Uint8Array | null }) | null;
-    return row ? { ...row, base: row.base ? named(row.base) : null } : null;
+    return (this.statements!.find.get(digest(hash)) as PackedLocation | null) ?? null;
   }
 
   has(hash: string): boolean {
@@ -165,17 +153,16 @@ export class Packs {
   }
 
   /**
-   * An object's canonical bytes, or null when it is not packed. `base` reads
-   * a delta's base (through the store, so it is hash-checked and cached).
-   * The caller checks the result against `hash`. A pack removed by a
-   * concurrent rewrite is looked up again.
+   * An object's canonical bytes, or null when it is not packed. The caller
+   * checks the result against `hash`. A pack removed by a concurrent rewrite
+   * is looked up again.
    */
-  async read(hash: string, base: (hash: string, depth: number) => Promise<Uint8Array>, depth = 0): Promise<Uint8Array | null> {
+  async read(hash: string): Promise<Uint8Array | null> {
     for (let attempt = 0; ; attempt++) {
       const at = this.locate(hash);
       if (!at) return null;
       try {
-        return await this.decode(at, base, depth);
+        return await this.decode(at);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT" || attempt > 0) throw error;
         this.forget(at.pack);
@@ -183,7 +170,7 @@ export class Packs {
     }
   }
 
-  private async decode(at: PackedLocation, base: (hash: string, depth: number) => Promise<Uint8Array>, depth: number): Promise<Uint8Array> {
+  private async decode(at: PackedLocation): Promise<Uint8Array> {
     if (at.encoding === Encoding.Member) {
       const key = `${at.pack}:${at.offset}`;
       let frame = this.frames.get(key);
@@ -198,12 +185,6 @@ export class Packs {
     const body = await this.record(at);
     if (at.encoding === Encoding.Raw) return body;
     if (at.encoding === Encoding.Zstd) return new Uint8Array(zstdDecompressSync(body));
-    if (at.encoding === Encoding.Delta) {
-      if (!at.base) throw new Error("Packed delta has no base");
-      if (depth >= MAX_DELTA_DEPTH) throw new Error("Packed delta chain is too deep");
-      const dictionary = await base(at.base, depth + 1);
-      return new Uint8Array(zstdDecompressSync(body, { dictionary } as never));
-    }
     throw new Error(`Unknown packed encoding ${at.encoding}`);
   }
 
@@ -268,43 +249,34 @@ export class Packs {
     for (const chunk of chunks) { pack.set(chunk, at); at += chunk.byteLength; }
     const name = await this.writeFile(pack);
     const insertPack = db.query("INSERT INTO packs (name, bytes, created_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET bytes = excluded.bytes RETURNING id");
-    const insertObject = db.query(`INSERT OR IGNORE INTO packed_objects (hash, pack, offset, length, encoding, base, start, size, used_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const insertObject = db.query(`INSERT OR IGNORE INTO packed_objects (hash, pack, offset, length, encoding, start, size, used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
     let id = 0;
     db.transaction(() => {
       id = (insertPack.get(name, offset, now) as { id: number }).id;
       for (const { record, offset: o, length } of placed)
         insertObject.run(digest(record.hash), id, o, length, record.encoding,
-          record.encoding === Encoding.Delta ? digest(record.base) : null,
           record.encoding === Encoding.Member ? record.start : 0, record.size, now);
     })();
     return id;
   }
 
   /**
-   * Drop packed objects that are neither `live` nor used since `cutoff`,
-   * keeping every base a kept object's delta reads (transitively). Each
-   * row goes only if its `used_at` is still before the cutoff, so a
+   * Drop packed objects that are neither `live` nor used since `cutoff`.
+   * Each row goes only if its `used_at` is still before the cutoff, so a
    * concurrent freshen wins. Then packs that lost at least half their bytes
    * are rewritten with what remains. Returns the dropped objects and bytes.
    */
   async collect(live: Set<string>, cutoff: number, remove: boolean): Promise<{ objects: number; bytes: number; young: number; kept: number; rewritten: number }> {
     const db = this.index();
     if (!db) return { objects: 0, bytes: 0, young: 0, kept: 0, rewritten: 0 };
-    const rows = db.query("SELECT hash, base, size, length, used_at FROM packed_objects").all() as Array<{ hash: Uint8Array; base: Uint8Array | null; size: number; length: number; used_at: number }>;
+    const rows = db.query("SELECT hash, size, used_at FROM packed_objects").all() as Array<{ hash: Uint8Array; size: number; used_at: number }>;
     const byHash = new Map(rows.map((r) => [named(r.hash), r]));
     const kept = new Set<string>();
     let young = 0;
-    const keep = (hash: string) => {
-      for (let at: string | null = hash; at && !kept.has(at);) {
-        kept.add(at);
-        const row = byHash.get(at);
-        at = row?.base ? named(row.base) : null;
-      }
-    };
     for (const [hash, row] of byHash) {
-      if (live.has(hash)) keep(hash);
-      else if (row.used_at >= cutoff) { young++; keep(hash); }
+      if (live.has(hash)) kept.add(hash);
+      else if (row.used_at >= cutoff) { young++; kept.add(hash); }
     }
     const dead = [...byHash].filter(([hash]) => !kept.has(hash));
     let objects = 0, bytes = 0, rewritten = 0;
@@ -314,7 +286,6 @@ export class Packs {
       for (const [, row] of dead) {
         if (drop.run(row.hash, cutoff).changes) { objects++; bytes += row.size; }
       }
-      db.run("DELETE FROM pack_documents WHERE NOT EXISTS (SELECT 1 FROM packed_objects WHERE hash = pack_documents.latest)");
     })();
     for (const { id, bytes: total } of db.query("SELECT id, bytes FROM packs").all() as Array<{ id: number; bytes: number }>) {
       const used = db.query("SELECT coalesce(sum(length), 0) AS n FROM (SELECT DISTINCT offset, length FROM packed_objects WHERE pack = ?)").get(id) as { n: number };
@@ -325,8 +296,7 @@ export class Packs {
   }
 
   /** Copy a pack's remaining records into a new pack, move their rows in one
-   * transaction, then remove the old pack. Records are copied as they are:
-   * no object's encoding or base changes. */
+   * transaction, then remove the old pack. Records are copied as they are. */
   private async rewrite(pack: number): Promise<void> {
     const db = this.index()!;
     const rows = db.query("SELECT hash, offset, length FROM packed_objects WHERE pack = ?").all(pack) as Array<{ hash: Uint8Array; offset: number; length: number }>;
@@ -335,7 +305,7 @@ export class Packs {
     let size = 0;
     for (const row of rows) {
       if (ranges.has(row.offset)) continue;
-      const bytes = await this.record({ pack, offset: row.offset, length: row.length, encoding: Encoding.Raw, base: null, start: 0, size: row.length });
+      const bytes = await this.record({ pack, offset: row.offset, length: row.length, encoding: Encoding.Raw, start: 0, size: row.length });
       ranges.set(row.offset, { length: row.length, to: size });
       chunks.push(bytes); size += bytes.byteLength;
     }
@@ -404,79 +374,34 @@ export class Packs {
 export interface PackCandidate {
   hash: string;
   bytes: Uint8Array;
-  /** Document identity (a stable key, a path, a tree's log); versions of one
-   * document are delta candidates for each other. */
+  /** Document identity (a stable key, a path, a tree's log): versions of one
+   * document are packed together. */
   key: string;
 }
 
 export interface PackOptions {
-  /** Longest delta chain written. */
-  depth?: number;
   level?: number;
-  /** Raw bytes per shared frame of one-version objects. */
+  /** Raw bytes per shared frame; an object this large is packed alone. */
   frameBytes?: number;
-  /** A delta is kept when it is at most this share of the object alone. */
-  deltaShare?: number;
 }
 
 /**
- * Prepare records for `candidates`, in the order given within each
- * document (oldest first): each version a zstd frame against the previous
- * version of its document (one packed earlier, from `pack_documents`, or the
- * one before it here) while the chain stays within `depth` and the delta
- * pays; the first version of a document, and anything a delta does not help,
- * alone. Objects compressed alone that are small are instead members of
- * shared frames in document order, since small objects compress poorly
- * alone. `load` reads an earlier packed base.
+ * Records for `candidates`: documents in order of their first candidate,
+ * each document's versions in the order given (oldest first), concatenated
+ * into zstd frames of about `frameBytes` raw. A frame ends where a document
+ * ends once it is half full, and an object of `frameBytes` or more is packed
+ * alone (zstd, or raw when that does not help).
+ *
+ * Grouping by document is chosen from the 2026-10-09 measurement of a copy
+ * of live data (canopyd 001): versions of one document compress against each
+ * other within a frame far better than a delta against only the previous
+ * version, and a cold single read decompresses at most one frame.
  */
-export async function prepareRecords(
-  packs: Packs,
-  candidates: PackCandidate[],
-  load: (hash: string) => Promise<Uint8Array>,
-  options: PackOptions = {},
-): Promise<{ records: PackRecord[]; documents: Map<string, { latest: string; depth: number }> }> {
-  const depth = options.depth ?? 10, level = options.level ?? 3, frameBytes = options.frameBytes ?? 256 << 10;
-  const share = options.deltaShare ?? 0.8;
-  const db = packs.index(true)!;
-  const latestOf = db.query("SELECT latest, depth FROM pack_documents WHERE doc = ?");
+export function prepareRecords(candidates: PackCandidate[], options: PackOptions = {}): PackRecord[] {
+  const level = options.level ?? 3, frameBytes = options.frameBytes ?? 1 << 20;
   const byKey = new Map<string, PackCandidate[]>();
   for (const c of candidates) (byKey.get(c.key) ?? byKey.set(c.key, []).get(c.key)!).push(c);
   const records: PackRecord[] = [];
-  const small: PackCandidate[] = [];
-  const documents = new Map<string, { latest: string; depth: number }>();
-  for (const [key, versions] of byKey) {
-    const docId = documentId(key);
-    const row = latestOf.get(docId) as { latest: Uint8Array; depth: number } | null;
-    let previous: { hash: string; bytes: Uint8Array | null; depth: number } | null =
-      row ? { hash: named(row.latest), bytes: null, depth: row.depth } : null;
-    for (const version of versions) {
-      let chosen: PackRecord | null = null, chain = 0;
-      if (previous && previous.depth < depth) {
-        const base = previous.bytes ?? await load(previous.hash).catch(() => null);
-        if (base) {
-          const delta = zstd(version.bytes, level, base);
-          const alone = zstd(version.bytes, level);
-          if (delta.byteLength <= share * Math.min(alone.byteLength, version.bytes.byteLength)) {
-            chosen = { hash: version.hash, encoding: Encoding.Delta, body: delta, base: previous.hash, size: version.bytes.byteLength };
-            chain = previous.depth + 1;
-          }
-        }
-      }
-      if (!chosen) {
-        if (version.bytes.byteLength < SMALL_ALONE) small.push(version);
-        else {
-          const alone = zstd(version.bytes, level);
-          chosen = alone.byteLength < version.bytes.byteLength
-            ? { hash: version.hash, encoding: Encoding.Zstd, body: alone, size: version.bytes.byteLength }
-            : { hash: version.hash, encoding: Encoding.Raw, body: version.bytes, size: version.bytes.byteLength };
-        }
-      }
-      if (chosen) records.push(chosen);
-      previous = { hash: version.hash, bytes: version.bytes, depth: chain };
-      documents.set(key, { latest: version.hash, depth: chain });
-    }
-  }
-  // Small objects that stood alone share frames, in document order.
   let members: PackCandidate[] = [], size = 0;
   const flush = () => {
     if (!members.length) return;
@@ -487,42 +412,33 @@ export async function prepareRecords(
     members.forEach((m, i) => records.push({ hash: m.hash, encoding: Encoding.Member, frame, start: starts[i]!, size: m.bytes.byteLength }));
     members = []; size = 0;
   };
-  for (const c of small) {
-    members.push(c); size += c.bytes.byteLength;
-    if (size >= frameBytes) flush();
+  for (const versions of byKey.values()) {
+    if (size >= frameBytes / 2) flush();
+    for (const version of versions) {
+      if (version.bytes.byteLength >= frameBytes) {
+        const alone = zstd(version.bytes, level);
+        records.push(alone.byteLength < version.bytes.byteLength
+          ? { hash: version.hash, encoding: Encoding.Zstd, body: alone, size: version.bytes.byteLength }
+          : { hash: version.hash, encoding: Encoding.Raw, body: version.bytes, size: version.bytes.byteLength });
+        continue;
+      }
+      if (size + version.bytes.byteLength > frameBytes) flush();
+      members.push(version); size += version.bytes.byteLength;
+    }
   }
   flush();
-  return { records, documents };
+  return records;
 }
-
-/** Objects below this size compress poorly alone and share frames instead. */
-const SMALL_ALONE = 4096;
-
-const documentId = (key: string) => new Bun.CryptoHasher("sha256").update(key).digest();
-
-/** Record each document's newest packed version, after its pack is indexed. */
-export function recordDocuments(packs: Packs, documents: Map<string, { latest: string; depth: number }>): void {
-  const db = packs.index(true)!;
-  const upsert = db.query("INSERT OR REPLACE INTO pack_documents (doc, latest, depth) VALUES (?, ?, ?)");
-  db.transaction(() => {
-    for (const [key, { latest, depth }] of documents) upsert.run(documentId(key), digest(latest), depth);
-  })();
-}
-
-/** Deltas never chain deeper than this; a reader refuses deeper chains. */
-export const MAX_DELTA_DEPTH = 64;
 
 async function syncDirectory(path: string): Promise<void> {
   const handle = await open(path, "r");
   try { await handle.sync(); } finally { await handle.close(); }
-  void dirname;
 }
 
 /** zstd at `level`, with a window large enough for the input. */
-export function zstd(bytes: Uint8Array, level: number, dictionary?: Uint8Array): Uint8Array {
+export function zstd(bytes: Uint8Array, level: number): Uint8Array {
   const windowLog = Math.min(27, Math.max(19, Math.ceil(Math.log2(Math.max(1, bytes.byteLength)))));
   return new Uint8Array(zstdCompressSync(bytes, {
     params: { [constants.ZSTD_c_compressionLevel]: level, [constants.ZSTD_c_windowLog]: windowLog },
-    ...(dictionary ? { dictionary } : {}),
   } as never));
 }

@@ -10,9 +10,9 @@ import {
   type TreeSnapshot,
 } from "@overstory/protocol";
 
-import { Packs, prepareRecords, recordDocuments, type PackCandidate, type PackOptions } from "./packs.ts";
+import { Packs, prepareRecords, type PackCandidate, type PackOptions } from "./packs.ts";
 
-export { Encoding, MAX_DELTA_DEPTH, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions, type PackRecord, type PackedLocation } from "./packs.ts";
+export { Encoding, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions, type PackRecord, type PackedLocation } from "./packs.ts";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
@@ -79,25 +79,15 @@ export class ObjectStore {
   /** Loose bytes, else packed bytes; ENOENT when neither holds `hash`. A
    * packing pass indexes an object before removing its loose file, so a
    * loose miss followed by an index miss means the object is absent. */
-  private async readStored(hash: ObjectHash, depth = 0): Promise<Uint8Array> {
+  private async readStored(hash: ObjectHash): Promise<Uint8Array> {
     try {
       return new Uint8Array(await readFile(this.path(hash)));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const packed = await this.packs.read(hash, (base, next) => this.readBase(base, next), depth);
+      const packed = await this.packs.read(hash);
       if (packed) return packed;
       throw error;
     }
-  }
-
-  /** A delta's base, hash-checked and cached like any read. */
-  private async readBase(hash: ObjectHash, depth: number): Promise<Uint8Array> {
-    const cached = this.cache.get(hash);
-    if (cached) return cached;
-    const bytes = await this.readStored(hash, depth);
-    if (hashObject(bytes) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
-    this.remember(hash, bytes);
-    return bytes;
   }
 
   private remember(hash: ObjectHash, bytes: Uint8Array): void {
@@ -269,14 +259,12 @@ export class ObjectStore {
    */
   async pack(candidates: PackCandidate[], options: PackOptions = {}): Promise<{ packed: number; bytes: number; packBytes: number }> {
     for (const c of candidates) if (hashObject(c.bytes) !== c.hash) throw new Error(`Object hash mismatch: ${c.hash}`);
-    const { records, documents } = await prepareRecords(this.packs, candidates, (hash) => this.read(hash), options);
-    const id = await this.packs.write(records);
+    const id = await this.packs.write(prepareRecords(candidates, options));
     if (id === null) return { packed: 0, bytes: 0, packBytes: 0 };
     for (const c of candidates) {
-      const back = await this.packs.read(c.hash, (base, depth) => this.readBase(base, depth));
+      const back = await this.packs.read(c.hash);
       if (!back || hashObject(back) !== c.hash) throw new Error(`Packed object does not read back: ${c.hash}`);
     }
-    recordDocuments(this.packs, documents);
     let bytes = 0;
     for (const c of candidates) {
       await unlink(this.path(c.hash)).catch((error) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });

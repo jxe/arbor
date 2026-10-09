@@ -38,22 +38,31 @@ test("packed objects read identically, are present, and their loose files are go
     expect(await reader.read(o.hash)).toEqual(o.bytes);
     expect(await holdsObject(reader, o.hash)).toBe(true);
   }
-  // Later versions are deltas; small objects share frames.
-  expect(reader.packs.locate(docs[5]!.hash)!.encoding).toBe(Encoding.Delta);
+  // A document's versions share one frame; small objects share frames too.
+  const frame = reader.packs.locate(docs[0]!.hash)!;
+  expect(frame.encoding).toBe(Encoding.Member);
+  for (const d of docs) expect(reader.packs.locate(d.hash)!.offset).toBe(frame.offset);
   expect(reader.packs.locate(smalls[0]!.hash)!.encoding).toBe(Encoding.Member);
   expect(await reader.find(object("absent").hash)).toBeNull();
 });
 
-test("a later pass deltas the next version against the last packed one", async () => {
-  const { store } = fresh();
-  const docs = versions(6);
-  await store.store(docs);
-  await store.pack(docs.slice(0, 3));
-  await store.pack(docs.slice(3));
-  const next = store.packs.locate(docs[3]!.hash)!;
-  expect(next.encoding).toBe(Encoding.Delta);
-  expect(next.base).toBe(docs[2]!.hash);
-  for (const o of docs) expect(await new ObjectStore(store.packs.directory.slice(0, -6)).read(o.hash)).toEqual(o.bytes);
+test("an object as large as a frame is packed alone, and frames end where documents do", async () => {
+  const { root, store } = fresh();
+  const large = { ...object("x".repeat(2 << 20)), key: "large" };
+  const a = versions(3, "a"), b = versions(3, "b");
+  await store.store([large, ...a, ...b]);
+  await store.pack([large, ...a, ...b], { frameBytes: 1 << 20 });
+  const reader = new ObjectStore(root);
+  expect(reader.packs.locate(large.hash)!.encoding).toBe(Encoding.Zstd);
+  expect(await reader.read(large.hash)).toEqual(large.bytes);
+  // Each document is under half a frame, so both share one.
+  expect(reader.packs.locate(a[0]!.hash)!.offset).toBe(reader.packs.locate(b[2]!.hash)!.offset);
+  await store.store(versions(3, "c"));
+  const c = versions(3, "c");
+  await store.pack(c, { frameBytes: 40_000 });
+  // A small frame: a document of about 3 × 25 KB spans frames.
+  expect(new Set(c.map((v) => reader.packs.locate(v.hash)!.offset)).size).toBeGreaterThan(1);
+  for (const o of [large, ...a, ...b, ...c]) expect(await new ObjectStore(root).read(o.hash)).toEqual(o.bytes);
 });
 
 test("freshening and storing again keep a packed object packed", async () => {

@@ -19,9 +19,9 @@ import { decodeProtocolDirectory, type ObjectHash } from "@overstory/protocol";
  *   tree's current closure (the hot set stays loose), in batches of at most
  *   `batchObjects` / `batchBytes`, yielding between batches. Each object's
  *   document is its `document_versions` stable key, else its path in the
- *   accepted root that introduced it, or its tree's log for log entries; a
- *   version is a delta against its document's previous one (see
- *   `ObjectStore.pack`).
+ *   accepted root that introduced it, or its tree's log for log entries; each
+ *   document's versions share zstd frames of about 1 MiB (see
+ *   `prepareRecords`).
  * - **Headroom.** A pass defers when free disk is under twice a batch.
  */
 export interface PackMaintenanceOptions {

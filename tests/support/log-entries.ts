@@ -18,15 +18,13 @@ function readObjectSync(objects: string, hash: string): Uint8Array {
   if (!existsSync(index)) throw new Error(`Object is not stored: ${hash}`);
   const db = new Database(index, { readonly: true });
   try {
-    const row = db.query("SELECT p.name, o.offset, o.length, o.encoding, o.base, o.start, o.size FROM packed_objects o JOIN packs p ON p.id = o.pack WHERE o.hash = ?")
-      .get(Buffer.from(hash.slice(7), "hex")) as { name: string; offset: number; length: number; encoding: Encoding; base: Uint8Array | null; start: number; size: number } | null;
+    const row = db.query("SELECT p.name, o.offset, o.length, o.encoding, o.start, o.size FROM packed_objects o JOIN packs p ON p.id = o.pack WHERE o.hash = ?")
+      .get(Buffer.from(hash.slice(7), "hex")) as { name: string; offset: number; length: number; encoding: Encoding; start: number; size: number } | null;
     if (!row) throw new Error(`Object is not stored: ${hash}`);
     const record = readFileSync(join(objects, "packs", row.name)).subarray(row.offset, row.offset + row.length);
     if (row.encoding === Encoding.Raw) return new Uint8Array(record);
     if (row.encoding === Encoding.Zstd) return new Uint8Array(zstdDecompressSync(record));
-    if (row.encoding === Encoding.Member) return new Uint8Array(zstdDecompressSync(record)).slice(row.start, row.start + row.size);
-    const base = readObjectSync(objects, `sha256:${Buffer.from(row.base!).toString("hex")}`);
-    return new Uint8Array(zstdDecompressSync(record, { dictionary: base } as never));
+    return new Uint8Array(zstdDecompressSync(record)).slice(row.start, row.start + row.size);
   } finally {
     db.close();
   }

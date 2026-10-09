@@ -9,10 +9,8 @@ Historical identifier: **canopyd storage 001**. The filename number is preserved
 - **Effort:** M (most of it built)
 - **Risk:** MEDIUM. An index row pointing at the wrong bytes would corrupt reads,
   but every read is checked against its hash.
-- **State:** BUILT AND OFF BY DEFAULT (`ARBOR_OBJECT_PACKING=1`). The layout is
-  chosen on fixture evidence. Its live measurement, the rehearsal and the
-  rollout remain.
-- **Depends on:** live measurements from the copied store (prompt below).
+- **State:** BUILT AND OFF BY DEFAULT (`ARBOR_OBJECT_PACKING=1`). The layout was
+  chosen on a copy of live data. Rehearsal and rollout remain.
 
 ## What is built
 
@@ -20,25 +18,17 @@ Historical identifier: **canopyd storage 001**. The filename number is preserved
 `objects/packs/index.sqlite3`. The index is owned by the object store, so canopyd's
 schema is unchanged and the merge sidecar opens it read-only.
 
-- **Records.** Each index row has binary hash keys and integer pack ids, about 48 B per
-  row against 164 B with text. It names one object's record, which is one of:
-  - raw;
-  - zstd alone;
-  - a zstd delta whose dictionary is the previous version of the same document, at
-    most 10 deep;
-  - a member of a shared zstd frame. Objects under 4 KiB that no delta helps share
-    frames of about 256 KiB, in document order.
-
-  A table of each document's newest packed version lets later passes keep chaining.
-  Deltas of a document's versions reach group-level compression without groups'
-  incremental penalty, and a single read decompresses only one chain.
+- **Layout.** A pack holds zstd frames of about 1 MiB raw. Each frame holds one
+  document's versions in acceptance order; documents follow each other in a frame,
+  and a frame ends where a document ends once it is half full. An object of 1 MiB or
+  more is packed alone, as zstd or raw. No object depends on another. Index rows use
+  binary hash keys and integer pack ids, about 48 B per row.
 - **Pass.** One pass:
   1. checks every candidate's hash;
   2. writes the pack and syncs it under its content's name, then indexes it in one
      transaction;
   3. reads every object back through the index and checks its hash;
-  4. records the documents;
-  5. only then removes loose files.
+  4. only then removes loose files.
 
   A crash leaves every object loose, packed or both. An unindexed pack older than an
   hour is an orphan and is removed.
@@ -53,62 +43,58 @@ schema is unchanged and the merge sidecar opens it read-only.
   under twice a batch, and run one at a time. An accepted update never waits for one.
 - **Collection.** Freshening a packed object updates its row's `used_at`. The
   collector drops dead packed rows under the same retention definition and grace
-  period, conditional on `used_at`, and keeps every base a kept delta reads. It then
-  rewrites packs that lost half their bytes by copying records unchanged.
+  period, conditional on `used_at`, then rewrites packs that lost half their bytes by
+  copying frames unchanged.
 - **Tests.** Packing is covered by `tests/unit/object-store-packs.test.ts` and the
   packed-history case in `tests/integration/canopyd/object-collection.test.ts`. That
   case covers packing, restart, integrity audit, acceptance on top, collection and
   sidecar replay.
 
-## Evidence so far (fixture, 2026-10-09)
+## Evidence
 
-The tools are `tests/performance/storage/`. `git-history-fixture.ts` replays this
-repository's first-parent history (1,016 commits) into a data root: 24,156 objects,
-259 MB raw, 322 MB allocated as loose files. The live store was 418 MiB on
-2026-10-07. `pack-experiments.ts` compared the layouts below with an 8 MiB group
-cache; timings are in-container and single runs.
+`tests/performance/storage/pack-experiments.ts` was run on a copy of live data taken
+read-only on 2026-10-09 at 13:43Z: 22,370 objects, 380 MB raw, 431 MB loose on APFS
+(442 MB on the host). One document (`id:zvjr20`) holds 4,849 versions and 272 MB
+raw. The root directory has 4,245 versions and the log has 4,402 entries. The run was
+on an Apple M4 with an 8 MiB frame cache; these are single runs.
 
-| Layout | Allocated | Files | History reads | Random read p95 | Incremental (every 50 / 200 updates) |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Loose | 322 MB | 24,156 | 578 ms | 0.67 ms | — |
-| Write order, 256 KiB | 88 MB | 1,122 | 580 ms | 1.05 ms | 84 MB |
-| Write order, 4 MiB | 56 MB | 66 | 3,013 ms | 16 ms | 52 MB |
-| Document, 256 KiB | 49 MB | 1,262 | 109 ms | 0.73 ms | 55 / 48 MB |
-| Document, 1 MiB | 35 MB | 339 | 51 ms | 3.2 ms | 42 / 35 MB |
-| Hybrid (hot loose), 1 MiB | 48 MB | 1,585 | 73 ms | 3.0 ms | — |
-| Similarity, 1 MiB | 35 MB | 269 | 147 ms | 3.4 ms | 43 / 35 MB |
-| Delta, depth 10 | 37 MB | 1 | 103 ms | 0.60 ms | same as one-shot |
-| Delta, depth 50 | 33 MB | 1 | 97 ms | 2.3 ms | same as one-shot |
-| Keyframe (depth 1) | 46 MB | 1 | 145 ms | 0.38 ms | same as one-shot |
+| Layout | Allocated | Files | History reads | Random read p95 | Audit (hash order) | Incremental, every 50 / 200 updates |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Loose | 431 MB | 22,370 | 251 ms | 0.03 ms | 0.6 s | — |
+| Write order, 1 MiB | 23.0 MB | 390 | 95 ms | 0.84 ms | 5.2 s | 25.5 / 22.5 MB |
+| **Document, 1 MiB** | **21.8 MB** | **452** | **74 ms** | **0.58 ms** | **4.9 s** | **24.6 / 22.0 MB** |
+| Document, 4 MiB | 14.7 MB | 115 | 54 ms | 1.46 ms | 15.5 s | 17.8 / 14.8 MB |
+| Similarity, 1 MiB | 20.4 MB | 389 | 97 ms | 0.56 ms | 5.4 s | 23.5 / 20.6 MB |
+| Hybrid (7-day hot set loose), 1 MiB | 141 MB | 7,174 | 176 ms | 0.42 ms | 3.2 s | — |
+| Keyframe (depth 1) | 36.2 MB | 1 | 126 ms | 0.09 ms | 0.6 s | same as one-shot |
+| Delta, depth 10 | 49.7 MB | 1 | 136 ms | 0.20 ms | 1.1 s | same as one-shot |
+| Delta, depth 50 | 40.5 MB | 1 | 70 ms | 0.46 ms | 3.1 s | same as one-shot |
 
-What the fixture shows:
+**Decision: document frames of 1 MiB.** On live data, grouping beats per-version
+deltas by 2–2.3×. Versions of the heavily edited document compress against the
+dozens of other versions in their frame, not just the previous one. That reverses the
+call made on the repository-history fixture (where deltas matched groups); the live
+copy is the authority.
 
-- **Write order is the worst policy at every size.** Interleaved documents defeat it.
-- **Similarity sketches match document grouping in size, with worse edit locality.**
-  They found no cross-document redundancy that documents miss.
-- **Group compression needs large groups.** Large groups make a cold single read
-  decompress up to the whole group (3 ms at 1 MiB, 10 ms at 4 MiB). They also lose
-  much of their gain when packing is incremental, unless groups are periodically
-  rewritten.
-- **Git-style deltas against the previous version of the same document match 1 MiB
-  document groups in size.** They keep sub-millisecond random reads, cost nothing
-  extra when packed incrementally, and need no rewrite to stay compact. Their costs
-  are base dependencies (a delta's base is kept while the delta lives) and slower
-  full audits (7.4 s against 3.8 s loose on the fixture).
+- **Size.** 4 MiB frames save another 7 MB, but cost 2.5× the single-read latency and
+  3× the audit time.
+- **Incremental penalty.** Packing every 50 updates costs 2.8 MB at 1 MiB, well under
+  the ~10 MB the tested range of 50–200 updates would allow.
+- **Hot set.** It must be the current closure plus a short minimum age, as built. A
+  7-day hot set kept 6,874 objects (141 MB) loose, because the busy document's recent
+  versions are all within it.
+- **Write order and similarity** were within 10% of document order on live data.
+  Document order is kept for its history locality.
 
-The September decision (independent groups, no deltas) is therefore reversed. Live
-history is dominated by many versions of a few large documents: 2,683 bodies, mostly
-of one 60 KB `_index.md`. A 1 MiB group holds about 17 of those versions, while a
-delta between consecutive versions is a few hundred bytes. So deltas should win by
-more on live data than on the fixture.
+The fixture results (`git-history-fixture.ts`, 259 MB raw) remain in git history
+under this plan's earlier revisions.
 
 ## Remaining work
 
-1. **Measure on a copy of live data.** Run `pack-experiments.ts` on a copy of the live
-   data root. Confirm or
-   adjust the depth, delta threshold, small-object frame size, hot set, minimum age
-   and trigger thresholds, and record the results here. Treat "Keep the loose store if
-   reads regress materially" as the bar.
+1. **Measure the integrity audit and backup on a packed copy.** The harness audit read
+   objects in hash order (4.9 s against 0.6 s loose). `verifyIntegrity` walks the
+   retained graph, whose order is closer to document order. If it is still slow, give
+   the audit a larger frame cache or read packs sequentially.
 2. **Rehearse on a copy.**
    - Enable packing against a copy of the live data root.
    - Report objects and bytes before and after.
@@ -117,24 +103,22 @@ more on live data than on the fixture.
      - warm edit latency;
      - full-history load;
      - cold start;
-     - audit time;
      - backup size and time;
-     - foreground latency while a pass runs, including a burst arriving
-       mid-pass.
+     - foreground latency while a pass runs, including a burst arriving mid-pass.
    - Inject failures at each pass step (kill between pack write, index commit,
      read-back and loose removal) and confirm a rerun converges.
-3. **Update the operating material.** `packages/canopyd/deploy/README.md` (the backup
-   tar already includes `objects/packs/`; the index must be copied consistently, so
-   use a SQLite backup of `index.sqlite3` or stop the writer). Update
+3. **Update the operating material.** In `packages/canopyd/deploy/README.md`: the
+   backup tar includes `objects/packs/`, and the index must be copied consistently
+   (a SQLite backup of `index.sqlite3`, or a stopped writer). Update
    `docs/architecture/canopyd/` storage notes and the status row.
 4. **Roll out with Joe's explicit go-ahead.** That means the full verification gate, a
    rollback plan (packs can be expanded back to loose files by reading every packed
    object and storing it), then setting `ARBOR_OBJECT_PACKING=1` on the host.
 5. **Open, smaller.**
-   - Re-encoding a delta whose base died, so dead bases can be dropped. Today they
-     are kept as bases.
    - A periodic integrity check of pack files against their names.
-   - Integrity and collector counts of packed bytes in `/.arbor/integrity`.
+   - Packed bytes in the integrity and collector reports.
+   - The harness keeps every object in memory (4 GB RSS on the live copy); stream it
+     if the store grows much further.
 
 ## Non-goals
 

@@ -26,8 +26,8 @@ import { assertCurrentHostSchema } from "./schema.ts";
  * files that are not objects (temporary writes) are counted and left.
  *
  * Packed objects (canopyd 001) are dropped by index row under the same
- * definition, cutoff and freshen rule (`Packs.collect`), keeping every base
- * a kept delta reads; a pack that lost half its bytes is rewritten.
+ * definition, cutoff and freshen rule (`Packs.collect`); a pack that lost
+ * half its bytes is rewritten.
  */
 export interface CollectOptions {
   /** Delete; otherwise report what would be deleted. */
@@ -64,7 +64,7 @@ export interface CollectReport {
   /** Set-aside files from an interrupted run, restored first. */
   recovered: number;
   /** Packed objects (canopyd 001): dropped (or droppable), used within the
-   * grace period, kept (live, or a base a kept delta reads), and packs
+   * grace period, kept (live), and packs
    * rewritten after losing half their bytes. */
   packed: { deleted: Tally; young: number; kept: number; rewritten: number };
   ms: number;
