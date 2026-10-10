@@ -169,6 +169,5 @@ implementation yet.
 | [`plans/`](plans/README.md) | Remaining work: plans with why and when, small work and verification, ideas and open questions |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md), [`AGENTS.md`](AGENTS.md) | How the repository is worked on: setup, ownership, change discipline, gates; and the short list of things that differ for agents |
 
-This repository does not yet have an open-source license, so contributions
-cannot be accepted yet; licensing is awaiting legal advice. [DEVELOPMENT.md](DEVELOPMENT.md)
+The code is released under the [MIT license](LICENSE). [DEVELOPMENT.md](DEVELOPMENT.md)
 describes how the repository is worked on.

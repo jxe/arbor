@@ -1,6 +1,6 @@
 # Developing Overstory
 
-This document describes how to work on the repository: setup, what each directory owns, change discipline, and the verification gates. There is no license yet, so it is not a contribution policy.
+This document describes how to work on the repository: setup, what each directory owns, change discipline, and the verification gates. The code is under the [MIT license](LICENSE); this document is not a contribution policy.
 
 ## Requirements and setup
 
