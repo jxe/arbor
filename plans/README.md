@@ -16,11 +16,6 @@ The 2026-10-10 rename left readers accepting six old spellings, among them `arbo
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary.
 
-**[Security 002: decode URL paths once](security/002-path-decoding.md)** and
-**[Security 003: harden overstoryd responses](security/003-overstoryd-host-responses.md).**
-Joe is about to invite a few friends to arb.nxhx.org, and both plans say to finish before a
-host serves people other than Joe. They ship in the same deploy as the invitation page.
-
 **[Rename 003: bundle and keychain identifiers](rename/003-bundle-and-keychain-identifiers.md).**
 A bundle ID is permanent once an App Store record or an update feed names it. Joe decided on
 2026-10-10 to move to `org.nxhx.Story` before any build leaves his machines. It costs a

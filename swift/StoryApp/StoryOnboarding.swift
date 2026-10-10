@@ -167,7 +167,7 @@ struct StoryMacOnboarding: View {
                                         .foregroundStyle(.secondary)
                                 }
                             } else {
-                                TextField("https://community.example", text: $community)
+                                TextField("Host address or invitation link", text: $community, prompt: Text("https://community.example"))
                             }
                             SecureField("Invitation code (if you have one)", text: $inviteCode)
                             Button(state.pendingClaim == nil ? "Connect" : "Resume Connection") {
@@ -230,6 +230,12 @@ struct StoryMacOnboarding: View {
             await load()
         }
         .onChange(of: initialCommunity) { _, value in if let value { community = value } }
+        // A pasted invitation link fills both fields.
+        .onChange(of: community) { _, value in
+            guard case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(value) else { return }
+            community = account
+            inviteCode = code
+        }
         .onChange(of: initialCode) { _, value in if let value { inviteCode = value } }
     }
 

@@ -103,14 +103,27 @@ An unresolved URL for a reserved overstoryd account renders with a **Claim** act
 
 Community and group profiles remain authored trees rather than a separate account/group database. Each structured `members` entry requires `profile: overstory://<TreeID>/`; an optional bare `handle` is current-overstoryd policy that also reserves `/~handle` for that identity. Overstory clients show one person per row in a **Members** sheet (**People** on the community tree) that adds and removes entries without flattening the YAML array. Removing a community member asks first, because it disables any account allocated by that entry; removing an ordinary group member is an ordinary, undoable page edit.
 
-On the community profile, **Add a person** can instead generate a random
-one-time code and write a pending `handle` plus `inviteDigest` entry. The sheet
-shows the join link once, the account's locator carrying the code
-(`overstory://<host>/~<handle>;overstory-invite=<code>`), for the
-administrator to share after the invitation syncs. Opening that link on a Mac enters Story onboarding:
-it uses an available local identity or prompts the recipient to create one,
-then claims the account. The code does not enter the authored profile in plain
-text. After claim, the host replaces the pending entry with the Profile TreeID.
+On the community profile the sheet leads with **Invite someone**: one handle
+field and **Create Invitation Link**, which generates a random one-time code and
+writes a pending `handle` plus `inviteDigest` entry. The sheet then shows the
+link, the account's locator carrying the code as a fragment
+(`https://<host>/~<handle>#overstory-invite=<code>`), with Copy and Share, for
+the administrator to send after the invitation syncs. The link is shown once. A
+pending entry is listed as "Invited, not yet joined" with **New Link**, which
+replaces it with a fresh code, and a button that cancels it. Adding a person by
+Profile TreeID or by a profile URL on another host is the collapsed **Add an
+existing identity** section. The code does not enter the authored profile in
+plain text. After claim, the host replaces the pending entry with the Profile
+TreeID.
+
+In a browser the link shows the host's page for a reserved address, which
+offers **Open in Story** and, when the host is configured with them, links to
+get Story. Opened in Story on a Mac, or pasted into its host address field, it
+starts a short join form: the host, the invited handle, a field for the
+person's name and **Join**. Join creates a local identity when the Mac has
+none, claims the account, and writes the name into a profile that has none.
+The form then offers an identity backup and the trees the account can open,
+by name. **Other Options…** shows the full setup form.
 
 The **People** view is the account-scoped directory for name-based sharing. It
 combines community members, members of readable groups, and profiles already
@@ -120,15 +133,17 @@ native cache is derived state in `Directory.json`, with avatar bytes under
 `Avatars/`; either may be deleted and rebuilt. Share autocomplete uses this
 cache but still accepts a raw handle, profile URL, or Profile TreeID.
 
-People lists **On this host**, headed by the host's own membership
-profile (the group at its root, shown as "Everyone on <host>") and followed by
-its members; **Groups** with their visible member counts; and **Others**. Membership is edited where it is
-authored: a group's **Edit Members…** (including the host's own member
-list) and a person's **Add to Group ▸** open that profile's home page with its
-Members sheet presented (and the person ready to add), so every membership
-change is an ordinary page edit. Both appear only for groups the host's tree
-list marks writable for this account. **New Group…** always closes the Groups
-list.
+People lists **People**, the host's members; **Groups**, headed by the host's
+own membership profile (the group at its root, shown as "Everyone on <host>"),
+with their visible member counts; and **Others**. Its toolbar has **Invite…**,
+for an account that can edit the host's member list, and **New Group…**.
+Membership is edited where it is authored: **Invite…**, a group's **Edit
+Members…** and a person's **Add to Group ▸** open that profile's home page
+with its Members sheet presented, so every membership change is an ordinary
+page edit. Add to Group adds the person it names without a further step. The
+row actions appear only for groups the host's tree list marks writable for
+this account. An ordinary group's sheet adds members with the same people
+picker Share uses.
 
 **New Group…** creates a group profile tree under an account this Mac
 administers, at one of the host's conventional addresses: **In my groups
@@ -137,7 +152,8 @@ for the host's administrators, **On the host** (`/~<slug>`, when no person
 holds that name). The host decides which addresses it accepts
 ([overstoryd's policy](../architecture/overstoryd/README.md#accounts-and-canonical-paths)).
 The tree is placed at `groups/<slug>` in the Story data home,
-with a name, optional description, and first members. Its one access rule is
+with a name and first members; placement, address and description are under
+**More**, and the address follows the name. Its one access rule is
 read for the community `/` profile, so everyone on the host can see the
 group and its roster while it stays private to the web. Share offers the same
 sheet as **New Group “…”** when the picker matches no one, and as **Make these

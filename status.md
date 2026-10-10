@@ -12,6 +12,38 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## CLI package, People and joining by invitation — 2026-10-11
+
+Implemented; not published, installed or deployed. The Apple-dependent work
+(bundle identifiers, the Mac download, TestFlight, the App Store) is planned as
+Rename 003 and Release 001 to 003. The code is under the MIT license.
+
+- **`@ovst/cli`.** The package declares one command, `story`, so `bunx
+  @ovst/cli` and `npx @ovst/cli` resolve it by package name; `story-sync.js`
+  ships as the daemon's file and `story daemon run` replaces the `story-sync`
+  command under a Linux service manager. `--help` and `--version` exist; the
+  published version is defined at build time and is what `/v1/status` reports.
+  A cloud session's Story Sync leads its own process group, so a caller that
+  ends the command's group leaves it running. Evidence: `bun run
+  test:cli:package` (12 pass), which now checks the single command, the
+  version and the process group. Not shown: resolution by name from the
+  registry, which needs the package published.
+- **People and invitations in Story.** People has Invite… and New Group… in
+  its toolbar. The host's member sheet invites with one handle field and shows
+  the https link with Copy and Share; a pending invitation is marked and can be
+  given a new link or cancelled. New Group asks for a name and members.
+  Membership is still edited on the group's own page: the app holds one
+  writable tree at a time.
+- **Joining on a Mac.** An invitation link, opened or pasted, gives a form
+  with a name field and Join, which creates the identity when there is none.
+  A name given with a claim fills a profile that has none (`story-sync-claim-sync.test.ts`).
+  Evidence: the Mac and iPhone apps and the test bundle compile. `StoryAppTests`
+  and the app-hosted protocol stages have not run with these changes, and
+  nothing here has been exercised by hand.
+- **Live host, read-only check.** arb.nxhx.org answers `/.overstory/health`;
+  the last pushed revision (`598b6fa4`) has the invitation claim. Its root
+  access rule was not read, so whether members administer it is unknown.
+
 ## A chain that returns to an earlier state is accepted — 2026-10-10
 
 Fixed, not yet deployed. Since chained candidate deltas (2026-10-06, below),
@@ -385,7 +417,7 @@ measurements before broadening the implementation.
 | Area | State | Where to read |
 |---|---|---|
 | Story first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes) |
-| Bun CLI distribution: publishable package, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
+| Bun CLI distribution: publishable package with one `story` command, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](docs/overstory-spec/01-tree-operations.md), [conformance](docs/overstory-spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](docs/overstory-spec/01-tree-operations.md) |
 | Authored change identity: every candidate carries `change`, `trace` (up to 64 frames and 1024 operations) or `trace: null`, `resolves`, and optional `ifCurrent`; digests over domain `arbor-update/2`; whole-batch rejection of unsupported semantics before any prefix is accepted | deployed, installed | [tree operations §2.1](docs/overstory-spec/01-tree-operations.md#21-the-update-request), [source intent](docs/overstory-spec/10-source-intent.md) |

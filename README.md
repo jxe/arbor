@@ -105,11 +105,14 @@ replace an existing identity.
 **2. Get an account on a host.** Either join an existing community or run
 your own.
 
-- *Join:* send your TreeID to the community's administrator. They add you as
-  a member of the community profile with a handle, which reserves the
-  account `https://garden.example/~you` for that exact profile; nobody else
-  can claim it. Membership is authored content: an entry in the community
-  tree's `members:` list with your `profile: overstory://tr_…/` and `handle`.
+- *Join:* the community's administrator sends you an invitation link,
+  `https://garden.example/~you#overstory-invite=…`, made in Story under
+  People → Invite…. Opening it in Story on a Mac creates your identity if you
+  have none and claims the account; you can skip steps 1 and 3. The
+  administrator can instead reserve the account for an identity you already
+  have: send them your TreeID, and they add it under "Add an existing
+  identity". Either way membership is authored content, an entry in the
+  community tree's `members:` list.
 - *Run your own:* create a community whose founder account is reserved for
   your profile, then serve it:
 
@@ -125,9 +128,9 @@ your own.
 
 **3. Claim it from Story.** Build the app (`xcodegen generate --spec
 swift/project.yml --project swift`, then the `Story` scheme; see
-[swift/README.md](swift/README.md)), open the reserved account URL in it, and
-choose **Claim profile**. The app proves your profile to the host and
-installs the account configuration under `~/.story`.
+[swift/README.md](swift/README.md)) and enter the host's address in its setup
+form. The app proves your profile to the host and installs the account
+configuration under `~/.story`.
 
 **4. Place a folder.** Install Story Sync as a user service and publish a
 folder at a path under your account:
