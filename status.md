@@ -12,6 +12,26 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## A host for people other than its owner — 2026-10-10
+
+Work to make overstoryd ready to serve people besides Joe. Implemented on a
+branch; not deployed or installed, and the live host's stored access rule is
+unchanged.
+
+- **URL paths are decoded once (Security 002).** `normalizeTreePath` and
+  `canonicalNodePath` take an already-decoded logical path and no longer
+  percent-decode it, so a file named `Q3 100%.md` lists and opens, and
+  `a%2Fb.md` stays one segment instead of colliding with `a/b`. Story Sync
+  decodes a request or locator path in one helper (`decodeRequestPath` in
+  `packages/story-sync/src/http.ts`), which answers a malformed encoding with
+  400 and rejects a traversal segment on the decoded value; the file route and
+  both locator decodes in `resolveLocator` use it, and a malformed `Referer`
+  names no scope. The spec already states the rule (locators §3). Tested in
+  `tests/unit/path.test.ts` and `tests/integration/server.test.ts` (a
+  percent-bearing name lists and serves; `%2e%2e%2f` and `%zz` are 400; the
+  traversal case fails when the boundary check is removed). The Swift clients
+  were not changed: their `canonicalNodePath` never decoded.
+
 ## Chained candidate deltas — 2026-10-06
 
 Both publication coordinators now compact later elements against the preceding

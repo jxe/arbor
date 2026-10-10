@@ -1,8 +1,9 @@
 export class PathEscapeError extends Error {}
 
+/** Normalizes an already-decoded logical path. Callers decode percent-encoding once, at the HTTP or locator boundary. */
 export function normalizeTreePath(input: string): string {
-  const decoded = decodeURIComponent(input || "/").replaceAll("\\", "/");
-  const parts = decoded.split("/").filter(Boolean);
+  const normalized = (input || "/").replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
   if (parts.some((part) => part === "." || part === ".." || part.includes("\0"))) {
     throw new PathEscapeError(`Unsafe workspace path: ${input}`);
   }

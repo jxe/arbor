@@ -1,5 +1,5 @@
 import type { OverstoryErrorCode, OverstoryError } from "@ovst/protocol";
-import { ProtocolError } from "@ovst/protocol";
+import { normalizeTreePath, ProtocolError } from "@ovst/protocol";
 
 export function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
@@ -53,3 +53,19 @@ export function assertSameOrigin(request: Request, url: URL): void {
   }
 }
 
+
+/**
+ * A request's or locator's percent-encoded path as a logical path. This is the
+ * one place such a path is decoded: a malformed encoding is refused, and a
+ * traversal segment is refused on the decoded value (`PathEscapeError`, which
+ * the server answers as 400). Everything past it handles decoded paths.
+ */
+export function decodeRequestPath(value: string): string {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    throw new ProtocolError("unsafe-path", "The path's percent-encoding is malformed", 400, { path: value });
+  }
+  return normalizeTreePath(decoded);
+}

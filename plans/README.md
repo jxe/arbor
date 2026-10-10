@@ -119,10 +119,9 @@ a tree too big to place on the iPhone in one download.
 **[Apps 010: collection rows in native offline replicas](apps/010-native-offline-collection-file-projection.md).**
 When browsing collection rows offline on native becomes a real need.
 
-**[Security 002: decode URL paths once](security/002-path-decoding.md)** and
 **[Security 003: harden overstoryd responses](security/003-overstoryd-host-responses.md).**
 Nothing is in production, so these leaks are tolerable for now; what matters is that the
-spec states the requirement. Do them before a host serves people other than Joe.
+spec states the requirement. Do it before a host serves people other than Joe.
 
 **[Security 010: signed profile statements](security/010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.

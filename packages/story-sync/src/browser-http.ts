@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import { errorResponse } from "./http.ts";
+import { decodeRequestPath, errorResponse } from "./http.ts";
 
 export interface BrowserFiles {
   fileSurface(path: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null>;
@@ -66,6 +66,16 @@ function fileResponse(
   return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes), { headers: baseHeaders });
 }
 
+/** The decoded logical path a `Referer` header names, or null for one that is absent, malformed or unsafe. */
+function refererLogicalPath(referer: string): string | null {
+  try {
+    const path = new URL(referer).pathname.replace(/^\/render(?=\/|$)/, "");
+    return path.startsWith("/") ? decodeRequestPath(path) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function browserHandler(service: BrowserFiles) {
   return async (request: Request, url: URL): Promise<Response> => {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -78,20 +88,15 @@ export function browserHandler(service: BrowserFiles) {
     // app's route prefix.
     const logicalPath = url.pathname.replace(/^\/render(?=\/|$)/, "") || "/";
     const raw = url.searchParams.has("raw");
-    let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
+    const decodedPath = decodeRequestPath(logicalPath);
+    let surface = await service.fileSurface(decodedPath, raw).catch(() => null);
     if (!surface) {
       // Tree-rooted authored spellings (assets) resolve against the
       // origin in the DOM; the referring document's scope supplies the
       // enclosing tree.
       const referer = request.headers.get("referer");
-      const refererPath = referer ? new URL(referer).pathname.replace(/^\/render(?=\/|$)/, "") : null;
-      if (refererPath?.startsWith("/")) {
-        surface = await service.fileSurfaceInScopeOf(
-          decodeURIComponent(refererPath),
-          decodeURIComponent(logicalPath),
-          raw,
-        );
-      }
+      const refererPath = referer ? refererLogicalPath(referer) : null;
+      if (refererPath) surface = await service.fileSurfaceInScopeOf(refererPath, decodedPath, raw);
     }
     if (surface) {
       return fileResponse(request, surface, { raw });
