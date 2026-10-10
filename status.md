@@ -37,12 +37,13 @@ Rename 003 and Release 001 to 003. The code is under the MIT license.
 - **Joining on a Mac.** An invitation link, opened or pasted, gives a form
   with a name field and Join, which creates the identity when there is none.
   A name given with a claim fills a profile that has none (`story-sync-claim-sync.test.ts`).
-  Evidence: the Mac and iPhone apps and the test bundle compile. `StoryAppTests`
-  and the app-hosted protocol stages have not run with these changes, and
-  nothing here has been exercised by hand.
+  Evidence: `swift/scripts/test-story-app.sh` and `bun run test:protocol` pass
+  end to end with Story closed. Nothing here has been exercised by hand.
 - **Live host, read-only check.** arb.nxhx.org answers `/.overstory/health`;
-  the last pushed revision (`598b6fa4`) has the invitation claim. Its root
-  access rule was not read, so whether members administer it is unknown.
+  Joe pushed main on 2026-10-11. Its root access rule, read with Joe's
+  account, still grants `admin` to the root group itself
+  (`tr_2y2grqksa3klhhv6aziplhl2ha`), so anyone who joined would administer the
+  host. It must name Joe's profile instead before the first invitation.
 
 ## A chain that returns to an earlier state is accepted — 2026-10-10
 
