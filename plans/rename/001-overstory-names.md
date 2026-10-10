@@ -154,13 +154,14 @@ Story registers the `overstory` scheme. When the locator it opens carries `overs
 ## Steps
 
 1. **Repository rename** (branch `rename/overstory-story`). Done when all of these pass and are committed:
-   - the mechanical pass (done, `2f10ba4e`)
+   - the mechanical pass (done, `2f10ba4e`) and the follow-up work (done, `ba24472d`)
    - no standalone "Canopy" or "Arbor" left in code, comments, UI copy or docs, except the lists above
    - the read aliases, the host bootstrap guard, the join link and URL scheme, the app icon
    - spec, conformance vectors (hand edits, then `bun docs/overstory-spec/conformance/canonical-cbor-vectors.ts`; no digest, CBOR or signature field may change), docs, plans and `status.md`
    - gates: `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build:cli:package`, `bun run test:cli:package`, `bun run check:links`, `swift/scripts/test-story-editor-local.sh`, and the `Story` scheme builds
+   - known failures that predate the rename and are not part of it: `bun run test:protocol` stops at the "Live source admission" suite in `OverstoryWorkingTree` (13 issues, identical at `fde6cc31`), and the app test `newPageCreatedFromTitle` fails intermittently (2 of 6 runs at `fde6cc31`)
    - grep gate: `rg -i 'arbor|canopy'` returns only the lists in "Old names after the cutover", the marked aliases and their tests, the `story migrate` code, and history in `status.md`
-2. **`story migrate`**, the throwaway Mac migration, written and tested against a scratch home. It must:
+2. **`story migrate`**, the throwaway Mac migration (`packages/cli/src/migrate-rename-001.ts`, written and tested against scratch directories). `story migrate --dry-run` prints every action and whether a real run would refuse. Passing all four of `--old-home`, `--new-home`, `--old-support` and `--new-support` rehearses on copies and forces the file credential store, so a rehearsal cannot touch the real keychain item. If a step fails after the home is renamed, it stops, lists what was and was not done, and leaves the lock in the new home so Story will not start on it. It does not rewrite data homes inside finished cloud sessions and leaves `~/Library/Logs/Arbor` in place. It must:
    - refuse unless: `STORY_HOME` and the old variable are unset, `~/.story` does not exist, no account claim or pairing is in progress, no cloud session is recorded as live, and nothing answers on port 4317
    - take `~/.arbor/.state/migration.lock`, then rename `~/.arbor` to `~/.story`
    - rewrite absolute paths under the old home, and under `Application Support/Arbor`, in `placements.yaml`, `.state/workspaces.json`, `.state/self.json` (`profilePath`) and `cloud-sessions/sessions.json`
