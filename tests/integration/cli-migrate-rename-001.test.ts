@@ -2,7 +2,7 @@
 // only. Deleted with packages/cli/src/migrate-rename-001.ts at the plan's
 // close-out; the old names here are intended.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseLocalPlacements } from "@ovst/client";
@@ -140,7 +140,7 @@ describe("story migrate (Rename 001)", () => {
     await writeFile(join(oldSupport, "CLI/0.1.0-abc/bin/arborsync.js"), "old runtime");
     await writeFile(join(oldSupport, "Logs", "2026-10-01.jsonl"), "{}");
     await writeFile(join(oldSupport, "Directory.json"), "{}");
-    await writeFile(join(oldSupport, "Visits.json"), "[]");
+    await writeFile(join(oldSupport, "Visits.json"), JSON.stringify({ version: 1, visits: [] }));
     await writeFile(join(oldSupport, "WorkingTrees/key/sync/update-control.json"), "{}");
     await writeFile(join(oldSupport, "Identity", "setup.sqlite"), "");
     const descriptor = (id: string) => ({ id, canonicalPath: "/~joe/notes" });
@@ -312,8 +312,8 @@ describe("story migrate (Rename 001)", () => {
       await refused("refuse-support", async ({ oldSupport, newSupport }) => {
         await mkdir(join(newSupport, "CLI"), { recursive: true });
         await mkdir(oldSupport);
-        await writeFile(join(oldSupport, "Visits.json"), "[]");
-        await writeFile(join(newSupport, "Visits.json"), "[]");
+        await writeFile(join(oldSupport, "Visits.json"), JSON.stringify({ version: 1, visits: [] }));
+        await writeFile(join(newSupport, "Visits.json"), JSON.stringify({ version: 1, visits: [] }));
       }, "Visits.json already exists");
     });
 
@@ -346,7 +346,7 @@ describe("story migrate (Rename 001)", () => {
     const oldHome = join(root, ".arbor"), newHome = join(root, ".story");
     const oldSupport = join(root, "Library", "Application Support", "Arbor"), newSupport = join(root, "Library", "Application Support", "Story");
     await mkdir(oldSupport, { recursive: true });
-    await writeFile(join(oldSupport, "Visits.json"), "[]");
+    await writeFile(join(oldSupport, "Visits.json"), JSON.stringify({ version: 1, visits: [] }));
     const defaults = { HOME: root, STORY_HOME: undefined, STORY_REQUIRE_HOME: undefined };
     expect((await story(["me", "create", join(oldHome, "profile")], { HOME: root, STORY_HOME: oldHome, STORY_REQUIRE_HOME: undefined })).exit).toBe(0);
     const migrated = await story(["migrate", "--probe-url", silent], defaults);
@@ -361,6 +361,180 @@ describe("story migrate (Rename 001)", () => {
     expect(me.stdout).toContain("Private key: available");
     expect(await exists(oldHome)).toBe(false);
   }, 60_000);
+
+  // The owner's Mac: `Application Support/Arbor` is a symlink to `~/.arbor`,
+  // so the data home also holds the app's files.
+  test("handles an app-support path that is a symlink to the data home", async () => {
+    const root = join(sandbox, "linked");
+    const oldHome = join(root, ".arbor"), newHome = join(root, ".story");
+    const oldSupport = join(root, "Library", "Application Support", "Arbor"), newSupport = join(root, "Library", "Application Support", "Story");
+    const outside = join(root, "Documents", "arbor-rehearsals", "todos-2026-08-25-f");
+    await mkdir(dirname(oldSupport), { recursive: true });
+    await mkdir(outside, { recursive: true });
+    const args = ["migrate", "--old-home", oldHome, "--new-home", newHome, "--old-support", oldSupport, "--new-support", newSupport, "--probe-url", silent];
+
+    const created = await story(["me", "create", join(oldHome, "profile")], { STORY_HOME: oldHome });
+    expect(created.exit).toBe(0);
+    const profileTree = /Profile TreeID: (tr_\w+)/.exec(created.stdout)![1]!;
+    const configurationTree = treeConfigurationID(profileTree);
+    await symlink(oldHome, oldSupport);
+    const viaHome = (...parts: string[]) => join(oldHome, ...parts), viaSupport = (...parts: string[]) => join(oldSupport, ...parts);
+    const moved = (...parts: string[]) => join(newHome, ...parts);
+
+    const checkout = join("configurations", configurationTree);
+    for (const directory of [checkout, "Avatars", "LinkPreviews", "Logs", "CLI/0.1.0-abc", "Identity", "Pending Voice Recordings", "RemoteSync", "RemoteWorkingTrees", "WorkingTrees/key/sync"]) {
+      await mkdir(viaHome(directory), { recursive: true });
+    }
+    for (const file of ["Directory.json", "Logs/2026-10-01.jsonl", "Identity/setup.sqlite", "Pending Voice Recordings/a.m4a", "RemoteSync/state.json", "RemoteWorkingTrees/x.json", "WorkingTrees/key/sync/update-control.json", `${checkout}/devices.yaml`]) {
+      await writeFile(viaHome(file), "{}");
+    }
+    await writeFile(viaHome("profile", ".arborignore"), "drafts/\n");
+    await writeFile(join(outside, ".arborignore"), "tmp/\n");
+    await writeFile(join(outside, "todo.md"), "# Todo\n");
+
+    // The same directory is recorded under both spellings.
+    const trees = { outside: generateOverstoryID("tr") };
+    const placements = [
+      `${configurationTree}:`,
+      `  ${viaHome(checkout)}: ${configurationTree}`,
+      `  ${viaSupport("profile")}: ${profileTree}`,
+      `  ${outside}: ${trees.outside}`,
+      "",
+    ].join("\n");
+    await writeFile(viaHome("placements.yaml"), placements);
+    const workspaces = await json(viaHome(".state", "workspaces.json"));
+    expect(Object.keys(workspaces)).toEqual([viaHome("profile")]);
+    workspaces[viaSupport(checkout)] = { stateID: "aaaaaaaaaaaa-11111111", rootID: configurationTree, path: viaSupport(checkout) };
+    workspaces[outside] = { stateID: "bbbbbbbbbbbb-22222222", rootID: trees.outside, path: outside };
+    await writeFile(viaHome(".state", "workspaces.json"), `${JSON.stringify(workspaces, null, 2)}\n`);
+    const self = await json(viaHome(".state", "self.json"));
+    await writeFile(viaHome(".state", "self.json"), `${JSON.stringify({ ...self, profilePath: viaSupport("profile") }, null, 2)}\n`);
+    const identity = await json(viaHome(".state", "self.identity.json"));
+    const descriptor = (id: string) => ({ id, canonicalPath: "/~joe" });
+    const native = { version: 2, selectedTree: profileTree, placements: [
+      { version: 1, origin: "https://garden.example", configurationTree, tree: descriptor(profileTree), osPath: viaSupport("profile") },
+      { version: 1, origin: "https://garden.example", configurationTree, tree: descriptor(configurationTree), osPath: viaHome(checkout) },
+      { version: 1, origin: "https://garden.example", configurationTree, tree: descriptor(trees.outside), osPath: outside },
+    ] };
+    await writeFile(viaHome("Native Placement.json"), JSON.stringify(native));
+    const visits = { version: 1, visits: [{ version: 1, origin: "https://garden.example", tree: descriptor(generateOverstoryID("tr")), locator: "overstory://garden.example/~ada", visitedAt: "2026-09-01T00:00:00Z" }] };
+    await writeFile(viaHome("Visits.json"), JSON.stringify(visits));
+    const before = (await readdir(oldHome, { recursive: true })).sort();
+
+    // The dry run says how the symlink is handled and changes nothing.
+    const dry = await story([...args, "--dry-run"]);
+    expect(dry.stderr).toBe("");
+    expect(dry.exit).toBe(0);
+    if (process.env.STORY_MIGRATE_SHOW_DRY_RUN) console.log(dry.stdout.replaceAll(root, "<scratch>"));
+    expect(dry.stdout).toContain(`${oldSupport} is a symlink to ${oldHome}: the two are one directory.`);
+    expect(dry.stdout).toContain(`would remove the symlink ${oldSupport}`);
+    expect(dry.stdout).toContain(`would create the symlink ${newSupport} -> ${newHome}`);
+    expect(dry.stdout).toContain(`would remove ${viaHome("Logs")} (rebuildable)`);
+    expect(dry.stdout).toContain(`would rewrite 2 placement path(s)`);
+    expect(dry.stdout).not.toContain(`move ${oldSupport}`);
+    expect(dry.stdout).not.toContain("did ");
+    expect((await readdir(oldHome, { recursive: true })).sort()).toEqual(before);
+    expect((await lstat(oldSupport)).isSymbolicLink()).toBe(true);
+    expect(await exists(newHome)).toBe(false);
+    expect(await exists(newSupport)).toBe(false);
+    expect(await readFile(viaHome("placements.yaml"), "utf8")).toBe(placements);
+    expect(await exists(join(outside, ".arborignore"))).toBe(true);
+
+    const migrated = await story(args);
+    expect(migrated.stderr).toBe("");
+    expect(migrated.exit).toBe(0);
+    expect(await exists(oldHome)).toBe(false);
+    expect(await exists(oldSupport)).toBe(false);
+    expect((await lstat(newSupport)).isSymbolicLink()).toBe(true);
+    expect(await readlink(newSupport)).toBe(newHome);
+    expect(await realpath(newSupport)).toBe(newHome);
+    expect(await exists(moved(".state", "migration.lock"))).toBe(false);
+
+    // Dropped and kept, inside the home.
+    expect((await readdir(newHome)).sort()).toEqual([
+      ".state", "Identity", "Native Placement.json", "Pending Voice Recordings", "RemoteSync", "RemoteWorkingTrees", "Visits.json", "WorkingTrees",
+      "configurations", "placements.yaml", "profile",
+    ].sort());
+    for (const kept of ["Identity/setup.sqlite", "Pending Voice Recordings/a.m4a", "RemoteSync/state.json", "RemoteWorkingTrees/x.json", "WorkingTrees/key/sync/update-control.json", `${checkout}/devices.yaml`, "profile/_index.md"]) {
+      expect(await exists(moved(kept))).toBe(true);
+    }
+
+    // Both spellings converge on the new home's; the outside tree is untouched.
+    expect(parseLocalPlacements(await readFile(moved("placements.yaml"), "utf8"))).toEqual([
+      { configurationTree, path: moved(checkout), tree: configurationTree },
+      { configurationTree, path: moved("profile"), tree: profileTree },
+      { configurationTree, path: outside, tree: trees.outside },
+    ]);
+    const movedWorkspaces = await json(moved(".state", "workspaces.json"));
+    expect(Object.keys(movedWorkspaces).sort()).toEqual([moved("profile"), moved(checkout), outside].sort());
+    expect(movedWorkspaces[moved(checkout)].path).toBe(moved(checkout));
+    expect(movedWorkspaces[outside]).toEqual(workspaces[outside]);
+    expect(await json(moved(".state", "self.json"))).toEqual({ ...self, profilePath: moved("profile") });
+    expect(await json(moved(".state", "self.identity.json"))).toEqual({ ...identity, profilePath: moved("profile") });
+    const movedNative = await json(moved("Native Placement.json"));
+    expect(movedNative.placements.map((placement: { osPath: string }) => placement.osPath)).toEqual([moved("profile"), moved(checkout), outside]);
+    expect({ ...movedNative, placements: movedNative.placements.map((placement: object) => ({ ...placement, osPath: undefined })) })
+      .toEqual({ ...native, placements: native.placements.map((placement) => ({ ...placement, osPath: undefined })) });
+    expect(await json(moved("Visits.json"))).toEqual(visits);
+    for (const file of ["placements.yaml", ".state/workspaces.json", ".state/self.json", ".state/self.identity.json", "Native Placement.json"]) {
+      const source = await readFile(moved(file), "utf8");
+      expect(source).not.toContain(oldHome);
+      expect(source).not.toContain(oldSupport);
+      expect(source).not.toContain(newSupport);
+    }
+    expect(await exists(outside)).toBe(true);
+    expect(await readFile(join(outside, ".overstoryignore"), "utf8")).toBe("tmp/\n");
+    expect(await readFile(join(outside, "todo.md"), "utf8")).toBe("# Todo\n");
+    expect(await readFile(moved("profile", ".overstoryignore"), "utf8")).toBe("drafts/\n");
+
+    // The app's root is the new symlink; the CLI reads the new home; nothing old comes back.
+    expect(await exists(join(newSupport, "Native Placement.json"))).toBe(true);
+    const me = await story(["me"], { STORY_HOME: newHome });
+    expect(me.stdout).toContain(`Profile folder: ${moved("profile")}`);
+    expect(me.stdout).toContain("Private key: available");
+    expect(await exists(oldHome)).toBe(false);
+    expect(await exists(oldSupport)).toBe(false);
+  }, 60_000);
+
+  test("refuses a symlinked app-support path when the new one exists or the link points elsewhere", async () => {
+    const taken = await scratch("linked-taken");
+    await symlink(taken.oldHome, taken.oldSupport);
+    await mkdir(taken.newSupport);
+    const first = await story(taken.args);
+    expect(first.exit).toBe(1);
+    expect(first.stderr).toContain(`${taken.newSupport} already exists`);
+    expect(first.stderr).toContain("Nothing was changed.");
+    expect(await exists(taken.newHome)).toBe(false);
+    expect((await lstat(taken.oldSupport)).isSymbolicLink()).toBe(true);
+
+    const elsewhere = await scratch("linked-elsewhere");
+    const other = join(sandbox, "linked-elsewhere", "other");
+    await mkdir(other);
+    await symlink(other, elsewhere.oldSupport);
+    for (const extra of [[], ["--dry-run"]]) {
+      const second = await story([...elsewhere.args, ...extra]);
+      expect(second.exit).toBe(1);
+      expect(second.stderr).toContain(`is a symlink to ${other}, which is not the data home`);
+      expect(second.stderr).toContain("Nothing was changed.");
+    }
+    expect(await exists(elsewhere.newHome)).toBe(false);
+    expect(await readlink(elsewhere.oldSupport)).toBe(other);
+    expect(await exists(join(elsewhere.oldHome, ".state", "migration.lock"))).toBe(false);
+  });
+
+  test("refuses when two records spell one directory differently and would collide", async () => {
+    const { oldHome, newHome, oldSupport, args } = await scratch("linked-collision");
+    await symlink(oldHome, oldSupport);
+    await writeFile(join(oldHome, ".state", "workspaces.json"), JSON.stringify({
+      [join(oldHome, "profile")]: { stateID: "a", rootID: "tr_a", path: join(oldHome, "profile") },
+      [join(oldSupport, "profile")]: { stateID: "b", rootID: "tr_a", path: join(oldSupport, "profile") },
+    }));
+    const result = await story(args);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toContain(`.state/workspaces.json names ${join(newHome, "profile")} twice after the move`);
+    expect(await exists(newHome)).toBe(false);
+    expect(await exists(join(oldHome, ".state", "migration.lock"))).toBe(false);
+  });
 
   test("stops without rolling back when a step fails after the rename, leaving the lock and saying what was done", async () => {
     const { oldHome, newHome, args } = await scratch("failure");

@@ -3,6 +3,8 @@ builder = "DOCKERFILE"
 dockerfilePath = "packages/overstoryd/deploy/Dockerfile.overstoryd"
 
 [deploy]
+# The service instance may hold an older start command; this one ships with the code it starts.
+startCommand = "bun run overstoryd"
 healthcheckPath = "/"
 healthcheckTimeout = 10
 restartPolicyType = "ON_FAILURE"

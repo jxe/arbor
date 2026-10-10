@@ -8,13 +8,18 @@
  * (tests/integration/cli-migrate-rename-001.test.ts) are deleted at the
  * plan's close-out. The old names in it are intended.
  *
+ * The old app-support path may be a directory of its own, which is moved, or
+ * a symlink to the old home (the owner's Mac), in which case the home holds
+ * the app's files too: the link is replaced by one to the new home, and
+ * stored paths in either spelling become the new home's.
+ *
  * It refuses unless nothing is using the old home, takes
  * `<old home>/.state/migration.lock`, renames the home, and then rewrites
  * what recorded the old paths. There is no rollback: when a step fails after
  * the rename it stops, leaves the lock in place so nothing starts on a
  * half-moved home, and prints what was done and what was not.
  */
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isMap, isScalar, parseDocument } from "yaml";
@@ -23,6 +28,8 @@ import { parseLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 const DEFAULT_PROBE_URL = "http://127.0.0.1:4317/v1/status";
 /** Rebuildable or disposable app-support entries that are dropped instead of moved. */
 const DROPPED_SUPPORT_ENTRIES = ["CLI", "Logs", "Directory.json", "Avatars", "LinkPreviews", "EditorRecovery"];
+/** App files that may record absolute paths (the visit list holds none today; it is checked all the same). */
+const SUPPORT_PATH_FILES = ["Native Placement.json", "Visits.json"];
 /** Directories a placed folder's walk never enters. */
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".overstory", ".arbor"]);
 
@@ -148,6 +155,37 @@ function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+/**
+ * How the old app-support path relates to the old data home. On the owner's
+ * Mac it is a symlink to the home ("linked"), so the two are one directory;
+ * elsewhere it is a directory of its own, or absent.
+ */
+type SupportLayout =
+  | { kind: "absent" | "directory" | "linked" }
+  | { kind: "refused"; reason: string };
+
+async function supportLayout(options: MigrateOptions): Promise<SupportLayout> {
+  const { oldSupport, oldHome } = options;
+  let info;
+  try { info = await lstat(oldSupport); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+    throw error;
+  }
+  const resolved = await realpath(oldSupport).catch(() => null);
+  const home = await realpath(oldHome).catch(() => null);
+  if (info.isSymbolicLink()) {
+    if (resolved !== null && resolved === home) return { kind: "linked" };
+    const target = await readlink(oldSupport).catch(() => "?");
+    return { kind: "refused", reason: `${oldSupport} is a symlink to ${target}, which is not the data home ${oldHome}; move or remove it by hand first` };
+  }
+  if (resolved !== null && resolved === home) {
+    return { kind: "refused", reason: `${oldSupport} resolves to the data home but is not itself a symlink; this layout is not handled` };
+  }
+  if (!info.isDirectory()) return { kind: "refused", reason: `${oldSupport} is not a directory` };
+  return { kind: "directory" };
+}
+
 async function somethingAnswers(url: string): Promise<boolean> {
   try {
     await fetch(url, { signal: AbortSignal.timeout(2_000) });
@@ -200,13 +238,21 @@ async function refusals(options: MigrateOptions): Promise<{ fatal: string[]; blo
   if (await device(options.oldHome) !== await device(options.newHome)) {
     blocking.push(`${options.oldHome} and ${options.newHome} are on different volumes; the home is moved only by a rename`);
   }
-  const oldSupport = await kind(options.oldSupport);
-  if (oldSupport === "file" || oldSupport === "other") fatal.push(`${options.oldSupport} is not a directory`);
-  if (oldSupport === "directory") {
-    try {
-      const placement = await readJSON(join(options.oldSupport, "Native Placement.json"));
-      if (placement !== undefined && !object(placement)) throw new Error(`${join(options.oldSupport, "Native Placement.json")} is not a JSON object`);
-    } catch (error) { fatal.push(error instanceof Error ? error.message : String(error)); }
+  const layout = await supportLayout(options);
+  if (layout.kind === "refused") fatal.push(layout.reason);
+  if (layout.kind === "linked" || layout.kind === "directory") {
+    // In the linked layout these files are in the data home itself.
+    for (const name of SUPPORT_PATH_FILES) {
+      try {
+        const value = await readJSON(join(options.oldSupport, name));
+        if (value !== undefined && !object(value)) throw new Error(`${join(options.oldSupport, name)} is not a JSON object`);
+      } catch (error) { fatal.push(error instanceof Error ? error.message : String(error)); }
+    }
+  }
+  if (layout.kind === "linked" && await kind(options.newSupport) !== "missing") {
+    blocking.push(`${options.newSupport} already exists; it must be free to become the symlink to ${options.newHome}`);
+  }
+  if (layout.kind === "directory") {
     const newSupport = await kind(options.newSupport);
     if (newSupport === "file" || newSupport === "other") blocking.push(`${options.newSupport} exists and is not a directory`);
     if (newSupport === "directory") {
@@ -231,6 +277,8 @@ interface Run {
   /** Where the data home and app-support directory are while the steps run: the old ones in a dry run. */
   home: string;
   support: string;
+  /** The old app-support path is a symlink to the old data home: one directory under two spellings. */
+  linked: boolean;
   relocate: Relocate;
   /** Carry out one change, or in a dry run only print it. */
   act(description: string, change: () => Promise<void>): Promise<void>;
@@ -364,8 +412,55 @@ async function rewriteIdentityRecord(run: Run): Promise<void> {
   });
 }
 
+/** Every string in a JSON value that is a path at or under an old location, moved. */
+function relocateDeep(value: unknown, relocate: Relocate, count: { changed: number }): unknown {
+  if (typeof value === "string") {
+    const next = value.startsWith("/") ? relocate(value) : value;
+    if (next !== value) count.changed += 1;
+    return next;
+  }
+  if (Array.isArray(value)) return value.map((item) => relocateDeep(item, relocate, count));
+  const record = object(value);
+  if (!record) return value;
+  return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, relocateDeep(item, relocate, count)]));
+}
+
+/** `osPath` in `Native Placement.json`, and any other absolute path the app's files record. */
+async function rewriteSupportFiles(run: Run): Promise<void> {
+  for (const name of SUPPORT_PATH_FILES) {
+    const path = join(run.support, name);
+    const stored = object(await readJSON(path));
+    if (!stored) {
+      run.note(`${path}: absent`);
+      continue;
+    }
+    const count = { changed: 0 };
+    const next = relocateDeep(stored, run.relocate, count);
+    if (!count.changed) run.note(`${path}: no path is under the old locations`);
+    else await run.act(`rewrite ${count.changed} path(s) in ${path}`, () => atomicWrite(path, `${JSON.stringify(next, null, 2)}\n`));
+  }
+}
+
 async function moveSupport(run: Run): Promise<void> {
-  const { oldSupport, newSupport } = run.options;
+  const { oldSupport, newSupport, newHome } = run.options;
+  if (run.linked) {
+    // One directory under two names: the home has already moved, so only the
+    // link is replaced, and the app's files are handled where they are.
+    run.note(`${oldSupport} is a symlink to the old data home: the app's files are in the home and moved with it`);
+    await run.act(`remove the symlink ${oldSupport}`, async () => {
+      if (!(await lstat(oldSupport)).isSymbolicLink()) throw new Error(`${oldSupport} is no longer a symlink`);
+      await unlink(oldSupport);
+    });
+    await run.act(`create the symlink ${newSupport} -> ${newHome}`, async () => {
+      await mkdir(dirname(newSupport), { recursive: true });
+      await symlink(newHome, newSupport);
+    });
+    for (const entry of DROPPED_SUPPORT_ENTRIES) {
+      const path = join(run.home, entry);
+      if (await kind(path) !== "missing") await run.act(`remove ${path} (rebuildable)`, () => rm(path, { recursive: true, force: true }));
+    }
+    return rewriteSupportFiles(run);
+  }
   if (await kind(oldSupport) !== "directory") return run.note(`${oldSupport}: absent`);
   if (await kind(newSupport) === "missing") await run.act(`create ${newSupport}`, async () => { await mkdir(newSupport, { recursive: true, mode: 0o700 }); });
   for (const entry of (await readdir(oldSupport)).sort()) {
@@ -377,22 +472,7 @@ async function moveSupport(run: Run): Promise<void> {
     }
   }
   await run.act(`remove the emptied ${oldSupport}`, () => rmdir(oldSupport));
-  const path = join(run.support, "Native Placement.json");
-  const stored = object(await readJSON(path));
-  if (!stored) return run.note(`${path}: absent`);
-  let changed = 0;
-  const moved = (value: unknown): unknown => {
-    const record = object(value);
-    if (!record || typeof record.osPath !== "string") return value;
-    const next = run.relocate(record.osPath);
-    if (next === record.osPath) return value;
-    changed += 1;
-    return { ...record, osPath: next };
-  };
-  // Either the collection layout or the original single-record file.
-  const next = Array.isArray(stored.placements) ? { ...stored, placements: stored.placements.map(moved) } : moved(stored);
-  if (!changed) return run.note(`${path}: no osPath is under the old locations`);
-  await run.act(`rewrite ${changed} osPath value(s) in ${join(newSupport, "Native Placement.json")}`, () => atomicWrite(path, `${JSON.stringify(next, null, 2)}\n`));
+  await rewriteSupportFiles(run);
 }
 
 async function tidyPlacedFolders(run: Run): Promise<void> {
@@ -474,14 +554,44 @@ export async function migrateCommand(args: string[]): Promise<number> {
     }
   }
 
+  const layout = await supportLayout(options);
+  const linked = layout.kind === "linked";
   const pairs: Array<[string, string]> = [[oldHome, newHome], [await realpath(oldHome), await canonical(newHome)]];
-  if (await kind(oldSupport) === "directory") pairs.push([oldSupport, newSupport], [await realpath(oldSupport), await canonical(newSupport)]);
+  if (layout.kind === "directory") pairs.push([oldSupport, newSupport], [await realpath(oldSupport), await canonical(newSupport)]);
+  // Linked: a stored path may spell the home either way. Both converge on the new home's own spelling.
+  if (linked) {
+    pairs.push([oldSupport, newHome], [join(await realpath(dirname(oldSupport)), basename(oldSupport)), await canonical(newHome)]);
+    console.log(`${oldSupport} is a symlink to ${oldHome}: the two are one directory.\n  Stored paths in either spelling become ${newHome}/...\n  ${newSupport} becomes a symlink to ${newHome}.`);
+  }
+  const relocate = relocator(pairs);
+  // Two records that spell one place differently would collide once both are
+  // respelled. That is found here, before anything is changed.
+  const collisions: string[] = [];
+  const placementsSource = await readOptional(join(oldHome, "placements.yaml"));
+  const relocated = [
+    ...(placementsSource === null ? [] : parseLocalPlacements(placementsSource).map((placement) => ["placements.yaml", placement.path] as const)),
+    ...Object.keys(object(await readJSON(join(oldHome, ".state", "workspaces.json"))) ?? {}).map((path) => [".state/workspaces.json", path] as const),
+  ];
+  const seen = new Map<string, string>();
+  for (const [file, path] of relocated) {
+    const key = `${file}\0${relocate(path)}`;
+    if (seen.has(key)) collisions.push(`${file} names ${relocate(path)} twice after the move: ${seen.get(key)} and ${path}`);
+    seen.set(key, path);
+  }
+  if (collisions.length) {
+    console.error(`${dryRun ? "A real run would refuse" : "Refusing to migrate"}:`);
+    for (const reason of collisions) console.error(`  - ${reason}`);
+    console.error("Nothing was changed.");
+    return 1;
+  }
+  if (dryRun) console.log("Actions, with files shown where they are now:");
   const done: string[] = [];
   const run: Run = {
     options,
     home: dryRun ? oldHome : newHome,
-    support: dryRun ? oldSupport : newSupport,
-    relocate: relocator(pairs),
+    support: linked ? (dryRun ? oldHome : newHome) : dryRun ? oldSupport : newSupport,
+    linked,
+    relocate,
     folders: [],
     attention: [],
     note: (message) => console.log(`      ${message}`),
@@ -520,7 +630,7 @@ export async function migrateCommand(args: string[]): Promise<number> {
     ["rewrite profilePath in .state/self.json", rewriteSelf],
     ["rewrite dataHome in cloud-sessions/sessions.json", rewriteCloudSessions],
     ["update profilePath inside the identity record", rewriteIdentityRecord],
-    ["move the app-support directory and rewrite Native Placement.json", moveSupport],
+    ["move (or relink) the app-support directory and rewrite the paths in its files", moveSupport],
     ["rename .arborignore and delete stray temporaries in placed folders", tidyPlacedFolders],
     ["delete accounts/**/session.json and workspaces/*/index.sqlite*", deleteRebuildableState],
   ];
