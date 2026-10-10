@@ -23,6 +23,12 @@ and its cards showed only older alternatives. Address this after the page-transf
 fixes: overstoryd should clear choices it can prove reconciled, and Story should
 explain the current result and make explicit resolution easy.
 
+**[Links 001: follow a link that names a tree by its ID](links/001-tree-id-links.md).**
+Story writes `overstory://tr_…` links between trees but can follow one only when the tree
+is already placed or was just visited, and ignores them when the OS opens one. Joe wants
+them honored wherever the device can find the tree. The plan starts by making the spec
+say how such a link resolves, with the host form as the hint.
+
 **[Filesystem 024: disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md).**
 Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
 with the daemon's editor path; today a new tree needs `story place`. Joe wants this first,
