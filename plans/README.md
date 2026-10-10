@@ -15,7 +15,11 @@ Related plans are grouped in [merge improvements](merge/README.md),
 The commands, daemons, dot directories, env vars, routes and the app still say Arbor
 or Canopy. Joe settled the new names on 2026-10-07 and wants them applied in one
 cutover: `overstoryd`, `overstory://`, `.overstory`, `.overstoryignore`, and Story's
-`story`, `storyd` and Story.app.
+`story`, `story-sync` and Story.app.
+
+**[Rename 002: remove the `arbor://` locator alias](rename/002-remove-arbor-locator-alias.md).**
+Rename 001 leaves the locator parsers accepting `arbor://` and `;arbor-*` parameters, because
+authored content and shared links still carry them. Joe wants that tolerance to be temporary.
 
 **[canopyd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
