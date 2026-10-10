@@ -14,7 +14,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 
 ## CLI package, People and joining by invitation — 2026-10-11
 
-Implemented; not published, installed or deployed. The Apple-dependent work
+Implemented. The CLI is published and the host is deployed; the app changes are not installed. The Apple-dependent work
 (bundle identifiers, the Mac download, TestFlight, the App Store) is planned as
 Rename 003 and Release 001 to 003. The code is under the MIT license.
 
@@ -26,8 +26,11 @@ Rename 003 and Release 001 to 003. The code is under the MIT license.
   A cloud session's Story Sync leads its own process group, so a caller that
   ends the command's group leaves it running. Evidence: `bun run
   test:cli:package` (12 pass), which now checks the single command, the
-  version and the process group. Not shown: resolution by name from the
-  registry, which needs the package published.
+  version and the process group. Joe published 0.1.0 on 2026-10-11: `bunx
+  @ovst/cli@0.1.0 --version` and `npx @ovst/cli@0.1.0 --version` print 0.1.0
+  from an empty folder, and `tests/integration/cli-sync.test.ts` passes 12 of
+  12 against the copy installed from the registry, on a disposable local host.
+  Not run: a cloud session against the live host.
 - **People and invitations in Story.** People has Invite… and New Group… in
   its toolbar. The host's member sheet invites with one handle field and shows
   the https link with Copy and Share; a pending invitation is marked and can be
@@ -418,7 +421,7 @@ measurements before broadening the implementation.
 | Area | State | Where to read |
 |---|---|---|
 | Story first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes) |
-| Bun CLI distribution: publishable package with one `story` command, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
+| Bun CLI distribution: publishable package with one `story` command, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | published as `@ovst/cli` 0.1.0 (2026-10-11) | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](docs/overstory-spec/01-tree-operations.md), [conformance](docs/overstory-spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](docs/overstory-spec/01-tree-operations.md) |
 | Authored change identity: every candidate carries `change`, `trace` (up to 64 frames and 1024 operations) or `trace: null`, `resolves`, and optional `ifCurrent`; digests over domain `arbor-update/2`; whole-batch rejection of unsupported semantics before any prefix is accepted | deployed, installed | [tree operations §2.1](docs/overstory-spec/01-tree-operations.md#21-the-update-request), [source intent](docs/overstory-spec/10-source-intent.md) |

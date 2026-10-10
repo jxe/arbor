@@ -417,8 +417,7 @@ options. Railway/VPS deployment procedures belong in
 Install Bun first (the release is tested with Bun 1.4.2). The CLI package keeps
 Bun as a runtime prerequisite; it does not include another runtime or require Node.
 The package has one command, `story`, so `bunx @ovst/cli` runs it; `npx @ovst/cli`
-does the same when Bun is installed. Version-pinned examples, once that package
-version is published:
+does the same when Bun is installed. Version-pinned examples:
 
 ```sh
 bunx @ovst/cli@0.1.0 status --json
