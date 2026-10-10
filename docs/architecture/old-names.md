@@ -22,7 +22,7 @@ Opaque tags and names. Some are hashed into identifiers or authenticate artifact
 
 ## Deferred
 
-Persisted on devices and never shown to people. Changing them costs a keychain migration, an iPhone reinstall and re-pairing, so they wait for a plan of their own, which is not written yet.
+Persisted on devices and never shown to people. Changing them costs a keychain migration, an iPhone reinstall and re-pairing, so they wait for [Rename 003](../../plans/rename/003-bundle-and-keychain-identifiers.md).
 
 - Bundle id `org.nxhx.Arbor` and its suffixes, including the test and lab ids
 - Keychain services `org.arbor.person-profile`, `org.arbor.community-account`, `org.arbor.connections` (CLI and daemon) and `org.nxhx.Arbor.profile`, `org.nxhx.Arbor.device…` (iPhone)

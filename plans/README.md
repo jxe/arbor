@@ -16,6 +16,24 @@ The 2026-10-10 rename left readers accepting six old spellings, among them `arbo
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary.
 
+**[Security 002: decode URL paths once](security/002-path-decoding.md)** and
+**[Security 003: harden overstoryd responses](security/003-overstoryd-host-responses.md).**
+Joe is about to invite a few friends to arb.nxhx.org, and both plans say to finish before a
+host serves people other than Joe. They ship in the same deploy as the invitation page.
+
+**[Rename 003: bundle and keychain identifiers](rename/003-bundle-and-keychain-identifiers.md).**
+A bundle ID is permanent once an App Store record or an update feed names it. Joe decided on
+2026-10-10 to move to `org.nxhx.Story` before any build leaves his machines. It costs a
+keychain migration on his Mac and a re-pair of his iPhone, so it waits for him.
+
+**[Release 001: a Mac download that updates itself](release/001-mac-release.md).**
+So friends can install Story from a link on nxhx.org: a notarized DMG and a Sparkle feed on
+GitHub Releases. After Rename 003, once Joe has a Developer ID certificate.
+
+**[Release 002: the iPhone app on TestFlight](release/002-testflight.md).**
+Friends join on a Mac and pair an iPhone; TestFlight is how they get the iPhone app. After
+Rename 003, once Joe has created the app record.
+
 **[overstoryd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
 accepted edits already produced the intended contents, but the conflict remained
@@ -84,6 +102,10 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
+**[Release 003: the iPhone app on the App Store](release/003-app-store.md).** After friends
+are using the TestFlight build. A sketch of what review requires: a way in for the reviewer,
+account deletion, report and block, and policy pages.
+
 **[Apps 002: hosted agents](apps/002-overstoryd-hosted-agents.md).** After the Supplies site:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
 yet.
@@ -118,11 +140,6 @@ a tree too big to place on the iPhone in one download.
 
 **[Apps 010: collection rows in native offline replicas](apps/010-native-offline-collection-file-projection.md).**
 When browsing collection rows offline on native becomes a real need.
-
-**[Security 002: decode URL paths once](security/002-path-decoding.md)** and
-**[Security 003: harden overstoryd responses](security/003-overstoryd-host-responses.md).**
-Nothing is in production, so these leaks are tolerable for now; what matters is that the
-spec states the requirement. Do them before a host serves people other than Joe.
 
 **[Security 010: signed profile statements](security/010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.
