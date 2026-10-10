@@ -334,6 +334,13 @@ Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve tree configurations.
 
+Stored content is data to the host's origin, never code. A host serves an
+ordinary file under a type a browser will not run or sniff into something
+else: a type it knows to be inert, or opaque bytes offered as a download,
+which is what HTML and SVG are. Every response forbids content-type sniffing
+and framing, and sends no referrer. A page the host renders loads only what
+its own policy names; a script on such a page is permitted by its hash.
+
 Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.
 The parent page lists those logical rows rather than `_store.*` or `schema.cddl`.

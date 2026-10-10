@@ -31,6 +31,29 @@ unchanged.
   percent-bearing name lists and serves; `%2e%2e%2f` and `%zz` are 400; the
   traversal case fails when the boundary check is removed). The Swift clients
   were not changed: their `canonicalNodePath` never decoded.
+- **One response policy (Security 003).** Every overstoryd response leaves
+  through `hardenResponse` (`packages/overstoryd/src/response-policy.ts`) with
+  `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`; the
+  maintenance server uses it too. Rendered pages carry a Content-Security-Policy
+  (`default-src 'none'`, inline style, linked images); the access-link page's
+  script is constant text permitted by its SHA-256 hash with same-origin
+  `connect-src`, not `unsafe-inline`. Cache contracts are unchanged. An
+  ordinary stored file is shown only for nine inert image and text extensions;
+  anything else, HTML, SVG, PDF and media included, is
+  `application/octet-stream` with `Content-Disposition: attachment` (it was
+  typed by name under a sandbox). The rate-limit key is the connection's peer
+  address; `X-Forwarded-For` is read only with `OVERSTORYD_TRUSTED_PROXY_HOPS`
+  (the Nth entry from the right, peer on a short or malformed chain), and
+  `cf-connecting-ip` is no longer read. Rate limits stay off by default; the
+  limiter already dropped expired keys. Locators §6 states the requirement and
+  the [deployment guide](packages/overstoryd/deploy/README.md#response-headers-and-stored-files)
+  documents the proxy setting. Tested in
+  `tests/integration/overstoryd/host-responses.test.ts` (headers on JSON,
+  HTML, Markdown, a watch stream, objects, snapshots, files, 404, 401 and 429;
+  HTML bytes under `.html`, `.svg` and an unknown extension; the script hash
+  recomputed from the served page; a forged header with zero hops; the proxy's
+  entry with one hop) and `tests/unit/overstoryd/response-policy.test.ts`. The
+  pages were not loaded in a browser under the policy.
 
 ## Chained candidate deltas — 2026-10-06
 

@@ -4,6 +4,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AccountDirectory } from "./accounts.ts";
 import { HostDaemon, SchemaMismatchError, serveHost, type HostBootstrapAccount } from "./index.ts";
+import { hardenResponse } from "./response-policy.ts";
 
 const USAGE = `Usage:
   overstoryd init <community> --founder <handle>=<TreeID> [--data <directory>]
@@ -94,16 +95,24 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
       // Railway checks the configured lightweight root path. Keep both health
       // probes live while every application route remains unavailable.
       if (pathname === "/" || pathname === "/.overstory/health") {
-        return Response.json({ status: "maintenance" }, { headers: { "cache-control": "no-store" } });
+        return hardenResponse(Response.json({ status: "maintenance" }, { headers: { "cache-control": "no-store" } }));
       }
-      return Response.json(
+      return hardenResponse(Response.json(
         { error: "internal-error", message: "This Overstory host is in maintenance; try again later", retryable: true },
         { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } },
-      );
+      ));
     },
   });
   console.log(`overstoryd in maintenance mode at http://${hostname}:${server.port}; migrate the data root or unset OVERSTORYD_MAINTENANCE, then restart.`);
   return server;
+}
+
+/** `OVERSTORYD_TRUSTED_PROXY_HOPS`: how many reverse proxies in front of the listener append to `X-Forwarded-For`; zero when unset. */
+function trustedProxyHops(): number {
+  const value = process.env.OVERSTORYD_TRUSTED_PROXY_HOPS?.trim();
+  if (!value) return 0;
+  if (!/^\d+$/.test(value)) throw new Error(`OVERSTORYD_TRUSTED_PROXY_HOPS must be a whole number of proxies, got ${JSON.stringify(value)}`);
+  return Number(value);
 }
 
 /** Serve maintenance mode until the process is told to stop. */
@@ -207,6 +216,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       port: requestedPort,
       hostname: hostnameOption(args),
       rateLimits: process.env.OVERSTORYD_RATE_LIMITS === "1",
+      trustedProxyHops: trustedProxyHops(),
     });
   } catch (error) {
     // A data root whose schema this build does not serve is not served and

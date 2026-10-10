@@ -110,9 +110,12 @@ configurations have their shape, and the tests for each refused case, are in
   With `OVERSTORYD_RATE_LIMITS=1` (off by default, and not set by the
   deployment), unauthenticated challenge requests are limited to 30 per
   caller and profile per ten minutes, and pairing claims to 10 per caller and
-  pairing; the limiter keeps at most 10,000 keys, and its caller address comes from proxy
-  headers overstoryd does not verify (`attempt-limiter.ts`, `clientAddress` in
-  `host.ts`). As a
+  pairing; the limiter keeps at most 10,000 keys and drops a key once its
+  attempts leave the window (`attempt-limiter.ts`). A caller is counted by
+  the connection's peer address; `X-Forwarded-For` is read only when
+  `OVERSTORYD_TRUSTED_PROXY_HOPS` declares how many proxies in front of the
+  listener append to it, and then only the entry the outermost of them wrote
+  (`clientAddress` in `response-policy.ts`). As a
   home host overstoryd publishes each profile's key devices at
   `GET /.overstory/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'

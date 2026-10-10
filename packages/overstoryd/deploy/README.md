@@ -93,7 +93,56 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
 | `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may spend rebuilding the sidecar's cache before it answers a retryable 503 and keeps its progress for the retry. |
 | `OVERSTORYD_OBJECT_PACKING` | on | `0` turns off background packing of cold objects (overstoryd 001); packs already written are still read. |
+| `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
+| `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
+
+### Response headers and stored files
+
+Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options:
+DENY` and `Referrer-Policy: no-referrer`. A rendered page also carries a
+`Content-Security-Policy` that allows its inline style and linked images and
+nothing else; a page with a script (the access-link page) names that script
+by its SHA-256 hash. A proxy in front of
+overstoryd must pass these headers through unchanged, and must not inject
+scripts into pages, which the policy would block.
+
+A tree's ordinary file is shown in the browser only when its extension is an
+inert image or text type (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`,
+`.txt`, `.csv`, `.json`). Every other file, HTML, SVG, PDF and media included,
+is sent as `application/octet-stream` with `Content-Disposition: attachment`.
+The list is `INERT_FILE_TYPES` in `packages/overstoryd/src/response-policy.ts`.
+
+### Rate limits and proxies
+
+Rate limits are off unless `OVERSTORYD_RATE_LIMITS=1`. When on, a caller is
+counted by address. By default that is the address of the connection itself,
+and `X-Forwarded-For` is ignored, because a direct client can write anything
+there. Behind a reverse proxy every request then comes from the proxy's
+address and shares one bucket, so tell overstoryd how many proxies stand in
+front of it and append the address they received from:
+
+```text
+OVERSTORYD_TRUSTED_PROXY_HOPS=1
+```
+
+With `N` hops overstoryd reads the `N`th entry from the right of
+`X-Forwarded-For`, the one the outermost trusted proxy wrote, and never the
+entries to its left. Count exactly:
+
+- **Too few** (for example 1 behind two proxies) counts every caller as the
+  inner proxy's neighbour, so all callers share a bucket and one busy or
+  hostile caller can exhaust the limit for everyone.
+- **Too many** (for example 1 with no proxy, or 2 behind one) reads an entry
+  the caller wrote, so a caller picks a fresh bucket per request and the
+  limit does nothing.
+
+A proxy that replaces the header with the one address it saw counts as one
+hop. If the chain is shorter than the declared hops, or the entry is not an
+IP address, overstoryd falls back to the connection's address. Caddy in the
+Compose recipe below is one hop. Before setting the value for a Railway or
+CDN deployment, look at the `X-Forwarded-For` a request through the public
+domain actually arrives with, and count from that.
 
 ### Health and readiness
 

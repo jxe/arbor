@@ -26,3 +26,18 @@ test("expired keys are dropped and live keys are capped", () => {
   expect(limiter.allow("f")).toBe(true);
   expect(size(limiter)).toBe(1);
 });
+
+test("pruning expired keys leaves an active key's limit in force", () => {
+  setSystemTime(new Date(1_000_000));
+  const limiter = new AttemptLimiter(2, 1000);
+  for (const key of ["old-a", "old-b", "old-c"]) expect(limiter.allow(key)).toBe(true);
+  setSystemTime(new Date(1_000_900));
+  expect(limiter.allow("active")).toBe(true);
+  expect(limiter.allow("active")).toBe(true);
+  // The old keys' window has passed; the active key's has not.
+  setSystemTime(new Date(1_001_500));
+  expect(limiter.allow("active")).toBe(false);
+  expect(size(limiter)).toBe(1);
+  setSystemTime(new Date(1_001_901));
+  expect(limiter.allow("active")).toBe(true);
+});
