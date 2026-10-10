@@ -86,9 +86,13 @@ test("delta bases use the preceding proposed graph, with reachability and hash c
   const result = new TextEncoder().encode("pending file!"), resultHash = hashObject(result);
   const delta = {base: baseHash, result: resultHash, instructions: [{copy: {offset: 0, length: base.length}}, {insert: new TextEncoder().encode("!")}]};
   const proposed = new Map([[root, directory], [baseHash, base]]);
-  expect(await store.reconstructDeltas(root, [delta], proposed)).toEqual([{hash: resultHash, bytes: result}]);
+  expect(await store.reconstructDeltas(root, [delta], proposed, new Set())).toEqual([{hash: resultHash, bytes: result}]);
   expect(store.reads).toEqual([]);
+  // An earlier element's copy of the result is accepted; this element's own complete copy is not.
+  expect(await store.reconstructDeltas(root, [delta], new Map([...proposed, [resultHash, result]]), new Set())).toEqual([{hash: resultHash, bytes: result}]);
+  await expect(store.reconstructDeltas(root, [delta], new Map(proposed), new Set([resultHash]))).rejects.toThrow("Duplicate object delta result");
+  await expect(store.reconstructDeltas(root, [delta, delta], new Map(proposed), new Set())).rejects.toThrow("Duplicate object delta result");
   const unrelated = store.directory([]);
-  await expect(store.reconstructDeltas(unrelated, [delta], new Map([[baseHash, base]]))).rejects.toThrow("not reachable");
-  await expect(store.reconstructDeltas(root, [delta], new Map([[root, directory], [baseHash, result]]))).rejects.toThrow("base hash mismatch");
+  await expect(store.reconstructDeltas(unrelated, [delta], new Map([[baseHash, base]]), new Set())).rejects.toThrow("not reachable");
+  await expect(store.reconstructDeltas(root, [delta], new Map([[root, directory], [baseHash, result]]), new Set())).rejects.toThrow("base hash mismatch");
 });

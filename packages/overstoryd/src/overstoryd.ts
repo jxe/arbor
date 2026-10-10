@@ -1768,7 +1768,7 @@ export class HostDaemon implements AsyncDisposable {
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
         if (index > recordedThrough) {
-          for (const object of await this.objects.reconstructDeltas(root, update.deltas, objects))
+          for (const object of await this.objects.reconstructDeltas(root, update.deltas, objects, new Set(update.objects.map(object => object.hash))))
             objects.set(object.hash, object.bytes);
           if (update.trace !== null) {
             const plain: boolean = plainSoFar && !update.resolves.length && await this.fastForward(root, update, open, objects);
@@ -1815,7 +1815,7 @@ export class HostDaemon implements AsyncDisposable {
       // do not participate in its identity; rebuilding accepted deltas repeats
       // work and can demand bytes an exact retry no longer needs to supply.
       const reconstructed = index <= recordedThrough ? []
-        : await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed);
+        : await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed, new Set(update.objects.map(object => object.hash)));
       for (const object of reconstructed) {
         if (
           !(await this.objects.contains(update.candidate, object.hash, proposed))

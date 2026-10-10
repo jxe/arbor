@@ -9,8 +9,8 @@ import Testing
 @Suite("Live source admission", .serialized)
 struct LiveChangeLogTests {
 
-    @Test("Late document branches inside an accepted move batch settle across restart and lost acknowledgement")
-    func frozenBatchBranches() async throws {
+    @Test("Late document edits after an accepted move batch chain from one branch and settle across restart and lost acknowledgement")
+    func lateEditsAfterAcceptedMove() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["STORY_SOURCE_TEST_URL"], let origin = URL(string: address),
               let token = environment["STORY_SOURCE_TEST_TOKEN"], let treeID = environment["STORY_BRANCH_TEST_TREE"] else { return }
@@ -42,8 +42,11 @@ struct LiveChangeLogTests {
         _ = try await moved.admit(intent: edit(movedBasis, "Moved continued"))
         let retained = try await ChangeLog(tree: treeID, stateRoot: root).retained()
         #expect(retained.count == 4)
+        // The first late edit keeps the view it was captured on, as the one
+        // merge for the host; the second is authored on that edit, because
+        // nothing since its own view touched its document.
         #expect(retained[2].basis == .authored(change: retained[0].change))
-        #expect(retained[3].basis == .authored(change: retained[0].change))
+        #expect(retained[3].basis == .authored(change: retained[2].change))
         await parent.close(); await moved.close(); await other.close(); await coordinator.close(); await tree.close()
         let recoveredTree = try await place(try await client.descriptor(tree: treeID), client: client)
         let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root, faultInjector: StructuralPublicationCrash(),
@@ -278,8 +281,8 @@ extension LiveChangeLogTests {
         #expect(try await recovered.resolve(renamed.reference).reference.path == renamed.reference.path)
         await reopened.close(); await reopenedTree.close()
     }
-    @Test("Pending structural and stale source branches wait for the host, survive uncertain acceptance and resume")
-    func branchedStructuralPublication() async throws {
+    @Test("An editor opened before other local work extends the one chain, which survives uncertain acceptance and resumes")
+    func staleEditorJoinsChainPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["STORY_SOURCE_TEST_URL"], let origin = URL(string: address),
               let token = environment["STORY_SOURCE_TEST_TOKEN"], let treeID = environment["STORY_SOURCE_TEST_TREE"] else { return }
@@ -298,15 +301,14 @@ extension LiveChangeLogTests {
         let added = try await provider.openDocument(created.reference), a1 = try await added.snapshot()
         let addedSource = a1.source + "Continued locally\n"
         _ = try await added.admit(intent: intent(addedSource, from: a1))
-        #expect(await provider.capabilities().structuralActions == false)
-        await #expect(throws: UpdateError.awaitingHostReconciliation) {
-            try await provider.perform(.rename(reference: created.reference, name: "blocked"))
-        }
+        // The old editor's view predates the creation, which did not touch its
+        // document, so its edits are authored on the chain's tip. Nothing forks,
+        // and structural actions stay available.
+        #expect(await provider.capabilities().structuralActions)
         let queue = try await ChangeLog(tree: treeID, stateRoot: root), records = try await queue.retained()
         #expect(records.count == 4)
-        #expect(records[1].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
-        #expect(records[2].basis == .authored(change: records[1].change))
-        #expect(records[3].basis == .authored(change: records[0].change))
+        #expect(records[0].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
+        for (previous, next) in zip(records, records.dropFirst()) { #expect(next.basis == .authored(change: previous.change)) }
         await old.close(); await added.close(); await coordinator.close(); await tree.close()
 
         let recoveredTree = try await place(try await client.descriptor(tree: treeID), client: client)
@@ -314,7 +316,7 @@ extension LiveChangeLogTests {
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let waiting = WorkingTreeProvider(workingTree: recoveredTree, coordinator: interrupted)
         #expect(try await waiting.resolve(created.reference).reference.path == created.reference.path)
-        #expect(await waiting.capabilities().structuralActions == false)
+        #expect(await waiting.capabilities().structuralActions)
         // Uncertain acceptance leaves the exact request retained, not current.
         _ = try await interrupted.syncOnce()
         #expect(await interrupted.syncState.kind != "current")

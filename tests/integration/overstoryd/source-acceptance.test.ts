@@ -1220,3 +1220,43 @@ for (const encoding of ["json", "cbor"] as const) for (const peer of [false, tru
     expect(extended.results[2]!.outcome).toBe("accepted");
   });
 }
+
+test("a later element may carry by delta an object an earlier element of the request supplied", async () => {
+  const large = await edit("a".repeat(70_000), root, [0, 3]);
+  base = (await client.submitUpdates(tree, {base, updates: [large]})).results[0]!.update.id;
+  root = large.candidate;
+  // X, then Y, then X again: the third candidate is the first one, so its
+  // changed file and directory are objects the first element already carried.
+  const first = await edit("X", root, [0, 1]);
+  const second = await edit("Y", first.candidate, [0, 1]);
+  const third = await edit("X", second.candidate, [0, 1]);
+  expect(third.candidate).toBe(first.candidate);
+  function graph(root: ObjectHash) {
+    const reachable = new Map<ObjectHash, Uint8Array>();
+    function visit(hash: ObjectHash, directory: boolean) {
+      const bytes = objects.get(hash)!;
+      reachable.set(hash, bytes);
+      if (directory) for (const entry of decodeProtocolDirectory(bytes).entries) {
+        if (entry.file) visit(entry.file, false);
+        if (entry.directory) visit(entry.directory, true);
+      }
+    }
+    visit(root, true);
+    return encodeTreeSnapshotJSON({root, objects: reachable});
+  }
+  const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeCandidateUpdateJSON(compactTransport(
+    encodeCandidateUpdateJSON(update), graph(basis), graph(update.candidate),
+  ));
+  const updates = [compact(first, root), compact(second, first.candidate), compact(third, second.candidate)];
+  expect(updates.every(update => update.deltas.length > 0)).toBe(true);
+  const repeated = new Set(updates[0]!.deltas.map(delta => delta.result));
+  expect(updates[2]!.deltas.some(delta => repeated.has(delta.result))).toBe(true);
+  const accepted = await client.submitUpdates(tree, {base, updates});
+  expect(accepted.results.map(result => result.outcome)).toEqual(["accepted", "accepted", "accepted"]);
+  expect(accepted.results[2]!.update.root).toBe(first.candidate);
+  // Within one element a result still appears exactly once.
+  const doubled = {...compact(await edit("W", first.candidate, [0, 1]), first.candidate), change: crypto.randomUUID()};
+  doubled.deltas = [...doubled.deltas, doubled.deltas[0]!];
+  await expect(client.submitUpdates(tree, {base: accepted.results[2]!.update.id, updates: [doubled]})).rejects.toThrow(/Duplicate object delta result/);
+  await running.overstoryd.verifyIntegrity();
+});

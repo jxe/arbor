@@ -12,6 +12,27 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## A chain that returns to an earlier state is accepted — 2026-10-10
+
+Fixed, not yet deployed. Since chained candidate deltas (2026-10-06, below),
+the host refused any request in which a later element carried by delta an
+object that an earlier element of the same request had supplied: "Duplicate
+object delta result". A queued chain that returns to an earlier state does
+exactly that, for example a trash followed by a restore, and the client then
+held the work as refused. `ObjectStore.reconstructDeltas` checked duplicates
+against everything the request had accumulated; it now checks them within one
+element, and tree-operations §2.5 says so. The 2026-10-06 work never ran the
+live Swift stages, which is where this showed.
+
+The same pass updated two live tests in `LiveChangeLogTests.swift` that still
+expected sibling branches from before local work became one chain
+(2026-09-30); their unit-test twins had been updated then. Evidence: a host
+test that fails before the fix and passes after; `bun run test` 1793 pass; the
+"Live source admission" suite passes 7 of 7 against a local host, where it had
+failed 4 with 13 issues at every commit since 2026-10-06. The full protocol
+gate was not run, because Story was open and the app-hosted stage cannot
+launch beside it.
+
 ## Chained candidate deltas — 2026-10-06
 
 Both publication coordinators now compact later elements against the preceding

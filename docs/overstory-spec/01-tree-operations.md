@@ -1059,14 +1059,18 @@ later element, or the transport basis root (`from.root` when present, otherwise
 `update.previous.root`) for a watch transition. The
 receiver hash-verifies that base, applies the instructions, requires the
 reconstructed bytes to hash to `result`, and decodes them as a valid canonical
-object. It then treats the result exactly like a complete object. A result
-appears exactly once across complete objects and deltas. New objects use
+object. It then treats the result exactly like a complete object. Within one
+update element, or one transition, a result appears exactly once across its
+complete objects and deltas. A later element of a request may carry an object
+that an earlier element carried, as a chain that returns to an earlier state
+does. New objects use
 complete bytes; otherwise the sender normally chooses the smaller form. The
 encoding is a transport choice: the identified result object and accepted
 roots remain canonical, and retries or later storage packing may choose
-another transfer representation without changing semantic identity. Duplicate
-results, a result also supplied as a complete object, noncanonical base64,
-out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
+another transfer representation without changing semantic identity. Within an
+element, duplicate results and a result also supplied as a complete object are
+invalid, as are noncanonical base64, out-of-bounds copies, arithmetic
+overflow, and quota excess.
 
 ## 3. Editor round trip
 

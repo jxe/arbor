@@ -64,16 +64,13 @@ index with excerpts as marked ranges.
 - [ ] Confirm the native app's search renders excerpts as text with highlighted ranges,
   never as markup.
 
-### Two Swift test failures
+### A flaky app test
 
-Both were present before the 2026-10-10 rename and are recorded in
-[status](../status.md#overstory-and-story-names--2026-10-10).
-
-- [ ] `bun run test:protocol` stops at the "Live source admission" suite in
-  `OverstoryWorkingTree` (`LiveChangeLogTests.swift`, 13 issues in four tests). The
-  suite runs only when the harness starts a live host, so plain `swift test` skips it.
 - [ ] The app test `newPageCreatedFromTitle` fails in about one run in three, at the
-  check that the new page appears among the parent's children.
+  check that the new page appears among the parent's children. It was already flaky
+  before the 2026-10-10 rename.
+- [ ] Run the full `bun run test:protocol` gate once with Story closed; its app-hosted
+  stage has not run since the live-suite fix of 2026-10-10.
 
 ### Smaller candidates
 

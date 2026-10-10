@@ -218,21 +218,28 @@ export class ObjectStore {
   }
 
   /**
-   * Materialize every submitted object delta against a retained base graph.
+   * Materialize one update element's object deltas against its basis graph.
    * Deltas address canonical object bytes, so a reconstructed result is
    * hash-checked and decoded exactly like a complete supplied object, then
    * added to `proposed`.
+   *
+   * `complete` holds the hashes this element also supplied as complete
+   * objects. Within the element a result appears once, as one delta or one
+   * complete object. `proposed` also holds what earlier elements of the same
+   * request supplied, and an element may carry one of those again: a chain
+   * that returns to an earlier state produces the same object twice.
    */
   async reconstructDeltas(
     baseRoot: ObjectHash,
     deltas: ObjectDelta[],
     proposed: Map<ObjectHash, Uint8Array>,
+    complete: ReadonlySet<ObjectHash>,
   ): Promise<Array<{ hash: ObjectHash; bytes: Uint8Array }>> {
     const reconstructed: Array<{ hash: ObjectHash; bytes: Uint8Array }> = [];
     const results = new Set<ObjectHash>();
     for (const delta of deltas) {
       if (!HASH.test(delta.base) || !HASH.test(delta.result)) throw new Error("Invalid object delta hash");
-      if (results.has(delta.result) || proposed.has(delta.result)) {
+      if (results.has(delta.result) || complete.has(delta.result)) {
         throw new Error(`Duplicate object delta result: ${delta.result}`);
       }
       results.add(delta.result);
