@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ProtocolClient } from "@ovst/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, sha256, type ProtocolClient } from "@ovst/protocol";
+import { RESERVED_PAGE_SCRIPT } from "../../../packages/overstoryd/src/public-page.ts";
+import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { serveHost } from "@ovst/overstoryd";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
@@ -188,6 +190,97 @@ describe("pages under the content security policy", () => {
     // The page it writes over itself has inline style, which the same policy allows.
     expect(policy).toContain("style-src 'unsafe-inline'");
     expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
+  });
+});
+
+describe("the reserved-address page", () => {
+  let host: Awaited<ReturnType<typeof serveHost>>;
+  const reservedToken = "reserved-page-owner";
+
+  beforeAll(async () => {
+    host = await serveHost({
+      dataRoot: await mkdtemp(join(sandbox, "reserved-")),
+      // The founder's address is reserved for one exact profile.
+      community: { handle: "garden", name: "Garden", firstWriter: { handle: "founder", profileTree: testProfileIdentity().profileTree } },
+      accounts: [testAccount("owner", reservedToken, { communityWriter: true })],
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      storyDownloads: { mac: "https://example.org/story-mac", iphone: "https://example.org/story-iphone" },
+    });
+    // A second address is reserved for a pending code invitation.
+    const owner = await deviceClient(host.url, reservedToken);
+    const tree = host.overstoryd.community().id;
+    const head = await owner.descriptor(tree);
+    const snapshot = await owner.snapshot(tree, head.tree.root);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
+    const source = new TextDecoder().decode(snapshot.objects.get(index)!);
+    const digest = `sha256:${sha256("abcdefghijklmnopqrstuv")}`;
+    const bytes = new TextEncoder().encode(source.replace("members:\n", `members:\n  - handle: "guest"\n    inviteDigest: "${digest}"\n`));
+    const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    await owner.submitUpdate(tree, head.tree.update, { root: hashObject(directory), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(directory), directory]]) });
+    const origin = new URL(host.url).origin;
+    expect(host.overstoryd.accountReservation(`${origin}/~founder`)?.profileTree).toBeDefined();
+    expect(host.overstoryd.accountReservation(`${origin}/~guest`)?.inviteDigest).toBe(digest);
+  });
+
+  afterAll(async () => {
+    host.server.stop(true);
+    await host.overstoryd[Symbol.asyncDispose]();
+  });
+
+  test("is byte-identical for a profile reservation and a pending invitation, apart from the handle itself", async () => {
+    const exact = await fetch(`${host.url}/~founder`, { headers: { accept: "text/html" } });
+    const invited = await fetch(`${host.url}/~guest`, { headers: { accept: "text/html" } });
+    expect(exact.status).toBe(200);
+    expect(invited.status).toBe(200);
+    const exactPage = await exact.text(), invitedPage = await invited.text();
+    expect(exactPage).toContain("is reserved and has not been claimed yet");
+    // The only difference is the handle each address names.
+    expect(invitedPage.replaceAll("guest", "founder")).toBe(exactPage);
+    expect(new TextEncoder().encode(invitedPage).byteLength - "guest".length * 2).toBe(new TextEncoder().encode(exactPage).byteLength - "founder".length * 2);
+    // Headers reveal nothing either.
+    const headers = (response: Response) => [...response.headers].filter(([name]) => name !== "date" && name !== "content-length");
+    expect(headers(invited)).toEqual(headers(exact));
+    expect(exact.headers.get("overstory-profile-state")).toBe("reserved");
+    // A request without an HTML preference gets the same page.
+    expect(await (await fetch(`${host.url}/~guest`)).text()).toBe(invitedPage);
+  });
+
+  test("permits its one script by a hash that matches the served text, never unsafe-inline", async () => {
+    const response = await fetch(`${host.url}/~guest`, { headers: { accept: "text/html" } });
+    const policy = response.headers.get("content-security-policy")!;
+    const page = await response.text();
+    expectHardened(response, "reserved page");
+    expect(page).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
+    expect(policy).toContain(`script-src ${scriptHashOf(page)}`);
+    expect(policy).toContain(`script-src 'sha256-${createHash("sha256").update(RESERVED_PAGE_SCRIPT).digest("base64")}'`);
+    expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    // The script sends nothing anywhere, so the page may not connect.
+    expect(policy).not.toContain("connect-src");
+    expect(page).toContain('<div id="invitation" hidden>');
+    expect(page).toContain('<a href="https://example.org/story-mac">Get Story for Mac</a>');
+    expect(page).toContain('<a href="https://example.org/story-iphone">Get Story for iPhone</a>');
+  });
+
+  test("omits the download links a host has not configured", async () => {
+    // The suite's first host sets neither variable; its community has no reserved address, so reserve by founder elsewhere.
+    const bare = await serveHost({
+      dataRoot: await mkdtemp(join(sandbox, "reserved-bare-")),
+      community: { handle: "garden", name: "Garden", firstWriter: { handle: "founder", profileTree: testProfileIdentity().profileTree } },
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try {
+      const page = await (await fetch(`${bare.url}/~founder`)).text();
+      expect(page).toContain("Open in Story");
+      expect(page).not.toContain("Get Story for");
+    } finally {
+      bare.server.stop(true);
+      await bare.overstoryd[Symbol.asyncDispose]();
+    }
   });
 });
 

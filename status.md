@@ -53,7 +53,7 @@ unchanged.
   HTML bytes under `.html`, `.svg` and an unknown extension; the script hash
   recomputed from the served page; a forged header with zero hops; the proxy's
   entry with one hop) and `tests/unit/overstoryd/response-policy.test.ts`. The
-  pages were not loaded in a browser under the policy.
+  pages were not loaded in a browser under the policy (see below).
 - **Invitation links carry the code as a fragment.** The link is
   `https://host/~handle#overstory-invite=<code>`, and the same string under
   `overstory://`; `buildInviteLocator` and the Swift `joinLink` emit the web
@@ -66,6 +66,22 @@ unchanged.
   which TypeScript (`tests/unit/logical-url.test.ts`,
   `tests/unit/resource-policy.test.ts`) and Swift (`LogicalURLTests`,
   `ResourcePolicyTests`) both pass.
+- **One page for every reserved address.** `GET /~handle` for a reserved,
+  unclaimed handle answers `renderReservedPage`
+  (`packages/overstoryd/src/public-page.ts`): the same bytes and headers
+  whether the handle is held for one profile or for a pending invitation. It
+  says the address is reserved and unclaimed and that an invitation opens in
+  Story. A block hidden by default holds "Open in Story" and, when
+  `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL` are set, the two
+  download links; one constant script reveals it when the fragment begins
+  `#overstory-invite=` and points the Open link at the same URL under
+  `overstory:`. The page's policy names that script by its SHA-256 hash, the
+  same way as the access-link page, with no `connect-src`. No route was
+  added. Tested in `tests/unit/overstoryd/public-page.test.ts` and
+  `tests/integration/overstoryd/host-responses.test.ts` (the two reservation
+  kinds compared byte for byte, the hash recomputed from the served script).
+  Neither scripted page has been opened in a browser under its policy; an
+  attempt through the in-app browser could not reach the local host.
 
 ## Chained candidate deltas — 2026-10-06
 

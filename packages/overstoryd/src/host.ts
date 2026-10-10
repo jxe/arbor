@@ -26,7 +26,7 @@ import {
   type RemoteAccountDescriptor,
   type RemotePlacementAccountDescriptor,
 } from "@ovst/protocol";
-import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
@@ -377,6 +377,8 @@ export async function serveHost(options: {
    * caller by the connection's peer address.
    */
   trustedProxyHops?: number;
+  /** Download pages the reserved-address page offers a person opening an invitation; each link is omitted when unset. */
+  storyDownloads?: StoryDownloads;
 }) {
   const trustedProxyHops = options.trustedProxyHops ?? 0;
   if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) throw new Error("trustedProxyHops must be a whole number of proxies, zero or more");
@@ -913,8 +915,9 @@ export async function serveHost(options: {
           }
           const pendingHandle = handleOfPath(requestLocator.path);
           if (pendingHandle && overstoryd.isReservedHandle(pendingHandle)) {
-            const profileURL = `${publicOrigin}/~${pendingHandle}`;
-            return html(renderNoticePage(`~${pendingHandle}`, `<h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(overstoryd.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Story to claim it:</p><code>story open ${escapeHTML(profileURL)}</code>`), 200, { "overstory-profile-state": "reserved" });
+            // One page for every reserved address: it does not say whether the
+            // address is held for a profile or for an invitation.
+            return html(renderReservedPage(pendingHandle, new URL(publicOrigin).host, options.storyDownloads), 200, { "overstory-profile-state": "reserved" }, { source: RESERVED_PAGE_SCRIPT });
           }
           const claimed = pendingHandle ? overstoryd.accountByHandle(pendingHandle) : null;
           if (pendingHandle && claimed && !overstoryd.boundary(requestLocator.path)) {

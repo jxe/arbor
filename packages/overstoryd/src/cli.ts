@@ -115,6 +115,20 @@ function trustedProxyHops(): number {
   return Number(value);
 }
 
+/** `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL`: where the reserved-address page sends a person for Story; each optional. */
+function storyDownloads(): { mac?: string; iphone?: string } {
+  const read = (name: string): string | undefined => {
+    const value = process.env[name]?.trim();
+    if (!value) return undefined;
+    let url: URL | undefined;
+    try { url = new URL(value); } catch {}
+    if (url?.protocol !== "https:" && url?.protocol !== "http:") throw new Error(`${name} must be an http(s) URL, got ${JSON.stringify(value)}`);
+    return url.toString();
+  };
+  const mac = read("OVERSTORYD_STORY_MAC_URL"), iphone = read("OVERSTORYD_STORY_IPHONE_URL");
+  return { ...(mac ? { mac } : {}), ...(iphone ? { iphone } : {}) };
+}
+
 /** Serve maintenance mode until the process is told to stop. */
 function maintainUntilStopped(port: number, hostname: string): void {
   const server = serveMaintenance(port, hostname);
@@ -217,6 +231,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       hostname: hostnameOption(args),
       rateLimits: process.env.OVERSTORYD_RATE_LIMITS === "1",
       trustedProxyHops: trustedProxyHops(),
+      storyDownloads: storyDownloads(),
     });
   } catch (error) {
     // A data root whose schema this build does not serve is not served and

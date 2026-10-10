@@ -95,6 +95,8 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_OBJECT_PACKING` | on | `0` turns off background packing of cold objects (overstoryd 001); packs already written are still read. |
 | `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
+| `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
+| `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
 
 ### Response headers and stored files
@@ -102,8 +104,8 @@ overstoryd reads these variables at start; all are optional.
 Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options:
 DENY` and `Referrer-Policy: no-referrer`. A rendered page also carries a
 `Content-Security-Policy` that allows its inline style and linked images and
-nothing else; a page with a script (the access-link page) names that script
-by its SHA-256 hash. A proxy in front of
+nothing else; the two pages with a script (the access-link page and the
+reserved-address page) each name that one script by its SHA-256 hash. A proxy in front of
 overstoryd must pass these headers through unchanged, and must not inject
 scripts into pages, which the policy would block.
 
@@ -112,6 +114,16 @@ inert image or text type (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`,
 `.txt`, `.csv`, `.json`). Every other file, HTML, SVG, PDF and media included,
 is sent as `application/octet-stream` with `Content-Disposition: attachment`.
 The list is `INERT_FILE_TYPES` in `packages/overstoryd/src/response-policy.ts`.
+
+### The reserved-address page and invitations
+
+`https://<host>/~<handle>` for a reserved, unclaimed handle answers one notice
+page. It is the same bytes whether the handle is held for one profile or for
+a pending invitation, so it reveals nothing about which. An invitation link is
+that address with `#overstory-invite=<code>`; the fragment is not sent to the
+host. The page's script, seeing that fragment, reveals an "Open in Story" link
+to the same URL under the `overstory:` scheme, plus the download links
+configured by `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL`.
 
 ### Rate limits and proxies
 
