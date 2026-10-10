@@ -18,6 +18,7 @@ import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from 
 import { type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath } from "@ovst/client";
 import { EventBus } from "./events.ts";
+import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
@@ -282,12 +283,12 @@ export class StorySyncDaemon implements AsyncDisposable {
       if (!tree) throw new ProtocolError("invalid-request", "Raw tree locator requires a TreeID", 400);
       const descriptor = (await this.trees.descriptors()).find((candidate) => candidate.id === tree);
       if (!descriptor) throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
-      return { ref: { tree, path: canonicalNodePath(`/${segments.map(decodeURIComponent).join("/")}`), stableKey: null }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree, path: canonicalNodePath(decodeRequestPath(`/${segments.join("/")}`)), stableKey: null }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
     }
     const origin = overstoryScheme
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
       : parsed.origin;
-    const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
+    const path = decodeRequestPath(parsed.pathname);
     const resolution = await (await this.connections.accountClientFor({ origin })).client.resolve(path || "/");
     const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };

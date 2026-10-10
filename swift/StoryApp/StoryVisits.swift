@@ -142,7 +142,7 @@ private extension String {
 
 /// What an `overstory://` URL handed to the app by the system asks for
 /// (the app registers the `overstory` scheme). A join link is an account
-/// locator carrying `;overstory-invite=<code>` (accounts §1.2) and starts the
+/// locator carrying `#overstory-invite=<code>` (accounts §1.2) and starts the
 /// claim; any other locator is opened as Open Location opens it.
 enum StoryIncomingLocator: Equatable, Sendable {
     /// `account` is the account's HTTP(S) locator at its host, as the claim takes it.
@@ -154,9 +154,9 @@ enum StoryIncomingLocator: Equatable, Sendable {
         guard url.scheme?.lowercased() == "overstory" else { return nil }
         let text = url.absoluteString
         guard case let .overstory(authority, _, state)? = resolveLogicalURL(sourceDirectory: "/", href: text) else { return nil }
-        if let code = state.invite {
-            guard let account = ProfileLocator(text)?.locator else { return nil }
-            self = .join(account: account, code: code)
+        if state.invite != nil {
+            guard let join = Self.pastedJoinLink(text) else { return nil }
+            self = join
             return
         }
         // Open Location visits a host; a bare TreeID names no host to ask.
@@ -165,8 +165,20 @@ enum StoryIncomingLocator: Equatable, Sendable {
         self = .open(locator: String(text[..<end]))
     }
 
+    /// An invitation link someone pasted, in either spelling
+    /// (`https://<host>/~<handle>#overstory-invite=<code>` or the same under
+    /// `overstory://`), as the `.join` it asks for; nil for anything else.
+    static func pastedJoinLink(_ text: String) -> StoryIncomingLocator? {
+        let link = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard case let .overstory(.dns, _, state)? = resolveLogicalURL(sourceDirectory: "/", href: link),
+              let code = state.invite,
+              let account = ProfileLocator(link)?.locator
+        else { return nil }
+        return .join(account: account, code: code)
+    }
+
     /// The join link the Add Person sheet shows for `handle` at `hostOrigin`:
-    /// `overstory://<host>/~<handle>;overstory-invite=<code>`.
+    /// `https://<host>/~<handle>#overstory-invite=<code>`.
     static func joinLink(hostOrigin: String, handle: String, code: String) -> String? {
         let name = handle.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "~"))
         guard !name.isEmpty else { return nil }

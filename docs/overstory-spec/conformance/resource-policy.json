@@ -671,7 +671,12 @@
       "origin": "https://club.example"
     },
     {
-      "input": "overstory://club.example/~club;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+      "input": "https://club.example/~club#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "overstory://club.example/~club#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
       "locator": "https://club.example/~club",
       "origin": "https://club.example"
     }

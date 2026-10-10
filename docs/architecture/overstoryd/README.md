@@ -32,10 +32,18 @@ configurations have their shape, and the tests for each refused case, are in
   else gets what an unreadable tree gets.
 
 - **Community profile.** The tree canonical at `/` is the community's
-  membership profile and keeps `type: group`. Its tree configuration grants
-  the root itself `admin`, so its members are the host's administrators.
-  A bootstrap that opts its accounts out of membership lists their profiles
-  as the root's administrators instead.
+  membership profile and keeps `type: group`. Membership does not administer
+  it. A new host's tree configuration grants `admin` to the founder's profile
+  by TreeID (the rule holds before the founder claims the account) and to
+  each bootstrap account that did not opt out of writing the community, each
+  named one by one, and grants everyone `read`. Those people are the host's
+  administrators; a member who joins later can read the root and cannot write
+  it or read its configuration until an administrator adds a rule naming
+  them. Only a bootstrap that names nobody (no founder, every account opted
+  out) grants `admin` to the root itself, because a configuration must name
+  an administrator. Nothing rewrites a host created before 2026-10-10, whose
+  stored rule may still name the root itself; an administrator edits its
+  `access.yaml` to change that.
 - **Accounts.** A community `members` entry's `handle` reserves `/~handle`
   for exactly that entry's person Profile TreeID; that person claims the
   account with their profile key ([accounts §1.2](../../overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
@@ -110,9 +118,12 @@ configurations have their shape, and the tests for each refused case, are in
   With `OVERSTORYD_RATE_LIMITS=1` (off by default, and not set by the
   deployment), unauthenticated challenge requests are limited to 30 per
   caller and profile per ten minutes, and pairing claims to 10 per caller and
-  pairing; the limiter keeps at most 10,000 keys, and its caller address comes from proxy
-  headers overstoryd does not verify (`attempt-limiter.ts`, `clientAddress` in
-  `host.ts`). As a
+  pairing; the limiter keeps at most 10,000 keys and drops a key once its
+  attempts leave the window (`attempt-limiter.ts`). A caller is counted by
+  the connection's peer address; `X-Forwarded-For` is read only when
+  `OVERSTORYD_TRUSTED_PROXY_HOPS` declares how many proxies in front of the
+  listener append to it, and then only the entry the outermost of them wrote
+  (`clientAddress` in `response-policy.ts`). As a
   home host overstoryd publishes each profile's key devices at
   `GET /.overstory/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'

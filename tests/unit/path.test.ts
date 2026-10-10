@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { canonicalNodePath, directoryIndexTreePath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical } from "@ovst/protocol";
+import { canonicalNodePath, directoryIndexTreePath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical, PathEscapeError } from "@ovst/protocol";
 import { ensureContainedPath, resolveTreePath } from "@ovst/protocol/path";
 
 const temporaryPaths: string[] = [];
@@ -20,8 +20,15 @@ describe("workspace paths", () => {
   });
   test("rejects traversal", () => {
     expect(() => normalizeTreePath("../secret")).toThrow();
-    expect(() => normalizeTreePath("%2e%2e/secret")).toThrow();
+    expect(() => normalizeTreePath("/../x")).toThrow(PathEscapeError);
+    expect(() => normalizeTreePath("/a\0b")).toThrow(PathEscapeError);
     expect(() => resolveTreePath("/tmp/root", "/../secret")).toThrow();
+  });
+  test("takes an already-decoded path and never decodes percent-encoding itself", () => {
+    // A file may legitimately be named `%2e%2e`; an encoded traversal is refused where the URL is decoded.
+    expect(normalizeTreePath("/%2e%2e/x")).toBe("/%2e%2e/x");
+    expect(canonicalNodePath("/Q3 100%.md")).toBe("/Q3 100%");
+    expect(canonicalNodePath("/a%2Fb.md")).toBe("/a%2Fb");
   });
 
   test("rejects a file reached through an external directory symlink", async () => {

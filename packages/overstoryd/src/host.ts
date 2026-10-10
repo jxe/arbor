@@ -26,9 +26,10 @@ import {
   type RemoteAccountDescriptor,
   type RemotePlacementAccountDescriptor,
 } from "@ovst/protocol";
-import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
+import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
 /** Comment frames keep watch streams alive across proxy idle timeouts. */
@@ -238,17 +239,6 @@ function treeReference(segment: string): { id: string; governs?: string } {
   }
 }
 
-/** The caller's address as the edge proxy reports it. overstoryd trusts these
- * headers without checking who set them. Behind Railway's edge alone (see
- * deploy/README.md) a client-supplied `cf-connecting-ip` passes through, as
- * does a forged leading `x-forwarded-for` entry wherever the edge appends
- * rather than replaces; only a proxy that overwrites them, such as
- * Cloudflare, makes them trustworthy. The address is a best-effort
- * rate-limit key, never an identity. */
-function clientAddress(request: Request): string {
-  return request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-}
-
 const CONFIGURATION_SUFFIX = ";overstory-config";
 // Rename 002: links shared before the rename end in `;arbor-config`. It is
 // read wherever the suffix is; redirects and new links write only the current one.
@@ -278,8 +268,12 @@ function linkDigest(request: Request): string | undefined {
   return secret ? `sha256:${sha256(secret)}` : undefined;
 }
 
-function linkBootstrap(): Response {
-  return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Overstory access</title><body><p>Opening shared Overstory tree…</p><script>
+/**
+ * The script of the access-link page: it reads the link's secret from the
+ * fragment, which never reaches a server in a URL, and fetches the same
+ * address with it in a header. Constant text, permitted by its hash.
+ */
+const ACCESS_LINK_SCRIPT: PageScript = { connects: true, source: `
 // Rename 002: links shared before the rename carry "#arbor-access=".
 const marker = ["#overstory-access=", "#arbor-access="].find(prefix => location.hash.startsWith(prefix));
 const secret = marker ? decodeURIComponent(location.hash.slice(marker.length)) : "";
@@ -290,13 +284,18 @@ else fetch(location.pathname + location.search, { headers: { "Overstory-Access-L
     document.open(); document.write(await response.text()); document.close();
   })
   .catch(error => { document.body.textContent = error.message; });
-</script></body>`);
+` };
+
+function linkBootstrap(): Response {
+  return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Overstory access</title><body><p>Opening shared Overstory tree…</p><script>${ACCESS_LINK_SCRIPT.source}</script></body>`, 200, {}, ACCESS_LINK_SCRIPT);
 }
 
-function html(value: string, status = 200, headers: HeadersInit = {}): Response {
+/** An HTML page under the page policy; `script` is the one inline script it carries, if any. */
+function html(value: string, status = 200, headers: HeadersInit = {}, script?: PageScript): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("content-type", "text/html; charset=utf-8");
   responseHeaders.set("cache-control", "no-cache");
+  responseHeaders.set("content-security-policy", htmlContentSecurityPolicy(script));
   return new Response(value, {
     status,
     headers: responseHeaders,
@@ -372,7 +371,17 @@ export async function serveHost(options: {
    * client retrying through an outage tripped it and hid the real refusal.
    */
   rateLimits?: boolean;
+  /**
+   * Reverse proxies in front of the listener that append to
+   * `X-Forwarded-For`. Zero, the default, ignores the header and counts a
+   * caller by the connection's peer address.
+   */
+  trustedProxyHops?: number;
+  /** Download pages the reserved-address page offers a person opening an invitation; each link is omitted when unset. */
+  storyDownloads?: StoryDownloads;
 }) {
+  const trustedProxyHops = options.trustedProxyHops ?? 0;
+  if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) throw new Error("trustedProxyHops must be a whole number of proxies, zero or more");
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
   const dynamicLoopbackOrigin = /^https?:\/\/(?:127\.0\.0\.1|localhost):0$/.test(publicOrigin);
@@ -386,14 +395,20 @@ export async function serveHost(options: {
   const onAuthorizationTick = authorizationTicker(overstoryd);
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
   const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
-  /** Unauthenticated challenges are cheap to ask for; with rate limits on, bound them per caller and profile. */
-  const challengeAllowed = (request: Request, scope: string): boolean =>
-    challenges?.allow(`${clientAddress(request)}:${scope}`) ?? true;
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
     idleTimeout: 30,
-    async fetch(request, server) {
+    // Every response leaves through `hardenResponse`, whichever route built it.
+    async fetch(request, server): Promise<Response> {
+      return hardenResponse(await answer(request, server));
+    },
+  });
+  type HostServer = ReturnType<typeof Bun.serve>;
+  /** The rate-limit key for a request's caller (see `clientAddress`). */
+  const callerAddress = (request: Request, server: HostServer): string =>
+    clientAddress(request.headers.get("x-forwarded-for"), server.requestIP(request)?.address, trustedProxyHops);
+  async function answer(request: Request, server: HostServer): Promise<Response> {
       const token = bearer(request);
       const execution = token?.startsWith("execution_") ? overstoryd.execution.resolve(token) : undefined;
       if (token?.startsWith("execution_") && !execution) return protocolError("unauthenticated", "Execution authorization is unavailable", 401);
@@ -517,7 +532,7 @@ export async function serveHost(options: {
         if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
           const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown };
           if (typeof body.profileTree !== "string" || typeof body.device !== "string") throw new Error("A session challenge names a profile TreeID and a DeviceID");
-          if (!challengeAllowed(request, `session:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+          if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
           return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {
@@ -541,7 +556,7 @@ export async function serveHost(options: {
         const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
           const pairingID = decodeURIComponent(pairingClaim[1]!);
-          if (pairingClaims && !pairingClaims.allow(`${clientAddress(request)}:${pairingID}`))
+          if (pairingClaims && !pairingClaims.allow(`${callerAddress(request, server)}:${pairingID}`))
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await bodyFields(request) as {
             secret?: unknown;
@@ -900,8 +915,9 @@ export async function serveHost(options: {
           }
           const pendingHandle = handleOfPath(requestLocator.path);
           if (pendingHandle && overstoryd.isReservedHandle(pendingHandle)) {
-            const profileURL = `${publicOrigin}/~${pendingHandle}`;
-            return html(renderNoticePage(`~${pendingHandle}`, `<h1>~${escapeHTML(pendingHandle)}</h1><p>This account is reserved by the ${escapeHTML(overstoryd.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Story to claim it:</p><code>story open ${escapeHTML(profileURL)}</code>`), 200, { "overstory-profile-state": "reserved" });
+            // One page for every reserved address: it does not say whether the
+            // address is held for a profile or for an invitation.
+            return html(renderReservedPage(pendingHandle, new URL(publicOrigin).host, options.storyDownloads), 200, { "overstory-profile-state": "reserved" }, { source: RESERVED_PAGE_SCRIPT });
           }
           const claimed = pendingHandle ? overstoryd.accountByHandle(pendingHandle) : null;
           if (pendingHandle && claimed && !overstoryd.boundary(requestLocator.path)) {
@@ -959,13 +975,11 @@ export async function serveHost(options: {
                 sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
               }));
             }
-            // A tree's raw file, typed by its name. The sandbox keeps an HTML
-            // or SVG file from running script with this origin's authority.
+            // A tree's raw file: an inert image or text type is shown, and
+            // anything else, HTML and SVG included, downloads as opaque bytes.
             return new Response(logical.bytes as Uint8Array<ArrayBuffer>, { headers: {
-              "content-type": Bun.file(objectName).type,
+              ...storedFileHeaders(objectName),
               "cache-control": "no-cache",
-              "x-content-type-options": "nosniff",
-              "content-security-policy": "sandbox",
             } });
           }
           const prefix = publicPath.replace(/\/$/, "");
@@ -1057,8 +1071,7 @@ export async function serveHost(options: {
         return protocolError("permission-denied", "Execution authorization is unavailable", 403);
       }
       return response;
-    },
-  });
+  }
   if (dynamicLoopbackOrigin) {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }

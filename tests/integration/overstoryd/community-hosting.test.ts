@@ -75,10 +75,22 @@ afterAll(async () => {
 });
 
 describe("client-generated profile and account bootstrap", () => {
-  test("an invitation code claims a community slot and replaces it with the proven Profile TreeID", async () => {
+  /** The community's `_index.md` as accepted now. */
+  async function communityIndex(): Promise<string> {
+    const community = running.overstoryd.community();
+    const head = await owner.descriptor(community.id);
+    const snapshot = await owner.snapshot(community.id, head.tree.root);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    return new TextDecoder().decode(snapshot.objects.get(root.entries.find((entry) => entry.name === "_index.md")!.file!)!);
+  }
+
+  /**
+   * Reserve `handle` for an invitation by rewriting the community's members
+   * with `rewrite`, claim it with the code, and return the index before and
+   * after the claim with the claimed profile.
+   */
+  async function inviteAndClaim(handle: string, inviteCode: string, rewrite: (source: string, digest: string) => string) {
     const origin = new URL(running.url).origin;
-    const handle = "invited-person";
-    const inviteCode = "abcdefghijklmnopqrstuv";
     const digest = `sha256:${sha256(inviteCode)}`;
     const community = running.overstoryd.community();
     const head = await owner.descriptor(community.id);
@@ -86,8 +98,9 @@ describe("client-generated profile and account bootstrap", () => {
     const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
     const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
     const source = new TextDecoder().decode(snapshot.objects.get(index)!);
-    const pending = `  - handle: ${JSON.stringify(handle)}\n    inviteDigest: ${JSON.stringify(digest)}`;
-    const bytes = new TextEncoder().encode(source.replace("members:\n", `members:\n${pending}\n`));
+    const invited_source = rewrite(source, digest);
+    expect(invited_source).not.toBe(source);
+    const bytes = new TextEncoder().encode(invited_source);
     const file = hashObject(bytes);
     const rootBytes = encodeProtocolDirectory({
       type: "directory",
@@ -119,13 +132,56 @@ describe("client-generated profile and account bootstrap", () => {
     const claimed = await client.joinAccount({ ...request, inviteCode });
     expect(claimed.account.profileTree).toBe(identity.profileTree);
     expect((await client.joinAccount({ ...request, inviteCode })).account.id).toBe(claimed.account.id);
-    const accepted = await owner.descriptor(community.id);
-    const acceptedSnapshot = await owner.snapshot(community.id, accepted.tree.root);
-    const acceptedRoot = decodeProtocolDirectory(acceptedSnapshot.objects.get(acceptedSnapshot.root)!);
-    const acceptedIndex = acceptedRoot.entries.find((entry) => entry.name === "_index.md")!.file!;
-    const acceptedSource = new TextDecoder().decode(acceptedSnapshot.objects.get(acceptedIndex)!);
-    expect(acceptedSource).toContain(`profile: ${JSON.stringify(`overstory://${identity.profileTree}/`)}`);
+    const acceptedSource = await communityIndex();
     expect(acceptedSource).not.toContain(digest);
+    expect(running.overstoryd.accountByHandle(handle)?.id).toBe(identity.profileTree);
+    return { before: invited_source, after: acceptedSource, digest, profile: `overstory://${identity.profileTree}/`, request, client };
+  }
+
+  test("an invitation code claims a community slot and replaces it with the proven Profile TreeID", async () => {
+    const handle = "invited-person";
+    const { before, after, digest, profile } = await inviteAndClaim(handle, "abcdefghijklmnopqrstuv", (source, digest) =>
+      source.replace("members:\n", `members:\n  - handle: ${JSON.stringify(handle)}\n    inviteDigest: ${JSON.stringify(digest)}\n`));
+    // Only the entry changed.
+    expect(after).toBe(before.replace(`handle: ${JSON.stringify(handle)}\n    inviteDigest: ${JSON.stringify(digest)}`, `profile: ${JSON.stringify(profile)}\n    handle: ${JSON.stringify(handle)}`));
+  });
+
+  test("a claim finds its invitation in a reformatted member list and changes nothing else", async () => {
+    // A flow-style map with the keys reversed, a comment before it and one after its values.
+    const flow = await inviteAndClaim("flow-guest", "flowflowflowflowflowfl", (source, digest) =>
+      source.replace("members:\n", `members:\n  # invited by hand\n  - { inviteDigest: '${digest}', handle: flow-guest }  # pending\n`));
+    expect(flow.after).toBe(flow.before.replace(`{ inviteDigest: '${flow.digest}', handle: flow-guest }`, `{ profile: ${JSON.stringify(flow.profile)}, handle: "flow-guest" }`));
+    expect(flow.after).toContain("  # invited by hand\n");
+    expect(flow.after).toContain("  # pending\n");
+
+    // The whole document in CRLF, the dash on its own line, plain values.
+    const crlf = await inviteAndClaim("crlf-guest", "crlfcrlfcrlfcrlfcrlfcr", (source, digest) =>
+      source.replace("members:\n", `members:\n  -\n    inviteDigest: ${digest}\n    handle: crlf-guest\n`).replaceAll("\r\n", "\n").replaceAll("\n", "\r\n"));
+    expect(crlf.before).not.toMatch(/[^\r]\n/);
+    expect(crlf.after).toBe(crlf.before.replace(`inviteDigest: ${crlf.digest}\r\n    handle: crlf-guest`, `profile: ${JSON.stringify(crlf.profile)}\r\n    handle: "crlf-guest"`));
+    // The earlier claims' members are still read from the reformatted list.
+    expect(running.overstoryd.accountByHandle("flow-guest")).not.toBeNull();
+    expect(running.overstoryd.accountByHandle("owner")).not.toBeNull();
+
+    // Later tests author the community with LF line endings again.
+    const community = running.overstoryd.community();
+    const head = await owner.descriptor(community.id);
+    const snapshot = await owner.snapshot(community.id, head.tree.root);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    const bytes = new TextEncoder().encode(crlf.after.replaceAll("\r\n", "\n"));
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    await owner.submitUpdate(community.id, head.tree.update, { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(rootBytes), rootBytes]]) }, { ifCurrent: head.tree.update });
+  });
+
+  test("a duplicated invitation entry is refused and claims nothing", async () => {
+    const handle = "twice-guest";
+    await expect(inviteAndClaim(handle, "twicetwicetwicetwicetw", (source, digest) =>
+      source.replace("members:\n", `members:\n  - handle: ${handle}\n    inviteDigest: ${digest}\n  - { handle: ${handle}, inviteDigest: ${digest} }\n`)))
+      .rejects.toThrow("Invitation entry changed; ask the administrator to renew it");
+    expect(running.overstoryd.accountByHandle(handle)).toBeNull();
+    const source = await communityIndex();
+    expect(source).toContain(`  - handle: ${handle}\n`);
+    expect(source).toContain(`  - { handle: ${handle}, inviteDigest: `);
   });
 
   test("does not expose the legacy snapshot-upload claim route", async () => {
@@ -468,7 +524,7 @@ describe("self-certifying profile account proof", () => {
       expect(target.overstoryd.boundary("/~guest")).toBeNull();
       expect(await new ProtocolClient(target.url).joinAccount(request)).toEqual(joined);
       expect((await (await deviceClient(target.url, guest.name, { profileTree })).account()).account.configuration.id).toBe(configurationTree);
-      // The founder is a member, so administers the community.
+      // The founder's profile is named as an administrator, beside the bootstrap account.
       expect(target.overstoryd.canAdminister(target.overstoryd.account(profileTree)!, target.overstoryd.community())).toBe(true);
 
       await expect(new ProtocolClient(target.url).joinAccount({
@@ -646,4 +702,144 @@ test("community administrators may mount a tree at an unclaimed /~name, which th
   const clubHead = await owner.descriptor(club);
   await expect(owner.submitUpdate(club, clubHead.tree.update, await resolveSnapshot(await snapshotDirectory(emptied))))
     .rejects.toThrow("keep at least one member");
+});
+
+describe("membership does not administer the host", () => {
+  /** Claim `handle` at `host` with a new device of `identity`; returns that device's client. */
+  async function claimAccount(host: Awaited<ReturnType<typeof serveHost>>, identity: ReturnType<typeof testProfileIdentity>, handle: string, inviteCode?: string) {
+    const configurationTree = treeConfigurationID(identity.profileTree);
+    const device = newTestDevice(handle);
+    const anonymous = new ProtocolClient(host.url);
+    const account = `${new URL(host.url).origin}/~${handle}`;
+    const challenge = await anonymous.createAccountChallenge({ account, profileTree: identity.profileTree, configurationTree, ...(inviteCode ? { inviteCode } : {}) });
+    await anonymous.joinAccount({
+      account,
+      profileTree: identity.profileTree,
+      configurationTree,
+      challenge,
+      publicKey: identity.publicKey,
+      signature: identity.sign(challenge),
+      ...(inviteCode ? { inviteCode } : {}),
+      device: { id: device.device, label: `${handle}'s Mac`, key: device.key },
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: `${handle}'s Mac`, key: device.key }))),
+    });
+    return deviceClient(host.url, device.name, { profileTree: identity.profileTree });
+  }
+
+  /** The community's root with `_index.md` rewritten by `rewrite`, as a snapshot `client` can submit. */
+  async function communityWith(client: ProtocolClient, tree: string, rewrite: (source: string) => string) {
+    const head = await client.descriptor(tree);
+    const snapshot = await client.snapshot(tree, head.tree.root);
+    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+    const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
+    const bytes = new TextEncoder().encode(rewrite(new TextDecoder().decode(snapshot.objects.get(index)!)));
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    return { head, candidate: { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(rootBytes), rootBytes]]) } };
+  }
+
+  test("a founder-initialised host names the founder alone, and a member who joins by invitation cannot write the root or read its configuration", async () => {
+    const founderIdentity = testProfileIdentity();
+    const host = await serveHost({
+      dataRoot: join(sandbox, "founder-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "commons", name: "Commons", firstWriter: { handle: "founder", profileTree: founderIdentity.profileTree } },
+    });
+    try {
+      const community = host.overstoryd.community();
+      // The rule names the founder's profile before anyone has claimed it, and never the group.
+      expect(host.overstoryd.account(founderIdentity.profileTree)).toBeNull();
+      expect(host.overstoryd.ruleProfiles(community.id).sort()).toEqual([founderIdentity.profileTree]);
+
+      const founder = await claimAccount(host, founderIdentity, "founder");
+      const founderAccount = host.overstoryd.account(founderIdentity.profileTree)!;
+      expect(host.overstoryd.canAdminister(founderAccount, community)).toBe(true);
+      expect((await readTreeConfig(founder, community.id, "group")).values.access).toEqual([
+        { who: { profile: founderIdentity.profileTree }, allow: ["admin"] },
+        { who: "everyone", allow: ["read"] },
+      ]);
+
+      // The founder invites a second person, who joins with the code.
+      const inviteCode = "secondsecondsecondseco";
+      const invitation = await communityWith(founder, community.id, (source) =>
+        source.replace("members:\n", `members:\n  - handle: "second"\n    inviteDigest: "sha256:${sha256(inviteCode)}"\n`));
+      await founder.submitUpdate(community.id, invitation.head.tree.update, invitation.candidate);
+      const secondIdentity = testProfileIdentity();
+      const second = await claimAccount(host, secondIdentity, "second", inviteCode);
+      const secondAccount = host.overstoryd.account(secondIdentity.profileTree)!;
+      expect(secondAccount.handle).toBe("second");
+      // They are a member of the community group.
+      expect(host.overstoryd.communityMembers()).toContainEqual({ profile: `overstory://${secondIdentity.profileTree}/`, handle: "second" });
+
+      // Membership gives them what everyone has: read.
+      expect(host.overstoryd.canAdminister(secondAccount, community)).toBe(false);
+      expect(host.overstoryd.canWrite(secondAccount, community)).toBe(false);
+      expect(host.overstoryd.canRead(secondAccount, community)).toBe(true);
+      expect((await second.account()).account.community.access).toBe("read");
+
+      // They cannot write the root tree.
+      const before = (await founder.descriptor(community.id)).tree;
+      const edit = await communityWith(second, community.id, (source) => `${source}\nWritten by a member.\n`);
+      await expect(second.submitUpdate(community.id, edit.head.tree.update, edit.candidate)).rejects.toThrow();
+      expect((await founder.descriptor(community.id)).tree).toEqual(before);
+
+      // Nor read or edit its configuration, by any of its addresses.
+      await expect(second.treeConfiguration(community.id)).rejects.toThrow();
+      const configuration = treeConfigurationID(community.id);
+      await expect(second.descriptor(configuration)).rejects.toThrow();
+      await expect(second.snapshot(configuration, (await founder.descriptor(configuration)).tree.root)).rejects.toThrow();
+      await expect(editTreeConfig(second, community.id, "group", (values) => ({ ...values, access: [...values.access, { who: { profile: secondIdentity.profileTree }, allow: ["admin"] }] }))).rejects.toThrow();
+      expect(host.overstoryd.ruleProfiles(community.id).sort()).toEqual([founderIdentity.profileTree]);
+      // The founder still can.
+      expect((await founder.treeConfiguration(community.id)).tree.id).toBe(configuration);
+    } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
+
+  test("bootstrap accounts that all write the community are named one by one, not through the group", async () => {
+    const host = await serveHost({
+      dataRoot: join(sandbox, "accounts-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "commons", name: "Commons" },
+      accounts: [testAccount("ada", "accounts-host-ada"), testAccount("ben", "accounts-host-ben", { communityWriter: true })],
+    });
+    try {
+      const community = host.overstoryd.community();
+      const ada = host.overstoryd.accountByHandle("ada")!, ben = host.overstoryd.accountByHandle("ben")!;
+      expect(host.overstoryd.ruleProfiles(community.id).sort()).toEqual([ada.id, ben.id].sort());
+      expect(host.overstoryd.ruleProfiles(community.id).sort()).not.toContain(community.id);
+      expect(host.overstoryd.canAdminister(ada, community)).toBe(true);
+      expect(host.overstoryd.canAdminister(ben, community)).toBe(true);
+    } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
+
+  test("an account that opted out leaves administration to the others, and a founder is named beside them", async () => {
+    const founderIdentity = testProfileIdentity();
+    const host = await serveHost({
+      dataRoot: join(sandbox, "mixed-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "commons", name: "Commons", firstWriter: { handle: "founder", profileTree: founderIdentity.profileTree } },
+      accounts: [testAccount("ada", "mixed-host-ada", { communityWriter: false }), testAccount("ben", "mixed-host-ben")],
+    });
+    try {
+      const community = host.overstoryd.community();
+      const ada = host.overstoryd.accountByHandle("ada")!, ben = host.overstoryd.accountByHandle("ben")!;
+      expect(host.overstoryd.ruleProfiles(community.id).sort()).toEqual([founderIdentity.profileTree, ben.id].sort());
+      expect(host.overstoryd.canAdminister(ada, community)).toBe(false);
+      expect(host.overstoryd.canWrite(ada, community)).toBe(false);
+    } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
 });

@@ -15,7 +15,8 @@ overstory://<TreeID>/path[;overstory-key=<key-token>][;overstory-rev=sha256:<roo
 /tree-rooted/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
 https://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
 overstory://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
-overstory://host.example/account-path;overstory-invite=<code>
+https://host.example/account-path#overstory-invite=<code>
+overstory://host.example/account-path#overstory-invite=<code>
 ```
 
 `overstory://<TreeID>/...` directly names the primary tree identity plus a logical
@@ -196,29 +197,41 @@ The Markdown alias cannot carry a content fragment as well
 
 ### 2.2 Invitation links
 
-An invitation to claim an account is that account's `overstory://` locator
-with the invitation code as a segment parameter:
+An invitation to claim an account is that account's locator at its host with
+the invitation code as the fragment. It has two spellings, the same string
+apart from the scheme:
 
 ```text
-overstory://community.example/~alice;overstory-invite=<code>
+https://community.example/~alice#overstory-invite=<code>
+overstory://community.example/~alice#overstory-invite=<code>
 
 invite-code = 1*( ALPHA / DIGIT / "-" / "." / "_" / "~" )   ; URI unreserved
 ```
 
-`overstory-invite` stands alone: no other segment parameter, query, or fragment
-accompanies it. It appears only on an `overstory://` locator whose authority is
-a DNS name, the host where the account is claimed; on a TreeID authority or a
-relative or tree-rooted reference the locator is invalid. The code is used
-exactly as written, without percent-decoding, and its length and alphabet
-beyond this grammar are the issuing host's
+The `https://` spelling is the one that is shared: a browser opening it shows
+the host's page for the address, which offers the `overstory://` spelling to
+open in a client. Like `#overstory-access=` and `#overstory-key=`, the code
+is a fragment, so no request carries it to a server in a URL. A loopback host
+uses `http://` where another host uses `https://`; an `http://` URL at any
+other host is not an invitation.
+
+The fragment stands alone: it is exactly `overstory-invite=<code>`, and no
+segment parameter or query accompanies it. It appears only on a locator whose
+authority is a DNS name, the host where the account is claimed. An
+`overstory://` locator that breaks these rules, a TreeID authority included,
+is invalid, as is a relative or tree-rooted reference carrying the fragment;
+an `https://` URL that breaks them is an ordinary web URL and no invitation.
+The code is used exactly as written, without percent-decoding, and its length
+and alphabet beyond this grammar are the issuing host's
 ([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
 
-The parameter is not part of what the locator names. Removing it leaves the
+The fragment is not part of what the locator names. Removing it leaves the
 account locator, and every canonical spelling, comparison, merge key, and pin
 (§1) uses that locator without it. A client opening an invitation link starts
-the account claim; opening the same locator without the parameter is ordinary
+the account claim; opening the same locator without the fragment is ordinary
 navigation. The code is a secret: writers put it in no other locator form and
-never in authored content.
+never in authored content. There is no segment-parameter form:
+`;overstory-invite=` is an unknown parameter (§3).
 
 ## 3. Parsing and canonicalization
 
@@ -226,14 +239,14 @@ An external URL parser separates the final raw segment's parameter block,
 beginning at its first `;overstory-`, before percent-decoding path components. A
 literal suffix-like filename encodes its semicolon as `%3B`; it is data, not
 identity syntax. Within the block, any parameter other than `overstory-key`,
-`overstory-rev`, `overstory-config` and `overstory-invite`, a repeated
+`overstory-rev` and `overstory-config`, a repeated
 parameter, an empty value, or `overstory-key` and `overstory-rev` in the
 wrong order makes the locator invalid rather than path data. `overstory-config` takes no
 value, appears only on a tree's root (a canonical boundary or
 `overstory://<TreeID>`), stands alone, and addresses that tree's
 [configuration](04-accounts-and-devices.md#21-finding-it) rather than a node;
-the host answers it only to the tree's administrators. `overstory-invite`
-also stands alone, with the constraints of §2.2. The parser then
+the host answers it only to the tree's administrators. An invitation is a
+fragment, not a parameter (§2.2). The parser then
 percent-decodes each path component exactly once. Every internal logical path is
 already decoded and may contain a literal `%`, including text resembling
 another escape. Resolvers, routers, clients, and stores must not decode it again.
@@ -333,6 +346,13 @@ Readable canonical paths have safe HTTP and `overstory://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve tree configurations.
+
+Stored content is data to the host's origin, never code. A host serves an
+ordinary file under a type a browser will not run or sniff into something
+else: a type it knows to be inert, or opaque bytes offered as a download,
+which is what HTML and SVG are. Every response forbids content-type sniffing
+and framing, and sends no referrer. A page the host renders loads only what
+its own policy names; a script on such a page is permitted by its hash.
 
 Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.

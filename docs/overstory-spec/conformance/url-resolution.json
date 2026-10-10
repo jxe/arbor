@@ -296,52 +296,87 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+    "href": "https://community.example/~alice#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
     "expected": {"kind": "overstory", "authority": {"dns": "community.example"}, "path": "/~alice", "invite": "Qk3x_9-aZ0bY7cW6dV5eU4", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://127.0.0.1:4000/~alice/;overstory-invite=a.b~c",
+    "href": "overstory://community.example/~alice#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+    "expected": {"kind": "overstory", "authority": {"dns": "community.example"}, "path": "/~alice", "invite": "Qk3x_9-aZ0bY7cW6dV5eU4", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "overstory://127.0.0.1:4000/~alice/#overstory-invite=a.b~c",
     "expected": {"kind": "overstory", "authority": {"dns": "127.0.0.1:4000"}, "path": "/~alice", "invite": "a.b~c", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://tr_7k3m/;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+    "href": "http://127.0.0.1:4000/~alice#overstory-invite=a.b~c",
+    "expected": {"kind": "overstory", "authority": {"dns": "127.0.0.1:4000"}, "path": "/~alice", "invite": "a.b~c", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "http://localhost/#overstory-invite=a.b~c",
+    "expected": {"kind": "overstory", "authority": {"dns": "localhost"}, "path": "/", "invite": "a.b~c", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "overstory://tr_7k3m/#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
     "expected": null
   },
   {
     "sourceDirectory": "/",
-    "href": "/~alice;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+    "href": "/~alice#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=",
+    "href": "overstory://community.example/~alice#overstory-invite=",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=a%20b",
+    "href": "overstory://community.example/~alice#overstory-invite=a%20b",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-key=id:x7f3q2;overstory-invite=Qk3x",
+    "href": "overstory://community.example/~alice;overstory-key=id:x7f3q2#overstory-invite=Qk3x",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=Qk3x;overstory-invite=Qk3x",
+    "href": "overstory://community.example/~alice;overstory-config#overstory-invite=Qk3x",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=Qk3x?id=p_123",
+    "href": "overstory://community.example/~alice?id=p_123#overstory-invite=Qk3x",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "overstory://community.example/~alice;overstory-invite=Qk3x#section",
+    "href": "overstory://community.example/~alice;overstory-invite=Qk3x",
     "expected": null
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "https://community.example/~alice#overstory-invite=",
+    "expected": {"kind": "external", "href": "https://community.example/~alice#overstory-invite="}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "https://community.example/~alice?id=p_123#overstory-invite=Qk3x",
+    "expected": {"kind": "external", "href": "https://community.example/~alice?id=p_123#overstory-invite=Qk3x"}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "http://community.example/~alice#overstory-invite=Qk3x",
+    "expected": {"kind": "external", "href": "http://community.example/~alice#overstory-invite=Qk3x"}
+  },
+  {
+    "sourceDirectory": "/projects/atlas",
+    "href": "https://tr_7k3m/#overstory-invite=Qk3x",
+    "expected": {"kind": "external", "href": "https://tr_7k3m/#overstory-invite=Qk3x"}
   }
 ]

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderPublicMarkdownPage } from "../../../packages/overstoryd/src/public-page.ts";
+import { renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT } from "../../../packages/overstoryd/src/public-page.ts";
 
 const page = (sourceDirectory: string, source: string) => renderPublicMarkdownPage({
   source,
@@ -21,5 +21,43 @@ describe("public Markdown pages", () => {
 
   test("a bare fragment stays a fragment", () => {
     expect(page("/", "[C](Calendar.md#h31mlm)\n")).toContain('href="/~joe/todos/Calendar#h31mlm"');
+  });
+});
+
+describe("the reserved-address page", () => {
+  test("says the address is reserved and unclaimed, and that an invitation opens in Story", () => {
+    const page = renderReservedPage("alice", "garden.example.org");
+    expect(page).toContain("<h1>~alice</h1>");
+    expect(page).toContain("This address on garden.example.org is reserved and has not been claimed yet.");
+    expect(page).toContain("open the invitation in Story");
+    // Nothing about what holds the reservation.
+    expect(page).not.toMatch(/profile|identity|digest/i);
+  });
+
+  test("keeps the invitation block hidden until its one constant script reveals it", () => {
+    const page = renderReservedPage("alice", "garden.example.org");
+    expect(page).toContain('<div id="invitation" hidden>');
+    expect(page).toContain('<a id="open-in-story" href="#">Open in Story</a>');
+    expect(page.match(/<script>/g)).toHaveLength(1);
+    expect(page).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
+    // The script is the same text for every handle and configuration.
+    expect(renderReservedPage("bob", "other.example", { mac: "https://example.org/mac" })).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
+    expect(RESERVED_PAGE_SCRIPT).toContain('location.hash.startsWith("#overstory-invite=")');
+    expect(RESERVED_PAGE_SCRIPT).toContain('"overstory:" + location.href.slice(location.protocol.length)');
+    expect(RESERVED_PAGE_SCRIPT).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|src\s*=/);
+  });
+
+  test("offers each download link only when its URL is configured", () => {
+    const none = renderReservedPage("alice", "garden.example.org");
+    expect(none).not.toContain("Get Story for");
+    const mac = renderReservedPage("alice", "garden.example.org", { mac: "https://example.org/story?a=1&b=2" });
+    expect(mac).toContain('<a href="https://example.org/story?a=1&amp;b=2">Get Story for Mac</a>');
+    expect(mac).not.toContain("Get Story for iPhone");
+    const both = renderReservedPage("alice", "garden.example.org", { mac: "https://example.org/mac", iphone: "https://example.org/iphone" });
+    expect(both).toContain('<a href="https://example.org/mac">Get Story for Mac</a>');
+    expect(both).toContain('<a href="https://example.org/iphone">Get Story for iPhone</a>');
+    // Both sit inside the hidden block.
+    expect(both.indexOf("Get Story for Mac")).toBeGreaterThan(both.indexOf('<div id="invitation" hidden>'));
+    expect(both.indexOf("Get Story for iPhone")).toBeLessThan(both.indexOf("</div>"));
   });
 });

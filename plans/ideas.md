@@ -35,8 +35,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 
 - **Validate directory-entry names on every client read path** (reverify). Reject empty,
   dot, parent and separator-bearing names before materialization.
-- **Typed authorization errors** (reverify) instead of matching English text; coordinate
-  with [Security 003](security/003-overstoryd-host-responses.md).
+- **Typed authorization errors** (reverify) instead of matching English text.
 - **Upgrade the `yaml` dependency** (reverify) past the nested-collection stack-overflow fix.
 - **Safe ordinary-file metadata and previews.** Bounded size/type detection and inert
   previews; never parse binary or placeholder bytes as text.

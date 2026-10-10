@@ -83,6 +83,7 @@ import {
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
   type MemberReservation,
 } from "./profile.ts";
+import { claimInvitationEntry } from "./invitation-claim.ts";
 import { type HostAccount, type HostAuthentication, type HostTree } from "./model.ts";
 import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
@@ -479,11 +480,15 @@ export class HostDaemon implements AsyncDisposable {
       ...(config.firstWriter ? [{ profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
     ];
     const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
-    // The community's members administer it. Bootstrap accounts that
-    // opted out of writing the community leave it to the others, named one by one.
+    // The host's administrators are named one by one: the founder, whose
+    // profile need not be claimed yet, and each bootstrap account that did not
+    // opt out of writing the community. Membership confers no administration,
+    // so a person who joins later is a member and nothing more. Only a
+    // bootstrap that names nobody falls back to the group, which a
+    // configuration needs for its one required administrator.
     const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
-    const everyMemberWrites = writers.length === preparedAccounts.length;
-    const communityAdmins = everyMemberWrites || !writers.length ? [community.id] : writers;
+    const named = [...new Set([...(config.firstWriter ? [config.firstWriter.profileTree] : []), ...writers])];
+    const communityAdmins = named.length ? named : [community.id];
     const communityConfig = await this.prepareConfig(community.id, "group", snapshotTreeConfig({
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
       mounts: {},
@@ -1596,7 +1601,7 @@ export class HostDaemon implements AsyncDisposable {
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
 
-  /** Replace the canonical invitation entry without rewriting unrelated authored Markdown. */
+  /** Replace the pending invitation entry with the claimed member, leaving every other byte of the authored Markdown as written (`claimInvitationEntry`). */
   private async prepareInvitationClaim(handle: string, digest: string, code: string | undefined, profileTree: string) {
     if (!code || inviteCodeDigest(code) !== digest) throw new Error("Invitation code is invalid");
     const community = this.community();
@@ -1604,23 +1609,9 @@ export class HostDaemon implements AsyncDisposable {
     const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
     if (index < 0) throw new ServerFaultError("Community profile has no root document");
     const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
-    const newline = source.includes("\r\n") ? "\r\n" : "\n";
-    const lines = source.split(newline);
-    const end = lines.indexOf("---", 1);
-    const matches: Array<{ start: number; count: number }> = [];
-    const handleLine = new RegExp(`^handle: ["']?${handle}["']?$`);
-    const digestLine = new RegExp(`^inviteDigest: ["']?${digest}["']?$`);
-    for (let i = 1; i < end - 1; i++) {
-      if (lines[i]?.trim().match(new RegExp(`^- handle: ["']?${handle}["']?$`))
-        && lines[i + 1]?.trim().match(digestLine)) matches.push({ start: i, count: 2 });
-      if (lines[i]?.trim() === "-" && lines[i + 1]?.trim().match(handleLine)
-        && lines[i + 2]?.trim().match(digestLine)) matches.push({ start: i, count: 3 });
-    }
-    if (matches.length !== 1) throw new Error("Invitation entry changed; ask the administrator to renew it");
-    const match = matches[0]!;
-    const indent = lines[match.start]!.match(/^\s*/)?.[0] ?? "  ";
-    lines.splice(match.start, match.count, `${indent}- profile: ${JSON.stringify(`overstory://${profileTree}/`)}`, `${indent}  handle: ${JSON.stringify(handle)}`);
-    const bytes = new TextEncoder().encode(lines.join(newline));
+    const claimed = claimInvitationEntry(source, handle, digest, profileTree);
+    if (claimed === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
+    const bytes = new TextEncoder().encode(claimed);
     const file = hashObject(bytes);
     const nextDirectory = encodeProtocolDirectory({
       ...directory,

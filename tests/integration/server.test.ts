@@ -156,6 +156,40 @@ describe("story-sync REST v1", () => {
     expect(await raw.text()).toContain("Raw surface");
   });
 
+  // Security 002: a URL path is decoded once, where the request arrives.
+  test("lists and serves a file whose name contains a percent sign", async () => {
+    const bytes = new TextEncoder().encode("PERCENT-PNG");
+    await writeFile(join(root, "Q3 100%.png"), bytes);
+    await writeFile(join(root, "Q3 100%.md"), "Percent page\n");
+    await writeFile(join(root, "a%2Fb.md"), "One file, one segment\n");
+
+    const page = await activeWorkspace.nodes.children({ tree: scope, path: "/", stableKey: null });
+    const listed = page.items.map((child) => child.ref.path);
+    expect(listed).toContain("/Q3 100%.png");
+    expect(listed).toContain("/Q3 100%");
+    expect(listed).toContain("/a%2Fb");
+
+    const served = await fetch(`${base}${root}/Q3%20100%25.png`);
+    expect(served.status).toBe(200);
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(bytes);
+    const literal = await fetch(`${base}${root}/a%252Fb?raw`);
+    expect(literal.status).toBe(200);
+    expect(await literal.text()).toContain("One file, one segment");
+  });
+
+  test("refuses an encoded traversal and a malformed encoding at the file route", async () => {
+    // `%2e%2e%2f` is one URL segment, so no client or URL parser collapses it first.
+    for (const path of [`${root}/%2e%2e%2fsecret.png`, `/render${root}/sub/%2e%2e%2f%2e%2e%2fsecret`, `${root}/bad%zz.png`]) {
+      const response = await fetch(`${base}${path}`);
+      expect(response.status, path).toBe(400);
+      expect(await response.json(), path).toMatchObject({ error: "invalid-request" });
+    }
+    // A malformed or unsafe Referer names no scope; it is not an error.
+    const referred = await fetch(`${base}/missing.png`, { headers: { referer: "not a url" } });
+    expect(referred.status).toBe(200);
+    expect(referred.headers.get("content-type")).toContain("text/html");
+  });
+
 });
 
 describe("story-sync object route", () => {

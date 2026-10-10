@@ -3,9 +3,9 @@ import Foundation
 public struct ResolvedLocatorState: Sendable, Equatable {
     /// `;overstory-config`: the locator names the configuration of the tree whose root it names.
     public var configuration = false
-    /// `;overstory-invite=<code>`: the invitation code a join link carries on an account locator.
-    /// A secret for the claim, never part of what the locator names: builders of canonical and
-    /// identity forms leave it out.
+    /// `#overstory-invite=<code>`: the invitation code a join link carries as the fragment of an
+    /// account locator, so it never reaches a server in a URL. A secret for the claim, never part
+    /// of what the locator names: builders of canonical and identity forms leave it out.
     public var invite: String?
     public var stableKey: String?
     public var revision: String?
@@ -39,8 +39,13 @@ private let parameterMarker = ";overstory-"
 private let revisionPattern = #"^sha256:[a-f0-9]{64}$"#
 private let markdownKeyPrefix = "overstory-key="
 private let configurationParameter = "overstory-config"
-private let inviteParameterPrefix = "overstory-invite="
+private let inviteFragmentPrefix = "overstory-invite="
 private let invitePattern = #"^[A-Za-z0-9._~-]+$"#
+/// An `https://` account locator, or `http://` at a loopback host, carrying an invitation fragment.
+private let httpInviteLocatorExpression = try! NSRegularExpression(
+    pattern: #"^(?:https://|http://(?=(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[/#]|$)))([^/?#;@]+(?:/[^?#]*)?#overstory-invite=[A-Za-z0-9._~-]+)$"#,
+    options: [.caseInsensitive]
+)
 private let overstoryScheme = "overstory://"
 
 // Rename 002: the spellings from before the Overstory rename, read wherever a
@@ -240,22 +245,16 @@ public func decodeStableKey(_ token: String) -> String? {
 /// Split the final raw segment's `;overstory-key=…;overstory-rev=…` parameter block from the path.
 /// Parameters appear in that order at most once each; anything else after the first
 /// `;overstory-` marker is invalid rather than path data. `;overstory-config` takes no value
-/// and stands alone; so does `;overstory-invite=<code>`.
-private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?, configuration: Bool, invite: String?)? {
+/// and stands alone.
+private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?, configuration: Bool)? {
     let segmentStart = rawPathWithParameters.lastIndex(of: "/").map { rawPathWithParameters.index(after: $0) }
         ?? rawPathWithParameters.startIndex
     guard let marker = rawPathWithParameters[segmentStart...].range(of: parameterMarker) else {
-        return (rawPathWithParameters, nil, nil, false, nil)
+        return (rawPathWithParameters, nil, nil, false)
     }
     let block = rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...]
     if block == configurationParameter {
-        return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, true, nil)
-    }
-    if block.hasPrefix(inviteParameterPrefix) {
-        let code = String(block.dropFirst(inviteParameterPrefix.count))
-        if code.range(of: invitePattern, options: .regularExpression) != nil {
-            return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, false, code)
-        }
+        return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, true)
     }
     var stableKey: String?
     var revision: String?
@@ -274,15 +273,25 @@ private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: Str
             return nil
         }
     }
-    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision, false, nil)
+    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision, false)
 }
 
 private func locatorState(destination: String, fragment: String?) -> (rawPath: String, locator: ResolvedLocatorState)? {
     let (rawPathWithParameters, applicationQuery) = splitOnce(destination, separator: "?")
-    guard let (rawPath, pathStableKey, revision, configuration, invite) = segmentParameters(rawPathWithParameters) else { return nil }
+    guard let (rawPath, pathStableKey, revision, configuration) = segmentParameters(rawPathWithParameters) else { return nil }
     // A configuration is addressed as a whole: no key, fragment or query goes with it.
-    // Nor with an invitation, which names an account and nothing inside it.
-    if configuration || invite != nil, fragment != nil || applicationQuery != nil { return nil }
+    if configuration, fragment != nil || applicationQuery != nil { return nil }
+    // An invitation is the whole fragment and stands alone: it names an account and nothing
+    // inside it, so no parameter or query goes with it.
+    if let fragment, fragment.hasPrefix(inviteFragmentPrefix) {
+        let code = String(fragment.dropFirst(inviteFragmentPrefix.count))
+        guard code.range(of: invitePattern, options: .regularExpression) != nil,
+              !configuration, pathStableKey == nil, revision == nil, applicationQuery == nil
+        else { return nil }
+        var state = ResolvedLocatorState()
+        state.invite = code
+        return (rawPath, state)
+    }
 
     var markdownStableKey: String?
     if let fragment, fragment.hasPrefix(markdownKeyPrefix) {
@@ -298,7 +307,6 @@ private func locatorState(destination: String, fragment: String?) -> (rawPath: S
         contentFragment: ordinaryFragment
     )
     state.configuration = configuration
-    state.invite = invite
     return (rawPath, state)
 }
 
@@ -382,6 +390,15 @@ public func resolveLogicalURL(sourceDirectory: String, href: String) -> Resolved
             return raw.hasPrefix(overstoryScheme) ? parseOverstoryURL(raw) : nil
         case "system": return .system(raw: raw)
         case "local": return .overlay(raw: raw)
+        case "https", "http":
+            // A join link is shared in its web spelling: the same locator apart from the scheme.
+            if let match = httpInviteLocatorExpression.firstMatch(in: raw, range: range),
+               let rest = Range(match.range(at: 1), in: raw),
+               case let .overstory(authority, path, state)? = parseOverstoryURL(overstoryScheme + raw[rest]),
+               state.invite != nil {
+                return .overstory(authority: authority, path: path, locator: state)
+            }
+            return .external(href: raw)
         default: return .external(href: raw)
         }
     }
@@ -389,7 +406,7 @@ public func resolveLogicalURL(sourceDirectory: String, href: String) -> Resolved
     let (destination, fragment) = splitOnce(raw, separator: "#")
     guard
         let parsed = locatorState(destination: destination, fragment: fragment),
-        // An invitation goes only on an `overstory://` account locator.
+        // An invitation goes only on an account locator at a host.
         parsed.locator.invite == nil,
         let path = resolveTreePath(sourceDirectory: sourceDirectory, rawDestination: parsed.rawPath)
     else { return nil }
@@ -513,26 +530,31 @@ public func buildOverstoryLocator(tree: String, path: String, stableKey: String?
     return "\(overstoryScheme)\(tree)\(locator)"
 }
 
-/// The join link for an account: its `overstory://` locator carrying the invitation code as
-/// `;overstory-invite=<code>` (accounts §1.2). `account` is the account's locator or URL at its
-/// host, without parameters, query or fragment. The code is a secret: the result is for handing
-/// to the invited person, never for comparing or pinning identities. Nil when `account` is not an
-/// account locator or the code is not a valid invitation token.
+/// The join link for an account: its web URL carrying the invitation code as the fragment
+/// `#overstory-invite=<code>` (accounts §1.2), the form that is shared. It is `https://`, or
+/// `http://` for a loopback host; the same string under `overstory://` is the same link.
+/// `account` is the account's locator or URL at its host, without parameters, query or fragment.
+/// The code is a secret: the result is for handing to the invited person, never for comparing or
+/// pinning identities. Nil when `account` is not an account locator or the code is not a valid
+/// invitation token.
 public func buildInviteLocator(account: String, code: String) -> String? {
     guard
         let match = inviteAccountExpression.firstMatch(in: account, range: NSRange(account.startIndex..., in: account)),
-        let authorityRange = Range(match.range(at: 1), in: account)
+        let schemeRange = Range(match.range(at: 1), in: account),
+        let authorityRange = Range(match.range(at: 2), in: account)
     else { return nil }
     let authority = account[authorityRange]
     guard !authority.hasPrefix("tr_") else { return nil }
-    var path = Range(match.range(at: 2), in: account).map { String(account[$0]) } ?? ""
+    let loopback = authority.range(of: #"^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$"#, options: .regularExpression) != nil
+    let scheme = account[schemeRange] == "overstory" ? (loopback ? "http" : "https") : String(account[schemeRange])
+    var path = Range(match.range(at: 3), in: account).map { String(account[$0]) } ?? ""
     while path.hasSuffix("/") { path.removeLast() }
-    let locator = "\(overstoryScheme)\(authority)\(path.isEmpty ? "/" : path);\(inviteParameterPrefix)\(code)"
+    let locator = "\(scheme)://\(authority)\(path.isEmpty ? "/" : path)#\(inviteFragmentPrefix)\(code)"
     guard case let .overstory(_, _, state)? = resolveLogicalURL(sourceDirectory: "/", href: locator), state.invite == code else { return nil }
     return locator
 }
 
-private let inviteAccountExpression = try! NSRegularExpression(pattern: #"^(?:overstory|https?)://([^/?#;]+)(/[^?#;]*)?$"#)
+private let inviteAccountExpression = try! NSRegularExpression(pattern: #"^(overstory|https?)://([^/?#;@]+)(/[^?#;]*)?$"#)
 
 /// The spelling under which two `overstory://` locators name the same thing: the new scheme and
 /// parameter spellings (Rename 002: `arbor://` and `;arbor-…` are read as their `overstory`

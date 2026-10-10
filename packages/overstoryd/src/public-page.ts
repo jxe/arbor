@@ -306,6 +306,37 @@ export function renderPublicDataPage(title: string, properties: Record<string, J
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document"><h1>${escapeHTML(title)}</h1><dl class="data-properties">${rows}</dl></article></main></body></html>`;
 }
 
+/** Where a person without Story can get it; a link is offered only for a URL the operator configured. */
+export interface StoryDownloads {
+  mac?: string;
+  iphone?: string;
+}
+
+/**
+ * The one script of the reserved-address page. When the address was opened
+ * as an invitation link it reveals the invitation block and points its Open
+ * link at the same URL under the `overstory:` scheme, and does nothing else.
+ * The code stays in the fragment: the script sends it nowhere. Constant text,
+ * so the page's policy names it by hash.
+ */
+export const RESERVED_PAGE_SCRIPT = `
+if (location.hash.startsWith("#overstory-invite=")) {
+  document.getElementById("open-in-story").href = "overstory:" + location.href.slice(location.protocol.length);
+  document.getElementById("invitation").hidden = false;
+}
+`;
+
+/**
+ * The page at a reserved, unclaimed `/~handle`. It depends on the handle,
+ * the host and the operator's download links only, so it is the same bytes
+ * whether the address is held for one profile or for a pending invitation,
+ * and says nothing about which.
+ */
+export function renderReservedPage(handle: string, host: string, downloads: StoryDownloads = {}): string {
+  const download = (label: string, url: string | undefined) => url ? `<p><a href="${escapeHTML(url)}">${label}</a></p>` : "";
+  return renderNoticePage(`~${handle}`, `<h1>~${escapeHTML(handle)}</h1><p>This address on ${escapeHTML(host)} is reserved and has not been claimed yet.</p><p>If someone sent you an invitation to it, open the invitation in Story.</p><div id="invitation" hidden><p><a id="open-in-story" href="#">Open in Story</a></p>${download("Get Story for Mac", downloads.mac)}${download("Get Story for iPhone", downloads.iphone)}</div><script>${RESERVED_PAGE_SCRIPT}</script>`);
+}
+
 const NOTICE_STYLES = "body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}";
 
 /** A short page with no tree content: nothing published at an address, or

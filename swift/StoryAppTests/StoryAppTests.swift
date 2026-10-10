@@ -770,23 +770,35 @@ struct StoryAppTests {
     @Test("An overstory:// URL carrying an invitation starts a claim; any other names a locator to open")
     func incomingLocators() throws {
         let link = try #require(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example/", handle: " ~alice ", code: "aB3_-x"))
-        #expect(link == "overstory://arb.example/~alice;overstory-invite=aB3_-x")
-        #expect(StoryIncomingLocator(try #require(URL(string: link))) == .join(account: "https://arb.example/~alice", code: "aB3_-x"))
+        #expect(link == "https://arb.example/~alice#overstory-invite=aB3_-x")
+        // The system hands the app the same link under its registered scheme.
+        let opened = link.replacingOccurrences(of: "https://", with: "overstory://")
+        #expect(StoryIncomingLocator(try #require(URL(string: opened))) == .join(account: "https://arb.example/~alice", code: "aB3_-x"))
+        // A pasted link is read in either spelling.
+        #expect(StoryIncomingLocator.pastedJoinLink(" \(link)\n") == .join(account: "https://arb.example/~alice", code: "aB3_-x"))
+        #expect(StoryIncomingLocator.pastedJoinLink(opened) == .join(account: "https://arb.example/~alice", code: "aB3_-x"))
+        #expect(StoryIncomingLocator.pastedJoinLink("https://arb.example/~alice") == nil)
+        #expect(StoryIncomingLocator.pastedJoinLink("https://arb.example/~alice#overstory-invite=") == nil)
+        #expect(StoryIncomingLocator.pastedJoinLink("overstory://tr_alice/#overstory-invite=c0de") == nil)
+        #expect(StoryIncomingLocator.pastedJoinLink("aB3_-x") == nil)
         // A loopback host is claimed over plain HTTP at its port.
         let loopback = try #require(StoryIncomingLocator.joinLink(hostOrigin: "http://127.0.0.1:4400", handle: "joe", code: "c0de"))
-        #expect(loopback == "overstory://127.0.0.1:4400/~joe;overstory-invite=c0de")
-        #expect(StoryIncomingLocator(try #require(URL(string: loopback))) == .join(account: "http://127.0.0.1:4400/~joe", code: "c0de"))
+        #expect(loopback == "http://127.0.0.1:4400/~joe#overstory-invite=c0de")
+        #expect(StoryIncomingLocator.pastedJoinLink(loopback) == .join(account: "http://127.0.0.1:4400/~joe", code: "c0de"))
+        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://127.0.0.1:4400/~joe#overstory-invite=c0de"))) == .join(account: "http://127.0.0.1:4400/~joe", code: "c0de"))
         #expect(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example", handle: "alice", code: "not a code") == nil)
         #expect(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example", handle: "~", code: "c0de") == nil)
 
-        // Without the parameter the locator is opened as Open Location opens it.
+        // Without the invitation the locator is opened as Open Location opens it.
         let page = try #require(URL(string: "overstory://arb.example/~alice/notes?view=1#top"))
         #expect(StoryIncomingLocator(page) == .open(locator: "overstory://arb.example/~alice/notes"))
         #expect(OverstoryRemoteLocator("overstory://arb.example/~alice/notes")?.path == "/~alice/notes")
         // Only the registered scheme, and only a locator at a host.
-        #expect(StoryIncomingLocator(try #require(URL(string: "https://arb.example/~alice;overstory-invite=c0de"))) == nil)
+        #expect(StoryIncomingLocator(try #require(URL(string: "https://arb.example/~alice#overstory-invite=c0de"))) == nil)
         #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/notes"))) == nil)
-        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/;overstory-invite=c0de"))) == nil)
+        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/#overstory-invite=c0de"))) == nil)
+        // The old segment parameter is gone, with no alias.
+        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://arb.example/~alice;overstory-invite=c0de"))) == nil)
     }
 
     @Test("A visit sparsifies a complete snapshot to directories and Markdown")

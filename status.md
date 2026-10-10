@@ -42,6 +42,107 @@ test that failed in one process in three without the fix passes.
 With Story closed, `bun run test:protocol` passed end to end, its first full
 pass since 2026-10-06, and `swift/scripts/test-story-app.sh` passed.
 
+## A host for people other than its owner — 2026-10-10
+
+Work to make overstoryd ready to serve people besides Joe. Implemented;
+not deployed or installed, and the live host's stored access rule is
+unchanged.
+
+- **URL paths are decoded once (Security 002).** `normalizeTreePath` and
+  `canonicalNodePath` take an already-decoded logical path and no longer
+  percent-decode it, so a file named `Q3 100%.md` lists and opens, and
+  `a%2Fb.md` stays one segment instead of colliding with `a/b`. Story Sync
+  decodes a request or locator path in one helper (`decodeRequestPath` in
+  `packages/story-sync/src/http.ts`), which answers a malformed encoding with
+  400 and rejects a traversal segment on the decoded value; the file route and
+  both locator decodes in `resolveLocator` use it, and a malformed `Referer`
+  names no scope. The spec already states the rule (locators §3). Tested in
+  `tests/unit/path.test.ts` and `tests/integration/server.test.ts` (a
+  percent-bearing name lists and serves; `%2e%2e%2f` and `%zz` are 400; the
+  traversal case fails when the boundary check is removed). The Swift clients
+  were not changed: their `canonicalNodePath` never decoded.
+- **One response policy (Security 003).** Every overstoryd response leaves
+  through `hardenResponse` (`packages/overstoryd/src/response-policy.ts`) with
+  `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`; the
+  maintenance server uses it too. Rendered pages carry a Content-Security-Policy
+  (`default-src 'none'`, inline style, linked images); the access-link page's
+  script is constant text permitted by its SHA-256 hash with same-origin
+  `connect-src`, not `unsafe-inline`. Cache contracts are unchanged. An
+  ordinary stored file is shown only for nine inert image and text extensions;
+  anything else, HTML, SVG, PDF and media included, is
+  `application/octet-stream` with `Content-Disposition: attachment` (it was
+  typed by name under a sandbox). The rate-limit key is the connection's peer
+  address; `X-Forwarded-For` is read only with `OVERSTORYD_TRUSTED_PROXY_HOPS`
+  (the Nth entry from the right, peer on a short or malformed chain), and
+  `cf-connecting-ip` is no longer read. Rate limits stay off by default; the
+  limiter already dropped expired keys. Locators §6 states the requirement and
+  the [deployment guide](packages/overstoryd/deploy/README.md#response-headers-and-stored-files)
+  documents the proxy setting. Tested in
+  `tests/integration/overstoryd/host-responses.test.ts` (headers on JSON,
+  HTML, Markdown, a watch stream, objects, snapshots, files, 404, 401 and 429;
+  HTML bytes under `.html`, `.svg` and an unknown extension; the script hash
+  recomputed from the served page; a forged header with zero hops; the proxy's
+  entry with one hop) and `tests/unit/overstoryd/response-policy.test.ts`. The
+  pages were not loaded in a browser under the policy (see below).
+- **Invitation links carry the code as a fragment.** The link is
+  `https://host/~handle#overstory-invite=<code>`, and the same string under
+  `overstory://`; `buildInviteLocator` and the Swift `joinLink` emit the web
+  spelling (`http://` for a loopback host). Both parsers resolve either
+  spelling to the account locator with `invite`, and
+  `StoryIncomingLocator.pastedJoinLink` reads a pasted link in either. The
+  `;overstory-invite=` segment parameter is removed with no alias, so links
+  issued before this must be reissued. Spec: locators §1, §2.2 and §3,
+  accounts §1.2; vectors `url-resolution.json` and `resource-policy.json`,
+  which TypeScript (`tests/unit/logical-url.test.ts`,
+  `tests/unit/resource-policy.test.ts`) and Swift (`LogicalURLTests`,
+  `ResourcePolicyTests`) both pass.
+- **One page for every reserved address.** `GET /~handle` for a reserved,
+  unclaimed handle answers `renderReservedPage`
+  (`packages/overstoryd/src/public-page.ts`): the same bytes and headers
+  whether the handle is held for one profile or for a pending invitation. It
+  says the address is reserved and unclaimed and that an invitation opens in
+  Story. A block hidden by default holds "Open in Story" and, when
+  `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL` are set, the two
+  download links; one constant script reveals it when the fragment begins
+  `#overstory-invite=` and points the Open link at the same URL under
+  `overstory:`. The page's policy names that script by its SHA-256 hash, the
+  same way as the access-link page, with no `connect-src`. No route was
+  added. Tested in `tests/unit/overstoryd/public-page.test.ts` and
+  `tests/integration/overstoryd/host-responses.test.ts` (the two reservation
+  kinds compared byte for byte, the hash recomputed from the served script).
+  Neither scripted page has been opened in a browser under its policy; an
+  attempt through the in-app browser could not reach the local host.
+- **A claim finds its invitation by parsing, not by line layout.**
+  `prepareInvitationClaim` located the pending `handle` + `inviteDigest`
+  member by regular expressions over two exact line layouts, so a reformatted
+  member list broke outstanding invitations. `claimInvitationEntry`
+  (`packages/overstoryd/src/invitation-claim.ts`) parses the frontmatter with
+  `yaml`'s `parseDocument`, takes the one `members` item whose map has exactly
+  those two keys with those values, and replaces only that node's source
+  range (first key to last value, or a flow map's braces) with the claimed
+  `profile` + `handle`; every other byte, comments and line endings included,
+  is unchanged, and the result is read back before it is accepted. No match,
+  or more than one, is refused as before. `structuredMembers` reads the same
+  layouts, since it reads the same parsed frontmatter. Tested in
+  `tests/unit/overstoryd/invitation-claim.test.ts` (block style in either key
+  order, a dash on its own line, flow maps, quoted and plain values, CRLF,
+  comments, a duplicate) and end to end in
+  `tests/integration/overstoryd/community-hosting.test.ts` (a flow-style
+  entry, a CRLF document, a duplicate refused).
+- **Members are not administrators.** A new host's root configuration no
+  longer grants `admin` to the community group. `bootstrap` names the
+  founder's profile (`firstWriter.profileTree`, which administers by TreeID
+  before the account is claimed) and each bootstrap account that did not opt
+  out of writing the community, one by one, and keeps `everyone: read`. Only a
+  bootstrap that names nobody still grants the root itself `admin`, since a
+  configuration needs one administrator. Tested in
+  `tests/integration/overstoryd/community-hosting.test.ts`: a second member
+  who joins by invitation cannot write the root tree, read or edit its
+  configuration; all-writer accounts are named individually; an opted-out
+  account administers nothing. **No existing host is changed**: there is no
+  migration, and the live host's stored rule still names the root itself
+  until Joe edits its `access.yaml` by hand.
+
 ## Chained candidate deltas — 2026-10-06
 
 Both publication coordinators now compact later elements against the preceding
@@ -319,7 +420,7 @@ measurements before broadening the implementation.
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `story me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/overstoryd/deploy/README.md) |
-| Pending community invitations: Add Person can reserve a handle with a code digest and share a join link (the account's locator with `;overstory-invite=<code>`); the recipient uses an existing or newly created identity, and the signed claim replaces the pending entry with its Profile TreeID | implemented locally, not installed or deployed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key), [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
+| Pending community invitations: Add Person can reserve a handle with a code digest and share a join link (the account's web address with the fragment `#overstory-invite=<code>`, read under `https://` and `overstory://` alike; the earlier segment parameter is gone); the recipient uses an existing or newly created identity, and the signed claim replaces the pending entry with its Profile TreeID | implemented locally, not installed or deployed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key), [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/story-sync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Story Sync, explicit finish, bundle revocation, `story status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live host) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |

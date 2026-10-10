@@ -952,7 +952,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       } finally { submit.mockRestore(); }
     });
 
-    test("a public raw file is served typed by its name, bytes intact and sandboxed", async () => {
+    test("a public raw image is served typed by its name, bytes intact and sandboxed", async () => {
       const account = await client.account();
       const community = await client.descriptor(account.account.community.id);
       const snapshot = await client.snapshot(community.tree.id, community.tree.root);

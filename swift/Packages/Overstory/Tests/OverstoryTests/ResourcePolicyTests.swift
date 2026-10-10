@@ -94,11 +94,14 @@ struct ResourcePolicyTests {
     }
 
     @Test func aJoinLinkNamesTheAccountItInvitesTo() throws {
-        let joined = try #require(ProfileLocator("overstory://club.example/~alice;overstory-invite=Ab3-_.~9"))
+        let joined = try #require(ProfileLocator("https://club.example/~alice#overstory-invite=Ab3-_.~9"))
         #expect(joined.locator == "https://club.example/~alice")
         #expect(joined == ProfileLocator("https://club.example/~alice"))
-        // The secret is dropped only from an `overstory://` join link.
-        #expect(ProfileLocator("https://club.example/~alice;overstory-invite=abc")?.locator == "https://club.example/~alice;overstory-invite=abc")
+        // The same link under `overstory://` names the same account.
+        #expect(ProfileLocator("overstory://club.example/~alice#overstory-invite=Ab3-_.~9") == joined)
+        // Any other fragment, or a malformed code, names no profile.
+        #expect(ProfileLocator("https://club.example/~alice#top") == nil)
+        #expect(ProfileLocator("https://club.example/~alice#overstory-invite=a b") == nil)
     }
 }
 
