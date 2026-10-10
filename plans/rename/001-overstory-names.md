@@ -151,6 +151,14 @@ overstory://arb.nxhx.org/~alice;overstory-invite=<code>
 
 Story registers the `overstory` scheme. When the locator it opens carries `overstory-invite`, Story starts onboarding and the claim. Without the parameter, Story opens the locator as usual. The parameter is specified in 03-locators and 04-accounts-and-devices §1.2.
 
+## Progress
+
+- **Steps 1 and 2** are done on `main` at `598b6fa4`.
+- **Step 3, host cutover**: done 2026-10-10 at `598b6fa4` (deployment `668936a9`). The rehearsal on the 14:22Z backup was green: six roots unchanged, integrity ok, `/~joe` resolved through the stored `arbor://` member entry. Live after cutover: the log says "Serving garden", the community root and profile roots and updates match, old `/.arbor/` routes are 404, one integrity call ok in 4 s. The first deployment failed and the host was down for about two minutes: the service instance's stored start command (`bun run canopyd`) took precedence over `railway.toml`. It was fixed with `serviceInstanceUpdate` and `railway redeploy --from-source -y`. Backup: `.backups/railway/20261010T142244Z/` (`volume.tar` sha256 `b2ce58d0…`, `dot-arbor.before`, the old launchd plist, authored manifests, and `identity-keychain-item.json`, which holds Joe's private key and is deleted once he has made an identity backup in Story). Keep until about 2026-10-24. Volume folders `/data/backups/rename-001` and `rename-001-final` are for Joe to delete.
+- **Step 4, Mac**: `story migrate` ran on 2026-10-10 (21 changes; on this Mac `Application Support/Arbor` was a symlink to `~/.arbor`). Story Sync is installed as `org.nxhx.story.sync` and running from the checkout; three trees up to date at unchanged roots; a round-trip edit moved Console 8970 → 8972; the authored manifest is unchanged (119 files); `~/.arbor` was not recreated. **Remaining**: build and install Story.app, and check an edit made in the app.
+- **Step 5, iPhone**: remaining.
+- **Still to do by hand**: rename the Railway service to `overstoryd-arb-nxhx-org` in the dashboard (nothing depends on it; the repo's `hosts/arb.nxhx.org.env` already uses that name), and delete the old `ARBOR_*` variables after the rollback window. Stale `bun link` commands `arborsync` and `canopyd` in `~/.bun/bin` dangle and can be removed; `arbor` there still runs the new CLI.
+
 ## Steps
 
 1. **Repository rename** (branch `rename/overstory-story`). Done when all of these pass and are committed:
