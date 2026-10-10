@@ -11,14 +11,8 @@ Related plans are grouped in [merge improvements](merge/README.md),
 
 ## Soon
 
-**[Rename 001: Arbor and Canopy names become Overstory and Story](rename/001-overstory-names.md).**
-The commands, daemons, dot directories, env vars, routes and the app still said Arbor
-or Canopy. Joe settled the new names on 2026-10-06 and wants them applied in one
-cutover: `overstoryd`, `overstory://`, `.overstory`, `.overstoryignore`, and Story's
-`story`, `story-sync`, `~/.story` and Story.app.
-
 **[Rename 002: remove the old-spelling read aliases](rename/002-remove-arbor-locator-alias.md).**
-Rename 001 leaves readers accepting six old spellings, among them `arbor://` and the
+The 2026-10-10 rename left readers accepting six old spellings, among them `arbor://` and the
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary.
 

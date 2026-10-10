@@ -10,7 +10,6 @@ import { listLocalAccounts } from "@ovst/story-sync/state";
 import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
-import { migrateCommand } from "./migrate-rename-001.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import {
   cloudPlacementPath,
@@ -110,7 +109,6 @@ function usage(): never {
   story declined <placed-path> [--json]
   story declined --restore <placed-path>
   story declined --resend <placed-path>
-  story migrate [--dry-run]
 
 Notes:
   story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
@@ -122,8 +120,7 @@ Notes:
   story pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   story pending  shows exactly what Story Sync would send next for a placed folder.
   story declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
-    --restore puts back the host's version of those paths; --resend sends them again as they are.
-  story migrate  moves this Mac's state from ~/.arbor to ~/.story once (Rename 001); --dry-run only prints the actions.`);
+    --restore puts back the host's version of those paths; --resend sends them again as they are.`);
   process.exit(2);
 }
 
@@ -1586,8 +1583,6 @@ async function main(): Promise<void> {
     await statusCommand(args);
     return;
   }
-  // Rename 001: the one-time move from ~/.arbor to ~/.story; deleted at the plan's close-out.
-  if (command === "migrate") process.exit(await migrateCommand(args));
   if (command === "cloud") {
     const [action, ...operands] = args;
     if (action === "bundle") {

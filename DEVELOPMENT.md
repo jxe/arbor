@@ -140,8 +140,8 @@ never called a story. A server is a host or an Overstory host.
 The checkout directory is still `arbor` and the GitHub repository is still
 `jxe/arbor`. The app's bundle identifier (`org.nxhx.Arbor`) and the keychain
 service names also keep their old spellings for now;
-[Rename 001](plans/rename/001-overstory-names.md#old-names-after-the-cutover)
-lists every old name that remains and why.
+[old names](docs/architecture/old-names.md) lists every old name that
+remains and why.
 
 ## Repository map
 

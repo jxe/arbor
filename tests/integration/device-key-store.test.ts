@@ -72,7 +72,7 @@ describe("an installation's device key", () => {
     }));
     expect(await new HostAccountStore(configurationTree).get()).toBeNull();
   });
-  // Rename 001 moves the data home; the key must be found where the record says it is.
+  // A data home may be moved; the key must be found where the record says it is.
   test("the device key is still found after the data home moves (file store)", async () => {
     const { profileTree, device: deviceID, seed } = testDevice("device-key-store-moved-file");
     const configurationTree = treeConfigurationID(profileTree);

@@ -836,6 +836,50 @@ log now uses too; the human view is `describeTransitionPayload` in
 with no changes; resume sends exactly the last pending body) and
 `tests/unit/protocol-updates/describe.test.ts`.
 
+## Overstory and Story names — 2026-10-10
+
+Complete and live. Rename 001 replaced Arbor and Canopy throughout: Overstory
+is the protocol (`overstory://`, `/.overstory/` routes, `.overstoryignore`,
+`overstory-*` parameters and headers), `overstoryd` the host, and Story the
+app, the `story` command and the `story-sync` daemon, with data home
+`~/.story`. The npm scope is `@ovst`. Swift modules are `StoryKit`,
+`StoryEditor` and `OverstoryWorkingTree`. Join links are the account locator
+with `;overstory-invite=<code>`, and Story registers the `overstory` scheme.
+The old spellings that remain on purpose, including the read aliases that
+[Rename 002](plans/rename/002-remove-arbor-locator-alias.md) will remove, are
+listed in [old names](docs/architecture/old-names.md). The bundle identifier
+and keychain service names did not change, so the iPhone app updated in place.
+
+- **Repository**: `2f10ba4e` (scripted pass), `ba24472d`, `598b6fa4`. Gates at
+  `598b6fa4`: typecheck clean; `bun run test` 1807 pass; CLI package build and
+  tests pass; six Swift packages pass (371 tests); the app builds for macOS
+  and the iOS Simulator; 279 digest, CBOR and signature values in the vectors
+  are unchanged from before the rename.
+- **Host**: cut over at `598b6fa4` (Railway deployment `668936a9`). The
+  rehearsal on the 14:22Z backup showed six roots unchanged and integrity ok.
+  Live: the log says "Serving garden", roots and updates match, old
+  `/.arbor/` routes are 404, one integrity call ok in 4 s. The database file
+  is `/data/overstoryd.sqlite3`. The first deployment failed and the host was
+  down for about two minutes, because the service instance's stored start
+  command took precedence over `railway.toml`; it was fixed with
+  `serviceInstanceUpdate`.
+- **Mac**: a one-time migration moved `~/.arbor` to `~/.story` (21 changes;
+  `Application Support/Story` is a symlink to it, as `Arbor` was). Story Sync
+  runs as `org.nxhx.story.sync`; three trees were up to date at unchanged
+  roots; a round-trip edit moved Console 8970 → 8972; the authored manifest of
+  119 files is unchanged. The migration code is deleted.
+- **Apps**: Joe installed Story on the Mac and iPhone and confirmed edits
+  from both.
+- **Backup**: `.backups/railway/20261010T142244Z/` (`volume.tar` sha256
+  `b2ce58d0…`, `dot-arbor.before`, the old launchd plist, authored
+  manifests); keep until about 2026-10-24. Volume folders
+  `/data/backups/rename-001` and `rename-001-final`, and the old `ARBOR_*`
+  Railway variables, are for Joe to delete. The Railway service is still
+  named `canopy-arb-nxhx-org`; renaming it is optional.
+- **Not caused by the rename, and still open**: `bun run test:protocol` stops
+  at the "Live source admission" suite (13 issues, identical at `fde6cc31`),
+  and the app test `newPageCreatedFromTitle` fails intermittently.
+
 ## Overstory identifiers and UI copy — 2026-09-24
 
 Implemented; Swift unverified; Mac app build and install pending. Cleanup 006
@@ -870,8 +914,8 @@ Overstory for trees ("Make This an Overstory Tree", "Canopy is up to date",
 tree", the permission prompts, and canopyd's access page). Host-meaning
 "Canopy" in app copy ("People on this Canopy", "Canopy refused a change") and
 runtime error messages that say "Wire" were left for a copy decision.
-These are the names as of 2026-09-24; [Rename 001](plans/rename/001-overstory-names.md)
-renames the `Arbor*` and `Canopy*` names that remained.
+These are the names as of 2026-09-24; the 2026-10-10 rename below replaced the
+`Arbor*` and `Canopy*` names that remained.
 
 Verified on Linux with Bun 1.3.14: `bun run typecheck`, `bun run build`, the
 canopyd-merge suites (335 passes), `bun run build:cli:package`,

@@ -23,6 +23,10 @@ the keychain service names, so installed data and pairing are found; the
 launchd label is `org.nxhx.story.sync` and the support directory is
 `~/Library/Application Support/Story`.
 
+The app icon's only source is `swift/story-icon-source.webp` (1254 px, rounded
+corners baked in on white). The icon set in `StoryApp/Assets.xcassets` was made
+from it by filling the corners with the tile's green and scaling to 1024 px.
+
 ## The Xcode project is generated
 
 `Story.xcodeproj` is generated from `project.yml` by xcodegen and committed.

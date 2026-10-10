@@ -13,6 +13,7 @@ behavior below is installed or deployed.
 - [Story Sync and local tools](story-sync/README.md): daemon ownership, placed folders, private state, and CLI.
 - [Story apps](story-browser/README.md): editor runtime ownership, local state, and recovery.
 - [Executable-document runtime](apps-runtime/README.md): queries and mutations.
+- [Old names that remain](old-names.md): the `arbor` and `canopy` spellings still in the code on purpose, and why.
 - [Collection schemas](collection-schema/README.md): the declarative `schema.cddl` parser, validator, and collection-file codec.
 
 ## Components
