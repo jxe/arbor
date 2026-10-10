@@ -139,6 +139,10 @@ struct StoryAppTests {
         let pending = try #require(StoryProfileDocument.parse(invitation))
         #expect(pending.memberHandles.contains("invited-person"))
         #expect(pending.members.contains { $0.handle == "invited-person" && $0.treeID == nil })
+        #expect(pending.members.first { $0.handle == "invited-person" }?.isInvitation == true)
+        let issued = StoryInvitation()
+        #expect(issued.code.count == 22)
+        #expect(try StoryProfileDocument.addingInvitation(handle: "second-person", digest: issued.digest, to: groupSource).contains(issued.digest))
         #expect(throws: (any Error).self) {
             try StoryProfileDocument.addingInvitation(handle: "invited-person", digest: "sha256:" + String(repeating: "b", count: 64), to: invitation)
         }
@@ -1875,7 +1879,7 @@ private actor RecordingAccountService: HostAccountService {
     func createIdentity() {}
     func restoreIdentity(backup _: Data, passphrase _: String?) throws { throw HostAccountServiceError.unsupported(.restoreIdentity) }
     func backupIdentity(to _: URL, passphrase _: String) throws { throw HostAccountServiceError.unsupported(.backupIdentity) }
-    func claimAccount(_: String, deviceLabel _: String, inviteCode _: String?) {}
+    func claimAccount(_: String, deviceLabel _: String, inviteCode _: String?, displayName _: String?) {}
     func cancelPendingClaim() throws { throw HostAccountServiceError.unsupported(.cancelPendingClaim) }
     func claimPairing(_: Data, deviceLabel _: String) -> StoryPairingClaim {
         StoryPairingClaim(configurationTree: nil, confirmationCode: nil)

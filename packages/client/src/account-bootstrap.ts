@@ -89,6 +89,9 @@ async function claimAccountProfileBootstrap(
   if (!identityStatus || identityStatus.profileTree !== profileTree || !identityStatus.keyAvailable) {
     throw new ProtocolError("credential-unavailable", `The private identity key for ${profileTree} is unavailable`, 409, { path });
   }
+  // A name given with the claim fills a profile that has none: the directory lists people by it.
+  const name = displayName?.trim();
+  if (name && !/^displayName:/m.test(await readFile(index, "utf8"))) await identity.updateProfile({ displayName: name });
 
   const pendingPath = join(overstoryPrivateRoot(), "bootstrap-account-claim.json");
   let pending: PendingAccountClaimBootstrap | undefined;

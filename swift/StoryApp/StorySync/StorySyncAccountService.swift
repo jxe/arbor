@@ -58,14 +58,15 @@ struct StorySyncAccountService: HostAccountService {
         try await connect().backupIdentity(destination: destination.path, passphrase: passphrase)
     }
 
-    func claimAccount(_ account: String, deviceLabel _: String, inviteCode: String?) async throws {
+    func claimAccount(_ account: String, deviceLabel _: String, inviteCode: String?, displayName: String?) async throws {
         let client = try await connect()
         let envelope = try await client.onboardingState()
         // A resumed claim keeps the profile folder it began with.
         try await client.claimAccount(
             account: account,
             path: envelope.pendingClaim?.path ?? Self.profilePath(envelope),
-            inviteCode: inviteCode
+            inviteCode: inviteCode,
+            displayName: displayName
         )
     }
 

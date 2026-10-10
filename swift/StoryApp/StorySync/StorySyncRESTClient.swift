@@ -148,9 +148,10 @@ actor StorySyncRESTClient {
         try await onboardingPost("/v1/bootstrap/accounts/cancel", body: [:])
     }
 
-    func claimAccount(account: String, path: String, inviteCode: String? = nil) async throws {
+    func claimAccount(account: String, path: String, inviteCode: String? = nil, displayName: String? = nil) async throws {
         var body = ["account": account, "path": path]
         if let inviteCode { body["inviteCode"] = inviteCode }
+        if let displayName { body["displayName"] = displayName }
         try await onboardingPost("/v1/bootstrap/accounts", body: body)
     }
 

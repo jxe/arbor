@@ -60,6 +60,16 @@ struct StoryMacOnboarding: View {
     @State private var pairingCode = ""
     @State private var treeChoices: [ProtocolTreeDescriptor] = []
     @State private var treeOrigin: URL?
+    @State private var displayName = ""
+    @State private var joined = false
+    @State private var showingAllOptions = false
+
+    /// The host and handle of the invitation link this form was opened with.
+    private var invitation: (host: String, handle: String)? {
+        guard initialCode != nil, let initialCommunity, let url = URL(string: initialCommunity), let host = url.host(),
+              url.path.hasPrefix("/~") else { return nil }
+        return (host, String(url.path.dropFirst(2)))
+    }
 
     var body: some View {
         Form {
@@ -72,7 +82,29 @@ struct StoryMacOnboarding: View {
                 Text(addingAccount ? "Connect to a community or pair this Mac with an existing account." : "Your identity connects you to your communities.")
                     .foregroundStyle(.secondary)
             }
-            if let state {
+            if let state, let invitation, !showingAllOptions, state.pendingClaim == nil {
+                if joined {
+                    Section("Back up your identity") {
+                        Text("Your identity is a key kept on this Mac. A backup lets you recover it if this Mac is lost.")
+                        Button("Back Up Identity…") { backup() }
+                    }
+                    treeSection
+                    Button(addingAccount ? "Done" : "Continue", action: complete)
+                } else {
+                    Section("Join \(invitation.host)") {
+                        Text("You were invited as ~\(invitation.handle).").foregroundStyle(.secondary)
+                        if state.identity?.keyAvailable == false {
+                            Text("Recover your identity key to join.")
+                            Button("Recover Identity…") { recover() }
+                        } else {
+                            TextField("Your name", text: $displayName)
+                            Button("Join") { join() }
+                                .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                    Button("Other Options…") { showingAllOptions = true }
+                }
+            } else if let state {
                 if let identity = state.identity {
                     if !addingAccount {
                     Section("Your public identity") {
@@ -164,21 +196,7 @@ struct StoryMacOnboarding: View {
                             }
                         }
                     }
-                    if !treeChoices.isEmpty {
-                        Section("Choose a tree") {
-                            ForEach(treeChoices, id: \.id) { tree in
-                                Button(tree.canonicalPath ?? tree.id) {
-                                    guard let origin = treeOrigin, let path = tree.canonicalPath else { return }
-                                    run { _ in
-                                        await workspace.restoreLocalWorkspaceIfAvailable()
-                                        try await workspace.openRemoteLocator(origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path)
-                                        complete()
-                                    }
-                                }
-                                .disabled(tree.canonicalPath == nil)
-                            }
-                        }
-                    }
+                    treeSection
                     Button(addingAccount ? "Done" : "Continue with Local Files", action: complete)
                 } else {
                     Section("Set up your identity") {
@@ -213,6 +231,51 @@ struct StoryMacOnboarding: View {
         }
         .onChange(of: initialCommunity) { _, value in if let value { community = value } }
         .onChange(of: initialCode) { _, value in if let value { inviteCode = value } }
+    }
+
+    @ViewBuilder private var treeSection: some View {
+        if !treeChoices.isEmpty {
+            Section("Open") {
+                ForEach(treeChoices, id: \.id) { tree in
+                    Button {
+                        guard let origin = treeOrigin, let path = tree.canonicalPath else { return }
+                        run { _ in
+                            await workspace.restoreLocalWorkspaceIfAvailable()
+                            try await workspace.openRemoteLocator(origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path)
+                            complete()
+                        }
+                    } label: {
+                        LabeledContent(Self.treeName(tree, host: treeOrigin?.host()), value: tree.canonicalPath ?? "")
+                    }
+                    .disabled(tree.canonicalPath == nil)
+                }
+            }
+        }
+    }
+
+    /// What a person calls a tree at `canonicalPath`: the host's home, a profile, or its last name.
+    static func treeName(_ tree: ProtocolTreeDescriptor, host: String?) -> String {
+        guard let path = tree.canonicalPath else { return tree.id }
+        if path == "/" { return host.map { "\($0) home" } ?? "Home" }
+        let name = path.split(separator: "/").last.map(String.init) ?? path
+        return name.hasPrefix("~") && !path.dropFirst().contains("/") ? "\(name) profile" : name
+    }
+
+    /// Create the identity if this Mac has none, then claim the invited handle.
+    private func join() {
+        guard let initialCommunity, let initialCode else { return }
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hadIdentity = state?.identity != nil
+        let known = Set(state?.accounts.filter(\.credentialAvailable).map(\.configurationTree) ?? [])
+        run { service in
+            if !hadIdentity { try await service.createIdentity() }
+            try await service.claimAccount(initialCommunity, deviceLabel: Self.deviceLabel, inviteCode: initialCode, displayName: name)
+            try await reload()
+            joined = true
+            if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
+                try await chooseTrees(account)
+            }
+        }
     }
 
     private func load() async {

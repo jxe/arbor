@@ -158,8 +158,8 @@ protocol HostAccountService: Sendable {
 
     /// Claim `account` (an account URL on a host) with this device's profile
     /// identity, resuming a pending claim for it. The data home names its own
-    /// device and ignores `deviceLabel`.
-    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws
+    /// device and ignores `deviceLabel`. `displayName` names a profile the claim creates.
+    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?, displayName: String?) async throws
     func cancelPendingClaim() async throws
     /// Claim a pairing offer (a `PairingPayload` as JSON). The data home names
     /// its own device and ignores `deviceLabel`.
@@ -181,8 +181,8 @@ protocol HostAccountService: Sendable {
 }
 
 extension HostAccountService {
-    func claimAccount(_ account: String, deviceLabel: String) async throws {
-        try await claimAccount(account, deviceLabel: deviceLabel, inviteCode: nil)
+    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String? = nil) async throws {
+        try await claimAccount(account, deviceLabel: deviceLabel, inviteCode: inviteCode, displayName: nil)
     }
     func accounts() async throws -> [HostAccount] { try await state().accounts }
 
@@ -239,7 +239,7 @@ struct KeychainAccountService: HostAccountService {
         throw HostAccountServiceError.unsupported(.backupIdentity)
     }
 
-    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws {
+    func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?, displayName _: String?) async throws {
         guard let url = URL(string: account.trimmingCharacters(in: .whitespacesAndNewlines)),
               let origin = Self.origin(of: url) else {
             throw HostAccountServiceError.invalidAccount("Enter the account URL on its host")

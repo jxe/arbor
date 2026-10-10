@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveStorySyncControl } from "@ovst/story-sync";
@@ -38,6 +38,7 @@ test("a running daemon syncs the configuration an account claim places, and reso
       body: JSON.stringify({ account: `${host.url}/~tess`, path: profile, displayName: "Tess's Mac" }),
     });
     expect(claim.status).toBe(201);
+    expect(await readFile(join(profile, "_index.md"), "utf8")).toContain("displayName: Tess's Mac\n");
     // Nothing else asks for a sync: the claim alone must start the placement's update machine.
     const configuration = treeConfigurationID(identity.profileTree);
     let sync: string | undefined;

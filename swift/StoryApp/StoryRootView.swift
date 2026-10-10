@@ -3676,10 +3676,10 @@ private struct StoryAgentBundlePage: View {
         }
         Section {
             Text("On the agent's machine, set `STORY_CLOUD_BUNDLE` to the code, then:")
-            Text(verbatim: "story cloud start --root /workspace")
+            Text(verbatim: "bunx @ovst/cli cloud start --root /workspace")
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
-            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `story cloud finish --root /workspace` syncs its last changes.")
+            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli cloud finish --root /workspace` syncs its last changes.")
         } header: {
             Text("How to use it")
         } footer: {
@@ -5292,6 +5292,7 @@ private struct StorySelectedProfilePhoto: View {
 
 /// A group's members, one row each, with removal and the add form. Edits
 /// go through the open page's editor, so they undo and sync like any edit.
+/// The host's member list invites by link; any other group picks from People.
 private struct StoryProfileMembersSheet: View {
     @Environment(\.dismiss) private var dismiss
     let profile: StoryProfileDocument
@@ -5304,24 +5305,20 @@ private struct StoryProfileMembersSheet: View {
     let remove: (String) async throws -> Void
     @State private var treeID = ""
     @State private var handle = ""
-    @State private var inviteByCode = false
-    @State private var issuedCode: String?
-    @State private var issuedLink: String?
+    @State private var existingHandle = ""
+    @State private var addingExisting = false
+    @State private var issued: (handle: String, link: String)?
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
+    // The page behind the sheet reloads when it closes; until then the sheet tracks its own edits.
+    @State private var added: [StoryProfileDocument.Member] = []
     @State private var removed: Set<String> = []
     @State private var confirmingRemoval: StoryProfileDocument.Member?
 
     private var members: [StoryProfileDocument.Member] {
-        profile.members.filter { !removed.contains($0.profile) }
-    }
-
-    private var people: [DirectoryPerson] {
-        DirectoryMatcher.matches(query: query, in: workspace.directory).filter {
-            $0.entry.kind != "group"
-                && !profile.hasMember("overstory://\($0.entry.profile)/")
-        }
+        (profile.members + added.filter { member in !profile.members.contains { $0.profile == member.profile } })
+            .filter { !removed.contains($0.profile) }
     }
 
     var body: some View {
@@ -5335,80 +5332,69 @@ private struct StoryProfileMembersSheet: View {
                         Text("No members yet.").foregroundStyle(.secondary)
                     }
                 }
-                Section(reservesHostHandle ? "Add a person" : "Add a member") {
-                    if reservesHostHandle {
-                        Toggle("Invite with a code", isOn: $inviteByCode)
-                    }
-                    if !inviteByCode || !reservesHostHandle {
-                        TextField("TreeID or profile URL", text: $treeID)
-                    }
-                    if reservesHostHandle {
+                if reservesHostHandle {
+                    Section {
                         HStack(spacing: 4) {
                             Text("~").foregroundStyle(.secondary)
-                            TextField(ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ? "Handle on this host" : "Handle on this host (optional)", text: $handle)
+                            TextField("Handle", text: $handle, prompt: Text("alice"))
+#if os(iOS)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+#endif
+                                .onSubmit { Task { await createInvitation(handle: handle) } }
                         }
+                        Button("Create Invitation Link") { Task { await createInvitation(handle: handle) } }
+                            .disabled(busy || handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } header: {
+                        Text("Invite someone")
+                    } footer: {
+                        Text("Choose the person's handle on this host. They join by opening the link in Story.")
                     }
-                    Text(reservesHostHandle
-                        ? (inviteByCode
-                            ? "The person can claim this handle with the code, without sending you their Profile TreeID. The code is shown once."
-                            : "This reserves the handle on this host for the person’s Profile TreeID, or for their profile URL on another host, which lets them keep trees here; it does not copy or relocate their profile.")
-                        : "A TreeID, or the URL of a profile on another host, which this host ties to the profile it names.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button(inviteByCode && reservesHostHandle ? "Create Invitation" : reservesHostHandle ? "Add Person" : "Add Member") { Task { await submit() } }
-                        .disabled(busy || issuedCode != nil || (!inviteByCode && treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            || (reservesHostHandle
-                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                && ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil))
-                }
-                // A row inserted when the toggle flips is not drawn in a sheet's
-                // List on macOS; rebuilding the section draws the URL field.
-                .id(inviteByCode)
-                if let issuedCode {
-                    Section("Invitation code") {
-                        if let issuedLink {
-                            Text(issuedLink).font(.caption.monospaced()).textSelection(.enabled)
-                            ShareLink("Share Join Link", item: issuedLink)
-                            Button("Copy Join Link") { storyCopyToPasteboard(issuedLink) }
-                        }
-                        Text(issuedCode).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                        Text([.current, .autoMerged].contains(workspace.syncPresentation.state)
-                            ? "Share this link now. It contains the one-time code and will not be shown here again."
-                            : "The invitation is still syncing. Share the link when Sync Status shows Current; it will not be shown here again.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Section("Suggestions from People") {
-                    ForEach(people) { person in
-                        Button { choose(person) } label: {
-                            HStack(spacing: 12) {
-                                StoryAvatarView(person: person, workspace: workspace)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(person.title)
-                                    Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if treeID == person.entry.profile {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
-                                }
+                    if let issued {
+                        Section("Invitation link for ~\(issued.handle)") {
+                            Text(issued.link).font(.caption.monospaced()).textSelection(.enabled)
+                            HStack {
+                                Button("Copy Link", systemImage: "doc.on.doc") { storyCopyToPasteboard(issued.link) }
+                                ShareLink(item: issued.link) { Label("Share…", systemImage: "square.and.arrow.up") }
                             }
-                            .contentShape(.rect)
+                            Text([.current, .autoMerged].contains(workspace.syncPresentation.state)
+                                ? "The link works once and is not shown again. If it is lost, make a new link from the person's row."
+                                : "The invitation is still syncing. Send the link when Sync Status shows Current.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(treeID == person.entry.profile ? Color.accentColor.opacity(0.12) : nil)
-                        .disabled(busy)
                     }
-                    if people.isEmpty {
-                        Text(reservesHostHandle
-                            ? "No matching directory suggestions. You can still add the TreeID and handle above."
-                            : "No matching directory suggestions. You can still add the TreeID above.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Section {
+                        DisclosureGroup("Add an existing identity", isExpanded: $addingExisting) {
+                            TextField("TreeID or profile URL", text: $treeID)
+                            HStack(spacing: 4) {
+                                Text("~").foregroundStyle(.secondary)
+                                TextField(ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ? "Handle on this host" : "Handle on this host (optional)", text: $existingHandle)
+                            }
+                            Text("For someone who sent you their Profile TreeID, or whose profile is on another host. This reserves the handle for that identity.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Add Person") { Task { await addMember(treeID, handle: existingHandle) } }
+                                .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || (existingHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        && ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil))
+                        }
+                    }
+                } else {
+                    Section("Add a member") {
+                        StoryPeoplePicker(
+                            query: $query,
+                            people: workspace.directory.filter { $0.entry.kind != "group" },
+                            workspace: workspace,
+                            excluding: Set(workspace.directory.filter { person in
+                                members.contains { $0.treeID == person.entry.profile }
+                            }.map(\.id)),
+                            disabled: busy,
+                            onPick: { person in Task { await addMember(person.entry.profile, handle: "") } },
+                            onRawSubmit: { Task { await addMember(query, handle: "") } }
+                        )
                     }
                 }
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
-            .searchable(text: $query, prompt: "Search people")
             .navigationTitle(reservesHostHandle ? "People" : "Members")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -5420,19 +5406,16 @@ private struct StoryProfileMembersSheet: View {
             ) { member in
                 Button("Remove", role: .destructive) { Task { await removeNow(member) } }
             } message: { _ in
-                Text("Removing a person from this community disables that account.")
+                Text("Removing a person from this host disables that account.")
             }
         }
 #if os(macOS)
         .frame(minWidth: 440, minHeight: 420)
 #endif
-        .onAppear {
-            inviteByCode = reservesHostHandle && prefill == nil
-            guard let prefill, let person = workspace.directory.first(where: { $0.entry.profile == prefill }) else {
-                if let prefill { treeID = prefill }
-                return
-            }
-            choose(person)
+        .task {
+            // Add to Group names the person already; there is nothing left to choose.
+            if let prefill, !reservesHostHandle { await addMember(prefill, handle: "") }
+            else if let prefill { treeID = prefill; addingExisting = true }
         }
     }
 
@@ -5442,21 +5425,27 @@ private struct StoryProfileMembersSheet: View {
             StoryAvatarView(person: person, workspace: workspace, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(label(member))
-                Text(member.handle.map { "~\($0)" } ?? person?.subtitle ?? member.profile)
+                Text(member.isInvitation ? "Invited, not yet joined" : member.handle.map { "~\($0)" } ?? person?.subtitle ?? member.profile)
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            if member.isInvitation, let handle = member.handle {
+                Button("New Link") { Task { await renewInvitation(member, handle: handle) } }
+                    .buttonStyle(.borderless)
+                    .disabled(busy)
+                    .help("Replace the invitation with a new link")
+            }
             Button(role: .destructive) {
-                if reservesHostHandle { confirmingRemoval = member }
+                if reservesHostHandle, !member.isInvitation { confirmingRemoval = member }
                 else { Task { await removeNow(member) } }
             } label: {
                 Image(systemName: "minus.circle")
             }
             .buttonStyle(.borderless)
             .disabled(busy)
-            .help("Remove")
-            .accessibilityLabel("Remove \(label(member))")
+            .help(member.isInvitation ? "Cancel Invitation" : "Remove")
+            .accessibilityLabel("\(member.isInvitation ? "Cancel invitation for" : "Remove") \(label(member))")
         }
     }
 
@@ -5467,50 +5456,72 @@ private struct StoryProfileMembersSheet: View {
         return member.handle.map { "~\($0)" } ?? member.treeID ?? member.profile
     }
 
-    private func choose(_ person: DirectoryPerson) {
-        treeID = person.entry.profile
-        if reservesHostHandle { handle = person.entry.handle ?? "" }
-        message = nil
+    private func removeNow(_ member: StoryProfileDocument.Member) async {
+        await run {
+            try await remove(member.profile)
+            removed.insert(member.profile)
+        }
     }
 
-    private func removeNow(_ member: StoryProfileDocument.Member) async {
+    private func addMember(_ profile: String, handle: String) async {
+        await run {
+            try await add(profile, handle)
+            let value = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+            added.append(.init(profile: TreeID.isWellFormed(value) ? "overstory://\(value)/" : value,
+                               handle: handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : handle))
+            query = ""
+            treeID = ""
+            existingHandle = ""
+        }
+    }
+
+    /// Reserve `handle` for whoever opens the link: the host stores only the code's digest.
+    private func createInvitation(handle rawHandle: String) async {
+        await run {
+            guard let hostOrigin else {
+                throw ProtocolValidationError.invalidValue("Refresh People to obtain this host’s address before creating an invitation")
+            }
+            let name = rawHandle.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "~"))
+            let invitation = StoryInvitation()
+            guard let link = StoryIncomingLocator.joinLink(hostOrigin: hostOrigin, handle: name, code: invitation.code) else {
+                throw ProtocolValidationError.invalidValue("This host address cannot form an invitation link")
+            }
+            try await invite(name, invitation.digest)
+            added.append(.init(profile: "invite:\(invitation.digest)", handle: name))
+            issued = (name, link)
+            handle = ""
+        }
+    }
+
+    /// A lost link cannot be shown again, so its invitation is replaced by a new one for the same handle.
+    private func renewInvitation(_ member: StoryProfileDocument.Member, handle: String) async {
+        await run { try await remove(member.profile) }
+        guard message == nil else { return }
+        await createInvitation(handle: handle)
+    }
+
+    private func run(_ action: () async throws -> Void) async {
         busy = true
         defer { busy = false }
         do {
-            try await remove(member.profile)
-            removed.insert(member.profile)
+            try await action()
             message = nil
         } catch {
             message = error.localizedDescription
         }
     }
+}
 
-    private func submit() async {
-        busy = true
-        do {
-            if reservesHostHandle && inviteByCode {
-                guard let hostOrigin else {
-                    throw ProtocolValidationError.invalidValue("Refresh People to obtain this host’s address before creating an invitation")
-                }
-                let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
-                let code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
-                    .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-                let digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
-                guard let link = StoryIncomingLocator.joinLink(hostOrigin: hostOrigin, handle: handle, code: code) else {
-                    throw ProtocolValidationError.invalidValue("This host address cannot form an invitation link")
-                }
-                try await invite(handle, digest)
-                issuedCode = code
-                issuedLink = link
-            } else {
-                try await add(treeID, handle)
-            }
-            busy = false
-            if issuedCode == nil { dismiss() }
-        } catch {
-            busy = false
-            message = error.localizedDescription
-        }
+/// A one-time invitation code and the digest the host's member list stores for it (accounts §1.2).
+struct StoryInvitation {
+    let code: String
+    let digest: String
+
+    init() {
+        let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
+        code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

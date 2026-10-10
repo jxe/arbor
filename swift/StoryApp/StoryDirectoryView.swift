@@ -180,18 +180,11 @@ struct StoryDirectoryView: View {
         let individuals = people.filter { $0.entry.kind != "group" }
         let members = individuals.filter { $0.entry.sources.contains("community") }
         List {
-            if !communities.isEmpty || !members.isEmpty {
-                Section("On this host") {
+            directorySection("People", values: members)
+            if !communities.isEmpty || !groups.isEmpty {
+                Section("Groups") {
                     ForEach(communities) { row($0) }
-                    ForEach(members) { row($0) }
-                }
-            }
-            Section("Groups") {
-                ForEach(groups) { row($0) }
-                if canCreateGroup {
-                    Button("New Group…", systemImage: "person.2.badge.plus") { newGroup = StoryNewGroupRequest() }
-                } else if groups.isEmpty, query.isEmpty {
-                    Text("No groups yet.").foregroundStyle(.secondary)
+                    ForEach(groups) { row($0) }
                 }
             }
             directorySection("Others", values: individuals.filter { !$0.entry.sources.contains("community") })
@@ -200,6 +193,13 @@ struct StoryDirectoryView: View {
         .searchable(text: $query, prompt: "Search people and groups")
         .overlay { if people.isEmpty && !query.isEmpty && workspace.directoryError == nil { ContentUnavailableView("No people found", systemImage: "person.2") } }
         .toolbar {
+            // Inviting edits the host's member list, so it is offered to whoever can edit that.
+            if let community = workspace.directory.first(where: { $0.isCommunityProfile && workspace.writableProfileTrees.contains($0.id) }) {
+                Button("Invite…", systemImage: "person.badge.plus") { editMembers(community.id, nil) }
+            }
+            if canCreateGroup {
+                Button("New Group…", systemImage: "person.2.badge.plus") { newGroup = StoryNewGroupRequest() }
+            }
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await workspace.refreshDirectory(force: true) } }
                 .disabled(workspace.directoryIsRefreshing)
         }
@@ -297,6 +297,7 @@ struct StoryNewGroupSheet: View {
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
+    @State private var showingMore = false
 
     private var handle: String? {
 #if os(macOS)
@@ -317,22 +318,6 @@ struct StoryNewGroupSheet: View {
             Form {
                 Section {
                     TextField("Name", text: $name, prompt: Text("Garden Club"))
-                    Picker("Place it", selection: $placement) {
-                        ForEach(placements) { Text($0.label).tag($0) }
-                    }
-                    LabeledContent("Address") {
-                        HStack(spacing: 0) {
-                            Text(placement.prefix(handle: handle ?? "you")).foregroundStyle(.secondary)
-                            TextField("Address", text: Binding(get: { slug }, set: { slug = $0; slugEdited = true }), prompt: Text("garden-club"))
-                                .labelsHidden()
-#if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-#endif
-                        }
-                    }
-                    TextField("Description", text: $groupDescription, prompt: Text("Optional"), axis: .vertical)
-                        .lineLimit(1...4)
                 } footer: {
                     Text("Everyone on this host can see the group and who is in it. Sharing a tree with the group shares it with every member.")
                 }
@@ -361,6 +346,26 @@ struct StoryNewGroupSheet: View {
                         onRawSubmit: addRaw
                     )
                 }
+                Section {
+                    DisclosureGroup("More", isExpanded: $showingMore) {
+                        Picker("Place it", selection: $placement) {
+                            ForEach(placements) { Text($0.label).tag($0) }
+                        }
+                        LabeledContent("Address") {
+                            HStack(spacing: 0) {
+                                Text(placement.prefix(handle: handle ?? "you")).foregroundStyle(.secondary)
+                                TextField("Address", text: Binding(get: { slug }, set: { slug = $0; slugEdited = true }), prompt: Text("garden-club"))
+                                    .labelsHidden()
+#if os(iOS)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+#endif
+                            }
+                        }
+                        TextField("Description", text: $groupDescription, prompt: Text("Optional"), axis: .vertical)
+                            .lineLimit(1...4)
+                    }
+                }
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
             .formStyle(.grouped)
@@ -383,6 +388,8 @@ struct StoryNewGroupSheet: View {
         }
         .onChange(of: name) { _, value in
             if !slugEdited { slug = StoryGroupSlug.make(from: value) }
+            // A name that yields no usable address needs the field the collapsed section hides.
+            if !value.isEmpty, !StoryGroupSlug.isValid(slug) { showingMore = true }
         }
     }
 

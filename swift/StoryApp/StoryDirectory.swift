@@ -106,6 +106,9 @@ struct StoryProfileDocument: Equatable {
         let handle: String?
         var id: String { profile }
 
+        /// A pending invitation: a reserved handle nobody has claimed yet.
+        var isInvitation: Bool { profile.hasPrefix("invite:") }
+
         /// The Profile TreeID a structured `overstory://<TreeID>/` locator names.
         var treeID: String? {
             // Rename 002: a member authored as `arbor://<TreeID>/` is the same member.
