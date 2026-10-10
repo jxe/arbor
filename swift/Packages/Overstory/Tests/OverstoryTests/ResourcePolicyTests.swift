@@ -74,6 +74,32 @@ struct ResourcePolicyTests {
         #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("http://club.example/~club"), allow: [.read]) }
         #expect(throws: (any Error).self) { try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("https://club.example/"), allow: [.read]) }
     }
+
+    // Rename 002: `arbor://` is read as `overstory://` and never written. The cases are the
+    // ones the TypeScript parser runs, in `tests/fixtures/legacy-names/aliases.json`.
+    @Test func theOldSchemeNamesTheSameProfile() throws {
+        let fixture = try #require(JSONSerialization.jsonObject(with: legacyAliases()) as? [String: Any])
+        let cases = try #require(fixture["profileLocators"] as? [[String: String]])
+        #expect(!cases.isEmpty)
+        for item in cases {
+            let input = try #require(item["input"])
+            let parsed = try #require(ProfileLocator(input), "\(input)")
+            #expect(parsed.locator == item["locator"], "\(input)")
+            #expect(parsed.origin == item["origin"], "\(input)")
+            let decoded = try JSONDecoder().decode(ProtocolResourceWho.self, from: JSONSerialization.data(withJSONObject: ["profile": input]))
+            #expect(decoded == .profile(parsed.locator))
+            #expect(String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self).contains("arbor") == false)
+        }
+        #expect(ProfileLocator("arbor://tr_club/") == nil)
+    }
+
+    @Test func aJoinLinkNamesTheAccountItInvitesTo() throws {
+        let joined = try #require(ProfileLocator("overstory://club.example/~alice;overstory-invite=Ab3-_.~9"))
+        #expect(joined.locator == "https://club.example/~alice")
+        #expect(joined == ProfileLocator("https://club.example/~alice"))
+        // The secret is dropped only from an `overstory://` join link.
+        #expect(ProfileLocator("https://club.example/~alice;overstory-invite=abc")?.locator == "https://club.example/~alice;overstory-invite=abc")
+    }
 }
 
 @Suite("Tree configuration contract")
@@ -88,4 +114,37 @@ struct TreeConfigurationTests {
             #expect(treeConfigurationID(vector["tree"]!) == vector["configuration"]!)
         }
     }
+
+    // Rename 002: `;arbor-config` is read as `;overstory-config` and never written.
+    @Test func bothConfigurationSpellingsAreRead() throws {
+        #expect(treeConfigurationParameter == "overstory-config")
+        let fixture = try #require(JSONSerialization.jsonObject(with: legacyAliases()) as? [String: Any])
+        let cases = try #require(fixture["treeReferences"] as? [[String: Any]])
+        #expect(!cases.isEmpty)
+        for item in cases {
+            let value = try #require(item["value"] as? String)
+            let parsed = parseTreeReference(value)
+            if item["invalid"] as? Bool == true {
+                #expect(parsed == nil, "\(value)")
+            } else {
+                #expect(parsed?.tree == item["tree"] as? String, "\(value)")
+                #expect(parsed?.configuration == item["configuration"] as? Bool, "\(value)")
+            }
+        }
+        let new = try #require(parseTreeReference("tr_abc;overstory-config"))
+        #expect(new.tree == "tr_abc" && new.configuration)
+        let plain = try #require(parseTreeReference("tr_abc"))
+        #expect(plain.tree == "tr_abc" && !plain.configuration)
+        #expect(parseTreeReference("notes;overstory-config") == nil)
+        let split = splittingTreeConfigurationParameter("https://host.example/~joe/todos;arbor-config")
+        #expect(split.reference == "https://host.example/~joe/todos" && split.configuration)
+        #expect(splittingTreeConfigurationParameter("/~joe/todos").configuration == false)
+    }
+}
+
+/// Rename 002: the old-spelling cases shared with TypeScript. Delete with the aliases.
+private func legacyAliases() throws -> Data {
+    let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
+    return try Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))
 }

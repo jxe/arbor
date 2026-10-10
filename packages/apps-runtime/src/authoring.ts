@@ -340,8 +340,9 @@ function relationFromPath(path: string): string {
 }
 
 export function node(path: string): NodeHandle {
-  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("story:"))) {
-    throw new Error("node() requires a relative, logical, or Story path");
+  // Rename 002: `arbor:` is the old spelling of `overstory:` in authored sources; read both.
+  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("overstory:") && !path.startsWith("arbor:"))) {
+    throw new Error("node() requires a relative, logical, or overstory: path");
   }
   const handle = { path } as NodeHandle;
   Object.assign(handle, { children: rowScope(relationFromPath(path), handle) });

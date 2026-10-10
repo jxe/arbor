@@ -1,6 +1,6 @@
-# Canopy icon options
+# App icon options
 
-These full-resolution masters preserve the icon directions explored for Canopy.
+These full-resolution masters preserve the icon directions explored while the app was named Canopy.
 They are reference assets and are not included in the app bundle.
 
 | Master | Direction | Status |

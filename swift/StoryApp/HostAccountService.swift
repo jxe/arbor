@@ -2,12 +2,12 @@ import Foundation
 import Overstory
 import OverstoryClient
 
-/// One Canopy account this device holds, as either platform's account store
+/// One host account this device holds, as either platform's account store
 /// reports it.
 struct HostAccount: Identifiable, Hashable, Sendable {
     let configurationTree: String
-    /// The account's Canopy origin, when known. The Mac data home can hold an
-    /// account whose connection record names no Canopy.
+    /// The account's host origin, when known. The Mac data home can hold an
+    /// account whose connection record names no host.
     let origin: URL?
     let handle: String?
     let profileTree: String?
@@ -71,7 +71,7 @@ struct StoryProfileIdentityState: Sendable, Equatable {
 struct PendingHostAccountClaim: Sendable, Equatable {
     /// The account URL being claimed.
     let account: String
-    /// False once the claim may already have reached the Canopy; only resuming
+    /// False once the claim may already have reached the host; only resuming
     /// it is safe then.
     let canCancel: Bool
 }
@@ -99,7 +99,7 @@ enum HostAccountCapability: Sendable, Hashable {
     case restoreIdentity
     /// Write the profile identity to a backup file.
     case backupIdentity
-    /// Abandon an account claim that has not reached the Canopy.
+    /// Abandon an account claim that has not reached the host.
     case cancelPendingClaim
     /// Finish a pairing claim without its payload.
     case resumePairing
@@ -126,7 +126,7 @@ enum HostAccountServiceError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Where this device keeps its Canopy identity and device keys, and
+/// Where this device keeps its identity and device keys, and
 /// the account operations the app performs on them. `StoryWorkspaceState`
 /// chooses one implementation per platform (`accountService`):
 ///
@@ -144,7 +144,7 @@ protocol HostAccountService: Sendable {
 
     func state() async throws -> HostAccountState
     func accounts() async throws -> [HostAccount]
-    /// The sessions this device's key opens for requests to the account's Canopy.
+    /// The sessions this device's key opens for requests to the account's host.
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider
     /// The sessions the same device key opens at `origin`, one of the
     /// account's placement hosts (accounts §1.3, §5.4). Never the home
@@ -156,7 +156,7 @@ protocol HostAccountService: Sendable {
     func restoreIdentity(backup: Data, passphrase: String?) async throws
     func backupIdentity(to destination: URL, passphrase: String) async throws
 
-    /// Claim `account` (an account URL on a Canopy) with this device's profile
+    /// Claim `account` (an account URL on a host) with this device's profile
     /// identity, resuming a pending claim for it. The data home names its own
     /// device and ignores `deviceLabel`.
     func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws
@@ -171,7 +171,7 @@ protocol HostAccountService: Sendable {
 
     /// The account's placement connections on this device (accounts §1.3).
     func placements(configurationTree: String) async throws -> [StoryPlacement]
-    /// Connect the account to its placement account at `host`, a Canopy URL,
+    /// Connect the account to its placement account at `host`, a host URL,
     /// which the host's community created by reserving the profile's URL at
     /// its home host; this device signs in there with its own device key.
     func connectPlacement(configurationTree: String, host: String) async throws
@@ -186,10 +186,10 @@ extension HostAccountService {
     }
     func accounts() async throws -> [HostAccount] { try await state().accounts }
 
-    /// A protocol client for `account`'s Canopy with its credential.
+    /// A protocol client for `account`'s host with its credential.
     func client(for account: HostAccount) async throws -> ProtocolClient {
         guard let origin = account.origin else {
-            throw HostAccountServiceError.invalidAccount("The Canopy account names no Canopy")
+            throw HostAccountServiceError.invalidAccount("The host account names no host")
         }
         return ProtocolClient(
             origin: origin,
@@ -242,7 +242,7 @@ struct KeychainAccountService: HostAccountService {
     func claimAccount(_ account: String, deviceLabel: String, inviteCode: String?) async throws {
         guard let url = URL(string: account.trimmingCharacters(in: .whitespacesAndNewlines)),
               let origin = Self.origin(of: url) else {
-            throw HostAccountServiceError.invalidAccount("Enter the account URL on its Canopy")
+            throw HostAccountServiceError.invalidAccount("Enter the account URL on its host")
         }
         _ = try await NativeAccountService(origin: origin).claimAccount(account: url, label: deviceLabel, inviteCode: inviteCode)
     }

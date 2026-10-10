@@ -118,7 +118,7 @@
     { "name": "person-co-administrator", "kind": "person", "file": "access.yaml", "source": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n- who: {profile: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa}\n  allow: [admin]\n" },
     { "name": "missing-administrator-device", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n" },
     { "name": "credential-in-devices", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  credential: secret\n" },
-    { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "overstoryd: https://community.example\n" },
+    { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "host: https://community.example\n" },
     { "name": "trees-yaml", "kind": "person", "file": "trees.yaml", "source": "{}\n" },
     { "name": "malformed-device-key", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=\n" },
     { "name": "unknown-key-algorithm", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: rsa:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\n" },

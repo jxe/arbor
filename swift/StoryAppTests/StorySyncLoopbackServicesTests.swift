@@ -143,11 +143,11 @@ struct LoopbackServicesTests {
     @Test("The credential fixture decodes and the route scopes by configuration tree")
     func credentialDecodes() async throws {
         let body = try fixture("credential.json")
-        #expect(try JSONDecoder().decode(TreeCredential.self, from: body).token == "host-account-token-fixture")
+        #expect(try JSONDecoder().decode(TreeCredential.self, from: body).token == "overstoryd-account-token-fixture")
         await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
         let client = stubbedClient()
-        #expect(try await client.credential() == "host-account-token-fixture")
-        #expect(try await client.credential(configurationTree: "tr_cfg7f3q2ab7cdefg") == "host-account-token-fixture")
+        #expect(try await client.credential() == "overstoryd-account-token-fixture")
+        #expect(try await client.credential(configurationTree: "tr_cfg7f3q2ab7cdefg") == "overstoryd-account-token-fixture")
         let requests = await LoopbackStub.state.requests()
         #expect(requests.map(\.path) == ["/v1/credential", "/v1/credential"])
         #expect(requests[0].query == nil)

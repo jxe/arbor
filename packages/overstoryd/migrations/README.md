@@ -95,7 +95,7 @@ fifteen minutes; the rehearsal is where the time should go.
    bun run packages/overstoryd/migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
    cp -a ~/.story dot-story.before
    ```
-5. **Quiesce writers.** `bun run story daemon stop`; make sure Canopy is not
+5. **Quiesce writers.** `bun run story daemon stop`; make sure Story is not
    running on the iPhone.
 6. **Deploy once.** The service builds from GitHub `main`: push the verified
    revision, then poll `railway deployment list` until the build succeeds (a few

@@ -29,7 +29,7 @@ whole.
   the rest through the tree-scoped object route, validates with
   `ProtocolObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
 - **iOS resolves absent files already.** `StoryAppModel` opens each working tree
-  over `HostObjectStore`, which reads any object by hash from Canopy, and
+  over `HostObjectStore`, which reads any object by hash from the host, and
   `WorkingTree.objectBytes` reads its own overlay first.
 - **Only placement is whole.** `WorkingTreePlacementService.place`
   (`swift/Packages/OverstoryClient/Sources/OverstoryClient/WorkingTreePlacementService.swift`)
@@ -73,7 +73,7 @@ whole.
 - Focused `OverstoryWorkingTree` and `OverstoryClient` tests: a placed tree's heads
   equal the pinned descriptor; non-Markdown files are absent and open through the
   platform store; an interruption at each object resumes without refetching stored
-  objects; a overstoryd that advances during placement is caught up by the ordinary
+  objects; an overstoryd that advances during placement is caught up by the ordinary
   update machine afterwards; a corrupt object fails placement and leaves no placed
   tree.
 - `swift test --package-path swift/Packages/OverstoryWorkingTree` and

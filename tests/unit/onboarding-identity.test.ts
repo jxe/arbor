@@ -161,6 +161,31 @@ describe("onboarding identity preservation", () => {
     } finally { get.mockRestore(); set.mockRestore(); }
   });
 
+  // Rename 001 (`story migrate`); deleted with it at close-out.
+  test("a moved home's identity record is repointed in place under the same service and slot", async () => {
+    delete process.env.STORY_CREDENTIAL_STORE;
+    const records = new Map<string, string>();
+    const removed: string[] = [];
+    const get = spyOn(Bun.secrets, "get").mockImplementation(async ({ service, name }) => records.get(`${service}/${name}`) ?? null);
+    const set = spyOn(Bun.secrets, "set").mockImplementation(async ({ service, name, value }) => { records.set(`${service}/${name}`, String(value)); });
+    const remove = spyOn(Bun.secrets, "delete").mockImplementation(async ({ name }) => { removed.push(name); return true; });
+    try {
+      const store = new ProfileIdentityStore();
+      const oldHome = process.env.STORY_HOME!, newHome = join(root, "moved-home");
+      const first = await store.create(join(oldHome, "profile"));
+      const before = JSON.parse(records.get(first.credential)!);
+      await rename(oldHome, newHome);
+      process.env.STORY_HOME = newHome;
+      const relocate = (path: string) => path.replace(/\/home\/profile$/, "/moved-home/profile");
+      const result = await store.relocateProfilePath(relocate);
+      expect(result).toMatchObject({ status: "updated", credential: first.credential, from: before.profilePath });
+      expect([...records.keys()]).toEqual([first.credential]);
+      expect(JSON.parse(records.get(first.credential)!)).toEqual({ ...before, profilePath: relocate(before.profilePath) });
+      expect(await store.relocateProfilePath(relocate)).toMatchObject({ status: "unchanged" });
+      expect(removed).toEqual([]);
+    } finally { get.mockRestore(); set.mockRestore(); remove.mockRestore(); }
+  });
+
   test("legacy credentials migrate without deleting the original", async () => {
     const store = new ProfileIdentityStore();
     const first = await store.create(join(root, "profile"));

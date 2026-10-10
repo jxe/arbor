@@ -22,9 +22,9 @@ export interface PlacementAccountResult {
 /** An HTTPS host URL, or an http one on loopback for local hosts: its origin. */
 export function placementOrigin(input: string): string {
   let url: URL;
-  try { url = new URL(input); } catch { throw new ProtocolError("invalid-request", "The placement host must be an HTTPS Canopy URL", 400); }
+  try { url = new URL(input); } catch { throw new ProtocolError("invalid-request", "The placement host must be an HTTPS Overstory host URL", 400); }
   if (!isHomeHostOrigin(url.origin) || url.username || url.password || url.search || url.hash) {
-    throw new ProtocolError("invalid-request", "The placement host must be an HTTPS Canopy URL", 400);
+    throw new ProtocolError("invalid-request", "The placement host must be an HTTPS Overstory host URL", 400);
   }
   return url.origin;
 }

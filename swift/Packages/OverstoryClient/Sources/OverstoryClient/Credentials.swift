@@ -457,8 +457,8 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
     }
 }
 
-/// Generate a 128-bit lowercase base32 Story identity with the supplied stable prefix
-/// (`tr`, `dv`, …); it edits no file and reserves no server state, matching `generateOverstoryID` in `@story/core`.
+/// Generate a 128-bit lowercase base32 Overstory identity with the supplied stable prefix
+/// (`tr`, `dv`, …); it edits no file and reserves no server state, matching `generateOverstoryID` in `@ovst/protocol`.
 public func generateOverstoryID(prefix: String) throws -> String {
     var bytes = [UInt8](repeating: 0, count: 16)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
@@ -564,7 +564,7 @@ public actor NativeAccountService {
         }
         guard let endpoint = snapshot.account.community.canonical?.endpoint,
               sameOrigin(URL(string: endpoint), origin) else {
-            throw ProtocolValidationError.invalidValue("Claimed account returned a different Canopy origin")
+            throw ProtocolValidationError.invalidValue("Claimed account returned a different host origin")
         }
         let configuration = snapshot.account.configuration.id
         guard !configuration.isEmpty else { throw ProtocolValidationError.invalidValue("Claimed account omitted its configuration TreeID") }
@@ -596,7 +596,7 @@ public actor NativeAccountService {
         identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
     ) async throws -> NativeHostAccount {
         guard sameOrigin(account, origin), account.query == nil, account.fragment == nil else {
-            throw ProtocolValidationError.invalidValue("Account URL does not belong to this Canopy")
+            throw ProtocolValidationError.invalidValue("Account URL does not belong to this host")
         }
         guard let identity = try await identityStore.identity() else {
             throw ProtocolValidationError.invalidValue("Create a profile identity before claiming an account")
@@ -637,7 +637,7 @@ public actor NativeAccountService {
             )
             let signed = try await identityStore.sign(challenge)
             guard let claimedAccount = URL(string: challenge.account), sameOrigin(claimedAccount, origin) else {
-                throw ProtocolValidationError.invalidValue("Account challenge named another Canopy")
+                throw ProtocolValidationError.invalidValue("Account challenge named another host")
             }
             pending = PendingAccountClaim(
                 account: claimedAccount,

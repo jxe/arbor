@@ -8,7 +8,8 @@
  * must exist on disk (as a file or directory) after stripping any `#anchor`
  * or `:line` suffix. Anchors themselves are not checked, and links inside
  * fenced code blocks are ignored. Overstory's own
- * example and fixture trees use extensionless links and are skipped.
+ * example and fixture trees use extensionless links and are skipped. Completed migrations 018 to 023 are
+ * kept verbatim as history, so links they hold to since-moved files are skipped too.
  *
  * Exits nonzero when a link is broken. With `--strict`, also reports links
  * whose target exists but is listed for deletion in the same commit (none by
@@ -21,7 +22,7 @@ const root = resolve(import.meta.dir, "..");
 const proc = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.md"], { cwd: root });
 const files = [...new Set(proc.stdout.toString().split("\0").filter(Boolean))]
   .filter(file => existsSync(join(root, file)));
-const skip = [/^examples\//, /^tests\/fixtures\//];
+const skip = [/^examples\//, /^tests\/fixtures\//, /^packages\/overstoryd\/migrations\/(01[89]|02[0-3])-/];
 const linkPattern = /\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
 let broken = 0;

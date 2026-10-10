@@ -37,7 +37,7 @@ struct StoryNetworkLogView: View {
                 Divider()
                 if visible.isEmpty {
                     ContentUnavailableView("No network events", systemImage: "waveform.path.ecg",
-                                           description: Text(log == nil ? "The network log is not installed." : "Events appear here as Canopy talks to the server."))
+                                           description: Text(log == nil ? "The network log is not installed." : "Events appear here as Story talks to the server."))
                 } else {
                     List(visible) { entry in
                         row(entry)

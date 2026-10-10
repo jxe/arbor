@@ -195,7 +195,7 @@ extension UpdateCoordinator {
         }
         if linear && first.graph.root == accepted { return (records.last, true) }
 
-        // Keep pending creations/moves visible while Canopy reconciles branches.
+        // Keep pending creations/moves visible while the host reconciles branches.
         // Document sessions independently read their own retained source intent.
         // If the structural prefix has settled, the installed projection owns it.
         guard let index = records.lastIndex(where: { $0.document == nil }) else { return (nil, false) }

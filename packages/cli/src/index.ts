@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@ovst/story-sync";
@@ -10,6 +10,7 @@ import { listLocalAccounts } from "@ovst/story-sync/state";
 import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
+import { migrateCommand } from "./migrate-rename-001.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import {
   cloudPlacementPath,
@@ -109,6 +110,7 @@ function usage(): never {
   story declined <placed-path> [--json]
   story declined --restore <placed-path>
   story declined --resend <placed-path>
+  story migrate [--dry-run]
 
 Notes:
   story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
@@ -120,7 +122,8 @@ Notes:
   story pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   story pending  shows exactly what Story Sync would send next for a placed folder.
   story declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
-    --restore puts back the host's version of those paths; --resend sends them again as they are.`);
+    --restore puts back the host's version of those paths; --resend sends them again as they are.
+  story migrate  moves this Mac's state from ~/.arbor to ~/.story once (Rename 001); --dry-run only prints the actions.`);
   process.exit(2);
 }
 
@@ -143,6 +146,11 @@ export async function attachedStorySyncURL(target: OpenTarget, port: number, sel
   }
 }
 
+// Rename 002: `arbor://` is the old spelling of `overstory://` in links already
+// shared. The CLI recognizes both here and respells the old one with
+// `normalizeLegacyLocator` before parsing; it writes only `overstory://`.
+const CANONICAL_INPUT = /^(?:https?|overstory|arbor):\/\//;
+
 interface CanonicalTarget {
   endpoint: string;
   canonicalPath: string;
@@ -150,14 +158,14 @@ interface CanonicalTarget {
 }
 
 function canonicalTarget(input: string): CanonicalTarget {
-  const url = new URL(input);
-  if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "story:") {
+  const url = new URL(normalizeLegacyLocator(input)); // Rename 002
+  if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "overstory:") {
     throw new Error("Use an HTTP or overstory:// canonical URL");
   }
-  if (url.protocol === "story:" && url.hostname === "tree") {
+  if (url.protocol === "overstory:" && url.hostname === "tree") {
     throw new Error("A raw TreeID is not a canonical community URL");
   }
-  const endpoint = url.protocol === "story:"
+  const endpoint = url.protocol === "overstory:"
     ? `${url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "http" : "https"}://${url.host}`
     : url.origin;
   const canonicalPath = `/${url.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
@@ -175,10 +183,10 @@ export interface OpenTarget {
 }
 
 export function openTarget(input: string, cwd = process.cwd()): OpenTarget {
-  if (!/^(?:https?|story):\/\//.test(input)) return { path: resolve(cwd, input) };
+  if (!CANONICAL_INPUT.test(input)) return { path: resolve(cwd, input) };
   const target = canonicalTarget(input);
-  const source = new URL(input);
-  const remoteURL = source.protocol === "story:"
+  const source = new URL(normalizeLegacyLocator(input)); // Rename 002
+  const remoteURL = source.protocol === "overstory:"
     ? `${target.endpoint}${source.pathname}${source.search}${source.hash}`
     : source.toString();
   const profile = /^\/~([a-z0-9](?:[a-z0-9-]{0,62}))\/?$/.exec(target.canonicalPath);
@@ -378,9 +386,9 @@ async function accountForCanonicalTarget(
     ? atOrigin.filter((record) => sameOrDescendantPath(target.canonicalPath, new URL(record.account).pathname))
     : atOrigin;
   if (!candidates.length) {
-    throw new Error(`No claimed Canopy account contains ${target.supplied}`);
+    throw new Error(`No claimed account contains ${target.supplied}`);
   }
-  if (candidates.length > 1) throw new Error(`Several claimed Canopy accounts contain ${target.supplied}`);
+  if (candidates.length > 1) throw new Error(`Several claimed accounts contain ${target.supplied}`);
   const { configurationTree, placement } = candidates[0]!;
   const record = (await new HostAccountStore(configurationTree).safe());
   if (!record) throw new Error(`Account ${configurationTree} has no home connection`);
@@ -390,7 +398,7 @@ async function accountForCanonicalTarget(
     throw new Error(`Account ${record.configurationTree} is not valid: ${configuration.diagnostics[0]?.message ?? "incomplete checkout"}`);
   }
   if (configuration.host !== record.origin) {
-    throw new Error(`Account ${record.configurationTree} does not match its claimed Canopy connection`);
+    throw new Error(`Account ${record.configurationTree} does not match its claimed host connection`);
   }
   if (options.administrator && !configuration.currentDevice.administrator) {
     throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
@@ -455,8 +463,8 @@ async function mvCommand(args: string[]): Promise<void> {
   }
   if (operands.length !== 2) usage();
   const [sourceInput, destinationInput] = operands as [string, string];
-  const sourceIsCanonical = /^(?:https?|story):\/\//.test(sourceInput);
-  const destinationIsCanonical = /^(?:https?|story):\/\//.test(destinationInput);
+  const sourceIsCanonical = CANONICAL_INPUT.test(sourceInput);
+  const destinationIsCanonical = CANONICAL_INPUT.test(destinationInput);
   if (sourceIsCanonical !== destinationIsCanonical) {
     throw new Error("story mv requires either two local paths or two canonical URLs; use story place to add a placement");
   }
@@ -618,7 +626,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   const sourceCanonical = `${source.endpoint}${source.canonicalPath}`;
   const destinationCanonical = `${destination.endpoint}${destination.canonicalPath}`;
   if (source.endpoint !== destination.endpoint) {
-    throw new Error("Moving a tree to another Canopy is not supported: a tree stays on the host that holds it");
+    throw new Error("Moving a tree to another host is not supported: a tree stays on the host that holds it");
   }
 
   await withStorySync(storyDataRoot(), async (client, service) => {
@@ -702,7 +710,7 @@ async function accessRulesFor(client: ProtocolClient, audience: ShareAudience): 
 
 /**
  * Push one account's configuration now, or leave it on disk for the daemon to
- * push later when that account's Canopy is unreachable. Any other failure is
+ * push later when that account's host is unreachable. Any other failure is
  * surfaced as before.
  */
 async function synchronizeOrDefer(
@@ -744,7 +752,7 @@ async function placeLocal(
     const rootPath = selected.host.placement ? new URL(selected.host.placement.account).pathname.replace(/\/$/, "") : null;
     if (existing) {
       if (existing.configurationTree !== config.configurationTree || existing.host !== placementHost(selected).host) {
-        throw new Error(`${path} is already placed through a different Canopy account`);
+        throw new Error(`${path} is already placed through a different host account`);
       }
       const current = await wire.descriptor(existing.tree).catch(() => null);
       if (current?.tree.canonical && current.tree.canonical.path !== target.canonicalPath) {
@@ -815,7 +823,7 @@ async function placeCommand(args: string[]): Promise<void> {
   const { operands, audience } = placeArguments(args);
   if (operands.length !== 2) usage();
   const [first, second] = operands as [string, string];
-  const firstIsURL = /^(?:https?|story):\/\//.test(first);
+  const firstIsURL = CANONICAL_INPUT.test(first);
   if (!firstIsURL) {
     await placeLocal(first, second, audience);
     return;
@@ -931,7 +939,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       }
       if (candidate.host.placement) throw new Error("A cloud bundle covers trees at the profile's home host only, not a placement host");
       if (target.endpoint !== selected.connection.record.origin) {
-        throw new Error("A cloud bundle may target only one Canopy");
+        throw new Error("A cloud bundle may target only one host");
       }
       const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
       const resolution = await wire.resolve(target.canonicalPath);
@@ -1159,7 +1167,7 @@ async function waitForCloudOrigin(session: CloudSessionRecord, deadline: number)
   throw new Error("Cloud Story Sync did not become reachable before the timeout");
 }
 
-/** The cloud session's account at its Canopy: the session token its device key opened there. */
+/** The cloud session's account at its host: the session token its device key opened there. */
 interface CloudAccountAccess { origin: string; token: string; configurationTree: string }
 
 /** The cloud session's account access, from the session's own data home. */
@@ -1192,12 +1200,12 @@ async function cloudPlacementsReady(
     if (descriptor.sync !== "idle") return { ready: false, reason: `${target.relativePath} is ${descriptor.sync ?? "not synchronized"}` };
     const remote = (await wire.descriptor(target.treeID)).tree;
     if (remote.access !== "write") return { ready: false, reason: `${target.relativePath} lost write access` };
-    if (descriptor.update !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
+    if (descriptor.update !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current host update` };
     // Roots only; the folder's ignored, untracked content is not part of its tree.
     const skip = membershipSkip(await loadIgnorePolicy(target.path),
       trackedEntries(remote.root as ObjectHash, (hash) => wire.object(target.treeID, hash)));
     const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip);
-    if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from Canopy` };
+    if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from the host` };
   }
   return { ready: true };
 }
@@ -1400,7 +1408,7 @@ function statusArguments(args: string[]): { locator?: string; json: boolean } {
 
 async function statusCommand(args: string[]): Promise<void> {
   const options = statusArguments(args);
-  const selectionPath = options.locator && !/^(?:https?|story):\/\//.test(options.locator)
+  const selectionPath = options.locator && !CANONICAL_INPUT.test(options.locator)
     ? resolve(options.locator)
     : process.cwd();
   const cloud = !process.env.STORY_SYNC_URL && !process.env.STORY_HOME
@@ -1456,7 +1464,7 @@ async function statusCommand(args: string[]): Promise<void> {
   let selection: Record<string, unknown> | undefined;
   if (options.locator) {
     if (!liveStatus) throw new Error(`Cannot resolve ${options.locator} because the selected Story Sync is not running`);
-    const input = /^(?:https?|story):\/\//.test(options.locator) ? options.locator : resolve(options.locator);
+    const input = CANONICAL_INPUT.test(options.locator) ? options.locator : resolve(options.locator);
     const resolved = await new StorySyncRESTClient({ baseURL: origin }).resolve(input);
     const tree = resolved.enclosingTree
       ? decoratedTrees.find((candidate) => candidate.id === resolved.enclosingTree!.id)
@@ -1465,7 +1473,7 @@ async function statusCommand(args: string[]): Promise<void> {
       input: options.locator,
       ref: resolved.ref,
       historical: resolved.historical,
-      ...(tree ? { tree, condition: tree.condition } : { condition: /^(?:https?|story):\/\//.test(options.locator) ? "not-placed" : "not-applicable" }),
+      ...(tree ? { tree, condition: tree.condition } : { condition: CANONICAL_INPUT.test(options.locator) ? "not-placed" : "not-applicable" }),
     };
   }
   const inScopeTrees = cloud
@@ -1578,6 +1586,8 @@ async function main(): Promise<void> {
     await statusCommand(args);
     return;
   }
+  // Rename 001: the one-time move from ~/.arbor to ~/.story; deleted at the plan's close-out.
+  if (command === "migrate") process.exit(await migrateCommand(args));
   if (command === "cloud") {
     const [action, ...operands] = args;
     if (action === "bundle") {

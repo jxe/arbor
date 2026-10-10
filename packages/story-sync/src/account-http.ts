@@ -50,7 +50,7 @@ export function accountHandler(service: LocalAccountService) {
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/placements") {
       const body = await request.json() as { host?: unknown };
       if (typeof body.host !== "string") {
-        throw new ProtocolError("invalid-request", "Placement requires the placement host's Canopy URL", 400);
+        throw new ProtocolError("invalid-request", "Placement requires the placement host's URL", 400);
       }
       return json(await service.connectPlacementAccount(body.host));
     }

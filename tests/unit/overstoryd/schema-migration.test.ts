@@ -29,7 +29,7 @@ function columns(database: string, table: string): string[] {
   finally { db.close(); }
 }
 
-describe("Canopy schema version stamp", () => {
+describe("overstoryd schema version stamp", () => {
   test("stamps a new database, omits profile-kind columns, and reopens cleanly", async () => {
     const root = await dataRoot();
     const database = join(root, "overstoryd.sqlite3");

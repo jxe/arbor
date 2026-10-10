@@ -63,7 +63,7 @@ struct StoryShareAccount: Identifiable, Hashable, Sendable {
               sameOrigin(canonicalURL, accountOrigin),
               canonicalURL.query == nil,
               canonicalURL.fragment == nil else {
-            throw ProtocolValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
+            throw ProtocolValidationError.invalidValue("Enter a canonical URL on the selected host")
         }
         let segments = canonicalURL.path.split(separator: "/").map(String.init)
         guard !segments.isEmpty else { throw ProtocolValidationError.invalidValue("The community root cannot be placed again") }
@@ -521,7 +521,7 @@ final class StoryWorkspaceState {
     /// A placement saved before its account was rekeyed names a configuration
     /// TreeID no account has, so its tree would open with no credential and
     /// every request would be anonymous. Point it at the one account on the
-    /// same Canopy.
+    /// same host.
     private func repairPlacementAccounts() async throws {
         let accounts = try await accountService.accounts()   // rekeys stored accounts first
         let known = Set(accounts.map(\.configurationTree))
@@ -565,7 +565,7 @@ final class StoryWorkspaceState {
     }
 #endif
 
-    /// Canopy's entry dates for an opened tree, read in the background: they
+    /// The host's entry dates for an opened tree, read in the background: they
     /// never delay opening, and a failed read keeps the dates the tree has.
     @discardableResult
     private func refreshEntryDates(_ workingTree: WorkingTree, tree: String, client: ProtocolClient) -> Task<Void, Never> {
@@ -677,7 +677,7 @@ final class StoryWorkspaceState {
         if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
         guard let overview = localStorySyncOverview,
               let placedTree = overview.trees.first(where: { $0.id == tree }) else {
-            throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
+            throw ProtocolValidationError.invalidValue("The current tree is not placed through a host account")
         }
         let wire = try await placedTreeClient(placedTree, overview: overview)
         // On a placement host the profile, its devices and its apps are read
@@ -701,7 +701,7 @@ final class StoryWorkspaceState {
         guard let configurationTree = placedTree.configurationTree,
               let home = overview.accounts.first(where: { $0.configurationTree == configurationTree })?.host,
               let homeURL = URL(string: home) else {
-            throw ProtocolValidationError.invalidValue("The current tree is not placed through a Canopy account")
+            throw ProtocolValidationError.invalidValue("The current tree is not placed through a host account")
         }
         guard let endpoint = placedTree.canonicalEndpoint, let endpointURL = URL(string: endpoint),
               !Self.sameOrigin(endpointURL, homeURL) else {
@@ -719,7 +719,7 @@ final class StoryWorkspaceState {
     //
     // The configuration tree is a placed folder at `~/.story/configurations/<cfg>/`.
     // The app reads and edits its YAML there, exactly as the CLI does
-    // (`editProfileConfigurationFile` in `@story/stores`), and the daemon pushes
+    // (`editProfileConfigurationFile` in `@ovst/protocol`), and the daemon pushes
     // the edit like any other placement. Nothing here goes through a daemon
     // editor route.
 
@@ -774,7 +774,7 @@ final class StoryWorkspaceState {
         guard let account = localStorySyncOverview?.accounts.first(where: {
             $0.configurationTree == configurationTree
         }) else {
-            throw StorySyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+            throw StorySyncSupervisorError.incompatibleService("The host account is unavailable")
         }
         let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ProfileConfigurationYAML.devices(from: source)
@@ -809,7 +809,7 @@ final class StoryWorkspaceState {
         guard let account = localStorySyncOverview?.accounts.first(where: {
             $0.configurationTree == configurationTree
         }) else {
-            throw StorySyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+            throw StorySyncSupervisorError.incompatibleService("The host account is unavailable")
         }
         let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ProfileConfigurationYAML.devices(from: source)
@@ -840,7 +840,7 @@ final class StoryWorkspaceState {
         guard let account = localStorySyncOverview?.accounts.first(where: {
             $0.configurationTree == configurationTree
         }) else {
-            throw StorySyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+            throw StorySyncSupervisorError.incompatibleService("The host account is unavailable")
         }
         let source = try readProfileConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ProfileConfigurationYAML.devices(from: source)
@@ -882,7 +882,7 @@ final class StoryWorkspaceState {
               let origin = account.host.flatMap(URL.init(string:)),
               let scheme = origin.scheme, let host = origin.host(),
               let handle = account.handle, let profileTree = account.profileTree else {
-            throw ProtocolValidationError.invalidValue("The current tree has no connected Canopy account on this Mac")
+            throw ProtocolValidationError.invalidValue("The current tree has no connected host account on this Mac")
         }
         // As `story cloud bundle create`: an agent code pairs a device at the home host only.
         if let endpoint = overview.trees.first(where: { $0.id == tree })?.canonicalEndpoint.flatMap(URL.init(string:)),
@@ -910,13 +910,13 @@ final class StoryWorkspaceState {
         let deviceKeySeed = StoryCloudBundle.newDeviceKeySeed()
         let createdAt = ISO8601DateFormatter.cloudBundle.string(from: Date())
         // The CLI accepts only a normalized origin, which the stored spelling need not be.
-        let host = "\(scheme)://\(host)" + (origin.port.map { ":\($0)" } ?? "")
-        let accountURL = host + "/~" + handle
+        let hostOrigin = "\(scheme)://\(host)" + (origin.port.map { ":\($0)" } ?? "")
+        let accountURL = hostOrigin + "/~" + handle
         let bundle = try StoryCloudBundle.encode(StoryCloudBundlePayload(
             bundleID: bundleID,
             label: label,
             createdAt: createdAt,
-            origin: host,
+            origin: hostOrigin,
             account: accountURL,
             accountID: accountID,
             configurationTree: configurationTree,
@@ -939,7 +939,7 @@ final class StoryWorkspaceState {
             bundleID: bundleID,
             label: label,
             createdAt: createdAt,
-            origin: host,
+            origin: hostOrigin,
             account: accountURL,
             configurationTree: configurationTree,
             deviceID: deviceID,
@@ -972,7 +972,7 @@ final class StoryWorkspaceState {
     }
 
     /// A person or group as a profile TreeID: a bare TreeID, a `~handle` on the
-    /// account's own Canopy, or any Story locator resolved on the protocol at its
+    /// account's own host, or any Overstory locator resolved on the protocol at its
     /// origin with the account credential when the origins match.
     private func resolveLocalProfile(
         _ input: String,
@@ -990,7 +990,7 @@ final class StoryWorkspaceState {
             locator = value
         }
         guard let remote = OverstoryRemoteLocator(locator) else {
-            throw ProtocolValidationError.invalidValue("Enter a person or group Story URL, handle, or TreeID")
+            throw ProtocolValidationError.invalidValue("Enter a person or group Overstory URL, handle, or TreeID")
         }
         return try await accountClient(origin: remote.origin).resolve(path: remote.path).ref.tree
     }
@@ -1012,7 +1012,7 @@ final class StoryWorkspaceState {
         )
     }
 
-    /// The Canopy account a new group is created in: the first one this Mac
+    /// The host account a new group is created in: the first one this Mac
     /// administers with a handle to allocate `/~handle/<slug>` under.
     var groupCreationAccount: StoryShareAccount? {
         for account in localStorySyncOverview?.accounts ?? [] {
@@ -1024,7 +1024,7 @@ final class StoryWorkspaceState {
     }
 
     /// Create a group profile tree at `placement`'s path for `slug`, readable
-    /// by everyone on the Canopy (the community `/` profile), and place it on
+    /// by everyone on the host (the community `/` profile), and place it on
     /// this Mac. Returns the new group's TreeID.
     func createGroup(
         name: String,
@@ -1036,14 +1036,14 @@ final class StoryWorkspaceState {
         if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
         guard let account = groupCreationAccount, let handle = account.handle,
               let origin = URL(string: account.origin) else {
-            throw ProtocolValidationError.invalidValue("Connect this Mac as an administrator of a Canopy account first")
+            throw ProtocolValidationError.invalidValue("Connect this Mac as an administrator of a host account first")
         }
         guard StoryGroupSlug.isValid(slug) else {
             throw ProtocolValidationError.invalidValue("Use lowercase letters, numbers, and hyphens for the group address")
         }
         let path = placement.prefix(handle: handle) + slug
         if placement == .host, directory.contains(where: { $0.entry.handle == slug }) {
-            throw ProtocolValidationError.invalidValue("~\(slug) belongs to a person on this Canopy")
+            throw ProtocolValidationError.invalidValue("~\(slug) belongs to a person on this host")
         }
         if localStorySyncOverview?.trees.contains(where: { $0.canonicalPath == path }) == true {
             throw ProtocolValidationError.invalidValue("\(path) is already in use")
@@ -1216,10 +1216,10 @@ final class StoryWorkspaceState {
     /// Open a tree the daemon has placed as this app's own working tree.
     ///
     /// `GET /v1/bootstrap` seeds an in-memory tree from the daemon's recorded
-    /// accepted Canopy root: a sparse spine of directories and Markdown, with
+    /// accepted host root: a sparse spine of directories and Markdown, with
     /// every other file a hash the daemon's `/v1/objects` serves on demand.
     /// The folder client has independent pending/conflict state; it neither
-    /// seeds nor blocks this client's direct Canopy update coordinator.
+    /// seeds nor blocks this client's direct host update coordinator.
     func openPlacedTree(_ treeID: String) async throws {
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
@@ -1234,11 +1234,11 @@ final class StoryWorkspaceState {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no configuration tree")
         }
         // The tree's host is its canonical endpoint: the account's home host,
-        // or one of its placement hosts (accounts §1.3). The account's Canopy
+        // or one of its placement hosts (accounts §1.3). The account's host
         // is the origin only for a tree without a canonical endpoint.
         let homeHost = try await client.accounts().first { $0.configurationTree == configurationTree }?.host
         guard let rawOrigin = placed.canonical?.endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
-            throw ProtocolValidationError.invalidValue("\(placed.name) has no Canopy origin")
+            throw ProtocolValidationError.invalidValue("\(placed.name) has no host origin")
         }
         // A placement host has its own session, which the daemon opens there
         // with the same device key; the home session never goes to it.
@@ -1594,7 +1594,7 @@ final class StoryWorkspaceState {
     }
 
     func storySyncLogs() async -> String {
-        await supervisor?.logs() ?? "No story-sync process is connected."
+        await supervisor?.logs() ?? "No Story Sync process is connected."
     }
 
     func refreshLocalStorySyncOverview() async {
@@ -1719,7 +1719,7 @@ final class StoryWorkspaceState {
     }
 #endif
 
-    /// Ask the account's Canopy for a pairing offer, authorized by the
+    /// Ask the account's host for a pairing offer, authorized by the
     /// account's credential; both platforms do this directly on the host.
     func createPairingOffer(configurationTree: String) async throws -> StoryPairingOffer {
         var found = knownAccounts.first { $0.configurationTree == configurationTree }
@@ -1727,7 +1727,7 @@ final class StoryWorkspaceState {
             knownAccounts = try await accountService.accounts()
             found = knownAccounts.first { $0.configurationTree == configurationTree }
         }
-        guard let account = found else { throw HostAccountServiceError.invalidAccount("The Canopy account is unavailable") }
+        guard let account = found else { throw HostAccountServiceError.invalidAccount("The host account is unavailable") }
         guard let origin = account.origin else {
             throw HostAccountServiceError.invalidAccount("The community origin is invalid")
         }
@@ -1859,7 +1859,7 @@ final class StoryWorkspaceState {
         await task.value
     }
 
-    /// Trees each Canopy says this account can edit, by origin: People
+    /// Trees each host says this account can edit, by origin: People
     /// offers only groups a member can actually be added to.
     private var writableTreesByOrigin: [String: Set<String>] = [:]
 
@@ -1877,15 +1877,15 @@ final class StoryWorkspaceState {
     func openDirectoryProfile(_ person: DirectoryPerson) async throws {
 #if os(macOS)
         guard let locator = person.entry.locator else {
-            throw ProtocolValidationError.invalidValue("Profile is not hosted on this Canopy")
+            throw ProtocolValidationError.invalidValue("Profile is not on this host")
         }
         try await openRemoteLocator(locator)
 #else
         guard let account = await connectedAccount(at: person.origin) else {
-            throw ProtocolValidationError.invalidValue("No account is connected to this Canopy")
+            throw ProtocolValidationError.invalidValue("No account is connected to this host")
         }
         guard let tree = try await accountService.client(for: account).trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
-            throw ProtocolValidationError.invalidValue("Profile is not hosted on this Canopy")
+            throw ProtocolValidationError.invalidValue("Profile is not on this host")
         }
         try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
 #endif
@@ -1916,7 +1916,7 @@ final class StoryWorkspaceState {
             $0.entry.profile == tree.rawValue && $0.entry.locator != nil
         }) else {
             throw ProtocolValidationError.invalidValue(
-                "The nested tree \(tree.rawValue) is not hosted by a connected Canopy."
+                "The nested tree \(tree.rawValue) is not on a connected host."
             )
         }
         try await openDirectoryProfile(person)
@@ -2684,7 +2684,7 @@ final class StoryAppModel {
 
     func addProfileInvitation(handle: String, digest: String) async throws {
         guard currentReference.path == "/", let binding, workspace.isCommunityMembershipTree else {
-            throw ProtocolValidationError.invalidValue("Open the Canopy community profile before inviting a person")
+            throw ProtocolValidationError.invalidValue("Open the host's community profile before inviting a person")
         }
         let snapshot = try await binding.snapshot()
         try await binding.replaceSource(try StoryProfileDocument.addingInvitation(
@@ -2726,7 +2726,7 @@ final class StoryAppModel {
             guard node.reference.path == "/",
                   node.reference.tree != workspace.home.tree else { return node }
             let locator = "overstory://\(node.reference.tree.rawValue)/"
-            let authoredHandle = group?.memberHandlesByProfile[locator]
+            let authoredHandle = group?.memberHandle(for: locator)
             let person = workspace.directory.first { $0.entry.profile == node.reference.tree.rawValue }
             var presented = node
             if let authoredHandle {
@@ -3262,7 +3262,7 @@ final class StoryAppModel {
                 await returnTo(location(for: homeNode.reference))
                 await session.start(destination: stableKey)
             } catch {
-                session.reportError("Canopy could not open Home for recording: \(error.localizedDescription)")
+                session.reportError("Story could not open Home for recording: \(error.localizedDescription)")
             }
         case .recording:
             await session.stopAndDeliver()

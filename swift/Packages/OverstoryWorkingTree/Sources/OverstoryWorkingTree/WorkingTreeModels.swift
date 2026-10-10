@@ -190,7 +190,7 @@ public enum WorkingTreeDirectoryBodyPlacement: String, Codable, Sendable {
 /// Descriptive metadata about an entry, kept outside every Overstory hash:
 /// presentation and history, never content. New fields are optional.
 public struct EntryMetadata: Codable, Equatable, Sendable {
-    /// When the entry last changed: the accepted time from Canopy, or the
+    /// When the entry last changed: the accepted time from the host, or the
     /// local time of a change this replica made or observed.
     public var modifiedAt: Date?
     public init(modifiedAt: Date? = nil) { self.modifiedAt = modifiedAt }
@@ -258,7 +258,7 @@ public struct WorkingTreeSystemReplacement: Sendable, Equatable {
     public var update: String
     public var cursor: String?
     public var nodes: [WorkingTreeSystemNode]
-    /// When Canopy accepted this root. Nodes it changes are dated then rather
+    /// When the host accepted this root. Nodes it changes are dated then rather
     /// than when this replica happened to install it.
     public var acceptedAt: Date?
 

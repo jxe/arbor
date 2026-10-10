@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  buildInviteLocator,
   buildOverstoryLocator,
+  parseProfileLocator,
   buildMarkdownLink,
   buildNetworkLocator,
   canonicalStableKey,
@@ -46,6 +48,33 @@ describe("logical URL resolution", () => {
         expect(expectedRewritten, `${href} rewrite fixture`).toBeDefined();
         expect(rewriteLocalLinkPath(sourceDirectory, href, rewriteTarget), `${href} -> ${rewriteTarget.path}`).toBe(expectedRewritten!);
       }
+    }
+  });
+
+  test("builds an invitation link that parses back, and keeps the code out of identity forms", () => {
+    const code = "Qk3x_9-aZ0bY7cW6dV5eU4";
+    const link = "overstory://community.example/~alice;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4";
+    for (const account of ["https://community.example/~alice", "overstory://community.example/~alice", "https://community.example/~alice/"]) {
+      expect(buildInviteLocator(account, code), account).toBe(link);
+    }
+    expect(buildInviteLocator("http://127.0.0.1:4000/~alice", code)).toBe(`overstory://127.0.0.1:4000/~alice;overstory-invite=${code}`);
+    const resolved = resolveLogicalURL("/", link);
+    if (resolved?.kind !== "overstory" || !("dns" in resolved.authority)) throw new Error("expected an account locator");
+    expect(resolved).toMatchObject({ path: "/~alice", invite: code, stableKey: null, revision: null });
+    // What names the account carries no code.
+    expect(buildOverstoryLocator(resolved.authority.dns, resolved.path)).toBe("overstory://community.example/~alice");
+    expect(parseProfileLocator(link)).toEqual(parseProfileLocator("overstory://community.example/~alice"));
+    expect(resolveNodeTarget("/", link)).toBeNull();
+    for (const [account, bad] of [
+      ["overstory://tr_7k3m/", code],
+      ["https://community.example/~alice", ""],
+      ["https://community.example/~alice", "a b"],
+      ["https://community.example/~alice", "a;overstory-key=id:x"],
+      ["https://community.example/~alice?x=1", code],
+      ["https://community.example/~alice;overstory-config", code],
+      ["/~alice", code],
+    ] as const) {
+      expect(() => buildInviteLocator(account, bad), `${account} ${bad}`).toThrow();
     }
   });
 

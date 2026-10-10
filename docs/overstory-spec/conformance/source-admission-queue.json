@@ -1,5 +1,5 @@
 {
-  "description": "Exact source admission queue: dependency identities survive equal roots, restart, and request preparation; a multi-generation intent yields one frame per generation and compaction merges adjacent plain frames. Candidate, request and trace bytes are checked by Swift, TypeScript and Canopy's composeFrames.",
+  "description": "Exact source admission queue: dependency identities survive equal roots, restart, and request preparation; a multi-generation intent yields one frame per generation and compaction merges adjacent plain frames. Candidate, request and trace bytes are checked by Swift, TypeScript and overstoryd's composeFrames.",
   "tree": "tr_queue",
   "sourcePath": "/nested/note.md",
   "source": "Before 🪴\r\n",

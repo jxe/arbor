@@ -58,8 +58,8 @@ function usage(): never {
   bun packages/story-sync/recovery/recover-story-sync-tree.ts prepare --tree TREE --output DIR [--data-home DIR] [--story-sync URL] [--disk DIR] [--exclude PATH]
   bun packages/story-sync/recovery/recover-story-sync-tree.ts submit --manifest FILE --candidate NAME --expect-current-update UPDATE --expect-current-root ROOT --expect-candidate-root ROOT
 
-prepare is read-only with respect to Story, StorySync, and Canopy. It creates a private evidence bundle.
-submit requires an unchanged Canopy update/root, a conflict-free prepared candidate, and posts with an exact ifCurrent guard.`);
+prepare is read-only with respect to Story, Story Sync, and the host. It creates a private evidence bundle.
+submit requires an unchanged host update/root, a conflict-free prepared candidate, and posts with an exact ifCurrent guard.`);
   process.exit(2);
 }
 
@@ -84,10 +84,10 @@ function required(values: Map<string, string[]>, key: string): string {
 
 async function treePlacement(storySync: string, tree: string): Promise<TreeListItem> {
   const response = await fetch(`${storySync}/v1/trees`);
-  if (!response.ok) throw new Error(`StorySync tree list failed: ${response.status} ${await response.text()}`);
+  if (!response.ok) throw new Error(`Story Sync tree list failed: ${response.status} ${await response.text()}`);
   const body = await response.json() as { snapshot?: TreeListItem[] };
   const item = body.snapshot?.find((candidate) => candidate.id === tree);
-  if (!item) throw new Error(`StorySync does not know tree ${tree}`);
+  if (!item) throw new Error(`Story Sync does not know tree ${tree}`);
   return item;
 }
 
@@ -110,7 +110,7 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
   const exclusions = (values.get("exclude") ?? []).map((path) => resolve(path));
 
   const raw = await readRawSyncState(dataHome, tree);
-  if (!raw.state.accepted) throw new Error("StorySync state has no accepted object inventory");
+  if (!raw.state.accepted) throw new Error("Story Sync state has no accepted object inventory");
   const acceptedUpdate = raw.state.pending?.base ?? placement.update;
   if (!acceptedUpdate) throw new Error("Cannot identify the accepted update for the local basis");
 
@@ -118,12 +118,12 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
   const currentDescriptor = await wire.client.descriptor(tree);
   const [accepted, current, disk] = await Promise.all([
     // Older running daemons do not expose object reads. The journal still
-    // supplies the exact accepted root/inventory; ask Canopy for that immutable
+    // supplies the exact accepted root/inventory; ask the host for that immutable
     // historical graph and verify that every journaled object is present.
     wire.client.snapshot(tree, raw.state.accepted.root).then((snapshot) => {
       const expected = new Set(raw.state.accepted!.hashes);
       if (snapshot.objects.size !== expected.size || [...snapshot.objects.keys()].some((hash) => !expected.has(hash))) {
-        throw new Error("Canopy's immutable accepted snapshot does not match StorySync's accepted object inventory");
+        throw new Error("The host's immutable accepted snapshot does not match Story Sync's accepted object inventory");
       }
       return snapshot;
     }),
@@ -313,7 +313,7 @@ async function submit(values: Map<string, string[]>): Promise<void> {
   const candidate = manifest.variants.find((variant) => variant.name === candidateName);
   if (!candidate) throw new Error(`Unknown candidate ${candidateName}`);
   if (manifest.current.update !== expectedCurrentUpdate || manifest.current.root !== expectedCurrentRoot) {
-    throw new Error("Typed current Canopy identity does not match the recovery manifest");
+    throw new Error("Typed current host identity does not match the recovery manifest");
   }
   if (candidate.root !== expectedCandidateRoot) throw new Error("Typed candidate root does not match the selected recovery candidate");
   if (candidate.conflicts.length) throw new Error(`Candidate ${candidateName} has unresolved merge conflicts`);
@@ -332,9 +332,9 @@ async function submit(values: Map<string, string[]>): Promise<void> {
   const result = await wire.client.submitUpdate(manifest.tree, before.tree.update, snapshot, {
     ifCurrent: before.tree.update,
   });
-  if (result.update.root !== snapshot.root) throw new Error(`Canopy accepted an unexpected root ${result.update.root}`);
+  if (result.update.root !== snapshot.root) throw new Error(`The host accepted an unexpected root ${result.update.root}`);
   const after = await wire.client.descriptor(manifest.tree);
-  if (after.tree.update !== result.update.id || after.tree.root !== snapshot.root) throw new Error("Canopy verification did not match the accepted recovery update");
+  if (after.tree.update !== result.update.id || after.tree.root !== snapshot.root) throw new Error("Host verification did not match the accepted recovery update");
   console.log(JSON.stringify({ submitted: true, candidate: candidateName, outcome: result.outcome, update: result.update.id, root: result.update.root }, null, 2));
 }
 

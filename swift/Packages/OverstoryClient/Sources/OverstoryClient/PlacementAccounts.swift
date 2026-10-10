@@ -15,7 +15,7 @@ public struct NativePlacementAccount: Codable, Equatable, Hashable, Sendable, Id
     public var origin: String
     public var account: String
     public var accountID: String
-    /// Optional Canopy-specific presentation hint; never account identity.
+    /// Optional host-specific presentation hint; never account identity.
     public var handle: String?
     public var profileTree: String
     /// The home host the placement host reads the profile's device keys from.
@@ -71,7 +71,7 @@ public protocol PlacementConnectionStore: Sendable {
 }
 
 public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
-    /// The host URL is not an HTTPS Canopy URL (or plain HTTP on loopback).
+    /// The host URL is not an HTTPS host URL (or plain HTTP on loopback).
     case invalidHost
     /// The profile has no connected home account on this device.
     case noHomeAccount
@@ -85,7 +85,7 @@ public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidHost: "Enter the placement host as an https:// Canopy URL"
+        case .invalidHost: "Enter the placement host as an https:// URL"
         case .noHomeAccount: "This profile has no connected home account on this device; claim or pair one first"
         case let .homeHost(host): "\(host) is this profile's home host; a placement is made at another host"
         case let .notReserved(host, account):

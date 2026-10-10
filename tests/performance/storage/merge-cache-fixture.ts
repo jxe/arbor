@@ -1,6 +1,6 @@
 /** Saved merge states for Performance 002 measurements (`packages/overstoryd-merge/scripts/benchmark-cache.ts`), made by the reference
  * sidecar over a disposable data root (such as `git-history-fixture.ts`
- * builds): never point it at Canopy data. For each tree it replays the log to
+ * builds): never point it at host data. For each tree it replays the log to
  * two heads and saves both, as the sidecar does after 32 replayed entries.
  * With `--choices`, it first records concurrent snapshots that conflict, so
  * the saves carry open decisions whose alternatives name other states.

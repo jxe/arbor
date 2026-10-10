@@ -281,7 +281,7 @@ function plainEdits(frame: SourceFrame): { path: string; object: string; edits: 
  * yields no frame. Frames with lineage, copies or operation material are kept
  * as they are, so a claim always stays in the frame whose basis it was
  * captured against (docs/overstory-spec/09). The same rule runs in the Swift queue and in
- * Canopy's `composeFrames`; `docs/overstory-spec/conformance/source-admission-queue.json` holds the
+ * overstoryd's `composeFrames`; `docs/overstory-spec/conformance/source-admission-queue.json` holds the
  * shared vectors. */
 export function compactTrace(frames: readonly SourceFrame[]): SourceFrame[] {
   const result: SourceFrame[] = [];

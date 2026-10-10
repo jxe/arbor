@@ -165,11 +165,13 @@ function scopeChip(node: NodeSnapshot): { label: string; className: string; icon
 function reservedProfileTarget(input: string): { origin: string; handle: string } | null {
   try {
     const url = new URL(input.trim());
-    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "story:") return null;
+    // Rename 002: `arbor://` is the old spelling of `overstory://`; read both.
+    const overstoryScheme = url.protocol === "overstory:" || url.protocol === "arbor:";
+    if (url.protocol !== "http:" && url.protocol !== "https:" && !overstoryScheme) return null;
     const path = `/${url.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
     const match = /^\/~([a-z0-9][a-z0-9-]{0,62})$/.exec(path);
     if (!match) return null;
-    const origin = url.protocol === "story:"
+    const origin = overstoryScheme
       ? `${url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "http" : "https"}://${url.host}`
       : url.origin;
     return { origin, handle: match[1]! };
@@ -312,11 +314,11 @@ export function App() {
     ?? claimedTargetAccount
     ?? accounts[0]
     ?? null;
-  const selectedCommunityURL = selectedAccount?.overstoryd
-    ? `overstory://${new URL(selectedAccount.overstoryd).host}/`
+  const selectedCommunityURL = selectedAccount?.host
+    ? `overstory://${new URL(selectedAccount.host).host}/`
     : null;
-  const selectedProfileURL = selectedAccount?.overstoryd && selectedAccount.handle
-    ? `${selectedAccount.overstoryd}/~${selectedAccount.handle}`
+  const selectedProfileURL = selectedAccount?.host && selectedAccount.handle
+    ? `${selectedAccount.host}/~${selectedAccount.handle}`
     : null;
   const refreshSystem = useCallback(async () => {
     const request = ++systemRequest.current;
@@ -948,7 +950,7 @@ export function App() {
       return;
     }
     if (!identity) {
-      setError("Create your identity first, then send its Profile TreeID to this Canopy's administrator for the exact reservation.");
+      setError("Create your identity first, then send its Profile TreeID to this host's administrator for the exact reservation.");
       return;
     }
     try {
@@ -998,7 +1000,7 @@ export function App() {
     try {
       setDeviceBusy(true);
       setError(null);
-      if (!selectedAccount) throw new Error("Choose the Canopy account whose device should be revoked");
+      if (!selectedAccount) throw new Error("Choose the host account whose device should be revoked");
       await api.revokeDevice(selectedAccount.configurationTree, device.id);
       setDevices((current) => current.filter((item) => item.id !== device.id));
     } catch (error) {
@@ -1333,8 +1335,8 @@ export function App() {
       </div>
       {claimTarget && !claimedTargetAccount ? <>
         <p className="tree-control-intro">{identity
-          ? "Use your local profile identity to claim this Canopy account."
-          : "Create your permanent local profile identity, then send its public TreeID to this Canopy's administrator."}</p>
+          ? "Use your local profile identity to claim this host account."
+          : "Create your permanent local profile identity, then send its public TreeID to this host's administrator."}</p>
         <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.story/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
         {error && <p className="control-error" role="alert">{error}</p>}
         <div className="modal-actions">
@@ -1343,7 +1345,7 @@ export function App() {
         {identity && <div className="canonical-addresses"><div><span>Profile TreeID</span><code>{identity.profileTree}</code><button onClick={() => void navigator.clipboard.writeText(identity.profileTree)}>Copy</button></div></div>}
       </> : selectedAccount ? <>
         {accounts.length > 1 && <label className="control-field">
-          <span>Canopy account</span>
+          <span>Host account</span>
           <select value={selectedAccount.configurationTree} onChange={(event) => {
             setSelectedAccountTree(event.target.value);
             setDevices([]);
@@ -1356,13 +1358,13 @@ export function App() {
           </select>
         </label>}
         <div className="canonical-addresses">
-          {selectedCommunityURL && <div><span>Community</span><a href={selectedCommunityURL.replace(/^story:/, location.protocol)} target="_blank" rel="noreferrer">{selectedCommunityURL}</a></div>}
+          {selectedCommunityURL && <div><span>Community</span><a href={selectedCommunityURL.replace(/^overstory:/, location.protocol)} target="_blank" rel="noreferrer">{selectedCommunityURL}</a></div>}
           {selectedProfileURL && <div><span>Account</span><code>{selectedProfileURL}</code><button onClick={() => void navigator.clipboard.writeText(selectedProfileURL)}>Copy</button></div>}
           <div><span>Profile</span><code>overstory://{selectedAccount.profileTree ?? "not-linked"}</code><button disabled={!selectedAccount.profileTree} onClick={() => selectedAccount.profileTree && void navigator.clipboard.writeText(`overstory://${selectedAccount.profileTree}`)}>Copy</button></div>
         </div>
         <p className="tree-control-intro">This hosting account is linked to your primary profile identity. Its writable namespaces appear here and on Story’s home screen.</p>
         {selectedAccount.diagnostics.map((diagnostic) => <p className="control-error" role="alert" key={`${diagnostic.code}:${diagnostic.path}`}>{diagnostic.message}</p>)}
-        {!selectedAccount.credentialAvailable && selectedAccount.overstoryd && <p className="control-error" role="alert">This device’s credential is unavailable. Pair this device again from an active administrator device.</p>}
+        {!selectedAccount.credentialAvailable && selectedAccount.host && <p className="control-error" role="alert">This device’s credential is unavailable. Pair this device again from an active administrator device.</p>}
         {error && <p className="control-error" role="alert">{error}</p>}
         {selectedAccount.credentialAvailable && <section className="access-builder" aria-labelledby="device-management-title">
           <div className="access-builder-heading">
@@ -1396,7 +1398,7 @@ export function App() {
           {selectedProfileURL && <a className="primary link-button" href={selectedProfileURL} target="_blank" rel="noreferrer">View account</a>}
         </div>
       </> : identity ? <div className="canonical-addresses"><div><span>Profile TreeID</span><code>{identity.profileTree}</code><button onClick={() => void navigator.clipboard.writeText(identity.profileTree)}>Copy</button></div></div> : <>
-        <p className="tree-control-intro">Create your permanent profile identity, then send its public TreeID to a Canopy administrator.</p>
+        <p className="tree-control-intro">Create your permanent profile identity, then send its public TreeID to a host administrator.</p>
         <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.story/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
         {error && <p className="control-error" role="alert">{error}</p>}
         <div className="modal-actions"><button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void createIdentity()}>{treeBusy ? "Creating…" : "Create identity"}</button></div>

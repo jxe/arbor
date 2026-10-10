@@ -87,9 +87,11 @@ export const CONFIGURATION_PARAMETER = "overstory-config";
 
 /** A tree reference as the host routes read it: `tr_x` or `tr_x;overstory-config`. */
 export function parseTreeReference(value: string): { tree: string; configuration: boolean } {
-  const suffix = `;${CONFIGURATION_PARAMETER}`;
-  const configuration = value.endsWith(suffix);
-  const tree = configuration ? value.slice(0, -suffix.length) : value;
+  // Rename 002: `tr_x;arbor-config` is read as `tr_x;overstory-config`. Writers
+  // build the reference from `CONFIGURATION_PARAMETER`, the new spelling.
+  const suffix = [`;${CONFIGURATION_PARAMETER}`, ";arbor-config"].find((candidate) => value.endsWith(candidate));
+  const configuration = suffix !== undefined;
+  const tree = suffix !== undefined ? value.slice(0, -suffix.length) : value;
   if (!isTreeID(tree)) throw new Error(`Invalid tree reference: ${value}`);
   return { tree, configuration };
 }

@@ -4,7 +4,7 @@
 new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. Address this after
 the page-transfer fixes: overstoryd should clear choices it can prove reconciled,
-and Canopy should explain the current result and make explicit resolution easy.
+and Story should explain the current result and make explicit resolution easy.
 
 ## What exists
 
@@ -22,7 +22,7 @@ source from the second. This is evidence for a useful resolution, but comparing
 file hashes alone does not establish which source identities or hidden edits a
 resolution would preserve. Use synthetic fixtures, not the private captured text.
 
-Canopy's initial explicit action keeps the pinned current root for an independent
+Story's initial explicit action keeps the pinned current root for an independent
 whole-tree choice. It uses the existing guarded review publication path. Extend
 this to smaller scopes and coupled groups only after their obligations are checked.
 

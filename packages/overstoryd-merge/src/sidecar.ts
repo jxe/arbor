@@ -260,7 +260,7 @@ export class Sidecar {
     for (const [index, entry] of chain.entries()) {
       // A long rebuild (a cold cache over a long chain) stops at the budget,
       // keeping every state it built, and asks overstoryd to retry: the next
-      // attempt continues from there. A overstoryd timeout would instead end
+      // attempt continues from there. An overstoryd timeout would instead end
       // the process and lose them, so a long chain could never be rebuilt.
       // Every attempt replays at least one entry, so retries always progress.
       if (index > 0 && performance.now() > this.replayDeadline)
@@ -277,7 +277,7 @@ export class Sidecar {
 
   /** Entries are facts. Ask the entry's question again with its previous
    * entry as the head, as the entry records it; then align to the recorded
-   * root and decisions, which a replay under other rules or a overstoryd
+   * root and decisions, which a replay under other rules or an overstoryd
    * decision the sidecar did not make can differ from. */
   private async replay(hash: string, previous: Cached | null, rules: TreeDefaultRules): Promise<Cached> {
     const entry = await this.entry(hash);

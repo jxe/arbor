@@ -156,7 +156,7 @@ describe("private self-sync", () => {
     host.server.stop(true);
     await host.overstoryd[Symbol.asyncDispose]();
 
-    // A daemon pass with Canopy unreachable retains the local head durably
+    // A daemon pass with the host unreachable retains the local head durably
     // instead of failing or waiting for the server.
     const offline = await launch(stateA, treeA);
     const offlineSource = (await readFile(join(treeA, "note.md"), "utf8")).replace("Complete-object", "Locally durable");
@@ -200,7 +200,7 @@ describe("private self-sync", () => {
     await converging.close();
   });
 
-  test("accepts binary alternatives, keeps filesystem publication live, and resolves through Canopy", async () => {
+  test("accepts binary alternatives, keeps filesystem publication live, and resolves through the host", async () => {
     const preparing = await launch(stateA, treeA);
     await writeFile(join(treeA, "sample.bin"), "common-binary");
     const beforeCommon = host.overstoryd.currentUpdate(tree)!.id;
@@ -296,7 +296,7 @@ describe("private self-sync", () => {
       throw new Error("The local observation stream ended before sync invalidation");
     })();
 
-    // Another writer advances the tree directly on Canopy; the reader's only
+    // Another writer advances the tree directly on the host; the reader's only
     // way to learn about it within the timeout is its live watch.
     const owner = await deviceClient(host.url, token);
     const current = await readAccepted(owner, tree);
@@ -404,7 +404,7 @@ describe("private self-sync", () => {
         .catch(() => false), 5_000);
       await waitFor(idle);
 
-      // Canopy replayed the daemon's chain by digest: no merge, no new update.
+      // The host replayed the daemon's chain by digest: no merge, no new update.
       expect(host.overstoryd.acceptedUpdates(tree).length).toBe(historyBefore + chain.updates.length + 1);
       expect(await author.running.service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(author.running.service.trees.placementFor(tree)?.update).toBe(successorAccepted.update.id);

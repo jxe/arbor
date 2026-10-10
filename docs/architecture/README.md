@@ -11,7 +11,7 @@ behavior below is installed or deployed.
 - [Host: overstoryd](overstoryd/README.md): acceptance, durability, merge and execution sidecars.
 - [Client stack](client-stack/README.md): working-tree synchronization, exact retries, and conflict recovery.
 - [Story Sync and local tools](story-sync/README.md): daemon ownership, placed folders, private state, and CLI.
-- [Canopy browsers](story-browser/README.md): editor runtime ownership, local state, and recovery.
+- [Story apps](story-browser/README.md): editor runtime ownership, local state, and recovery.
 - [Executable-document runtime](apps-runtime/README.md): queries and mutations.
 - [Collection schemas](collection-schema/README.md): the declarative `schema.cddl` parser, validator, and collection-file codec.
 
@@ -26,8 +26,8 @@ package lives under `swift/Packages/<Name>`.
 | Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
 | Host | `overstoryd`, `overstoryd-merge`, `merge-protocol`, `tree-merge`, `collection-schema`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar, its JSON contract and the snapshot tree merge; declarative collection schemas; the executable-document runtime |
 | Client stack | `client`, `fs` | `OverstoryClient`, `OverstoryWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
-| Story local tools | `story-sync`, `cli` | the `Canopy` app target's `StorySync/` (macOS) | The per-user daemon, its loopback REST API and clients, the `story` command |
-| Canopy browsers | `story-web` | `StoryKit`, `StoryEditor`, the `Canopy` app target | The human interface |
+| Story Sync and CLI | `story-sync`, `cli` | the `Story` app target's `StorySync/` (macOS) | The per-user daemon, its loopback REST API and clients, the `story` command |
+| Story apps | `story-web` | `StoryKit`, `StoryEditor`, the `Story` app target | The human interface |
 
 Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
 and `collection-schema` depend only on `protocol`, and `tree-merge` only on

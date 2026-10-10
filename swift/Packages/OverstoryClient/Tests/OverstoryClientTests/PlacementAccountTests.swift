@@ -253,7 +253,7 @@ struct PlacementAccountTests {
         }
     }
 
-    @Test("Placement targets are HTTPS Canopy URLs other than the home host")
+    @Test("Placement targets are HTTPS host URLs other than the home host")
     func placementTargets() async throws {
         #expect(try placementTarget("https://place.test").origin == "https://place.test")
         #expect(try placementTarget("https://Place.Test:443/~joe/").account == "https://place.test/~joe")

@@ -38,7 +38,7 @@ The repository already contains `packages/overstoryd/deploy/Dockerfile.overstory
    ```
 
    Do not set an owner token or account JSON for the claim-first trial. If an unusual deployment really needs plain HTTP or a nonstandard public port, pass a complete `--url` in the start command instead of setting `OVERSTORYD_DOMAIN`.
-6. Redeploy. Keep the service at one replica: this overstoryd uses SQLite and one mounted volume.
+6. Redeploy. Keep the service at one replica: overstoryd uses SQLite and one mounted volume.
 7. Verify the deployment:
 
    ```sh
@@ -46,9 +46,9 @@ The repository already contains `packages/overstoryd/deploy/Dockerfile.overstory
    curl -fsS https://garden.example.com/~joe
    ```
 
-   The first response is `{"status":"ok"}`. The second is the unclaimed profile page and tells you to claim it from Canopy.
+   The first response is `{"status":"ok"}`. The second is the unclaimed profile page and tells you to claim it from Story.
 
-Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the overstoryd for anything non-disposable. Keep this SQLite overstoryd at one replica.
+Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the host for anything non-disposable. Keep this SQLite-backed host at one replica.
 
 Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-code/reference), [public domains and ports](https://docs.railway.com/public-networking), [custom-domain DNS](https://docs.railway.com/networking/domains/working-with-domains), and [persistent volumes](https://docs.railway.com/volumes).
 
@@ -63,7 +63,7 @@ bun run overstoryd:railway status packages/overstoryd/deploy/hosts/arb.nxhx.org.
 ```
 
 `apply` is idempotent. It requires the checked-out revision to be published on
-the configured GitHub branch, then creates or reconciles a `overstoryd-*` Railway
+the configured GitHub branch, then creates or reconciles an `overstoryd-*` Railway
 service in the linked project's production environment, configures its Docker
 build, start command, and health check, attaches one `/data` volume, sets the
 public-domain and bootstrap-handle variables, adds the custom domain, connects
@@ -288,7 +288,7 @@ For an existing overstoryd:
    building the Linux image.
 6. Only after those rehearsals, deploy the exact tested commit and verify the
    host before reconnecting clients.
-7. Claim or pair each real device through Canopy to install its account
+7. Claim or pair each real device through Story to install its account
    configuration checkout, then rebuild or restart packaged clients.
 8. Wait for every placement to become idle with local refs equal to host
    refs, confirm that authored snapshots did not change, and run an isolated
@@ -298,9 +298,9 @@ For an existing overstoryd:
 Never put raw credentials, credential digests, access-link secrets, or user
 content in a migration report or shell history.
 
-### Upgrading the Canopy apps
+### Upgrading the Story apps
 
-Close both apps before installing. Back up the complete `.overstory` data home
+Close both apps before installing. Back up the complete `~/.story` data home
 with each SQLite database replaced by a consistent SQLite backup and
 integrity-checked; keep the previous Mac bundle beside the new one; keep the
 phone's application Library, including its active coordinator; keep per-file
@@ -332,10 +332,10 @@ on the first start with an empty volume. Start the service:
 
 ```sh
 docker compose up -d --build
-docker compose logs -f story
+docker compose logs -f overstoryd
 ```
 
-Caddy obtains and renews TLS certificates and proxies to overstoryd. The named `story-data` volume survives container replacement, while `restart: unless-stopped` brings both processes back after a crash or VPS reboot. Verify and claim through local Story for the web exactly as in the Railway flow.
+Caddy obtains and renews TLS certificates and proxies to overstoryd. The named `overstoryd-data` volume survives container replacement, while `restart: unless-stopped` brings both processes back after a crash or VPS reboot. Verify and claim through local Story for the web exactly as in the Railway flow.
 
 For upgrades:
 
@@ -344,4 +344,4 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-Do not run multiple overstoryd replicas against the same overstoryd SQLite volume.
+Do not run multiple overstoryd replicas against the same SQLite volume.

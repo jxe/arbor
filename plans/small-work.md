@@ -36,7 +36,7 @@ Formerly CLI 004. Agents edit placed folders with their own tools; `story status
 --json` already reports readiness and resolves locators. No new read/mutation commands, no
 MCP server, no new story-sync routes.
 
-- [ ] Check whether `story status --json` shows that a local edit reached Canopy; if not,
+- [ ] Check whether `story status --json` shows that a local edit reached the host; if not,
   add `story status --wait [--timeout <s>]` (exit 0 when every in-scope tree is up to date,
   non-zero with the condition if one is held).
 - [ ] Write one short skill for Claude Code and Codex from one source: check `story status`
@@ -93,7 +93,7 @@ Swift toolchain ([status](../status.md#native-011-account-service--2026-09-25));
 
 - [ ] Regenerate `swift/Story.xcodeproj` with `xcodegen generate --spec swift/project.yml --project swift`
   and commit it if it differs from the hand-edited project.
-- [ ] Build the `Canopy` scheme for macOS and iOS.
+- [ ] Build the `Story` scheme for macOS and iOS.
 - [ ] Run `swift/scripts/test-story-editor-local.sh` and `swift package resolve` for
   `StoryEditor` after dropping its unused `StorySyncClient` dependency; commit
   `Package.resolved` only if SwiftPM rewrites it.
@@ -118,10 +118,10 @@ Swift toolchain ([status](../status.md#native-011-account-service--2026-09-25));
 The 2026-09-24 rename ([status](../status.md#overstory-identifiers-and-ui-copy--2026-09-24))
 touched 31 Swift files without a Swift toolchain.
 
-- [ ] Regenerate the Xcode project and build the `Canopy` scheme for macOS and iOS.
+- [ ] Regenerate the Xcode project and build the `Story` scheme for macOS and iOS.
 - [ ] Run every Swift package suite (`swift/scripts/test-story-editor-local.sh` for
   `StoryEditor`) and `bun run test:protocol` on a Mac.
-- [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Canopy is
+- [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Story is
   up to date, and the camera, microphone and speech permission prompts.
 
 ## Collection schema Mac gates
@@ -210,7 +210,7 @@ that left `preparing: true` with no task, and a preparation failure raised outsi
 submission error handler. A fix never clears a pending request, rewrites its digest,
 discards a saved head or alters protocol semantics.
 
-**Resource policy soak.** Exercise Canopy consent and revocation and configuration
+**Resource policy soak.** Exercise Story consent and revocation and configuration
 conflict resolution on the isolated production copy, including queued configuration writes.
 Keep the schema 13 migration backups until this soak closes. Required before enabling a
 real application ([Apps 005](apps/005-source-resolution-and-sidecar.md)).

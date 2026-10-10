@@ -19,7 +19,7 @@ import {
 import { directoryPlacementDiagnostics, parseMarkdown } from "@ovst/protocol";
 import { pathExists } from "@ovst/protocol/file-ops";
 import { discoverWorkspace, type WorkspaceDiscovery, WORKSPACE_WATCHER_IGNORE_GLOBS } from "./discovery.ts";
-import { isIgnoreFileName, loadIgnorePolicy, type IgnorePolicy, type Membership } from "./ignore-policy.ts";
+import { isIgnoreFileName, isTransactionTemporaryName, loadIgnorePolicy, type IgnorePolicy, type Membership } from "./ignore-policy.ts";
 import { iCloudPlaceholderLogicalName, iCloudPlaceholderPath } from "./materialization.ts";
 import {
   type FsDirectoryEntry,
@@ -49,7 +49,7 @@ function directoryContentRevision(storedSource: string, children: readonly FsDir
 }
 
 function isTransactionTemporary(path: string): boolean {
-  return basename(path).includes(".overstory-txn-") || basename(path).includes(".overstory-write-");
+  return isTransactionTemporaryName(basename(path));
 }
 
 export class WorkspaceFS implements AsyncDisposable {

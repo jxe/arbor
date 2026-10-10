@@ -16,10 +16,23 @@ struct IgnorePolicyTests {
         var isDirectory: Bool
         var decision: String
         var diagnostics: [String]?
+        /// For an `ignored` decision: the ignore file whose rule decided.
+        var source: String?
     }
 
     struct Fixture: Decodable {
         var cases: [Case]
+    }
+
+    /// Rename 002: the old-spelling cases the TypeScript policy also runs. Delete with the aliases.
+    struct LegacyFixture: Decodable {
+        var ignorePolicy: [Case]
+    }
+
+    static func legacyCases() throws -> [Case] {
+        let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
+        return try JSONDecoder().decode(LegacyFixture.self, from: Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))).ignorePolicy
     }
 
     static func cases() throws -> [Case] {
@@ -36,7 +49,16 @@ struct IgnorePolicyTests {
 
     @Test("The shared fixture decides every case as the TypeScript policy does")
     func sharedFixture() throws {
-        let cases = try Self.cases()
+        try decide(Self.cases())
+    }
+
+    // Rename 002: the names from before the Overstory rename are read and never written.
+    @Test("The old ignore file, state directory and temporaries are read as the TypeScript policy reads them")
+    func legacyFixture() throws {
+        try decide(Self.legacyCases())
+    }
+
+    private func decide(_ cases: [Case]) throws {
         #expect(!cases.isEmpty)
         for item in cases {
             let root = FileManager.default.temporaryDirectory.appending(path: "ignore-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -54,6 +76,7 @@ struct IgnorePolicyTests {
                 #expect(decision.source?.hasSuffix("ignore") == true, "\(item.name)")
                 #expect(decision.pattern != nil, "\(item.name)")
             }
+            if let source = item.source { #expect(decision.source == source, "\(item.name)") }
             #expect(policy.diagnostics.map(\.path) == (item.diagnostics ?? []), "\(item.name)")
         }
     }
@@ -84,5 +107,28 @@ struct IgnorePolicyTests {
         try place("node_modules/pkg/readme.md", Data("# Package\n".utf8), in: root)
         let paths = try LocalFolderPreview.nodes(in: root).map(\.path).sorted()
         #expect(paths == ["/", "/notes", "/notes/kept"])
+    }
+
+    // Rename 002: the preview and name validation follow the same old names.
+    @Test("The old state directory and old temporaries are never tree content")
+    func legacyMandatoryNames() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "ignore-legacy-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try place(".gitignore", Data("!*\n".utf8), in: root)
+        try place("kept.md", Data("# Kept\n".utf8), in: root)
+        try place("kept.md.arbor-write-1a2b", Data("# Stray\n".utf8), in: root)
+        try place("stray.md.arbor-txn-1a2b", Data("# Stray\n".utf8), in: root)
+        try place("stray.md.overstory-txn-1a2b", Data("# Stray\n".utf8), in: root)
+
+        let policy = IgnorePolicy(root: root)
+        for name in [".arbor", ".overstory"] {
+            #expect(policy.decision("/x/\(name)", isDirectory: true).membership == .mandatory)
+            #expect(policy.decision("/x/\(name)/state.json", isDirectory: false).membership == .mandatory)
+            #expect(throws: WorkingTreeError.self) { try WorkingTreeSemantics.validateName(name) }
+        }
+        for name in ["/note.md.arbor-txn-1a2b", "/sub/note.md.arbor-write-1a2b", "/note.md.overstory-txn-1a2b", "/sub/note.md.overstory-write-1a2b"] {
+            #expect(policy.decision(name, isDirectory: false).membership == .mandatory, "\(name)")
+        }
+        #expect(try LocalFolderPreview.nodes(in: root).map(\.path).sorted() == ["/", "/kept"])
     }
 }

@@ -1,7 +1,7 @@
 import Overstory
 import Foundation
 
-/// Canopy's per-tree object route as a platform store.
+/// The host's per-tree object route as a platform store.
 public struct HostObjectStore: ObjectStore {
     public let client: ProtocolClient
     public let tree: String

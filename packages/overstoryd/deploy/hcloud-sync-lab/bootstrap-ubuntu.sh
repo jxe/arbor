@@ -17,7 +17,7 @@ apt-get install -y \
 if ! id story >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash story
 fi
-install -d -o story -g story -m 0700 /home/story/.overstory
+install -d -o story -g story -m 0700 /home/story/.story
 install -d -o root -g root -m 0755 /opt/story-releases
 
 if ! command -v tailscale >/dev/null 2>&1; then

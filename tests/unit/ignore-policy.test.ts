@@ -41,7 +41,7 @@ describe("the shared ignore fixture", () => {
       const decision = await policy.decision(item.path, item.isDirectory);
       expect(decision.membership).toBe(item.decision);
       if (decision.membership === "ignored") {
-        expect(decision.source).toMatch(/\/\.(git|story)ignore$/);
+        expect(decision.source).toMatch(/\/\.(git|overstory)ignore$/);
         expect(decision.pattern).toBeString();
       }
       expect(policy.diagnostics.map((diagnostic) => diagnostic.path)).toEqual(item.diagnostics ?? []);

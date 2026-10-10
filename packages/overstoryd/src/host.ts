@@ -229,7 +229,7 @@ function placementAccountDescriptor(origin: string, overstoryd: HostDaemon, acco
  * the tree's administrators.
  */
 function treeReference(segment: string): { id: string; governs?: string } {
-  const decoded = decodeURIComponent(segment);
+  const decoded = currentConfigurationSpelling(decodeURIComponent(segment));
   try {
     const reference = parseTreeReference(decoded);
     return reference.configuration ? { id: treeConfigurationID(reference.tree), governs: reference.tree } : { id: reference.tree };
@@ -250,6 +250,16 @@ function clientAddress(request: Request): string {
 }
 
 const CONFIGURATION_SUFFIX = ";overstory-config";
+// Rename 002: links shared before the rename end in `;arbor-config`. It is
+// read wherever the suffix is; redirects and new links write only the current one.
+const OLD_CONFIGURATION_SUFFIX = ";arbor-config";
+
+/** `value` with an old-spelling configuration suffix rewritten to the current one. */
+function currentConfigurationSpelling(value: string): string {
+  return value.endsWith(OLD_CONFIGURATION_SUFFIX)
+    ? `${value.slice(0, -OLD_CONFIGURATION_SUFFIX.length)}${CONFIGURATION_SUFFIX}`
+    : value;
+}
 
 /** The configuration of the tree whose canonical root is `path`, or null when no tree's root is there. */
 function configurationAt(overstoryd: HostDaemon, path: string) {
@@ -270,7 +280,9 @@ function linkDigest(request: Request): string | undefined {
 
 function linkBootstrap(): Response {
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Overstory access</title><body><p>Opening shared Overstory tree…</p><script>
-const secret = location.hash.startsWith("#overstory-access=") ? decodeURIComponent(location.hash.slice(14)) : "";
+// Rename 002: links shared before the rename carry "#arbor-access=".
+const marker = ["#overstory-access=", "#arbor-access="].find(prefix => location.hash.startsWith(prefix));
+const secret = marker ? decodeURIComponent(location.hash.slice(marker.length)) : "";
 if (!secret) document.body.textContent = "This Overstory tree requires access.";
 else fetch(location.pathname + location.search, { headers: { "Overstory-Access-Link": secret } })
   .then(async response => {
@@ -366,7 +378,7 @@ export async function serveHost(options: {
   const dynamicLoopbackOrigin = /^https?:\/\/(?:127\.0\.0\.1|localhost):0$/.test(publicOrigin);
   const overstoryd = await HostDaemon.open(resolve(options.dataRoot), {
     handle: options.community?.handle ?? "community",
-    name: options.community?.name ?? "Story Community",
+    name: options.community?.name ?? "Overstory Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:" });
@@ -470,8 +482,8 @@ export async function serveHost(options: {
             overstoryd.verifyDatabase();
             return json({ status: "ok" });
           } catch (error) {
-            console.error("Story overstoryd database check failed", error);
-            return protocolError("internal-error", "Canopy database check failed", 503, true);
+            console.error("overstoryd database check failed", error);
+            return protocolError("internal-error", "Host database check failed", 503, true);
           }
         }
         if (request.method === "GET" && url.pathname === "/.overstory/integrity") {
@@ -480,8 +492,8 @@ export async function serveHost(options: {
             await overstoryd.verifyIntegrity();
             return json({ status: "ok" });
           } catch (error) {
-            console.error("Story overstoryd integrity check failed", error);
-            return protocolError("internal-error", "Canopy integrity check failed", 503, true);
+            console.error("overstoryd integrity check failed", error);
+            return protocolError("internal-error", "Host integrity check failed", 503, true);
           }
         }
         if (request.method === "GET" && url.pathname === "/.overstory/account") {
@@ -640,9 +652,10 @@ export async function serveHost(options: {
             ? decodeURIComponent(url.pathname.slice("/.well-known/overstory".length))
             : null;
         // The raw path: a literal `%3Boverstory-config` filename is data, not the parameter.
-        if (wellKnown !== null && request.method === "GET" && url.pathname.endsWith(CONFIGURATION_SUFFIX)) {
+        // Rename 002: `;arbor-config` is read as `;overstory-config`.
+        if (wellKnown !== null && request.method === "GET" && currentConfigurationSpelling(url.pathname).endsWith(CONFIGURATION_SUFFIX)) {
           // `/~joe/todos;overstory-config`: the configuration of the tree whose root the path names.
-          const configuration = configurationAt(overstoryd, wellKnown.slice(0, -CONFIGURATION_SUFFIX.length) || "/");
+          const configuration = configurationAt(overstoryd, currentConfigurationSpelling(wellKnown).slice(0, -CONFIGURATION_SUFFIX.length) || "/");
           const level = configuration ? overstoryd.accessLevel(account, configuration, link) : null;
           if (!configuration || !level) return notFound();
           return json({
@@ -725,7 +738,7 @@ export async function serveHost(options: {
             }
             const writable = tree ? overstoryd.canWrite(account, tree, link) : false;
             // A null base activates a reserved tree, which has no descriptor yet;
-            // Canopy checks the reservation and the administrator device.
+            // The host checks the reservation and the administrator device.
             const direct = !execution && tree && !writable
               ? overstoryd.scopedCaller(account, treeID, authentication?.subject ?? "public", () => !authentication || overstoryd.authenticationIsActive(authentication), link) : undefined;
             const permitted = tree
@@ -873,7 +886,8 @@ export async function serveHost(options: {
           const pageNotFound = () => request.headers.get("accept")?.includes("text/html")
             ? html(renderNoticePage("Not found", "<h1>Not found</h1><p>Nothing is published at this address.</p>"), 404)
             : notFound();
-          const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
+          // Rename 002: a canonical URL ending in `;arbor-config` is read as `;overstory-config`.
+          const requestLocator = resolveLogicalURL("/", `${currentConfigurationSpelling(url.pathname)}${url.search}`);
           if (!requestLocator || requestLocator.kind !== "local") return pageNotFound();
           if (requestLocator.configuration) {
             // A canonical URL with `;overstory-config`: administrators are sent to the
@@ -928,7 +942,7 @@ export async function serveHost(options: {
           }
           if (!logical) return pageNotFound();
 
-          const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Story";
+          const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Overstory";
           if (logical.kind === "file") {
             if (objectName.endsWith(".md")) {
               if (request.headers.get("accept")?.includes("text/markdown")) {

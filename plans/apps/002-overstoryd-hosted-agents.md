@@ -16,9 +16,9 @@
 
 An authored Markdown agent at an ordinary canonical Overstory location gives people a conversational way to inspect and change the same live data exposed through React components.
 
-The overstoryd hosts the agent because it already hosts the relevant executable documents, private backing trees, compiled query and mutation handles, and authenticated Overstory-user context. A visitor can open the agent's ordinary location, converse through a generic Overstory agent surface, and let the agent call only its declared handles. A mutation committed by the agent appears immediately in the ordinary React surface, and a component mutation is visible to the agent on its next query.
+The host runs the agent because it already hosts the relevant executable documents, private backing trees, compiled query and mutation handles, and authenticated Overstory-user context. A visitor can open the agent's ordinary location, converse through a generic Overstory agent surface, and let the agent call only its declared handles. A mutation committed by the agent appears immediately in the ordinary React surface, and a component mutation is visible to the agent on its next query.
 
-This is the agent product described by the original proposal. It is distinct from letting a person's separately installed Codex or Claude Code use the `story` CLI. The external-agent plan is an integration convenience for a workspace owner; this plan makes an agent part of a hosted Canopy application that other people can visit and use.
+This is the agent product described by the original proposal. It is distinct from letting a person's separately installed Codex or Claude Code use the `story` CLI. The external-agent plan is an integration convenience for a workspace owner; this plan makes an agent part of a hosted Overstory application that other people can visit and use.
 
 ## Authored agent document
 
@@ -68,7 +68,7 @@ The generic conversation surface is supplied by Overstory. Authored agents do no
 
 ## Execution model
 
-The overstoryd starts one bounded conversation run from the compiled agent version and authenticated visitor context.
+overstoryd starts one bounded conversation run from the compiled agent version and authenticated visitor context.
 
 1. Resolve and pin the agent document revision and compiled handle versions.
 2. Establish the caller's safe `OverstoryUser | null` projection and verify that the selected agent is executable for that caller.
@@ -97,7 +97,7 @@ The first slice includes no non-Overstory service effects. Email, calendar, paym
 
 A conversation has a stable Overstory-generated ID and pins the agent revision used to start it. Continuations retain ordered user messages, assistant messages, visible tool calls/results, failures, and mutation receipts.
 
-The overstoryd writes transcripts through an ordinary durable mutation. A transcript records:
+overstoryd writes transcripts through an ordinary durable mutation. A transcript records:
 
 - agent identity/revision and runtime/model identity;
 - visitor ProfileID when authenticated;
@@ -161,7 +161,7 @@ Do not give the first agent a general SQL tool, arbitrary tree write, source-edi
 1. Render the generic agent conversation at the document's ordinary local and canonical HTTP location.
 2. Reuse Overstory's session UI and user identity rather than adding Supplies authentication.
 3. Show linked query results, clear mutation progress/results, and ordinary navigation to affected documents.
-4. Present the same overstoryd-hosted surface in signed macOS Overstory's constrained web runtime without a second native chat/data implementation.
+4. Present the same overstoryd-hosted surface in the signed Mac Story app's constrained web runtime without a second native chat/data implementation.
 
 ### Phase 5 — end-to-end parity
 
@@ -175,7 +175,7 @@ Do not give the first agent a general SQL tool, arbitrary tree write, source-edi
 
 At the canonical overstoryd-hosted Supplies agent location, an authenticated visitor can describe a goal, receive authorized practice suggestions, create a private list, and add practices through declared compiled handles. The same committed data appears immediately in the ordinary React documents. Another visitor cannot see the private list, an interrupted post-commit turn does not duplicate it, and the readable versioned transcript retains the exact agent/handle versions and mutation receipt.
 
-The same authored agent and overstoryd runner render through local Story for the web and signed macOS Overstory without an application-specific chat implementation.
+The same authored agent and overstoryd runner render through local Story for the web and the signed Mac Story app without an application-specific chat implementation.
 
 ## Deliberate absences
 

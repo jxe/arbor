@@ -228,7 +228,7 @@ baseline; record limits and results without unsupported performance claims.
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
 `bun run test:performance`,
 `bun test tests/unit/overstoryd-merge tests/integration/overstoryd-merge`,
-`xcodebuild test -project swift/Story.xcodeproj -scheme Canopy -destination platform=macOS -only-testing:StoryAppTests/StorySyncClientTests -only-testing:StoryAppTests/LoopbackServicesTests`, `bun run check:links`,
+`xcodebuild test -project swift/Story.xcodeproj -scheme Story -destination platform=macOS -only-testing:StoryAppTests/StorySyncClientTests -only-testing:StoryAppTests/LoopbackServicesTests`, `bun run check:links`,
 and `git diff --check` → exit 0. Run affected Swift model suites if wire shapes changed;
 StoryEditor testing uses the repository wrapper. Verify changed packaging through
 `bun run build:cli:package` and `bun run test:cli:package` when applicable; root

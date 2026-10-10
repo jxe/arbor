@@ -15,6 +15,7 @@ overstory://<TreeID>/path[;overstory-key=<key-token>][;overstory-rev=sha256:<roo
 /tree-rooted/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
 https://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
 overstory://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
+overstory://host.example/account-path;overstory-invite=<code>
 ```
 
 `overstory://<TreeID>/...` directly names the primary tree identity plus a logical
@@ -168,8 +169,8 @@ overstory://community.example/~alice/atlas/notes;overstory-rev=sha256:<root>
 ```
 
 A revision locator is read-only. Mutations against it fail as read-only. The
-identity suffix and the revision suffix are the only segment parameters; they
-appear at most once each and in that order.
+identity suffix and the revision suffix are the only segment parameters of a
+node locator; they appear at most once each and in that order.
 
 A query string follows the segment parameters and belongs completely to the
 addressed application document:
@@ -193,18 +194,46 @@ namespace.
 The Markdown alias cannot carry a content fragment as well
 ([deferred 7](README.md#deferred)); such a link uses the path suffix (§2.1).
 
+### 2.2 Invitation links
+
+An invitation to claim an account is that account's `overstory://` locator
+with the invitation code as a segment parameter:
+
+```text
+overstory://community.example/~alice;overstory-invite=<code>
+
+invite-code = 1*( ALPHA / DIGIT / "-" / "." / "_" / "~" )   ; URI unreserved
+```
+
+`overstory-invite` stands alone: no other segment parameter, query, or fragment
+accompanies it. It appears only on an `overstory://` locator whose authority is
+a DNS name, the host where the account is claimed; on a TreeID authority or a
+relative or tree-rooted reference the locator is invalid. The code is used
+exactly as written, without percent-decoding, and its length and alphabet
+beyond this grammar are the issuing host's
+([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+
+The parameter is not part of what the locator names. Removing it leaves the
+account locator, and every canonical spelling, comparison, merge key, and pin
+(§1) uses that locator without it. A client opening an invitation link starts
+the account claim; opening the same locator without the parameter is ordinary
+navigation. The code is a secret: writers put it in no other locator form and
+never in authored content.
+
 ## 3. Parsing and canonicalization
 
 An external URL parser separates the final raw segment's parameter block,
-beginning at its first `;story-`, before percent-decoding path components. A
+beginning at its first `;overstory-`, before percent-decoding path components. A
 literal suffix-like filename encodes its semicolon as `%3B`; it is data, not
-identity syntax. Within the block, any parameter other than `overstory-key`, `overstory-rev` and
-`overstory-config`, a repeated parameter, an empty value, or `overstory-key` and `overstory-rev` in the
+identity syntax. Within the block, any parameter other than `overstory-key`,
+`overstory-rev`, `overstory-config` and `overstory-invite`, a repeated
+parameter, an empty value, or `overstory-key` and `overstory-rev` in the
 wrong order makes the locator invalid rather than path data. `overstory-config` takes no
 value, appears only on a tree's root (a canonical boundary or
 `overstory://<TreeID>`), stands alone, and addresses that tree's
 [configuration](04-accounts-and-devices.md#21-finding-it) rather than a node;
-the host answers it only to the tree's administrators. The parser then
+the host answers it only to the tree's administrators. `overstory-invite`
+also stands alone, with the constraints of §2.2. The parser then
 percent-decodes each path component exactly once. Every internal logical path is
 already decoded and may contain a literal `%`, including text resembling
 another escape. Resolvers, routers, clients, and stores must not decode it again.

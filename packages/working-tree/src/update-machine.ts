@@ -1,5 +1,5 @@
 /**
- * Working-tree updates: the state machine a working tree runs against Story
+ * Working-tree updates: the state machine a working tree runs against the Overstory
  * protocol to turn its local changes into accepted updates (docs/overstory-spec/09).
  *
  * The reducer is pure and language-neutral: roots, updates, cursors, change

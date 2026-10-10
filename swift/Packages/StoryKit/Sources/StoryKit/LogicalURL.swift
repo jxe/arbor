@@ -3,6 +3,10 @@ import Foundation
 public struct ResolvedLocatorState: Sendable, Equatable {
     /// `;overstory-config`: the locator names the configuration of the tree whose root it names.
     public var configuration = false
+    /// `;overstory-invite=<code>`: the invitation code a join link carries on an account locator.
+    /// A secret for the claim, never part of what the locator names: builders of canonical and
+    /// identity forms leave it out.
+    public var invite: String?
     public var stableKey: String?
     public var revision: String?
     public var applicationQuery: String?
@@ -18,7 +22,7 @@ public struct ResolvedLocatorState: Sendable, Equatable {
 
 public enum ResolvedLink: Sendable, Equatable {
     case local(path: String, locator: ResolvedLocatorState)
-    case story(authority: OverstoryAuthority, path: String, locator: ResolvedLocatorState)
+    case overstory(authority: OverstoryAuthority, path: String, locator: ResolvedLocatorState)
     case system(raw: String)
     case overlay(raw: String)
     case external(href: String)
@@ -31,9 +35,58 @@ public enum OverstoryAuthority: Sendable, Equatable {
 }
 
 private let schemeExpression = try! NSRegularExpression(pattern: "^([a-zA-Z][a-zA-Z0-9+.-]*):")
-private let parameterMarker = ";story-"
+private let parameterMarker = ";overstory-"
 private let revisionPattern = #"^sha256:[a-f0-9]{64}$"#
 private let markdownKeyPrefix = "overstory-key="
+private let configurationParameter = "overstory-config"
+private let inviteParameterPrefix = "overstory-invite="
+private let invitePattern = #"^[A-Za-z0-9._~-]+$"#
+private let overstoryScheme = "overstory://"
+
+// Rename 002: the spellings from before the Overstory rename, read wherever a
+// locator is parsed and never written. Remove with `normalizeLegacyLocator`.
+private let legacyScheme = "arbor://"
+private let legacyParameterExpression = try! NSRegularExpression(pattern: ";arbor-(?=key=|rev=|config$)")
+private let legacyKeyFragment = "#arbor-key="
+
+/// Rename 002: respell a locator written before the Overstory rename. `arbor://` becomes
+/// `overstory://`; on the final path segment `;arbor-key=`, `;arbor-rev=` and a trailing
+/// `;arbor-config` become their `;overstory-` forms; a fragment beginning `arbor-key=` becomes
+/// `overstory-key=`. It accepts an absolute locator, a relative or tree-rooted href, or a bare
+/// `tr_x;arbor-config` tree reference, and returns anything else (a URL in another scheme
+/// included) unchanged. Queries and other fragments are never touched. Every parser in this
+/// package applies it first, so parsed results and whatever is built from them carry only the new
+/// spelling; partial parsers elsewhere do the same.
+public func normalizeLegacyLocator(_ text: String) -> String {
+    var scheme = ""
+    var rest = Substring(text)
+    if text.hasPrefix(legacyScheme) {
+        scheme = overstoryScheme
+        rest = text.dropFirst(legacyScheme.count)
+    } else if text.hasPrefix(overstoryScheme) {
+        scheme = overstoryScheme
+        rest = text.dropFirst(overstoryScheme.count)
+    } else if schemeExpression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+        return text
+    }
+    let fragmentStart = rest.firstIndex(of: "#") ?? rest.endIndex
+    let beforeFragment = rest[..<fragmentStart]
+    let fragment = rest[fragmentStart...]
+    let queryStart = beforeFragment.firstIndex(of: "?") ?? beforeFragment.endIndex
+    let path = beforeFragment[..<queryStart]
+    let query = beforeFragment[queryStart...]
+    let segmentStart = path.lastIndex(of: "/").map { path.index(after: $0) } ?? path.startIndex
+    let segment = String(path[segmentStart...])
+    let respelledSegment = legacyParameterExpression.stringByReplacingMatches(
+        in: segment,
+        range: NSRange(segment.startIndex..., in: segment),
+        withTemplate: parameterMarker
+    )
+    let respelledFragment = fragment.hasPrefix(legacyKeyFragment)
+        ? "#\(markdownKeyPrefix)\(fragment.dropFirst(legacyKeyFragment.count))"
+        : String(fragment)
+    return "\(scheme)\(path[..<segmentStart])\(respelledSegment)\(query)\(respelledFragment)"
+}
 
 private func splitOnce(_ value: String, separator: Character) -> (String, String?) {
     guard let index = value.firstIndex(of: separator) else { return (value, nil) }
@@ -186,21 +239,27 @@ public func decodeStableKey(_ token: String) -> String? {
 
 /// Split the final raw segment's `;overstory-key=…;overstory-rev=…` parameter block from the path.
 /// Parameters appear in that order at most once each; anything else after the first
-/// `;story-` marker is invalid rather than path data. `;overstory-config` takes no value
-/// and stands alone.
-private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?, configuration: Bool)? {
+/// `;overstory-` marker is invalid rather than path data. `;overstory-config` takes no value
+/// and stands alone; so does `;overstory-invite=<code>`.
+private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?, configuration: Bool, invite: String?)? {
     let segmentStart = rawPathWithParameters.lastIndex(of: "/").map { rawPathWithParameters.index(after: $0) }
         ?? rawPathWithParameters.startIndex
     guard let marker = rawPathWithParameters[segmentStart...].range(of: parameterMarker) else {
-        return (rawPathWithParameters, nil, nil, false)
+        return (rawPathWithParameters, nil, nil, false, nil)
     }
-    if rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...] == "overstory-config" {
-        return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, true)
+    let block = rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...]
+    if block == configurationParameter {
+        return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, true, nil)
+    }
+    if block.hasPrefix(inviteParameterPrefix) {
+        let code = String(block.dropFirst(inviteParameterPrefix.count))
+        if code.range(of: invitePattern, options: .regularExpression) != nil {
+            return (String(rawPathWithParameters[..<marker.lowerBound]), nil, nil, false, code)
+        }
     }
     var stableKey: String?
     var revision: String?
     var stage = 0
-    let block = rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...]
     for parameter in block.split(separator: ";", omittingEmptySubsequences: false) {
         let (name, value) = splitOnce(String(parameter), separator: "=")
         guard let value, !value.isEmpty else { return nil }
@@ -215,14 +274,15 @@ private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: Str
             return nil
         }
     }
-    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision, false)
+    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision, false, nil)
 }
 
 private func locatorState(destination: String, fragment: String?) -> (rawPath: String, locator: ResolvedLocatorState)? {
     let (rawPathWithParameters, applicationQuery) = splitOnce(destination, separator: "?")
-    guard let (rawPath, pathStableKey, revision, configuration) = segmentParameters(rawPathWithParameters) else { return nil }
+    guard let (rawPath, pathStableKey, revision, configuration, invite) = segmentParameters(rawPathWithParameters) else { return nil }
     // A configuration is addressed as a whole: no key, fragment or query goes with it.
-    if configuration, fragment != nil || applicationQuery != nil { return nil }
+    // Nor with an invitation, which names an account and nothing inside it.
+    if configuration || invite != nil, fragment != nil || applicationQuery != nil { return nil }
 
     var markdownStableKey: String?
     if let fragment, fragment.hasPrefix(markdownKeyPrefix) {
@@ -238,6 +298,7 @@ private func locatorState(destination: String, fragment: String?) -> (rawPath: S
         contentFragment: ordinaryFragment
     )
     state.configuration = configuration
+    state.invite = invite
     return (rawPath, state)
 }
 
@@ -282,7 +343,7 @@ private func resolveTreePath(sourceDirectory: String, rawDestination: String) ->
 }
 
 private func parseOverstoryURL(_ href: String) -> ResolvedLink? {
-    let withoutScheme = String(href.dropFirst("overstory://".count))
+    let withoutScheme = String(href.dropFirst(overstoryScheme.count))
     let (destination, fragment) = splitOnce(withoutScheme, separator: "#")
     guard let parsed = locatorState(destination: destination, fragment: fragment) else { return nil }
     var parts = parsed.rawPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -295,6 +356,8 @@ private func parseOverstoryURL(_ href: String) -> ResolvedLink? {
     guard let path = resolveTreePath(sourceDirectory: "/", rawDestination: parts.joined(separator: "/")) else { return nil }
     // `overstory://<TreeID>;overstory-config` names the tree's root; any other path is invalid.
     if parsed.locator.configuration, isTreeID, path != "/" { return nil }
+    // An invitation is claimed at a host, so only a locator with a DNS authority carries one.
+    if parsed.locator.invite != nil, isTreeID { return nil }
     return .overstory(authority: authority, path: path, locator: parsed.locator)
 }
 
@@ -302,7 +365,8 @@ private func parseOverstoryURL(_ href: String) -> ResolvedLink? {
 /// the tree directory holding the source file (see `markdownSourceDirectory`), exactly as an
 /// ordinary Markdown reader resolves it. `x.md`, `x/_index.md`, `x/` and `x` all name the node `x`.
 public func resolveLogicalURL(sourceDirectory: String, href: String) -> ResolvedLink? {
-    let raw = href.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Rename 002: old spellings are read as the new ones.
+    let raw = normalizeLegacyLocator(href.trimmingCharacters(in: .whitespacesAndNewlines))
     if raw.isEmpty { return nil }
     if raw.hasPrefix("#") {
         let fragment = String(raw.dropFirst())
@@ -314,8 +378,8 @@ public func resolveLogicalURL(sourceDirectory: String, href: String) -> Resolved
     if let match = schemeExpression.firstMatch(in: raw, range: range),
        let schemeRange = Range(match.range(at: 1), in: raw) {
         switch raw[schemeRange].lowercased() {
-        case "story":
-            return raw.hasPrefix("overstory://") ? parseOverstoryURL(raw) : nil
+        case "overstory":
+            return raw.hasPrefix(overstoryScheme) ? parseOverstoryURL(raw) : nil
         case "system": return .system(raw: raw)
         case "local": return .overlay(raw: raw)
         default: return .external(href: raw)
@@ -325,6 +389,8 @@ public func resolveLogicalURL(sourceDirectory: String, href: String) -> Resolved
     let (destination, fragment) = splitOnce(raw, separator: "#")
     guard
         let parsed = locatorState(destination: destination, fragment: fragment),
+        // An invitation goes only on an `overstory://` account locator.
+        parsed.locator.invite == nil,
         let path = resolveTreePath(sourceDirectory: sourceDirectory, rawDestination: parsed.rawPath)
     else { return nil }
     return .local(path: path, locator: parsed.locator)
@@ -444,7 +510,45 @@ public func buildNetworkLocator(
 
 public func buildOverstoryLocator(tree: String, path: String, stableKey: String? = nil) -> String? {
     guard let locator = buildNetworkLocator(rawPath: canonicalNodePath(path), stableKey: stableKey) else { return nil }
-    return "overstory://\(tree)\(locator)"
+    return "\(overstoryScheme)\(tree)\(locator)"
+}
+
+/// The join link for an account: its `overstory://` locator carrying the invitation code as
+/// `;overstory-invite=<code>` (accounts §1.2). `account` is the account's locator or URL at its
+/// host, without parameters, query or fragment. The code is a secret: the result is for handing
+/// to the invited person, never for comparing or pinning identities. Nil when `account` is not an
+/// account locator or the code is not a valid invitation token.
+public func buildInviteLocator(account: String, code: String) -> String? {
+    guard
+        let match = inviteAccountExpression.firstMatch(in: account, range: NSRange(account.startIndex..., in: account)),
+        let authorityRange = Range(match.range(at: 1), in: account)
+    else { return nil }
+    let authority = account[authorityRange]
+    guard !authority.hasPrefix("tr_") else { return nil }
+    var path = Range(match.range(at: 2), in: account).map { String(account[$0]) } ?? ""
+    while path.hasSuffix("/") { path.removeLast() }
+    let locator = "\(overstoryScheme)\(authority)\(path.isEmpty ? "/" : path);\(inviteParameterPrefix)\(code)"
+    guard case let .overstory(_, _, state)? = resolveLogicalURL(sourceDirectory: "/", href: locator), state.invite == code else { return nil }
+    return locator
+}
+
+private let inviteAccountExpression = try! NSRegularExpression(pattern: #"^(?:overstory|https?)://([^/?#;]+)(/[^?#;]*)?$"#)
+
+/// The spelling under which two `overstory://` locators name the same thing: the new scheme and
+/// parameter spellings (Rename 002: `arbor://` and `;arbor-…` are read as their `overstory`
+/// forms), a canonical path, and the stable key or `;overstory-config` when the locator has one.
+/// A TreeID root is `overstory://tr_x/`, with or without the trailing slash in the input. The
+/// invitation code, revision, query and fragment are not identity and are left out. Nil for
+/// anything that is not an absolute `overstory://` (or `arbor://`) locator.
+public func canonicalOverstoryLocator(_ value: String) -> String? {
+    guard case let .overstory(authority, path, state)? = resolveLogicalURL(sourceDirectory: "/", href: value) else { return nil }
+    let name: String
+    switch authority {
+    case let .dns(host): name = host.lowercased()
+    case let .treeID(tree): name = tree
+    }
+    if state.configuration { return "\(overstoryScheme)\(name)\(path);\(configurationParameter)" }
+    return buildOverstoryLocator(tree: name, path: path, stableKey: state.stableKey)
 }
 
 /// A markdown href that names a node, with the tree it names it in.

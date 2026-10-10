@@ -74,7 +74,7 @@ public final class ProtocolNetworkLog: @unchecked Sendable {
         return encoder
     }()
     /// Serializes every file operation; `file` is only touched on this queue.
-    private let writer = DispatchQueue(label: "org.nxhx.Arbor.network-log")
+    private let writer = DispatchQueue(label: "org.nxhx.story.network-log")
     private var file = FileState()
 
     private struct Sent { var sentAt: Date; var respondedAt: Date? }

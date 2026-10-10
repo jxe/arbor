@@ -46,7 +46,7 @@ ports or client discovery; see [local service ownership](../architecture/story-s
 REST v1 reuses the portable model, read, locator, access, update, and
 observation values defined across the specification. In particular,
 `TreeID`, `LogicalPath`, `JSONValue`, and `NodeRef` come from the
-[Overstory data model](../overstory-spec/01-tree-operations.md#the-story-data-model), while
+[Overstory data model](../overstory-spec/01-tree-operations.md#the-overstory-data-model), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
 [current-tree read](../overstory-spec/01-tree-operations.md#111-reading-the-current-tree).
@@ -275,7 +275,7 @@ resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 `directory`, or `tree`, so a missing directory is always an error. No file map,
 size lookup, or payload sniffing is needed.
 
-**Modification dates.** The bootstrap carries none. Page dates are Canopy's
+**Modification dates.** The bootstrap carries none. Page dates are the host's
 entry metadata, which every client reads from overstoryd itself
 (`GET /.overstory/trees/{id}/entry-metadata`, [tree reads §1.1.2a](../overstory-spec/01-tree-operations.md#112a-reading-entry-metadata)):
 accepted change times keyed by body entry, the same on every device, and
@@ -285,7 +285,7 @@ Every successful response is a
 clean installation boundary. Concurrent folder work is reconciled later by
 overstoryd and the ordinary watch/update protocol, like work from any other client.
 
-**Credential.** `GET /v1/credential` returns `{ token }`, a overstoryd session
+**Credential.** `GET /v1/credential` returns `{ token }`, an overstoryd session
 token the device key stored for `configurationTree` opened, so that several
 local clients on one installation share the daemon's device identity and
 request-digest scope without ever holding the key. Without the parameter it
@@ -367,7 +367,7 @@ request and credential are retained for retry; cancellation is rejected.
 version-1 QR pairing object `{ version, origin, pairing: { id, secret } }`. An
 empty object resumes the persisted pairing. Mac pairing requires an existing
 matching profile identity, stores its exact device request and credential before
-contacting the host, and installs the account into StorySync's account store.
+contacting the host, and installs the account into Story Sync's account store.
 It verifies the returned device, profile and community and refuses to overwrite
 an existing checkout with different contents. It does not generate a profile key.
 Pairing codes and device credentials must never be logged.
@@ -378,7 +378,7 @@ home's profile to its placement account at `host`
 which the host's community created by reserving the profile's URL at its
 home host, exactly as `story place` does on first use
 (`connectPlacementAccount` in `@ovst/client`): the device opens a
-session there with the key it uses at home. `host` is an HTTPS Canopy URL
+session there with the key it uses at home. `host` is an HTTPS host URL
 (plain HTTP only on loopback). It answers `200` with `{ placement }`, the
 connection record the data home now holds (`HostPlacementRecord`:
 `configurationTree`, `origin`, `account`, `accountID`, `handle?`,

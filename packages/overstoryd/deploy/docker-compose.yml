@@ -1,5 +1,5 @@
 services:
-  story:
+  overstoryd:
     build:
       context: ../../..
       dockerfile: packages/overstoryd/deploy/Dockerfile.overstoryd
@@ -11,7 +11,7 @@ services:
       OVERSTORYD_FIRST_WRITER_HANDLE: ${FIRST_WRITER_HANDLE}
       OVERSTORYD_FIRST_WRITER_PROFILE: ${FIRST_WRITER_PROFILE}
     volumes:
-      - story-data:/data
+      - overstoryd-data:/data
     expose:
       - "4318"
 
@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     env_file: .env
     depends_on:
-      - story
+      - overstoryd
     ports:
       - "80:80"
       - "443:443"
@@ -31,6 +31,6 @@ services:
       - caddy-config:/config
 
 volumes:
-  story-data:
+  overstoryd-data:
   caddy-data:
   caddy-config:

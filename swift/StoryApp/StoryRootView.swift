@@ -19,12 +19,12 @@ import UIKit
 import VisionKit
 #endif
 
-/// How a Canopy account is named in account lists, whether as the Mac
+/// How a host account is named in account lists, whether as the Mac
 /// daemon's overview reports it or as `HostAccountService` lists it.
 private protocol HostAccountPresentable {
     var configurationTree: String { get }
     var handle: String? { get }
-    /// The account's Canopy host, when known.
+    /// The account's host, when known.
     var accountHost: String? { get }
 }
 
@@ -34,7 +34,7 @@ private extension HostAccountPresentable {
     var placementsSectionID: String { "placements:\(configurationTree)" }
 
     var accountDisplayName: String {
-        guard let handle, !handle.isEmpty else { return "Canopy account" }
+        guard let handle, !handle.isEmpty else { return "Host account" }
         return "~\(handle)"
     }
 
@@ -1066,7 +1066,7 @@ struct StoryRootView: View {
             await model.resetForWorkspace()
 #if os(iOS)
             // A restored replica is useful immediately while offline, but once
-            // its editor is observing changes, establish current Canopy state
+            // its editor is observing changes, establish current host state
             // instead of relying only on replay from a long-lived watch.
             await workspace.syncNow(reportTransientNetworkErrors: false)
 #endif
@@ -1511,7 +1511,7 @@ struct StoryRootView: View {
             let account = tree.configurationTree.flatMap { accounts[$0] }
             let placementHost = StoryWorkspaceState.placementOrigin(endpoint: tree.canonicalEndpoint, home: account?.host)
                 .flatMap { URL(string: $0)?.host() }
-            let label = placementHost.map { host in "\(account?.accountDisplayName ?? "Canopy account") · \(host)" }
+            let label = placementHost.map { host in "\(account?.accountDisplayName ?? "Host account") · \(host)" }
                 ?? tree.configurationTree.flatMap { accountLabels[$0] }
             return SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name, account: label ?? "Other Trees")
         }
@@ -2109,7 +2109,7 @@ struct StoryRootView: View {
     private var recordingRecoveryMessage: String {
         guard let recording = recordingSession.pendingRecovery else { return "" }
         let date = recording.createdAt.formatted(date: .abbreviated, time: .shortened)
-        return "Canopy preserved an unfinished recording from \(date). It will be transcribed and added to its original page."
+        return "Story preserved an unfinished recording from \(date). It will be transcribed and added to its original page."
     }
 
     private func forwardPendingVoiceRecording() {
@@ -2327,7 +2327,7 @@ struct StoryRootView: View {
         let account = workspace.localStorySyncOverview?.accounts.first {
             $0.configurationTree == tree.id
         }
-        return "\(account?.accountDisplayName ?? "Canopy account") settings"
+        return "\(account?.accountDisplayName ?? "Host account") settings"
     }
 
     private var macManagementPanel: some View {
@@ -2442,7 +2442,7 @@ struct StoryRootView: View {
                 StoryTabStrip(
                     tabs: model.tabItems,
                     selected: model.selectedTabID,
-                    title: { tab in tab.current.path == "/" ? "Home" : tab.current.path.split(separator: "/").last.map(String.init) ?? "Canopy" },
+                    title: { tab in tab.current.path == "/" ? "Home" : tab.current.path.split(separator: "/").last.map(String.init) ?? "Story" },
                     select: { id in Task { await model.selectTab(id) } },
                     close: { Task { await model.closeSelectedTab() } },
                     create: { Task { await model.newTab() } }
@@ -2798,7 +2798,7 @@ struct StoryRootView: View {
         case .storySyncLogs:
             NavigationStack {
                 ScrollView { Text(storySyncLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
-                    .navigationTitle("story-sync Logs")
+                    .navigationTitle("Story Sync Logs")
             }
 #if os(macOS)
             .frame(minWidth: 560, minHeight: 420)
@@ -2821,7 +2821,8 @@ struct StoryRootView: View {
     /// not a placed tree cannot be opened here.
     private func openLocation(_ value: String) async {
 #if os(macOS)
-        if let url = URL(string: value), ["http", "https", "story"].contains(url.scheme?.lowercased() ?? "") {
+        // Rename 002: `arbor://` is read as `overstory://`.
+        if let url = URL(string: value), ["http", "https", "overstory", "arbor"].contains(url.scheme?.lowercased() ?? "") {
             do { try await workspace.openRemoteLocator(value) }
             catch { workspace.errorMessage = error.localizedDescription }
             return
@@ -3191,7 +3192,7 @@ private struct StorySharePanel: View {
             Text("Who has access")
         } footer: {
             if !access.canEdit {
-                Text("Only an administrator for this Canopy account can change access.")
+                Text("Only an administrator for this host account can change access.")
             } else if canCreateGroup, groupableEntries(access).count >= 2 {
                 Button("Make these people a group…") {
                     let entries = groupableEntries(access)
@@ -3401,7 +3402,7 @@ private struct StorySharePanel: View {
         if accounts.isEmpty {
             Section {
                 ContentUnavailableView(
-                    "No connected Canopy account",
+                    "No connected host account",
                     systemImage: "person.crop.circle.badge.exclamationmark",
                     description: Text("Connect an administrator account before upgrading this folder.")
                 )
@@ -3654,7 +3655,7 @@ private struct StoryAgentBundlePage: View {
     @ViewBuilder private func code(_ bundle: String) -> some View {
         Section {
             Label {
-                Text("This code is a secret. Keep it in your agent's secret store, never in a repository, prompt, or chat. Canopy shows it only this once.")
+                Text("This code is a secret. Keep it in your agent's secret store, never in a repository, prompt, or chat. Story shows it only this once.")
             } icon: {
                 Image(systemName: "key.fill").foregroundStyle(.orange)
             }
@@ -3953,7 +3954,7 @@ private struct MacStorySyncAccountPanel: View {
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
-                            "No Canopy account",
+                            "No host account",
                             systemImage: "person.crop.circle.badge.questionmark",
                             description: Text("Claim or pair an account to manage its devices.")
                         )
@@ -4309,7 +4310,7 @@ struct StoryIOSLaunchView: View {
     private var onboarding: some View {
         switch phase {
         case .restoring:
-            ProgressView("Opening Canopy…")
+            ProgressView("Opening Story…")
         case .accounts:
             accountList
         case .scanning:
@@ -4323,7 +4324,7 @@ struct StoryIOSLaunchView: View {
                 ProgressView()
                 Text("Syncing \(syncingTree?.canonicalPath ?? "folder")…")
                     .font(.headline)
-                Text("Canopy will open it as soon as the local replica is ready.")
+                Text("Story will open it as soon as the local replica is ready.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -4359,7 +4360,7 @@ struct StoryIOSLaunchView: View {
                         }
                     }
                     if accounts.isEmpty {
-                        Text("No Canopy accounts on this device yet.")
+                        Text("No host accounts on this device yet.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -4387,7 +4388,7 @@ struct StoryIOSLaunchView: View {
             .ignoresSafeArea()
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 5) {
-                    Text("Scan Canopy on your Mac")
+                    Text("Scan Story on your Mac")
                         .font(.headline)
                     Text("On the Mac, open Accounts and choose Pair another device.")
                         .font(.subheadline)
@@ -4413,7 +4414,7 @@ struct StoryIOSLaunchView: View {
                 ContentUnavailableView(
                     "QR scanning unavailable",
                     systemImage: "qrcode.viewfinder",
-                    description: Text("This iPhone cannot start the camera scanner. Copy the pairing code from Canopy on your Mac and paste it here.")
+                    description: Text("This iPhone cannot start the camera scanner. Copy the pairing code from Story on your Mac and paste it here.")
                 )
                 Button("Paste Pairing Code", systemImage: "doc.on.clipboard") {
                     guard let raw = UIPasteboard.general.string, !raw.isEmpty else {
@@ -4611,7 +4612,7 @@ private struct IOSPlaceTreePanel: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Canopy account") {
+                Section("Host account") {
                     ForEach(accounts) { account in
                         Button {
                             selectedAccount = account
@@ -4633,7 +4634,7 @@ private struct IOSPlaceTreePanel: View {
                         }
                     }
                     if accounts.isEmpty, !loading {
-                        Text("Add a Canopy account from Accounts before placing another tree.")
+                        Text("Add a host account from Accounts before placing another tree.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -5108,7 +5109,7 @@ private struct StoryProfileWidget: View {
         let count = profile.members.count
         let people = count == 1 ? "1 member" : "\(count) members"
         return workspace.isCommunityMembershipTree
-            ? "\(people) on this Canopy. Adding a person reserves their handle here."
+            ? "\(people) on this host. Adding a person reserves their handle here."
             : "\(people). Share a tree with this group to share it with all of them."
     }
 
@@ -5319,14 +5320,14 @@ private struct StoryProfileMembersSheet: View {
     private var people: [DirectoryPerson] {
         DirectoryMatcher.matches(query: query, in: workspace.directory).filter {
             $0.entry.kind != "group"
-                && !profile.memberProfiles.contains("overstory://\($0.entry.profile)/")
+                && !profile.hasMember("overstory://\($0.entry.profile)/")
         }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                Section(reservesHostHandle ? "People on this Canopy" : "Members") {
+                Section(reservesHostHandle ? "People on this host" : "Members") {
                     ForEach(members) { member in
                         memberRow(member)
                     }
@@ -5344,14 +5345,14 @@ private struct StoryProfileMembersSheet: View {
                     if reservesHostHandle {
                         HStack(spacing: 4) {
                             Text("~").foregroundStyle(.secondary)
-                            TextField(ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ? "Canopy handle" : "Canopy handle (optional)", text: $handle)
+                            TextField(ProfileLocator(treeID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ? "Handle on this host" : "Handle on this host (optional)", text: $handle)
                         }
                     }
                     Text(reservesHostHandle
                         ? (inviteByCode
                             ? "The person can claim this handle with the code, without sending you their Profile TreeID. The code is shown once."
-                            : "This reserves the handle on this Canopy for the person’s Profile TreeID, or for their profile URL on another Canopy, which lets them keep trees here; it does not copy or relocate their profile.")
-                        : "A TreeID, or the URL of a profile on another Canopy, which this Canopy ties to the profile it names.")
+                            : "This reserves the handle on this host for the person’s Profile TreeID, or for their profile URL on another host, which lets them keep trees here; it does not copy or relocate their profile.")
+                        : "A TreeID, or the URL of a profile on another host, which this host ties to the profile it names.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button(inviteByCode && reservesHostHandle ? "Create Invitation" : reservesHostHandle ? "Add Person" : "Add Member") { Task { await submit() } }
@@ -5413,7 +5414,7 @@ private struct StoryProfileMembersSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .confirmationDialog(
-                "Remove \(confirmingRemoval.map(label) ?? "this person") from this Canopy?",
+                "Remove \(confirmingRemoval.map(label) ?? "this person") from this host?",
                 isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
                 presenting: confirmingRemoval
             ) { member in
@@ -5489,22 +5490,18 @@ private struct StoryProfileMembersSheet: View {
         do {
             if reservesHostHandle && inviteByCode {
                 guard let hostOrigin else {
-                    throw ProtocolValidationError.invalidValue("Refresh People to obtain this Canopy’s address before creating an invitation")
+                    throw ProtocolValidationError.invalidValue("Refresh People to obtain this host’s address before creating an invitation")
                 }
                 let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
                 let code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
                     .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
                 let digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
-                let account = hostOrigin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    + "/~" + handle.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "~"))
-                var link = URLComponents()
-                link.scheme = "host"
-                link.host = "join"
-                link.queryItems = [URLQueryItem(name: "account", value: account), URLQueryItem(name: "code", value: code)]
-                guard let linkURL = link.url else { throw ProtocolValidationError.invalidValue("This Canopy address cannot form an invitation link") }
+                guard let link = StoryIncomingLocator.joinLink(hostOrigin: hostOrigin, handle: handle, code: code) else {
+                    throw ProtocolValidationError.invalidValue("This host address cannot form an invitation link")
+                }
                 try await invite(handle, digest)
                 issuedCode = code
-                issuedLink = linkURL.absoluteString
+                issuedLink = link
             } else {
                 try await add(treeID, handle)
             }

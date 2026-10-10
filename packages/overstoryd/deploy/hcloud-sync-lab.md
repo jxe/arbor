@@ -45,7 +45,7 @@ Install the official Hetzner CLI on the Mac and create a context for a dedicated
 
 ```sh
 brew install hcloud
-hcloud context create story-lab
+hcloud context create arbor-lab
 hcloud location list
 ```
 
@@ -62,7 +62,7 @@ bun run lab:hcloud preflight
 bun run lab:hcloud run
 ```
 
-For browserless Tailscale authentication, generate one reusable auth key in the Tailscale admin console with the shortest expiry that comfortably covers the run. Make it ephemeral because these nodes are disposable, and pre-authorized if device approval is enabled. A restricted `tag:story-lab` key is preferable when the tailnet policy already defines that tag and permits the four lab nodes to communicate. Copy the key once, load it without putting the value in shell history, run the lab, and immediately remove it from the local environment:
+For browserless Tailscale authentication, generate one reusable auth key in the Tailscale admin console with the shortest expiry that comfortably covers the run. Make it ephemeral because these nodes are disposable, and pre-authorized if device approval is enabled. A restricted `tag:arbor-lab` key is preferable when the tailnet policy already defines that tag and permits the four lab nodes to communicate. Copy the key once, load it without putting the value in shell history, run the lab, and immediately remove it from the local environment:
 
 ```sh
 export TAILSCALE_AUTH_KEY="$(cat)"
@@ -83,7 +83,7 @@ bun run lab:hcloud test
 bun run lab:hcloud test:authorization
 ```
 
-`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy overstoryd. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a binary overlap accepted as an unresolved alternative that survives an story-sync restart, its explicit resolution through overstoryd's conflicts route, `/push` and public-history absence, and device pairing/revocation through `devices.yaml`. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
+`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy overstoryd. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a binary overlap accepted as an unresolved alternative that survives a story-sync restart, its explicit resolution through overstoryd's conflicts route, `/push` and public-history absence, and device pairing/revocation through `devices.yaml`. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
 `test:authorization` uses distinct claimed accounts on the same four hosts: the community owner reserves three handles for fresh self-certifying profiles in the community's `members`, and each account is claimed with its profile key and hosts its profile at `/~handle`. Alice declares a private tree whose tree configuration (`access.yaml`) makes her its administrator, grants Bob `read` and Carol `write`, and mounts it below her profile. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Each account's short-lived device key travels only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
 
@@ -100,7 +100,7 @@ bun run lab:hcloud collect
 bun run lab:hcloud down
 ```
 
-`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=story-sync-lab` and run-ID labels. It then stops Overstory, clears only `/var/lib/overstoryd`, the three client content paths in the table above, and `/home/story/.overstory` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated owner device key, and deployed Git revision.
+`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=story-sync-lab` and run-ID labels. It then stops the lab's services, clears only `/var/lib/overstoryd`, the three client content paths in the table above, and `/home/story/.story` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated owner device key, and deployed Git revision.
 
 `down` makes a best-effort evidence collection first, requests Tailscale logout, verifies every recorded server's name and run labels, and deletes only the four recorded Hetzner server IDs. If a run must be selected explicitly, add `--run-id <id>`. The underlying manual commands remain documented below as the recovery and inspection path.
 
@@ -115,7 +115,7 @@ for story_lab_node in community alice bob carol; do
     --type cx23 \
     --image ubuntu-24.04 \
     --location nbg1 \
-    --ssh-key story-lab \
+    --ssh-key arbor-lab \
     --label purpose=story-sync-lab
 done
 
@@ -225,7 +225,7 @@ sudo iptables -I OUTPUT \
   -j REJECT
 ```
 
-Confirm Overstory reports **Offline**, make a local edit, and verify no remote client receives it. Remove the exact rule with the corresponding `iptables -D` command and verify the edit eventually reaches overstoryd and both peers if no other writer advanced the tree.
+Confirm the client reports **Offline**, make a local edit, and verify no remote client receives it. Remove the exact rule with the corresponding `iptables -D` command and verify the edit eventually reaches overstoryd and both peers if no other writer advanced the tree.
 
 If a rule is entered incorrectly, `hcloud server reboot story-<client>` is the recovery path; the injected `iptables` and `tc` rules are deliberately not persistent.
 

@@ -90,7 +90,7 @@ private extension JSONDecoder {
     }()
 }
 
-/// Where a locator points on the protocol: the Canopy origin and the canonical
+/// Where a locator points on the protocol: the host origin and the canonical
 /// path beneath it. `overstory://host/path` is the HTTPS origin `host`; an HTTP(S)
 /// URL keeps its scheme, host, and port. Query and fragment are dropped.
 struct OverstoryRemoteLocator: Equatable, Sendable {
@@ -107,17 +107,18 @@ struct OverstoryRemoteLocator: Equatable, Sendable {
         components.host = host
         components.port = url.port
         switch scheme {
-        case "story": components.scheme = url.port == nil ? "https" : "http"
+        // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
+        case "overstory", "arbor": components.scheme = url.port == nil ? "https" : "http"
         case "http", "https": components.scheme = scheme
         default: return nil
         }
         guard let origin = components.url else { return nil }
         self.origin = origin
         // Read the parameter from the encoded path: a `%3B` filename is data.
-        let suffix = ";overstory-config"
-        self.configuration = url.path(percentEncoded: true).hasSuffix(suffix)
-        var raw = url.path(percentEncoded: false)
-        if configuration { raw.removeLast(suffix.count) }
+        // Rename 002: `splittingTreeConfigurationParameter` also reads `;arbor-config`.
+        let encoded = splittingTreeConfigurationParameter(url.path(percentEncoded: true))
+        self.configuration = encoded.configuration
+        let raw = encoded.reference.removingPercentEncoding ?? encoded.reference
         self.path = raw.isEmpty ? "/" : raw
     }
 
@@ -139,7 +140,42 @@ private extension String {
     var withLeadingSlash: String { hasPrefix("/") ? self : "/" + self }
 }
 
-/// A complete Canopy snapshot reduced to the sparse shape a working tree
+/// What an `overstory://` URL handed to the app by the system asks for
+/// (the app registers the `overstory` scheme). A join link is an account
+/// locator carrying `;overstory-invite=<code>` (accounts §1.2) and starts the
+/// claim; any other locator is opened as Open Location opens it.
+enum StoryIncomingLocator: Equatable, Sendable {
+    /// `account` is the account's HTTP(S) locator at its host, as the claim takes it.
+    case join(account: String, code: String)
+    /// `locator` is the `overstory://` locator without query or fragment.
+    case open(locator: String)
+
+    init?(_ url: URL) {
+        guard url.scheme?.lowercased() == "overstory" else { return nil }
+        let text = url.absoluteString
+        guard case let .overstory(authority, _, state)? = resolveLogicalURL(sourceDirectory: "/", href: text) else { return nil }
+        if let code = state.invite {
+            guard let account = ProfileLocator(text)?.locator else { return nil }
+            self = .join(account: account, code: code)
+            return
+        }
+        // Open Location visits a host; a bare TreeID names no host to ask.
+        guard case .dns = authority else { return nil }
+        let end = text.firstIndex { $0 == "?" || $0 == "#" } ?? text.endIndex
+        self = .open(locator: String(text[..<end]))
+    }
+
+    /// The join link the Add Person sheet shows for `handle` at `hostOrigin`:
+    /// `overstory://<host>/~<handle>;overstory-invite=<code>`.
+    static func joinLink(hostOrigin: String, handle: String, code: String) -> String? {
+        let name = handle.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "~"))
+        guard !name.isEmpty else { return nil }
+        let account = hostOrigin.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/~" + name
+        return buildInviteLocator(account: account, code: code)
+    }
+}
+
+/// A complete host snapshot reduced to the sparse shape a working tree
 /// installs: every directory object and every Markdown object stay, every
 /// other file becomes a hash the object store serves on demand.
 enum StoryVisitSnapshot {

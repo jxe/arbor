@@ -148,7 +148,7 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
   const bundleID = cloudBundleID(payload.bundleID);
   const origin = normalizedOrigin(payload.origin, "cloud bundle origin");
   const account = nonempty(payload.account, "cloud bundle account");
-  if (new URL(account).origin !== origin) throw new Error("Cloud bundle account belongs to another Canopy");
+  if (new URL(account).origin !== origin) throw new Error("Cloud bundle account belongs to another host");
   const configurationTree = treeID(payload.configurationTree, "cloud bundle configuration tree");
   const profileTree = treeID(payload.profileTree, "cloud bundle profile tree");
   const deviceID = nonempty(payload.deviceID, "cloud bundle device ID");
@@ -161,7 +161,7 @@ function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
     exactFields(placement, ["treeID", "canonicalURL", "relativePath"], `cloud bundle placement ${index + 1}`);
     const canonicalURL = nonempty(placement.canonicalURL, `cloud bundle placement ${index + 1} URL`);
     const url = new URL(canonicalURL);
-    if (url.origin !== origin || url.search || url.hash) throw new Error(`Cloud bundle placement ${index + 1} belongs to another Canopy`);
+    if (url.origin !== origin || url.search || url.hash) throw new Error(`Cloud bundle placement ${index + 1} belongs to another host`);
     return {
       treeID: treeID(placement.treeID, `cloud bundle placement ${index + 1} tree`),
       canonicalURL,
@@ -252,7 +252,7 @@ export async function loadCloudBundles(): Promise<SafeCloudBundleRecord[]> {
       if (item.trees !== undefined && !Array.isArray(item.trees)) throw new Error(`Cloud bundle registry entry ${index + 1} trees must be a list`);
       const origin = normalizedOrigin(item.origin, `cloud bundle registry entry ${index + 1} origin`);
       const account = nonempty(item.account, `cloud bundle registry entry ${index + 1} account`);
-      if (new URL(account).origin !== origin) throw new Error(`Cloud bundle registry entry ${index + 1} account belongs to another Canopy`);
+      if (new URL(account).origin !== origin) throw new Error(`Cloud bundle registry entry ${index + 1} account belongs to another host`);
       return {
         bundleID: cloudBundleID(item.bundleID),
         label: nonempty(item.label, `cloud bundle registry entry ${index + 1} label`),

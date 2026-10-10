@@ -52,7 +52,7 @@ async function claimAccountProfileBootstrap(
   try {
     accountURL = new URL(accountLocator);
   } catch {
-    throw new ProtocolError("invalid-request", "Account must be a canonical HTTPS Canopy URL", 400);
+    throw new ProtocolError("invalid-request", "Account must be a canonical HTTPS Overstory host URL", 400);
   }
   const loopback = accountURL.protocol === "http:"
     && ["127.0.0.1", "localhost", "[::1]"].includes(accountURL.hostname);
@@ -60,7 +60,7 @@ async function claimAccountProfileBootstrap(
     (accountURL.protocol !== "https:" && !loopback)
     || accountURL.username || accountURL.password || accountURL.search || accountURL.hash
   ) {
-    throw new ProtocolError("invalid-request", "Account must be a canonical HTTPS Canopy URL", 400);
+    throw new ProtocolError("invalid-request", "Account must be a canonical HTTPS Overstory host URL", 400);
   }
   const origin = accountURL.origin;
   const account = `${origin}${accountURL.pathname}`.replace(/\/$/, "");
@@ -278,7 +278,7 @@ async function claimAccountProfileBootstrap(
 }
 
 /**
- * Claim one Canopy-chosen account locator for an already identified local
+ * Claim one host-chosen account locator for an already identified local
  * profile tree. This does not declare or upload the profile tree.
  */
 export async function claimHostAccountBootstrap(

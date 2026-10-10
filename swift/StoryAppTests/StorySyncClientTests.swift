@@ -16,7 +16,7 @@ final class StorySyncClientTests: XCTestCase {
     }
 
     private var fixtures: URL { referenceFixtures.appending(path: "story-sync", directoryHint: .isDirectory) }
-    private var hostFixtures: URL { referenceFixtures.appending(path: "host", directoryHint: .isDirectory) }
+    private var hostFixtures: URL { referenceFixtures.appending(path: "overstoryd", directoryHint: .isDirectory) }
 
     private var conformanceFixtures: URL {
         if let path = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"] {

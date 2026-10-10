@@ -70,7 +70,7 @@ struct StoryPeoplePicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Add people or groups", text: $query, prompt: Text("Name, ~handle, or Story profile URL"))
+            TextField("Add people or groups", text: $query, prompt: Text("Name, ~handle, or Overstory profile URL"))
                 .textFieldStyle(.roundedBorder)
                 .disabled(disabled)
                 .onSubmit {
@@ -181,7 +181,7 @@ struct StoryDirectoryView: View {
         let members = individuals.filter { $0.entry.sources.contains("community") }
         List {
             if !communities.isEmpty || !members.isEmpty {
-                Section("On this Canopy") {
+                Section("On this host") {
                     ForEach(communities) { row($0) }
                     ForEach(members) { row($0) }
                 }
@@ -266,7 +266,7 @@ struct StoryDirectoryView: View {
         }
     }
 
-    /// Directory groups this account can edit. The Canopy's member list is
+    /// Directory groups this account can edit. The host's member list is
     /// edited from its own row, where adding a person also reserves a handle.
     private var writableGroups: [DirectoryPerson] {
         let writable = workspace.writableProfileTrees
@@ -282,7 +282,7 @@ struct StoryNewGroupRequest: Identifiable {
 }
 
 /// Create a group profile: a name, its address under the account, and its
-/// first members. Everyone on the Canopy can see it.
+/// first members. Everyone on the host can see it.
 struct StoryNewGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
@@ -306,7 +306,7 @@ struct StoryNewGroupSheet: View {
 #endif
     }
 
-    /// Top-level names are for the Canopy's administrators.
+    /// Top-level names are for the host's administrators.
     private var placements: [StoryGroupPlacement] {
         let administers = workspace.directory.contains { $0.isCommunityProfile && workspace.writableProfileTrees.contains($0.id) }
         return StoryGroupPlacement.allCases.filter { $0 != .host || administers }
@@ -334,7 +334,7 @@ struct StoryNewGroupSheet: View {
                     TextField("Description", text: $groupDescription, prompt: Text("Optional"), axis: .vertical)
                         .lineLimit(1...4)
                 } footer: {
-                    Text("Everyone on this Canopy can see the group and who is in it. Sharing a tree with the group shares it with every member.")
+                    Text("Everyone on this host can see the group and who is in it. Sharing a tree with the group shares it with every member.")
                 }
                 Section("Members") {
                     ForEach(members, id: \.self) { tree in

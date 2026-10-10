@@ -394,7 +394,7 @@
       }
     },
     {
-      "name": "story locator naming a TreeID",
+      "name": "overstory locator naming a TreeID",
       "rule": {
         "who": {
           "profile": "overstory://tr_club/"
@@ -668,6 +668,11 @@
     {
       "input": "https://club.example/groups/the%20club",
       "locator": "https://club.example/groups/the%20club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "overstory://club.example/~club;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
+      "locator": "https://club.example/~club",
       "origin": "https://club.example"
     }
   ]

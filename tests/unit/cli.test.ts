@@ -84,6 +84,16 @@ describe("story open operands", () => {
     });
   });
 
+  // Rename 002: links already shared still say arbor://.
+  test("reads the old arbor:// spelling as overstory://", () => {
+    expect(openTarget("arbor://garden.example/~alice/notes", "/Users/alice"))
+      .toEqual(openTarget("overstory://garden.example/~alice/notes", "/Users/alice"));
+    expect(openTarget("arbor://garden.example/~alice", "/Users/alice")).toEqual({
+      remoteURL: "https://garden.example/~alice",
+      profile: { origin: "https://garden.example", handle: "alice", path: "/~alice" },
+    });
+  });
+
   test("expands a typed home-relative profile path", () => {
     expect(resolveUserPath("~/.story/profile", "/Users/alice")).toBe("/Users/alice/.story/profile");
   });

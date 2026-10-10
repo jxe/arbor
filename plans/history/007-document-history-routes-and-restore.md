@@ -44,19 +44,19 @@ tool and never appears as History.
   resolves through the object store even though migration 016 squashed each
   tree's history to its head.
 - **Clients.** `WorkspaceDocumentSession.history()` / `recover(revision:)` is the
-  UI seam. `WorkingTreeProvider` throws "Canopy history is not available yet", and
+  UI seam. `WorkingTreeProvider` throws a "history is not available yet" error, and
   `StoryDocumentBinding.history()` flushes and delegates to it, so History
   shows an empty state today (the editor recovery store that used to supply
   local copies is gone). `StoryHistoryView` already says **History** and **Restore as New
-  Change**. Every editor is a direct Canopy client with its own credential, so
+  Change**. Every editor is a direct host client with its own credential, so
   history comes from overstoryd directly: no Story Sync proxy, no local copy.
 
 ## Decide first
 
 1. **Local versions** (formerly open question 10). Working-tree sessions serve
    no document history. Either History waits for these routes and is
-   Canopy-only, or the change log's settled records also serve recent local
-   versions (for example unpublished edits made offline). Recommended: Canopy
+   host-only, or the change log's settled records also serve recent local
+   versions (for example unpublished edits made offline). Recommended: host
    only, which keeps the "no second history store" STOP below; unpublished
    edits already survive in the change log and publish on reconnect.
 2. **Retention bound.** `document_versions` holds most of what the object
@@ -121,7 +121,7 @@ decision.
    new change. Cover
    stale/current races and a conflict that preserves live editor text.
 4. **History view.** Loading, **No accepted history yet**, offline ("History
-   needs a connection to Canopy"; never a local fallback), error, rows labelled
+   needs a connection to the host"; never a local fallback), error, rows labelled
    by acceptance time, and the **Restore as New Change** confirmation saying later
    history is kept.
 
@@ -133,7 +133,7 @@ decision.
   and macOS and iOS app builds through `swift/Story.local.xcworkspace`.
 - Manual on Mac and iPhone: restore an older version online and see the previous
   latest version still listed after acceptance; offline, History reports that
-  Canopy is unreachable.
+  the host is unreachable.
 
 ## Out of scope
 

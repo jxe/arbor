@@ -25,7 +25,7 @@ async function cleanHome(): Promise<{ home: string; iphone: string; live: string
   const root = await mkdtemp(join(tmpdir(), "survey-"));
   temporary.push(root);
   const home = join(root, "home"), iphone = join(root, "iphone"), live = join(root, "live.json");
-  const story = join(home, ".overstory"), state = join(story, ".state");
+  const story = join(home, ".story"), state = join(story, ".state");
   await put(join(story, "placements.yaml"), `${CONFIG}:\n  /Users/joe/notes: ${TREE}\n`);
   await put(join(story, "accounts", CONFIG, "devices.yaml"), "dv_mac:\n  label: Mac\n  key: ed25519:abc\n");
   await put(join(state, "workspaces.json"), { "/Users/joe/notes": { stateID: "s", rootID: TREE, path: "/Users/joe/notes" } });
@@ -91,7 +91,7 @@ test("optional sources are skipped, not failed", async () => {
 
 test("each legacy state fails its check and names the commit to revert", async () => {
   const { home, iphone, live } = await cleanHome();
-  const story = join(home, ".overstory"), state = join(story, ".state");
+  const story = join(home, ".story"), state = join(story, ".state");
   const phone = join(iphone, "Library", "Application Support", "Story");
   await put(join(story, "account.yaml"), "handle: joe\n");
   await put(join(story, "placements.yaml"), `${CONFIG}:\n  /Users/joe/notes: ${TREE}\ntr_unknown:\n  /Users/joe/other: tr_otherabc\n`);
@@ -131,7 +131,7 @@ test("each legacy state fails its check and names the commit to revert", async (
 
 test("a data home without an indexed identity fails the Keychain check", async () => {
   const { home } = await cleanHome();
-  await rm(join(home, ".overstory", ".state", "self.json"));
+  await rm(join(home, ".story", ".state", "self.json"));
   const check = byName(await survey({ home, platform: "darwin", security: keychain(["primary-v2"]) }), "Keychain");
   expect(check.status).toBe("FAIL");
   expect(check.revert).toBe(REVERT.keychainIdentities);
@@ -143,7 +143,7 @@ test("the command exits non-zero when a check fails and reads --home", async () 
   const clean = run([]);
   expect(clean.exitCode, clean.stdout.toString()).toBe(0);
   expect(clean.stdout.toString()).toMatch(/^PASS {2}data home: no pre-plural account files {2}\| {2}revert "Remove the pre-plural/m);
-  await put(join(home, ".overstory", "trees.yaml"), "x: 1\n");
+  await put(join(home, ".story", "trees.yaml"), "x: 1\n");
   const failing = run([]);
   expect(failing.exitCode).toBe(1);
   expect(failing.stdout.toString()).toMatch(/^FAIL {2}data home: no pre-plural account files .*found trees\.yaml$/m);

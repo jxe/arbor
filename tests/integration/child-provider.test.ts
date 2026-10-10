@@ -13,8 +13,8 @@ let workspace: Workspace;
 const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n';
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "arbor-child-provider-"));
-  state = await mkdtemp(join(tmpdir(), "arbor-child-provider-state-"));
+  root = await mkdtemp(join(tmpdir(), "story-child-provider-"));
+  state = await mkdtemp(join(tmpdir(), "story-child-provider-state-"));
   process.env.STORY_HOME = state;
 
   await mkdir(join(root, "expanded"));

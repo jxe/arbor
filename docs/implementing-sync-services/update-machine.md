@@ -7,7 +7,7 @@ Every working tree runs one machine, specified in
 sources append **local changes** to a durable **change log**; the machine
 decides when and how the log is published; the **runner** performs what the
 machine decides. An editor generation, a structural action, a review
-resolution, and a folder scan are all local changes. The Canopy app's
+resolution, and a folder scan are all local changes. The Story app's
 `OverstoryWorkingTree` runs the Swift runner; Story Sync runs the TypeScript
 runner in `@ovst/working-tree` once per placed folder (`FolderSync`).
 Both pass the same runner vectors.

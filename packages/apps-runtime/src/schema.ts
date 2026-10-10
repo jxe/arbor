@@ -65,10 +65,19 @@ export interface StoreSchema {
   fingerprint: string;
 }
 
+/**
+ * Rename 002: authored `relationships.json` files may still say
+ * `"source": "arbor-profile"`. Both spellings are read; metadata carries only
+ * `"overstory-profile"`.
+ */
+export function isProfileRelationSource(source: string): boolean {
+  return source === "overstory-profile" || source === "arbor-profile";
+}
+
 interface RelationshipDeclaration {
   version: 1;
   virtualRelations?: Record<string, {
-    source: "overstory-profile";
+    source: "overstory-profile" | "arbor-profile";
     primaryKey: string[];
     fields: Record<string, { type: FieldType; nullable?: boolean }>;
   }>;
@@ -356,9 +365,10 @@ export async function introspectStoreSchema(
   const relations = { ...fixtureRelations };
   for (const [name, virtual] of Object.entries(declaration.virtualRelations ?? {})) {
     if (relations[name]) throw new Error(`Virtual relation ${name} collides with a SQLite table`);
+    if (!isProfileRelationSource(virtual.source)) throw new Error(`Virtual relation ${name} has an unknown source`);
     relations[name] = {
       name,
-      source: virtual.source,
+      source: "overstory-profile",
       fields: Object.fromEntries(Object.entries(virtual.fields).map(([field, metadata]) => [field, {
         name: field,
         type: metadata.type,

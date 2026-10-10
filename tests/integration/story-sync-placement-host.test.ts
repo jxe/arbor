@@ -52,7 +52,7 @@ let research: string;
 const repository = join(import.meta.dir, "../..");
 const environment = (state: string) => ({ ...Bun.env, STORY_HOME: state, STORY_CREDENTIAL_STORE: "file" });
 
-/** An Story Sync control service for one device's data home, in its own process. */
+/** A Story Sync control service for one device's data home, in its own process. */
 async function startStorySync(state: string): Promise<{ url: string; client: StorySyncRESTClient }> {
   const child = Bun.spawn(["bun", "packages/story-sync/src/cli.ts", "--control", "--port", "0"], {
     cwd: repository, env: environment(state), stdout: "pipe", stderr: "inherit",
@@ -202,7 +202,7 @@ describe("Story Sync places folders under a placement root", () => {
     expect(listing).toContain(`Placement: ${bOrigin}/~joe`);
     expect(listing).toContain(`${researchMac} (${research})`);
     // A tree never moves between hosts.
-    await expect(story(stateMac, mac.url, ["mv", `${bOrigin}/~joe/research`, `${a.url}/~joe/research`])).rejects.toThrow("another Canopy is not supported");
+    await expect(story(stateMac, mac.url, ["mv", `${bOrigin}/~joe/research`, `${a.url}/~joe/research`])).rejects.toThrow("another host is not supported");
   }, 60_000);
 
   test("a second device pairs at A, then places the same tree from its own data home", async () => {

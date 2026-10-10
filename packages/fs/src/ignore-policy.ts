@@ -20,6 +20,8 @@ export const MANDATORY_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
   ".overstory",
+  // Rename 002: a device's state directory from before the Overstory rename.
+  ".arbor",
   "Trash",
   ".build",
   "DerivedData",
@@ -28,13 +30,23 @@ export const MANDATORY_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
 /** Ignore-rule files, lowest precedence first: `.overstoryignore` wins over `.gitignore` beside it. */
 export const IGNORE_FILE_NAMES = [".gitignore", ".overstoryignore"] as const;
 
+/**
+ * Rename 002: `.overstoryignore` as folders from before the Overstory rename
+ * spell it. Its rules are read in `.overstoryignore`'s place when a directory
+ * has no `.overstoryignore`; beside one it contributes no rules. Either way
+ * it is an ignore file: tree content that no rule can ignore.
+ */
+export const LEGACY_IGNORE_FILE_NAME = ".arborignore";
+
 export function isIgnoreFileName(name: string): boolean {
-  return (IGNORE_FILE_NAMES as readonly string[]).includes(name);
+  return (IGNORE_FILE_NAMES as readonly string[]).includes(name) || name === LEGACY_IGNORE_FILE_NAME;
 }
 
 /** An Overstory write or transaction temporary. */
 export function isTransactionTemporaryName(name: string): boolean {
-  return name.includes(".overstory-write-") || name.includes(".overstory-txn-");
+  return name.includes(".overstory-write-") || name.includes(".overstory-txn-")
+    // Rename 002: strays left by a build from before the Overstory rename are never content.
+    || name.includes(".arbor-write-") || name.includes(".arbor-txn-");
 }
 
 /**
@@ -320,13 +332,17 @@ export class IgnorePolicy {
     const key = treePathOf(segments);
     let files = this.files.get(key);
     if (!files) {
-      files = Promise.all(IGNORE_FILE_NAMES.map((name) => this.readRules([...segments, name])))
-        .then((loaded) => loaded.filter((file): file is RuleFile => file !== null));
+      files = Promise.all(IGNORE_FILE_NAMES.map(async (name) =>
+        await this.readRules([...segments, name])
+          // Rename 002: the old name is read only where the new one is absent.
+          ?? (name === ".overstoryignore" ? this.readRules([...segments, LEGACY_IGNORE_FILE_NAME]) : null)
+      )).then((loaded) => loaded.filter((file): file is RuleFile => file !== null));
       this.files.set(key, files);
     }
     return files;
   }
 
+  /** The rule file at a path: null when there is none, and no rules when it cannot be read. */
   private async readRules(segments: readonly string[]): Promise<RuleFile | null> {
     const source = treePathOf(segments);
     const absolute = join(this.root, ...segments);
@@ -350,7 +366,7 @@ export class IgnorePolicy {
         severity: "warning",
         message: `${source} could not be read, so none of its ignore rules apply.`,
       });
-      return null;
+      return { source, rules: [] };
     }
     let text: string;
     try {
@@ -362,7 +378,7 @@ export class IgnorePolicy {
         severity: "warning",
         message: `${source} is not valid UTF-8, so none of its ignore rules apply.`,
       });
-      return null;
+      return { source, rules: [] };
     }
     return { source, rules: parseIgnoreRules(text) };
   }

@@ -4,10 +4,10 @@ import Overstory
 import Foundation
 import Synchronization
 
-/// A Canopy session the daemon's device key opened, as a `ProtocolCredentialProvider`.
+/// A host session the daemon's device key opened, as a `ProtocolCredentialProvider`.
 ///
 /// Fetched from `GET /v1/credential` on first use and cached for the life of the
-/// provider. A caller that sees Canopy answer 401/403 calls `invalidate()` so the
+/// provider. A caller that sees the host answer 401/403 calls `invalidate()` so the
 /// next request asks the daemon for a fresh session instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
 ///
@@ -84,7 +84,7 @@ actor StorySyncCredentialProvider: ProtocolCredentialProvider {
 struct DaemonObjectStore: ObjectStore {
     let client: StorySyncRESTClient
     let tree: String
-    /// The Canopy origin for a tree the daemon has no placement for (a visit).
+    /// The host origin for a tree the daemon has no placement for (a visit).
     let origin: URL?
 
     init(client: StorySyncRESTClient, tree: String, origin: URL? = nil) {

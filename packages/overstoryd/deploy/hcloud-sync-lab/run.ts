@@ -77,7 +77,7 @@ Commands:
   test:authorization
               Run distinct-user read, write, read-only, and no-access checks
   status      Show recorded phase and live server state
-  collect     Download journals, Canopy backup, and immutable objects
+  collect     Download journals, host backup, and immutable objects
   reset       Clear and reconfigure the four recorded disposable lab servers
   down        Collect evidence, log out of Tailscale, and delete recorded server IDs
 
@@ -540,7 +540,7 @@ async function configure(state: LabState): Promise<void> {
       quiet: true,
     });
     if (health.exitCode === 0) break;
-    if (attempt === 29) throw new Error("Canopy health did not become ready");
+    if (attempt === 29) throw new Error("Host health did not become ready");
     await Bun.sleep(1_000);
   }
   const owner = await ownerDevice(state);
@@ -559,7 +559,7 @@ async function configure(state: LabState): Promise<void> {
 }
 
 function clientCommand(body: string): string {
-  return `sudo -u story -H env STORY_HOME=/home/story/.overstory ${body}`;
+  return `sudo -u story -H env STORY_HOME=/home/story/.story ${body}`;
 }
 
 /** The owner account's first key device, which `configure-node.sh` made on the community machine. */
@@ -728,7 +728,7 @@ async function smoke(state: LabState): Promise<void> {
     throw new Error(`Smoke synchronization did not converge for ${scenario}`);
   }
   const health = await ssh(state, "community", ["curl", "-fsS", "http://127.0.0.1:4318/.overstory/health"], { quiet: true });
-  if (!health.stdout.includes('"ok"')) throw new Error(`Canopy health failed: ${health.stdout}`);
+  if (!health.stdout.includes('"ok"')) throw new Error(`Host health failed: ${health.stdout}`);
   state.steps.smoke = new Date().toISOString();
   await saveState(state);
   console.log(`Smoke synchronization passed: ${scenario}`);
@@ -800,7 +800,7 @@ async function acceptance(state: LabState): Promise<void> {
   await sshBash(state, "bob", `printf 'binary-from-bob' > '${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin'`);
   await ssh(state, "alice", ["systemctl", "start", "story-client.service"]);
   await waitUntil("Alice binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 1);
-  // Canopy accepts Bob's divergent bytes as an unresolved alternative; nothing is held.
+  // The host accepts Bob's divergent bytes as an unresolved alternative; nothing is held.
   await ssh(state, "bob", ["systemctl", "start", "story-client.service"]);
   await waitUntil("Bob accepted binary alternative", async () => await authorityHistoryCount(state, conflictTree) === before + 2
     && await acceptedConflicted(state, "bob", conflictTree));
@@ -809,7 +809,7 @@ async function acceptance(state: LabState): Promise<void> {
   if (await hasConflict(state, "bob", conflictTree)) throw new Error("An accepted binary alternative was held as a refusal");
   const selected = await ssh(state, "bob", ["cat", `${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin`], { quiet: true });
   if (selected.stdout !== "binary-from-alice") throw new Error(`Bob does not hold the accepted selection: ${selected.stdout}`);
-  // Resolve explicitly through Canopy: a new update keeps Bob's alternative.
+  // Resolve explicitly through the host: a new update keeps Bob's alternative.
   await nodeScript(state, "community", "lab-node.ts", "resolve-binary", {
     owner, tree: conflictTree, path: "sample.bin", keep: "binary-from-bob",
   });
@@ -1021,7 +1021,7 @@ async function reset(state: LabState): Promise<void> {
     await ssh(state, role, ["systemctl", "stop", "story-client.service"], { allowFailure: true });
     await sshBash(state, role, [
       `find '${CLIENT_PATHS[role]}' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`,
-      "find /home/story/.overstory -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +",
+      "find /home/story/.story -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +",
       "rm -rf -- /tmp/story-replay",
     ].join("\n"));
   }

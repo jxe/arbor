@@ -1,4 +1,4 @@
-/** Disposable, repeatable rule workload; never opens Canopy data. */
+/** Disposable, repeatable rule workload; never opens host data. */
 import { performance } from "node:perf_hooks";
 import { Fixture } from "../unit/overstoryd-merge/fixture.ts";
 const f = new Fixture(),

@@ -2,7 +2,7 @@
 
 Story Sync, the per-user local daemon, and the `story-sync` command. It keeps
 placed folders synchronized with their hosts and serves the loopback REST API
-that the `story` command and the Canopy app use.
+that the `story` command and the Story app use.
 
 - `server.ts` composes the handlers: `sync-http.ts` and `service.ts`
   (placements, bootstrap, events, held changes), `account-http.ts` and

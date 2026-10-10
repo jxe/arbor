@@ -70,7 +70,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     } else {
       if (!payload) throw new ProtocolError("invalid-request", "Paste a pairing code from an authorized device", 400);
       const seed = generateDeviceKeySeed();
-      secrets = { payload, seed, device: { id: generateOverstoryID("dv"), label: hostname() || "Canopy Mac", key: deviceKeyFromSeed(seed) } };
+      secrets = { payload, seed, device: { id: generateOverstoryID("dv"), label: hostname() || "Story Mac", key: deviceKeyFromSeed(seed) } };
       pending = { version: 1, origin: payload.origin, pairingID: payload.pairing.id, credentialSlot: generateOverstoryID("tr") };
       const store = new HostAccountStore(pending.credentialSlot);
       const source = JSON.stringify(secrets);

@@ -225,7 +225,7 @@ describe("story-sync object route", () => {
     expect(gone.status).toBe(404);
   });
 
-  test("fetches through to Canopy for an unplaced tree named by origin", async () => {
+  test("fetches through to the host for an unplaced tree named by origin", async () => {
     const { serveHost } = await import("@ovst/overstoryd");
     const { hashObject } = await import("@ovst/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@ovst/fs");
@@ -347,10 +347,17 @@ describe("story-sync bootstrap and credential routes", () => {
     await rm(sandbox, { recursive: true, force: true });
   });
 
+  // Rename 002: `arbor://` is still read wherever `overstory://` is.
+  test("resolves a raw tree locator in either scheme spelling", async () => {
+    const current = await placedClient.resolve(`overstory://tree/${tree}/note`);
+    expect(current.ref).toMatchObject({ tree, path: "/note" });
+    expect((await placedClient.resolve(`arbor://tree/${tree}/note`)).ref).toEqual(current.ref);
+  });
+
   test("bootstraps a clean placed tree with a sparse spine", async () => {
     const { decodeSparseSnapshotBundle, decodeProtocolDirectory, hashObject } = await import("@ovst/protocol");
     const bootstrap = await placedClient.bootstrap(tree);
-    // Page dates come from Canopy's entry metadata, never from the daemon's files.
+    // Page dates come from the host's entry metadata, never from the daemon's files.
     expect("modifiedAtByPath" in bootstrap).toBe(false);
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
     expect(bootstrap.tree.id).toBe(tree);
@@ -379,7 +386,7 @@ describe("story-sync bootstrap and credential routes", () => {
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
   });
 
-  test("bootstraps the accepted Canopy root while the folder has an unpublished edit", async () => {
+  test("bootstraps the accepted host root while the folder has an unpublished edit", async () => {
     const { decodeSparseSnapshotBundle, decodeProtocolDirectory } = await import("@ovst/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");

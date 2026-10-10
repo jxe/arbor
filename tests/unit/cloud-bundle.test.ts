@@ -52,7 +52,7 @@ describe("cloud bundle strings", () => {
     expect(decodeCloudBundle(encoded)).toEqual(original);
   });
 
-  test("decodes a bundle Canopy's Share panel encoded", () => {
+  test("decodes a bundle Story's Share panel encoded", () => {
     // The form `StoryCloudBundle.encode` (swift/StoryApp/StoryAgentBundle.swift)
     // makes: raw DEFLATE of sorted-key JSON, which must stay readable here.
     const fromOverstoryd = "arbor-cloud-v2.cb_0123456789abcdefghij.nZHBT8MgFMb_lYWzXWnV6npb4sXowei8aMxC4bVlUqgUcHOZf7uv63QXXVTCgTx-7_HxfWvCODdeO5KT2rm2y-O4YlaAHsOSNa2C-H1hgBx9cpcXSO7OUYL1wmuhYFvmxZwm6fHJaXZ2PmEFF1BWtVwgxI0uZeUtc9LomQVA2tn5nnlWjTbti-2cD6_L1dsw5bv7fpoF5kBMe9EpTbOITiKazZI0pxT3mFL6gJiAIPmgTIQDb32hV7C6AxDIT3-_sFuxAlTfVYF2o9LYETei98xYWUn9o7VItIpxaLCtI_njmnCmjZacqfvb68OJxLsnLCg0NcANc3UfwVB1aPH242jy3y32gWyeUJs1pVSwj-sfaXkUE8B2GDvJ080H";

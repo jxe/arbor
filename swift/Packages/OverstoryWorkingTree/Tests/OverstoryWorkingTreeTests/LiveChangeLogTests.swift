@@ -220,7 +220,7 @@ struct LiveChangeLogTests {
 }
 
 extension LiveChangeLogTests {
-    @Test("Mixed structural and source admissions restart and publish through Canopy")
+    @Test("Mixed structural and source admissions restart and publish through the host")
     func mixedStructuralPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["STORY_SOURCE_TEST_URL"], let origin = URL(string: address),
@@ -262,7 +262,7 @@ extension LiveChangeLogTests {
         // Uncertain acceptance leaves the exact request retained, not current.
         _ = try await interrupted.syncOnce()
         #expect(await interrupted.syncState.kind != "current")
-        // The complete queued chain reaches Canopy in the first frozen batch,
+        // The complete queued chain reaches the host in the first frozen batch,
         // even when the client loses its acknowledgement before installation.
         #expect(try await client.descriptor(tree: treeID).tree.root == records.last?.candidate.root)
         await interrupted.close()
@@ -278,7 +278,7 @@ extension LiveChangeLogTests {
         #expect(try await recovered.resolve(renamed.reference).reference.path == renamed.reference.path)
         await reopened.close(); await reopenedTree.close()
     }
-    @Test("Pending structural and stale source branches wait for Canopy, survive uncertain acceptance and resume")
+    @Test("Pending structural and stale source branches wait for the host, survive uncertain acceptance and resume")
     func branchedStructuralPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["STORY_SOURCE_TEST_URL"], let origin = URL(string: address),
@@ -350,7 +350,7 @@ private struct StructuralPublicationCrash: UpdateFaultInjector {
 }
 
 extension LiveChangeLogTests {
-    @Test("Compound sibling-body operations publish through Canopy after restart")
+    @Test("Compound sibling-body operations publish through the host after restart")
     func compoundStructuralPublication() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["STORY_SOURCE_TEST_URL"], let origin = URL(string:address),

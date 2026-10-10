@@ -253,7 +253,7 @@ describe("plural-account CLI place", () => {
     }
   });
 
-  test("refuses canonical URLs on a Canopy with no account for the profile, saying what to reserve", async () => {
+  test("refuses canonical URLs on a host with no account for the profile, saying what to reserve", async () => {
     const misplaced = await source("misplaced-source");
     const error = await storyFailure(["place", misplaced, `${secondHost.url}/~someone-else/notes`]);
     expect(error).toContain("has no account for this profile; ask its administrators to reserve");
@@ -304,7 +304,7 @@ describe("plural-account CLI place", () => {
     expect(firstHost.overstoryd.boundary("/~alice/healthy-moved")?.id).toBe(tree);
   });
 
-  test("refuses to declare a tree while its Canopy is unreachable, changing nothing", async () => {
+  test("refuses to declare a tree while its host is unreachable, changing nothing", async () => {
     firstHost.server.stop(true);
     try {
       const offlineSource = await source("placed-while-first-offline", "# Placed offline\n");
@@ -325,8 +325,8 @@ describe("plural-account CLI place", () => {
   });
 });
 
-describe("Canopy deployment guards", () => {
-  test("refuses an ephemeral or unnamed Railway Canopy", async () => {
+describe("Host deployment guards", () => {
+  test("refuses an ephemeral or unnamed Railway host", async () => {
     const noDomain = await hostFailure([], {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "",
@@ -344,7 +344,7 @@ describe("Canopy deployment guards", () => {
     expect(noVolume).toContain("needs a persistent volume");
   });
 
-  test("requires explicit bootstrap handles for a fresh unattended Canopy", async () => {
+  test("requires explicit bootstrap handles for a fresh unattended host", async () => {
     const bootstrapEnv = {
       RAILWAY_PROJECT_ID: "",
       RAILWAY_ENVIRONMENT_ID: "",

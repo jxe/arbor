@@ -3,8 +3,8 @@
 Replaceable local filesystem, daemon-state, and credential-storage choices of
 Story Sync. The synchronized cross-host configuration contract is normative in
 [accounts and devices](../../overstory-spec/04-accounts-and-devices.md); the loopback
-API is in [the Story Sync REST API](../../implementing-sync-services/story-sync-api.md); what the Canopy app
-keeps on disk is in [Canopy local state](../story-browser/local-state.md).
+API is in [the Story Sync REST API](../../implementing-sync-services/story-sync-api.md); what the Story app
+keeps on disk is in [Story local state](../story-browser/local-state.md).
 
 ## Data home
 
@@ -25,7 +25,7 @@ ${STORY_HOME:-~/.story}/
 ```
 
 Each directory under `configurations/` is the source-preserving checkout of
-a person profile's tree configuration (Canopy labels it "~handle settings"),
+a person profile's tree configuration (Story labels it "~handle settings"),
 named by its derived configuration TreeID; the account's host origin and
 profile TreeID are kept with its connection record, not in the checkout. A
 profile has one home host, so one profile has one checkout. It was `accounts/`
@@ -113,7 +113,7 @@ belongs in synchronized configuration or authored trees.
 
 The reference CLI exposes `story daemon install|uninstall|start|stop|restart|status|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Story Sync REST origin. An explicit `STORY_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
 
-macOS implements this contract as the per-user launchd label `org.nxhx.story.sync`. A signed Canopy app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
+macOS implements this contract as the per-user launchd label `org.nxhx.story.sync`. A signed Story app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
 
 ## Watching and local activation
 
@@ -259,7 +259,7 @@ Overstory format 5 uses raw file payloads and typed directory entries. Sparse
 bootstraps are rooted at the recorded accepted overstoryd root and include its
 directories and Markdown; daemon-local pending/conflict state is not part of
 another client's installation. Other file sizes are unknown until read. On a format change, the daemon archives old refs and sync journals beneath
-`.state/format-recovery/` before rebuilding indexes. Canopy on iOS retains
+`.state/format-recovery/` before rebuilding indexes. Story on iOS retains
 the old working tree and sync state beneath `FormatRecovery/` before rebootstrap.
 These archives are recovery evidence and are never replayed automatically.
 

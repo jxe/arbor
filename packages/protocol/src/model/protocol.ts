@@ -130,7 +130,7 @@ export function canonicalOverstoryLocator(canonical: Pick<CanonicalTreeDescripto
 }
 
 /**
- * A Canopy tree as the authority currently holds it. `root` and `update`
+ * A host's tree as the authority currently holds it. `root` and `update`
  * name one accepted state; the same two fields on a local descriptor name
  * the accepted base a placement derives from.
  */
@@ -145,7 +145,7 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
 /**
  * A tree as Story Sync holds it: the protocol descriptor plus what only a local
  * daemon knows (placement on disk, display name, synchronization state).
- * `root` and `update` are the accepted Canopy base this placement derives
+ * `root` and `update` are the accepted host base this placement derives
  * from and are absent until the first accepted state is installed.
  */
 export interface LocalTreeDescriptor extends TreeDescriptor {
@@ -175,10 +175,10 @@ export interface PairingOffer {
   expiresAt: number;
 }
 
-/** One claimed Canopy account of a data home, safe to present: no credential material. */
+/** One claimed host account of a data home, safe to present: no credential material. */
 export interface LocalAccountSummary {
   configurationTree: TreeID;
-  /** The Canopy origin of the account's connection; null when it is unreadable. */
+  /** The host origin of the account's connection; null when it is unreadable. */
   host: string | null;
   handle: string | null;
   profileTree: TreeID | null;
@@ -197,7 +197,7 @@ export interface ProfileIdentity {
   keyAvailable: boolean;
 }
 
-/** Deployment/placement context carried by local and Canopy node responses. */
+/** Deployment/placement context carried by local and host node responses. */
 export interface NodeResponse extends NodeSnapshot {
   enclosingTree?: LocalTreeDescriptor;
   /** Opaque local admission context returned unchanged by an editor save. */
@@ -453,7 +453,7 @@ export interface PlainSourceEdit { offset: number; length: number; replacement: 
  * ascending, non-adjacent and never share an anchor.
  *
  * The same rule runs in `@ovst/working-tree` (`compactTrace`), in the Swift
- * queue and in Canopy's `composeFrames`, and `docs/overstory-spec/conformance/source-admission-queue.json`
+ * queue and in overstoryd's `composeFrames`, and `docs/overstory-spec/conformance/source-admission-queue.json`
  * holds the shared vectors. Only plain edits compose; lineage and copies name
  * the generation they were captured against and are never rebased here.
  */

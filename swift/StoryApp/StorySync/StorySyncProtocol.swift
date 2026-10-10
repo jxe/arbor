@@ -69,7 +69,7 @@ typealias CanonicalTreeDescriptor = ProtocolCanonicalDescriptor
 
 /// A tree as Story Sync holds it: the protocol descriptor fields plus placement,
 /// display name, and synchronization state. `root` and `update` are the
-/// accepted Canopy base this placement derives from, absent until one exists.
+/// accepted host base this placement derives from, absent until one exists.
 struct LocalTreeDescriptor: Codable, Sendable, Equatable {
     var conflicted: Bool?
     var id: String
@@ -176,7 +176,7 @@ struct TreeBootstrapDescriptor: Codable, Sendable, Equatable {
 }
 
 /// `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own
-/// working tree. Mirrors `TreeBootstrap` in `@story/story-sync-client`, with the base64 spine
+/// working tree. Mirrors `TreeBootstrap` in `packages/cli/src/daemon-client.ts`, with the base64 spine
 /// already decoded and validated in sparse mode.
 struct TreeBootstrap: Sendable, Equatable {
     var tree: TreeBootstrapDescriptor

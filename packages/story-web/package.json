@@ -1,7 +1,7 @@
 {
   "name": "@ovst/story-web",
   "version": "0.1.0",
-  "description": "Canopy for the browser: the web editor (React, BlockNote, Vite). Out of the build and typecheck until Web 025 rebuilds it as a working-tree client.",
+  "description": "Story for the web: the web editor (React, BlockNote, Vite). Out of the build and typecheck until Web 025 rebuilds it as a working-tree client.",
   "private": true,
   "type": "module",
   "dependencies": {

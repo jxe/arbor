@@ -3,10 +3,33 @@ import { parseMarkdown, parseProfileLocator, plainMarkdownTitle, decodeProtocolD
 import type { EntryChanges } from "./updates/entry-metadata.ts";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
-/** A Canopy-local account handle, the name in `/~handle`. */
+/** A host-local account handle, the name in `/~handle`. */
 export const HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
 const HANDLE_PATH = new RegExp(`^/~(${HANDLE_SOURCE})/?$`);
-const PROFILE_LOCATOR = /^story:\/\/(tr_[a-z2-7]+)\/?$/;
+// Rename 002: authored members and stored facts written before the rename
+// spell the scheme `arbor://`. Both are read; only `overstory://` is written.
+const PROFILE_LOCATOR = /^(?:overstory|arbor):\/\/(tr_[a-z2-7]+)\/?$/;
+const OLD_PROFILE_SCHEME = "arbor://";
+
+/** A member's profile in the current spelling: an old-scheme TreeID locator
+ * becomes `overstory://…`, so stored and authored members compare equal
+ * whichever spelling they were written in. Anything else is returned as is. */
+export function currentProfileSpelling(profile: string): string {
+  // Rename 002: remove with the `arbor://` alias.
+  return profile.startsWith(OLD_PROFILE_SCHEME) && PROFILE_LOCATOR.test(profile)
+    ? `overstory://${profile.slice(OLD_PROFILE_SCHEME.length)}`
+    : profile;
+}
+
+/** Stored `profile_facts.facts`, with each member's profile in the current spelling. */
+export function parseStoredFacts(json: string): RootProfileFacts {
+  const facts = JSON.parse(json) as RootProfileFacts;
+  // Rename 002: rows written before the rename hold `arbor://` members.
+  for (const member of facts.members ?? []) {
+    if (typeof member.profile === "string") member.profile = currentProfileSpelling(member.profile);
+  }
+  return facts;
+}
 
 /** The handle a `/~handle` path names, exactly (a trailing slash allowed). */
 export function handleOfPath(path: string): string | undefined {
@@ -27,7 +50,7 @@ export interface MemberReservation {
   inviteDigest?: string;
 }
 
-/** The handles a group's members reserve on this Canopy: each structured
+/** The handles a group's members reserve on this host: each structured
  * handle, with the Profile TreeID its `overstory://<TreeID>/` locator names, the
  * canonical locator of a profile another host holds, or its pending
  * invitation's digest. */
@@ -76,10 +99,10 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
  * decides whether a later update must recompute them.
  *
  * The facts are what the root declares in its `_index.md` frontmatter: the
- * `type` and each structured member's profile locator / Canopy-local
+ * `type` and each structured member's profile locator / host-local
  * handle; a member that is not a well-formed structured entry, including a
  * bare string, is ignored. Structured members keep identity separate from
- * this Canopy's allocation policy. overstoryd stores them per tree
+ * this host's allocation policy. overstoryd stores them per tree
  * (`profile_facts`) so authorization never reparses mutable state; migration
  * 020 rebuilt the rows for every head. */
 export interface RootProfileRead {
@@ -107,7 +130,7 @@ export function structuredMembers(declared: unknown): RootProfileFacts["members"
   return (Array.isArray(declared) ? declared : []).flatMap((value): RootProfileFacts["members"] => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
     const candidate = value as Record<string, unknown>;
-    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? candidate.profile
+    const profile = typeof candidate.profile === "string" && PROFILE_LOCATOR.test(candidate.profile) ? currentProfileSpelling(candidate.profile)
       : parseProfileLocator(candidate.profile)?.locator;
     const handle = typeof candidate.handle === "string" && HANDLE.test(candidate.handle) ? candidate.handle : undefined;
     const inviteDigest = typeof candidate.inviteDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(candidate.inviteDigest)
@@ -215,7 +238,7 @@ export function createProfileFactsTable(db: Database): void {
 export function readStoredProfile(db: Database, tree: string): StoredProfile | null {
   const row = db.query("SELECT index_hash, avatar_path, facts FROM profile_facts WHERE tree_id = ?").get(tree) as
     { index_hash: ObjectHash; avatar_path: string | null; facts: string } | null;
-  return row ? { indexHash: row.index_hash, avatarPath: row.avatar_path, facts: JSON.parse(row.facts) as RootProfileFacts } : null;
+  return row ? { indexHash: row.index_hash, avatarPath: row.avatar_path, facts: parseStoredFacts(row.facts) } : null;
 }
 
 /** Store or remove a tree's profile, inside the transaction that accepts its head. */

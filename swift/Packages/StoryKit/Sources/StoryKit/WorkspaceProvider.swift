@@ -155,7 +155,7 @@ extension WorkspaceSourceEdit {
     /// splits, removes or interleaves pieces. Copied pieces stay in original
     /// order, so the composed edits are ascending, never adjacent and never
     /// share an anchor. The same rule runs as `composeSourceEdits` in
-    /// `@story/core` and in Canopy's `composeFrames`;
+    /// `@ovst/protocol` and in the host's `composeFrames`;
     /// `docs/overstory-spec/conformance/source-admission-queue.json` holds the shared vectors.
     public static func compose(generations: [[WorkspaceSourceEdit]]) throws -> [WorkspaceSourceEdit] {
         enum Piece { case copy(Range<Int>); case text(Data)

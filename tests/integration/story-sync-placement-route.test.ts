@@ -11,7 +11,7 @@ import { makeProfilePublic, reserveMembers } from "../helpers/community-reservat
 import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 /**
- * `POST /v1/bootstrap/placements`, the route a local app (the Mac's Canopy)
+ * `POST /v1/bootstrap/placements`, the route a local app (Story on the Mac)
  * connects a placement account through: B's community reserved the profile by
  * its locator at A, and the data home's device key opens a session there
  * (accounts §1.3). Home host A, placement hosts B and C, and one Story Sync

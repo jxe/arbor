@@ -1,32 +1,32 @@
-# Meaning Supplies for Story
+# Meaning Supplies for Overstory
 
-This checked-in tree is the in-progress port of the existing Supplies application and Story's executable-document acceptance corpus. It is ordinary authored Story content, not a deployed site, Vite project, React Router application, or standalone JavaScript package.
+This checked-in tree is the in-progress port of the existing Supplies application and Overstory's executable-document acceptance corpus. It is ordinary authored Overstory content, not a deployed site, Vite project, React Router application, or standalone JavaScript package.
 
-When Story implements executable documents, hosting should work as follows:
+When Overstory implements executable documents, hosting should work as follows:
 
-1. Promote `data/` as a private nested Story tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor.
-2. Promote this folder as an Story tree.
+1. Promote `data/` as a private nested Overstory tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor.
+2. Promote this folder as an Overstory tree.
 3. Give the tree's execution principal read/write access to the private data tree and profile-read access required by the compiled queries.
 4. Enable executable-document hosting for the tree on its host.
 
-Each root `.mdx` or `.tsx` document is an ordinary Story location. `Home.mdx` is served at the extensionless `Home` path, `List.tsx` at `List`, and so on. Links are ordinary relative Story links. Query parameters belong to the addressed document, such as `List?id=<UUID>&edit`; there is no application entry, route table, location registry, generated link type, or view selector.
+Each root `.mdx` or `.tsx` document is an ordinary Overstory location. `Home.mdx` is served at the extensionless `Home` path, `List.tsx` at `List`, and so on. Links are ordinary relative Overstory links. Query parameters belong to the addressed document, such as `List?id=<UUID>&edit`; there is no application entry, route table, location registry, generated link type, or view selector.
 
-The root `_index.md` is ordinary explanatory Story content. `Home.mdx` provides editorial layout; interaction-heavy documents remain TSX. A renderable document default-exports its component (the MDX body supplies that default automatically) and receives the request's ordinary `URLSearchParams` as `search`. It renders `<title>` and `<meta>` normally; React hoists them into the document head.
+The root `_index.md` is ordinary explanatory Overstory content. `Home.mdx` provides editorial layout; interaction-heavy documents remain TSX. A renderable document default-exports its component (the MDX body supplies that default automatically) and receives the request's ordinary `URLSearchParams` as `search`. It renders `<title>` and `<meta>` normally; React hoists them into the document head.
 
 The Phase 1–3 `overstory/data` query, live-result, and transactional mutation surfaces now exist and are tested directly against this source. `overstory/react`, schema-generated authoring declarations, and executable-document compilation do not exist yet, so the tree is not yet a runnable document site.
 
 ## Ported so far
 
-- ordinary extensionless Story navigation between executable documents;
+- ordinary extensionless Overstory navigation between executable documents;
 - normalized SQLite schema with stable UUID/ProfileID keys;
 - independently live practice-search and popular-list regions, plus list, practice, profile, my-lists, and edit-choice relational queries;
 - React Action forms for create, rename, reorder, membership, reaction, list-sharing, tag, duplicate, and practice-edit mutations;
-- Story user identity through `useUser` instead of an application user/auth model;
-- an MDX home document and TSX list view/edit, practice, profile, and my-lists documents at peer Story paths;
+- Overstory user identity through `useUser` instead of an application user/auth model;
+- an MDX home document and TSX list view/edit, practice, profile, and my-lists documents at peer Overstory paths;
 - React-hoisted head elements derived from the same live values as visible content;
 - built-in zero-configuration Tailwind utilities with no stylesheet or Tailwind import;
-- Story-native Markdown rendering and default Suspense/error/resync query boundaries;
-- required-user gates that delegate session UI to the Story authority;
+- Overstory-native Markdown rendering and default Suspense/error/resync query boundaries;
+- required-user gates that delegate session UI to the Overstory authority;
 - single-consumer queries and mutations colocated with their document/component;
 - relative `node(path).children` handles in each consumer instead of a central data module;
 - Zod input schemas for both queries and mutations through the Standard Schema contract;
@@ -38,7 +38,7 @@ The Phase 1–3 `overstory/data` query, live-result, and transactional mutation 
 - partition-safe ordered relation mutations instead of calculating positions from row counts;
 - ordinary relative links and result-dependent `useNavigate` calls with no React Router or Prisma imports.
 
-## Implemented Story foundation
+## Implemented Overstory foundation
 
 - symbolic query plans execute their callbacks once and reject unsupported fields and ambiguous singular roots;
 - SQLite schema/key/index introspection and reviewed `relationships.json` metadata share one schema fingerprint;
@@ -48,7 +48,7 @@ The Phase 1–3 `overstory/data` query, live-result, and transactional mutation 
 - committed row/profile observation drives race-free complete-result streams with shared Local/Wire SSE framing;
 - every checked-in mutation runs with validated input, in-transaction authorization, ordered writes, and durable subject-scoped retry receipts.
 
-## Known Story implementation gaps
+## Known Overstory implementation gaps
 
 - executable MDX/TSX compilation, `overstory/react`, generated authoring declarations, and source-located compiler diagnostics;
 - SSR/hydration and active-query discovery from the addressed document component;

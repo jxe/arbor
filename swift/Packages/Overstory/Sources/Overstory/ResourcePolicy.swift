@@ -63,7 +63,14 @@ public struct ProfileLocator: Hashable, Sendable {
     public let locator: String
     public let origin: String
 
-    public init?(_ value: String) {
+    public init?(_ input: String) {
+        // A join link names the account it invites to: its `;overstory-invite=`
+        // code is a secret, never part of the canonical spelling or the pin key.
+        var value = input
+        if value.range(of: #"^(overstory|arbor)://[^?#]*;overstory-invite=[A-Za-z0-9._~-]+$"#, options: .regularExpression) != nil,
+           let parameter = value.range(of: ";overstory-invite=", options: .backwards) {
+            value = String(value[..<parameter.lowerBound])
+        }
         guard !value.hasPrefix("tr_"),
               value.range(of: #"/\.{1,2}(/|$)"#, options: .regularExpression) == nil,
               let components = URLComponents(string: value), let scheme = components.scheme?.lowercased(),
@@ -77,7 +84,8 @@ public struct ProfileLocator: Hashable, Sendable {
         switch scheme {
         case "https": output = "https"
         case "http" where loopback: output = "http"
-        case "story": output = loopback ? "http" : "https"
+        // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
+        case "overstory", "arbor": output = loopback ? "http" : "https"
         default: return nil
         }
         let implied = output == "https" ? 443 : 80

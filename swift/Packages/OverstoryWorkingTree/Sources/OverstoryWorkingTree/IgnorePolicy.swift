@@ -31,9 +31,23 @@ public final class IgnorePolicy {
     }
 
     /// Directory names that are never tree content, wherever they appear.
-    public static let mandatoryDirectoryNames: Set<String> = [".git", "node_modules", ".overstory", "Trash", ".build", "DerivedData"]
+    public static let mandatoryDirectoryNames: Set<String> = [
+        ".git", "node_modules", ".overstory",
+        // Rename 002: a device's state directory from before the Overstory rename.
+        ".arbor",
+        "Trash", ".build", "DerivedData",
+    ]
     /// Ignore-rule files, lowest precedence first: `.overstoryignore` wins over `.gitignore` beside it.
     public static let ignoreFileNames = [".gitignore", ".overstoryignore"]
+    /// Rename 002: `.overstoryignore` as folders from before the Overstory rename
+    /// spell it. Its rules are read in `.overstoryignore`'s place when a directory
+    /// has no `.overstoryignore`; beside one it contributes no rules. Either way
+    /// it is an ignore file: tree content that no rule can ignore.
+    public static let legacyIgnoreFileName = ".arborignore"
+
+    public static func isIgnoreFileName(_ name: String) -> Bool {
+        ignoreFileNames.contains(name) || name == legacyIgnoreFileName
+    }
 
     public let root: URL
     public private(set) var diagnostics: [Diagnostic] = []
@@ -60,8 +74,11 @@ public final class IgnorePolicy {
         return ruled(segments, isDirectory: isDirectory)
     }
 
+    /// An Overstory write or transaction temporary.
     static func isTransactionTemporaryName(_ name: String) -> Bool {
         name.contains(".overstory-write-") || name.contains(".overstory-txn-")
+            // Rename 002: strays left by a build from before the Overstory rename are never content.
+            || name.contains(".arbor-write-") || name.contains(".arbor-txn-")
     }
 
     /// macOS Finder and filesystem metadata: `.DS_Store`, and the AppleDouble
@@ -92,7 +109,7 @@ public final class IgnorePolicy {
             let parent = directory(Array(segments.dropLast()))
             if parent.membership != .included { return parent }
         }
-        if !isDirectory, Self.ignoreFileNames.contains(segments[segments.count - 1]) { return .included }
+        if !isDirectory, Self.isIgnoreFileName(segments[segments.count - 1]) { return .included }
         // Deeper files override shallower ones, and within a file the last matching rule wins.
         for depth in stride(from: segments.count - 1, through: 0, by: -1) {
             let relativePath = segments[depth...].joined(separator: "/")
@@ -116,11 +133,16 @@ public final class IgnorePolicy {
     private func rules(in segments: [String]) -> [RuleFile] {
         let key = Self.treePath(segments)
         if let loaded = files[key] { return loaded }
-        let loaded = Self.ignoreFileNames.compactMap { readRules(segments + [$0]) }
+        let loaded = Self.ignoreFileNames.compactMap { name in
+            readRules(segments + [name])
+                // Rename 002: the old name is read only where the new one is absent.
+                ?? (name == ".overstoryignore" ? readRules(segments + [Self.legacyIgnoreFileName]) : nil)
+        }
         files[key] = loaded
         return loaded
     }
 
+    /// The rule file at a path: nil when there is none, and no rules when it cannot be read.
     private func readRules(_ segments: [String]) -> RuleFile? {
         let source = Self.treePath(segments)
         let url = segments.reduce(root) { $0.appendingPathComponent($1) }
@@ -130,12 +152,12 @@ public final class IgnorePolicy {
         guard let data = try? Data(contentsOf: url) else {
             diagnostics.append(Diagnostic(code: "ignore-file-unreadable", path: source,
                                           message: "\(source) could not be read, so none of its ignore rules apply."))
-            return nil
+            return RuleFile(source: source, rules: [])
         }
         guard let text = String(data: data, encoding: .utf8) else {
             diagnostics.append(Diagnostic(code: "ignore-file-not-utf8", path: source,
                                           message: "\(source) is not valid UTF-8, so none of its ignore rules apply."))
-            return nil
+            return RuleFile(source: source, rules: [])
         }
         return RuleFile(source: source, rules: Rule.parse(text))
     }

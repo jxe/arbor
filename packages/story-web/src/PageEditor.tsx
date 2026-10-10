@@ -44,11 +44,16 @@ const STORY_DRAG_TYPE = "application/overstory-logical-paths";
 const PROFILE_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const PROFILE_TREE = /^tr_[a-z2-7]+$/;
 
+// Rename 002: `arbor://` is the old spelling of `overstory://`; read both, write the new one.
+function isOverstoryScheme(protocol: string): boolean {
+  return protocol === "overstory:" || protocol === "arbor:";
+}
+
 function communityStoryOrigin(canonical: string | undefined): string | null {
   if (!canonical) return null;
   try {
     const value = new URL(canonical);
-    return value.protocol === "story:" && !value.hostname.startsWith("tr_") ? `overstory://${value.host}` : null;
+    return isOverstoryScheme(value.protocol) && !value.hostname.startsWith("tr_") ? `overstory://${value.host}` : null;
   } catch {
     return null;
   }
@@ -59,7 +64,7 @@ function normalizeMemberProfile(input: string): string | null {
   if (PROFILE_TREE.test(value)) return `overstory://${value}/`;
   try {
     const locator = new URL(value);
-    if (locator.protocol !== "story:" || !PROFILE_TREE.test(locator.hostname) || locator.pathname !== "/") return null;
+    if (!isOverstoryScheme(locator.protocol) || !PROFILE_TREE.test(locator.hostname) || locator.pathname !== "/") return null;
     return `overstory://${locator.hostname}/`;
   } catch {
     return null;
@@ -132,7 +137,7 @@ function MemberListProperty({
           }}
         />
         {communityMembers && <input
-          aria-label="Canopy handle"
+          aria-label="Host handle"
           placeholder="alice"
           value={handleDraft}
           onChange={(event) => setHandleDraft(event.target.value)}
@@ -145,10 +150,10 @@ function MemberListProperty({
         <button className="quiet" onClick={() => { setAdding(false); setProfileDraft(""); setHandleDraft(""); }}>Cancel</button>
         {duplicate && <small>This person is already listed.</small>}
         {profileDraft.trim() && !normalizedProfile && <small>Use a Profile TreeID or complete overstory:// profile address.</small>}
-        {communityMembers && normalizedProfile && !selfCertifying && <small>A Canopy account requires a self-certifying person Profile TreeID.</small>}
+        {communityMembers && normalizedProfile && !selfCertifying && <small>A host account requires a self-certifying person Profile TreeID.</small>}
         {communityMembers && handleDraft.trim() && !validHandle && <small>Use a lowercase handle containing letters, digits, or hyphens.</small>}
       </div> : <button className="quiet property-list-add-button" onClick={() => setAdding(true)}>+ {communityMembers ? "Add person" : "Add member"}</button>}
-      {communityMembers && <small>Add the person’s public Profile TreeID and their Canopy handle. Only that identity can claim the account.</small>}
+      {communityMembers && <small>Add the person’s public Profile TreeID and their handle on this host. Only that identity can claim the account.</small>}
     </div>
   </div>;
 }

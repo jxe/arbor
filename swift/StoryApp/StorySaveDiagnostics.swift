@@ -24,7 +24,7 @@ struct StorySaveDiagnostic: Equatable {
 
     /// What failed. Retaining a document edit never touches the daemon: Native
     /// appends it to the working tree's change log, and the update machine
-    /// talks to Canopy. Only
+    /// talks to the host. Only
     /// opening a placed tree (`/v1/bootstrap`) or a placement depends on the
     /// daemon, and only there is a connection failure a daemon outage.
     enum Context: Equatable {
@@ -73,7 +73,7 @@ struct StorySaveDiagnostic: Equatable {
                 bannerMessage: "The tree could not be opened.",
                 conditionLabel: "Tree could not be opened",
                 explanation: "Opening the tree failed before a working tree existed. This is not known to be a local-daemon connection failure.",
-                recovery: "Correct the reported problem, then reconnect to story-sync.",
+                recovery: "Correct the reported problem, then reconnect to Story Sync.",
                 editSafetyDetail: "The tree did not open.",
                 technicalDetail: error.localizedDescription,
                 synchronizationOverride: nil
@@ -101,7 +101,7 @@ struct StorySaveDiagnostic: Equatable {
             (
                 "The external Story Sync daemon is unreachable; the tree could not be opened.",
                 "External daemon unreachable",
-                "This window attached to an Story Sync daemon started outside Story. Nothing is responding at that connection; the daemon may have stopped or restarted on a different port."
+                "This window attached to a Story Sync daemon started outside Story. Nothing is responding at that connection; the daemon may have stopped or restarted on a different port."
             )
         case .supervised:
             (
@@ -122,8 +122,8 @@ struct StorySaveDiagnostic: Equatable {
             conditionLabel: values.condition,
             explanation: values.explanation,
             recovery: processKind == .external
-                ? "Restart the external daemon at the same loopback address, then reconnect to story-sync."
-                : "Reconnect to story-sync from Sync Status; the app relaunches its helper when none is listening.",
+                ? "Restart the external daemon at the same loopback address, then reconnect to Story Sync."
+                : "Reconnect to Story Sync from Sync Status; the app relaunches its helper when none is listening.",
             editSafetyDetail: "The tree did not open.",
             technicalDetail: error.localizedDescription,
             synchronizationOverride: "Unavailable"
@@ -136,7 +136,7 @@ struct StorySaveDiagnostic: Equatable {
     ) -> StorySaveDiagnostic {
         let management = switch processKind {
         case .external: "The externally started local daemon did not respond before the request timed out."
-        case .supervised: "The local daemon managed by Canopy did not respond before the request timed out."
+        case .supervised: "The local daemon managed by Story did not respond before the request timed out."
         case nil: "Story Sync did not respond before the request timed out."
         }
         return StorySaveDiagnostic(
@@ -144,7 +144,7 @@ struct StorySaveDiagnostic: Equatable {
             bannerMessage: "Story Sync did not respond; the tree could not be opened.",
             conditionLabel: "Local daemon timed out",
             explanation: management,
-            recovery: "Check that Story Sync is responsive, then reconnect to story-sync.",
+            recovery: "Check that Story Sync is responsive, then reconnect to Story Sync.",
             editSafetyDetail: "The tree did not open.",
             technicalDetail: error.localizedDescription,
             synchronizationOverride: "Unavailable"

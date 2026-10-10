@@ -64,7 +64,7 @@ struct StoryAgentBundleTests {
 
     @Test("The shared registry keeps no secret, records revocation, and is owner-only")
     func registry() throws {
-        let home = FileManager.default.temporaryDirectory.appending(path: "host-cloud-\(UUID().uuidString)")
+        let home = FileManager.default.temporaryDirectory.appending(path: "story-cloud-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
         let registry = StoryCloudBundleRegistry(home: home)
         #expect(try registry.load().isEmpty)

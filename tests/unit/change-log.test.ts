@@ -403,7 +403,7 @@ test.each(fixture.traces as TraceVector[])("shared trace vector $name: generatio
     expect(compact.candidate).toEqual(plain.candidate);
     expect(compact.update.objects).toEqual(plain.update.objects);
     expect(plain.update.trace!.length).toBe(chain.filter((g: {edits: SourceEdit[]}) => g.edits.length).length);
-    // Canopy executes both chains to the same root, and composes the plain one to the compacted frame.
+    // overstoryd executes both chains to the same root, and composes the plain one to the compacted frame.
     const objects = new Map([...graph.objects, ...decodeTreeSnapshotJSON(plain.candidate).objects]);
     const load = async (hash: string) => { const bytes = objects.get(hash); if (!bytes) throw Error("Object missing " + hash); return bytes; };
     expect((await validateSourceTrace(value.frames, load)).root).toBe(plain.candidate.root);

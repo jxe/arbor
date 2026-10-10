@@ -43,7 +43,7 @@ try {
   }
   await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts", "tests/unit/protocol-updates/cbor-transport.test.ts"]);
 
-  // One local Canopy with an owner account; the control-mode daemon below
+  // One local host with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the
   // loopback services (bootstrap, credential, objects) and the protocol directly.
   const authorityToken = "swift-protocol-device-token";
@@ -102,7 +102,7 @@ try {
         ? ["-workspace", localWorkspace]
         : ["-project", "swift/Story.xcodeproj"];
       await run([
-        "xcodebuild", "test", "-quiet", ...container, "-scheme", "Canopy",
+        "xcodebuild", "test", "-quiet", ...container, "-scheme", "Story",
         "-destination", "platform=macOS",
         "-only-testing:StoryAppTests/StorySyncClientTests",
         "-only-testing:StoryAppTests/LoopbackServicesTests",

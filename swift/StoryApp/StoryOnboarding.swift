@@ -20,12 +20,21 @@ struct StoryMacLaunchView: View {
             }
         }
         .onOpenURL { url in
-            guard url.scheme == "host", url.host == "join",
-                  let account = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "account" })?.value,
-                  let target = URL(string: account), target.scheme == "https" || target.host == "127.0.0.1" else { return }
-            joinAccount = account
-            joinCode = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "code" })?.value
-            showingJoin = ready
+            switch StoryIncomingLocator(url) {
+            case let .join(account, code):
+                joinAccount = account
+                joinCode = code
+                showingJoin = ready
+            case let .open(locator):
+                // Before onboarding completes there is no workspace window to open it in.
+                guard ready else { return }
+                Task {
+                    do { try await workspace.openRemoteLocator(locator) }
+                    catch { workspace.errorMessage = error.localizedDescription }
+                }
+            case nil:
+                break
+            }
         }
         .sheet(isPresented: $showingJoin) {
             StoryMacOnboarding(workspace: workspace, addingAccount: true, initialCommunity: joinAccount, initialCode: joinCode) { showingJoin = false }
@@ -56,7 +65,7 @@ struct StoryMacOnboarding: View {
         Form {
             Section {
                 HStack {
-                    Text(addingAccount ? "Add account" : "Welcome to Canopy").font(.largeTitle)
+                    Text(addingAccount ? "Add account" : "Welcome to Story").font(.largeTitle)
                     Spacer()
                     if addingAccount { Button("Done", action: complete) }
                 }
@@ -174,7 +183,7 @@ struct StoryMacOnboarding: View {
                 } else {
                     Section("Set up your identity") {
                         if initialCommunity != nil {
-                            Text("Create your identity to join this Canopy. Your invitation link will stay ready here.")
+                            Text("Create your identity to join this host. Your invitation link will stay ready here.")
                                 .foregroundStyle(.secondary)
                             Text(initialCommunity ?? "").font(.caption.monospaced()).textSelection(.enabled)
                         }
@@ -185,7 +194,7 @@ struct StoryMacOnboarding: View {
                     }
                 }
             }
-            if busy { ProgressView("Opening Canopy…") }
+            if busy { ProgressView("Opening Story…") }
             if let message {
                 Section {
                     Text(message).foregroundStyle(.red).textSelection(.enabled)

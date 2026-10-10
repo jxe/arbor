@@ -1,3 +1,5 @@
+import { normalizeLegacyLocator } from "./logical-url.ts";
+
 /** Resource policy is independent of transport credentials and provider implementation. */
 export const ACCESS_OPERATIONS = [
   "read",
@@ -74,19 +76,24 @@ export function isHomeHostOrigin(value: string): boolean {
  * (`overstory://` becomes the HTTP locator it resolves through); `origin` is
  * where the profile is read. Null for anything else, a TreeID included.
  */
-export function parseProfileLocator(value: unknown): { locator: string; origin: string } | null {
+export function parseProfileLocator(input: unknown): { locator: string; origin: string } | null {
+  if (typeof input !== "string") return null;
+  // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
+  // A join link names the account it invites to: its `;overstory-invite=`
+  // code is a secret, never part of the canonical spelling or the pin key.
+  const value = normalizeLegacyLocator(input).replace(/^(overstory:\/\/[^?#]*);overstory-invite=[A-Za-z0-9._~-]+$/, "$1");
   // URL parsing folds dot segments away, so they are refused as written.
-  if (typeof value !== "string" || value.startsWith("tr_") || /\/\.{1,2}(\/|$)/.test(value)) return null;
+  if (value.startsWith("tr_") || /\/\.{1,2}(\/|$)/.test(value)) return null;
   let url: URL;
   try { url = new URL(value); } catch { return null; }
   if (url.search || url.hash || url.username || url.password || !url.hostname || url.hostname.startsWith("tr_")) return null;
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   const scheme = url.protocol === "https:" ? "https:"
     : url.protocol === "http:" && loopback ? "http:"
-    : url.protocol === "story:" ? (loopback ? "http:" : "https:")
+    : url.protocol === "overstory:" ? (loopback ? "http:" : "https:")
     : null;
   if (!scheme) return null;
-  // Spelled out rather than left to URL parsing, which leaves an story: host's
+  // Spelled out rather than left to URL parsing, which leaves an overstory: host's
   // case and port alone: a lowercase host, and no port the scheme implies.
   const port = url.port && url.port !== (scheme === "https:" ? "443" : "80") ? `:${url.port}` : "";
   const origin = `${scheme}//${url.hostname.toLowerCase()}${port}`;

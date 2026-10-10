@@ -22,7 +22,7 @@ if [[ "$role" == "community" ]]; then
   fi
   cat > /etc/systemd/system/overstoryd.service <<'UNIT'
 [Unit]
-Description=Story hcloud sync-lab Canopy server
+Description=Overstory hcloud sync-lab host (overstoryd)
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
@@ -59,7 +59,7 @@ fi
 install -d -o story -g story -m 0700 "$content_path"
 systemctl stop story-client.service 2>/dev/null || true
 printf '%s\n' "$connect_request" | sudo -u story -H env \
-  STORY_HOME=/home/story/.overstory \
+  STORY_HOME=/home/story/.story \
   /usr/local/libexec/story-headless-session \
   /usr/local/bin/bun "$lab/lab-node.ts" connect >/dev/null
 
@@ -77,7 +77,7 @@ User=story
 Group=story
 WorkingDirectory=/opt/story-current
 Environment=HOME=/home/story
-Environment=STORY_HOME=/home/story/.overstory
+Environment=STORY_HOME=/home/story/.story
 ExecStart=/usr/local/libexec/story-headless-session /usr/local/bin/bun run story-sync --control
 Restart=on-failure
 RestartSec=2

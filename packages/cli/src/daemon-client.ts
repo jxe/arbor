@@ -133,7 +133,7 @@ export class StorySyncRESTClient {
     return this.request("/v1/trees");
   }
 
-  /** Verified wire object bytes for a tree; `origin` names the Canopy for an unplaced tree. */
+  /** Verified wire object bytes for a tree; `origin` names the host for an unplaced tree. */
   async object(tree: string, hash: string, origin?: string): Promise<Uint8Array> {
     const query = new URLSearchParams({ tree, ...(origin ? { origin } : {}) });
     const response = await this.fetcher(`${this.baseURL}/v1/objects/${encodeURIComponent(hash)}?${query}`);
@@ -235,7 +235,7 @@ export class StorySyncRESTClient {
     return this.request(`/v1/pending?tree=${encodeURIComponent(tree)}`);
   }
 
-  /** The claimed Canopy accounts of this data home and the local person identity, if one exists. */
+  /** The claimed host accounts of this data home and the local person identity, if one exists. */
   accounts(): Promise<{ accounts: LocalAccountSummary[]; identity: ProfileIdentity | null }> {
     return this.request("/v1/accounts");
   }

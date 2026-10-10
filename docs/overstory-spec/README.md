@@ -1,7 +1,7 @@
 # Overstory: a successor to the web
 
 *This file is the entry point to the specification. The numbered sections live in [`docs/overstory-spec/`](); read them in the order of the table below.*
-*Spec overview, v0.8. Overstory names the system, its protocol, and its independently versioned trees; Story names the local tools, overstoryd the reference host, and Canopy the browsers.*
+*Spec overview, v0.8. Overstory names the system, its protocol, and its independently versioned trees; Story names the device tools (the app, the `story` command and Story Sync) and overstoryd the reference host.*
 
 ## Specification stance
 

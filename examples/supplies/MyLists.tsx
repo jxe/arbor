@@ -27,7 +27,7 @@ export const createList = mutation(
     visibility: z.enum(["public", "private"]),
   }),
   async ({ user, tx, id, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const listId = id("list")
     await tx.insert(lists, {
       id: listId,

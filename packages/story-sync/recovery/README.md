@@ -1,7 +1,7 @@
-# StorySync tree recovery
+# Story Sync tree recovery
 
 `packages/story-sync/recovery/recover-story-sync-tree.ts` is a deliberately separate recovery path for
-a placed tree whose disk, pending StorySync transition, retained editor
+a placed tree whose disk, pending Story Sync transition, retained editor
 admissions, and current overstoryd snapshot may disagree.
 
 Preparation reads all four sources, verifies their immutable object graphs,
@@ -34,6 +34,6 @@ The three expected values are deliberate typed confirmations from the reviewed
 manifest. Submission refuses candidates with structural conflicts or
 approximate Markdown placements, verifies that the bundle has not changed,
 rechecks the exact overstoryd update and root captured at preparation time, and
-uses `onConflict=reject`. It does not rewrite StorySync's journal or the placed
+uses `onConflict=reject`. It does not rewrite Story Sync's journal or the placed
 directory; normal reconciliation remains a separate step after the accepted
 overstoryd root is verified.

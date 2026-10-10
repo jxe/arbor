@@ -33,7 +33,7 @@ configurations have their shape, and the tests for each refused case, are in
 
 - **Community profile.** The tree canonical at `/` is the community's
   membership profile and keeps `type: group`. Its tree configuration grants
-  the root itself `admin`, so its members are the Canopy's administrators.
+  the root itself `admin`, so its members are the host's administrators.
   A bootstrap that opts its accounts out of membership lists their profiles
   as the root's administrators instead.
 - **Accounts.** A community `members` entry's `handle` reserves `/~handle`
@@ -228,7 +228,7 @@ per-phase milliseconds, objects considered, files written, fsyncs, body
 bytes, trace frames and operations, accepted update ids) and returns the
 same phases in a `Server-Timing` header. The log is silent under the test
 runner and never contains request content, subjects, or object identities.
-The Canopy app's network log is its client-side counterpart
+The Story app's network log is its client-side counterpart
 ([local system](../story-browser/local-state.md#diagnostic-streams)).
 
 ## Retention and object collection

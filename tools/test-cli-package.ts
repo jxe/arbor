@@ -15,7 +15,7 @@ try {
   await run([process.execPath, join(root, "tools/build-cli-package.ts"), artifact], root);
   await run(["npm", "pack", "--ignore-scripts", "--pack-destination", scratch], artifact);
   const manifest = await Bun.file(join(artifact, "package.json")).json();
-  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", join(scratch, `overstory-cli-${manifest.version}.tgz`)], scratch);
+  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", join(scratch, `ovst-cli-${manifest.version}.tgz`)], scratch);
   const cli = join(scratch, "node_modules/@ovst/cli/bin/story.js");
   // Runs the existing real-host lifecycle and ordinary command tests against the installed artifact.
   let lifecycleError: unknown;

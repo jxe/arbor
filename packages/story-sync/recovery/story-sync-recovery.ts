@@ -102,7 +102,7 @@ export function syncStatePath(dataHome: string, tree: string): string {
 
 /** Read the legacy keys directly: the refactored state adapter intentionally drops them. */
 export function decodeRawSyncState(value: unknown): RawSyncState {
-  const root = record(value, "StorySync state must be an object");
+  const root = record(value, "Story Sync state must be an object");
   const acceptedValue = root.accepted === undefined ? undefined : record(root.accepted, "accepted is invalid");
   const accepted = acceptedValue === undefined ? undefined : {
     root: objectHash(acceptedValue.root, "accepted.root is invalid"),
@@ -335,6 +335,6 @@ export function assertUnchangedHost(
   actual: { update: string; root: ObjectHash },
 ): void {
   if (actual.update !== expected.update || actual.root !== expected.root) {
-    throw new Error(`Canopy drifted since preparation: expected ${expected.update}/${expected.root}, got ${actual.update}/${actual.root}`);
+    throw new Error(`The host drifted since preparation: expected ${expected.update}/${expected.root}, got ${actual.update}/${actual.root}`);
   }
 }

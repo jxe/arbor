@@ -100,7 +100,8 @@ account exists. It:
    random source;
 2. computes `SHA-256("arbor-person-profile-v1\0" || publicKey)`, encodes all 32
    digest bytes as unpadded lowercase base32, and prefixes the result with
-   `tr_` to obtain the profile TreeID;
+   `tr_` to obtain the profile TreeID (the domain string is a historical
+   spelling that is part of the hashed bytes);
 3. creates or adopts one local profile folder whose root `_index.md` declares
    `type: person`, binding that local tree to the derived TreeID; and
 4. stores the private key in operating-system credential storage, indexed by
@@ -142,7 +143,21 @@ the person's public profile TreeID and the host's local allocation for it
 A reservation that names a profile on another host by its locator there is a
 placement account instead, with no claim (§1.3).
 The person may send that public TreeID by any ordinary channel. An invited
-person instead receives the code and creates their profile identity locally. A
+person instead receives the code and creates their profile identity locally.
+The administrator hands the code over as an **invitation link**: the reserved
+account's locator carrying the code as the segment parameter
+`overstory-invite` ([locators §2.2](03-locators.md#22-invitation-links)):
+
+```text
+overstory://community.example/~alice;overstory-invite=<code>
+```
+
+A client that opens one creates or selects the local profile identity, then
+requests a challenge from the host the locator's authority names, with the
+link's account as `account` and its code, and claims that account as below. The
+code is a secret until the claim consumes it: a client sends it only to that
+host, in the challenge request and the claim body, and keeps it out of logs,
+stored locators and anything it publishes. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.
 
@@ -343,6 +358,7 @@ The configuration's TreeID is derived from the tree's, so there is no pointer
 to keep consistent and a configuration cannot be attached to the wrong tree:
 compute `SHA-256("arbor-tree-config-v1\0" || TreeID)` over the UTF-8 TreeID,
 encode all 32 digest bytes as unpadded lowercase base32, and prefix `tr_`.
+The domain string is a historical spelling that is part of the hashed bytes.
 This is the same form as a person profile TreeID (§1.1), so the prefix does not
 reveal that a TreeID names a configuration; only a host that knows the tree
 can tell. A derived TreeID has no configuration of its own.

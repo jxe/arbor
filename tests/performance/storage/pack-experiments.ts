@@ -1,5 +1,5 @@
 /** Grouping experiments for overstoryd 001 (pack object storage), run on a
- * copied data root: never point it at a data root a overstoryd serves. It reads
+ * copied data root: never point it at a data root an overstoryd serves. It reads
  * `objects/` and `overstoryd.sqlite3`, writes candidate layouts under a work
  * directory, replays read workloads against each, and prints one report.
  *

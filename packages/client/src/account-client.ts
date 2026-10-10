@@ -2,7 +2,7 @@ import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolClient } f
 
 /**
  * Which claimed account a protocol call should speak for: an explicit account
- * configuration tree, or the Canopy origin a locator or placement names.
+ * configuration tree, or the host origin a locator or placement names.
  */
 export interface AccountSelector {
   configurationTree?: string;
@@ -22,8 +22,8 @@ export interface AccountProtocolClient {
 }
 
 /**
- * The multiplexer: one Story Sync data home holds several Canopy accounts,
- * and every pass-through to Canopy picks the account whose address contains
+ * The multiplexer: one Story Sync data home holds several host accounts,
+ * and every pass-through to a host picks the account whose address contains
  * the target, then forwards with that credential. A profile has one home
  * account and at most one placement account per other host; an origin that
  * is not the home's selects the placement connection there. Without a
@@ -73,7 +73,7 @@ export async function accountProtocolClient(
     }
   }
   if (!selector.origin) {
-    throw new ProtocolError("invalid-request", "Account selection requires a configuration TreeID or a Canopy origin", 400);
+    throw new ProtocolError("invalid-request", "Account selection requires a configuration TreeID or a host origin", 400);
   }
   for (const record of await HostAccountStore.list()) {
     if (record.origin !== selector.origin) continue;

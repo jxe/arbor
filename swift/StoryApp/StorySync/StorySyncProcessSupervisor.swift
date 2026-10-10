@@ -32,12 +32,12 @@ enum StorySyncSupervisorError: Error, LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .executableUnavailable:
-            "Story could not find its bundled story-sync helper. Rebuild the macOS app with the helper phase enabled."
+            "Story could not find its bundled Story Sync helper. Rebuild the macOS app with the helper phase enabled."
         case .serviceUnavailable:
-            "Story is not connected to story-sync. Reopen the saved tree or try again."
-        case let .incompatibleService(detail): "The loopback service is not a compatible story-sync: \(detail)"
-        case let .launchFailed(detail): "story-sync could not start: \(detail)"
-        case let .readinessTimedOut(detail): "story-sync did not become ready: \(detail)"
+            "Story is not connected to Story Sync. Reopen the saved tree or try again."
+        case let .incompatibleService(detail): "The loopback service is not a compatible Story Sync: \(detail)"
+        case let .launchFailed(detail): "Story Sync could not start: \(detail)"
+        case let .readinessTimedOut(detail): "Story Sync did not become ready: \(detail)"
         }
     }
 }

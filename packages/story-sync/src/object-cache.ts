@@ -51,7 +51,7 @@ class ByteLRU {
 /**
  * Serves tree objects by hash from, in order, the placed workspace's object
  * index (re-encoding the file or directory on disk), the tree's pending
- * local changes, and Canopy through the tree's account client. Every result is
+ * local changes, and the host through the tree's account client. Every result is
  * hash-verified before it is returned, so a stale index row falls through
  * rather than serving wrong bytes.
  */

@@ -423,12 +423,12 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()
-        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
+        throw WorkspaceProviderError.invalidAction("Host history is not available yet")
     }
 
     public func recover(revision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
+        throw WorkspaceProviderError.invalidAction("Host history is not available yet")
     }
 
     public func close() async {

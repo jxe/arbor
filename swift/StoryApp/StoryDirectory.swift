@@ -108,9 +108,32 @@ struct StoryProfileDocument: Equatable {
 
         /// The Profile TreeID a structured `overstory://<TreeID>/` locator names.
         var treeID: String? {
-            guard profile.range(of: #"^overstory://tr_[a-z2-7]+/?$"#, options: .regularExpression) != nil else { return nil }
-            return String(profile.dropFirst("overstory://".count).prefix { $0 != "/" })
+            // Rename 002: a member authored as `arbor://<TreeID>/` is the same member.
+            let locator = normalizeLegacyLocator(profile)
+            guard locator.range(of: #"^overstory://tr_[a-z2-7]+/?$"#, options: .regularExpression) != nil else { return nil }
+            return String(locator.dropFirst("overstory://".count).prefix { $0 != "/" })
         }
+    }
+
+    /// The spelling under which two member locators name the same member: a
+    /// profile at a host by its canonical HTTP(S) locator, a TreeID profile by
+    /// its canonical `overstory://<TreeID>/`. Rename 002: `arbor://tr_x/` and
+    /// `overstory://tr_x/` are one member; writers emit only `overstory://`.
+    static func memberKey(_ profile: String) -> String {
+        ProfileLocator(profile)?.locator ?? canonicalOverstoryLocator(profile) ?? profile
+    }
+
+    /// Whether `profile` is already a member, under either spelling of its locator.
+    func hasMember(_ profile: String) -> Bool {
+        let key = Self.memberKey(profile)
+        return memberProfiles.contains { Self.memberKey($0) == key }
+    }
+
+    /// The handle authored for the member `profile` names, under either spelling of its locator.
+    func memberHandle(for profile: String) -> String? {
+        if let handle = memberHandlesByProfile[profile] { return handle }
+        let key = Self.memberKey(profile)
+        return memberHandlesByProfile.first { Self.memberKey($0.key) == key }?.value
     }
 
     let kind: Kind
@@ -187,7 +210,9 @@ struct StoryProfileDocument: Equatable {
         guard let block = envelope.memberEntries() else {
             throw ProtocolValidationError.invalidValue("This group has no members")
         }
-        let matches = block.entries.filter { $0.member.profile == profile }
+        // Rename 002: the entry may be authored as `arbor://` while `profile` is spelled `overstory://`.
+        let key = memberKey(profile)
+        let matches = block.entries.filter { memberKey($0.member.profile) == key }
         guard let entry = matches.first else {
             throw ProtocolValidationError.invalidValue("\(profile) is not a member")
         }
@@ -261,7 +286,7 @@ struct StoryProfileDocument: Equatable {
         if reservesHostHandle, remote == nil,
            tree.range(of: #"^tr_[a-z2-7]{52}$"#, options: .regularExpression) == nil {
             throw ProtocolValidationError.invalidValue(
-                "A Canopy member must use a self-certifying person Profile TreeID"
+                "A host member must use a self-certifying person Profile TreeID"
             )
         }
         if reservesHostHandle, localHandle.isEmpty, let remote {
@@ -278,12 +303,12 @@ struct StoryProfileDocument: Equatable {
             )
         }
         let locator = remote?.locator ?? "overstory://\(tree)/"
-        guard !profile.memberProfiles.contains(locator) else {
+        guard !profile.hasMember(locator) else {
             let label = localHandle.isEmpty ? tree : "~\(localHandle)"
             throw ProtocolValidationError.invalidValue("\(label) is already a member")
         }
         if reservesHostHandle, profile.memberHandles.contains(localHandle) {
-            throw ProtocolValidationError.invalidValue("~\(localHandle) is already reserved on this Canopy")
+            throw ProtocolValidationError.invalidValue("~\(localHandle) is already reserved on this host")
         }
         var envelope = try requiredFrontmatter(source)
         try envelope.appendMember(profile: locator, handle: reservesHostHandle ? localHandle : nil)
@@ -303,7 +328,7 @@ struct StoryProfileDocument: Equatable {
             throw ProtocolValidationError.invalidValue("Invalid invitation digest")
         }
         guard !profile.memberHandles.contains(handle) else {
-            throw ProtocolValidationError.invalidValue("~\(handle) is already reserved on this Canopy")
+            throw ProtocolValidationError.invalidValue("~\(handle) is already reserved on this host")
         }
         var envelope = try requiredFrontmatter(source)
         try envelope.appendInvitation(handle: handle, digest: digest)
@@ -405,7 +430,7 @@ struct StoryProfileDocument: Equatable {
                     var field = lines[index].trimmingCharacters(in: .whitespaces)
                     if index == start { field = String(field.dropFirst()).trimmingCharacters(in: .whitespaces) }
                     guard !field.isEmpty else { continue }
-                    // A `key: value` field; a scalar locator's `story:` has no space after it.
+                    // A `key: value` field; a scalar locator's `overstory:` has no space after it.
                     if let colon = field.firstIndex(of: ":"),
                        field[field.startIndex..<colon].allSatisfy({ $0.isLetter }),
                        field.index(after: colon) == field.endIndex || field[field.index(after: colon)] == " " {
@@ -516,7 +541,7 @@ enum StoryGroupSlug {
 }
 
 /// Where New Group puts a group, as the canonical path before its slug.
-/// These are Canopy's conventions; the Canopy decides which it allows.
+/// These are the host's conventions; the host decides which it allows.
 enum StoryGroupPlacement: String, CaseIterable, Identifiable {
     case groupsFolder, host
     var id: Self { self }
@@ -524,7 +549,7 @@ enum StoryGroupPlacement: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .groupsFolder: "In my groups folder"
-        case .host: "On the Canopy"
+        case .host: "On the host"
         }
     }
 
@@ -537,7 +562,7 @@ enum StoryGroupPlacement: String, CaseIterable, Identifiable {
 }
 
 extension DirectoryPerson {
-    /// The Canopy's own membership profile: the group hosted at its root.
+    /// The host's own membership profile: the group hosted at its root.
     var isCommunityProfile: Bool {
         entry.kind == "group" && entry.locator.flatMap(URL.init(string:)).map { ["", "/"].contains($0.path) } == true
     }

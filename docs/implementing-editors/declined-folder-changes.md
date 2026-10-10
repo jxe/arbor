@@ -3,7 +3,7 @@
 How a client of the daemon presents a placed folder with changes the host
 declined. The daemon's routes are described in
 [the Story Sync REST API](../implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes);
-the Canopy app's review of accepted-state choices is a different surface,
+the Story app's review of accepted-state choices is a different surface,
 defined by the [accepted-state review contract](../overstory-spec/09-client-synchronization.md#accepted-state-review).
 
 A tree descriptor with `declined` has folder paths whose changes the host

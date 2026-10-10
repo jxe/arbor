@@ -986,7 +986,8 @@ with absent `ifCurrent` encoded as CBOR null. The digest covers the whole trace,
 including each frame's `before` and `after`, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
-scoped to the authenticated device, across its sessions.
+scoped to the authenticated device, across its sessions. The `domain` string is
+a historical spelling that is part of the hashed bytes.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
 `{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter

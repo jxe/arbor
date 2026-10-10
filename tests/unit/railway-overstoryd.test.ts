@@ -15,13 +15,16 @@ const valid = [
   "",
 ].join("\n");
 
-describe("Railway Canopy deployment config", () => {
+describe("Railway overstoryd deployment config", () => {
   test("railway.toml names a Dockerfile that exists", () => {
     const root = join(import.meta.dir, "..", "..");
     const toml = readFileSync(join(root, "railway.toml"), "utf8");
     const match = /dockerfilePath = "([^"]+)"/.exec(toml);
     expect(match).not.toBeNull();
     expect(existsSync(join(root, match![1]!))).toBe(true);
+    // The deploy script configures the service with the same Dockerfile.
+    const script = readFileSync(join(root, "packages/overstoryd/deploy/railway-overstoryd.ts"), "utf8");
+    expect(script).toContain(`dockerfilePath: "${match![1]}"`);
   });
 
   test("keeps Railway's root probe healthy during offline maintenance", async () => {
@@ -55,7 +58,7 @@ describe("Railway Canopy deployment config", () => {
 
   test("rejects unmanaged names and extra settings", () => {
     expect(() => parseHostDeploymentConfig(valid.replace("overstoryd-arb-nxhx-org", "production"))).toThrow("must start with overstoryd-");
-    expect(() => parseHostDeploymentConfig(`${valid}STORY_ACCOUNT_TOKEN=secret\n`)).toThrow("Unsupported Canopy deployment setting");
+    expect(() => parseHostDeploymentConfig(`${valid}STORY_ACCOUNT_TOKEN=secret\n`)).toThrow("Unsupported overstoryd deployment setting");
   });
 
   test("formats Railway's custom-domain CNAME and ownership TXT records", () => {

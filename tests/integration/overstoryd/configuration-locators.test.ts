@@ -42,6 +42,17 @@ test("canonical ;overstory-config locators resolve a tree's configuration for it
     const descriptor = await fetch(new URL(redirect.headers.get("location")!, running.url), { headers: { authorization: `Bearer ${session}` } });
     expect((await descriptor.json()).tree.id).toBe(configuration);
     expect(await status("/~owner;overstory-config")).toBe(404);
+
+    // Rename 002: the old `;arbor-config` spelling is still read everywhere the
+    // parameter is; the redirect answers in the current spelling.
+    const oldResolved = await (await fetch(`${running.url}/.well-known/overstory/~owner;arbor-config`, { headers: { authorization: `Bearer ${session}` } })).json();
+    expect(oldResolved.ref).toEqual({ tree: configuration, path: "/", stableKey: null });
+    expect(await status("/.well-known/overstory/~owner;arbor-config")).toBe(404);
+    const oldRedirect = await fetch(`${running.url}/~owner;arbor-config`, { headers: { authorization: `Bearer ${session}` }, redirect: "manual" });
+    expect(oldRedirect.status).toBe(303);
+    expect(oldRedirect.headers.get("location")).toBe(`/.overstory/trees/${profile};overstory-config`);
+    const oldDescriptor = await fetch(`${running.url}/.overstory/trees/${profile};arbor-config`, { headers: { authorization: `Bearer ${session}` } });
+    expect((await oldDescriptor.json()).tree.id).toBe(configuration);
   } finally {
     running.server.stop(true);
     await running.overstoryd[Symbol.asyncDispose]();

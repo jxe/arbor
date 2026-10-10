@@ -17,7 +17,7 @@ installed form shown below: `story <command>`.
 story me create
 story me
 
-# Claim an account from the Canopy app (see the README), then install the
+# Claim an account from the Story app (see the README), then install the
 # per-user Story Sync service.
 story daemon install
 
@@ -193,14 +193,14 @@ nonzero, records `needs-sync`, and leaves the daemon and private state available
 for another `finish`. SIGINT and SIGTERM make the daemon attempt the same final
 sync, but only explicit `finish` provides the complete verification contract.
 
-On a Mac, Canopy's Share panel makes the same bundle for the tree it shows:
+On a Mac, Story's Share panel makes the same bundle for the tree it shows:
 **Use with an agent…** places that one tree at its canonical name, shows the
 string once with Copy and Share, and lists the tree's bundles with **Revoke**.
 Like every bundle, its credential is an account device, so the string reaches
 everything the account can; the placement only chooses what is checked out.
 
 Bundles remain active until revoked. Their safe local registry, shared by the
-CLI and Canopy, contains labels, device IDs, and placed TreeIDs, never
+CLI and Story, contains labels, device IDs, and placed TreeIDs, never
 credentials or placement paths:
 
 ```sh
@@ -302,7 +302,7 @@ story daemon <install|uninstall|start|stop|restart|status|logs>
 ```
 
 Manage the default Story Sync user service. On macOS, CLI-owned installation
-uses launchd; a signed Canopy app may own the same service registration instead.
+uses launchd; a signed Story app may own the same service registration instead.
 `uninstall` removes only CLI-owned supervision and does not remove `~/.story`.
 Linux and Windows supervision adapters are not implemented.
 

@@ -110,7 +110,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
     }
   }
 
-  describe("governed tree-configuration Canopy server", () => {
+  describe("governed tree-configuration host", () => {
     test("evaluation time exhaustion is retryable, not an invalid request", async () => {
       const baseline = await currentConfig();
       const count = running.overstoryd.acceptedUpdates(baseline.current.tree.id).length;
@@ -551,7 +551,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(access.policy).toContainEqual({ who: { link: true }, allow: ["read"] });
       const refURL = `${running.url}/.overstory/trees/${treeID}`;
       expect((await fetch(refURL)).status).toBe(404);
-      expect((await fetch(refURL, { headers: { "Overstory-Access": linkSecret } })).status).toBe(404);
+      expect((await fetch(refURL, { headers: { "X-Overstory-Access": linkSecret } })).status).toBe(404);
       const linkResponse = await fetch(refURL, { headers: { "Overstory-Access-Link": linkSecret } });
       expect(linkResponse.status).toBe(200);
       expect(await linkResponse.json()).toMatchObject({ tree: { id: treeID, access: "read" } });
@@ -638,7 +638,11 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       });
       const bootstrapSource = await bootstrap.text();
       expect(bootstrapSource).toContain('"Overstory-Access-Link": secret');
-      expect(bootstrapSource).not.toContain("Overstory-Access");
+      expect(bootstrapSource).not.toContain("X-Overstory-Access");
+      // Rename 002: the page reads the secret from the current fragment and from
+      // the one in links shared before the rename, by each marker's own length.
+      expect(bootstrapSource).toContain('["#overstory-access=", "#arbor-access="]');
+      expect(bootstrapSource).toContain("location.hash.slice(marker.length)");
 
       const mergeBase = await client.descriptor(treeID);
       const renamedPath = join(treePath, "renamed.md");

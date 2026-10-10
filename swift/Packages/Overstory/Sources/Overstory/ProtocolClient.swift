@@ -3,7 +3,7 @@ import os
 
 public protocol ProtocolCredentialProvider: Sendable {
     func credential() async throws -> String?
-    /// Called when Canopy rejects the credential (401), so a provider that
+    /// Called when the host rejects the credential (401), so a provider that
     /// caches it reads it again for the next request.
     func invalidate() async
 }

@@ -18,7 +18,7 @@ export interface MergeToolOptions {
   command?: string[];
   /** Optional phase timings; no request content or object identities. */
   onTiming?: (phase: string, milliseconds: number) => void;
-  /** Shared object store to read through (Canopy passes its cached store). */
+  /** Shared object store to read through (overstoryd passes its cached store). */
   objects?: ObjectStore;
   /** Optional diagnostic counters per job; no request content or identities. */
   onCount?: (name: string, value: number) => void;

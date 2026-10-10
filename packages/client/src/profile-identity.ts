@@ -201,7 +201,7 @@ export class ProfileIdentityStore {
       const value = JSON.parse(await readFile(this.path, "utf8")) as Partial<ProfileIdentityMetadata>;
       if (!value || value.version !== 1 || typeof value.profileTree !== "string" || !isPersonProfileTreeID(value.profileTree)
         || typeof value.publicKey !== "string" || typeof value.profilePath !== "string"
-        || typeof value.credential !== "string" || !/^org\.overstory\.person-profile\/(?:self-[a-f0-9]{24}|primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
+        || typeof value.credential !== "string" || !/^org\.arbor\.person-profile\/(?:self-[a-f0-9]{24}|primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
         throw new Error("Malformed Story identity metadata; recover the existing identity");
       }
       if (personProfileTreeID(bytes(value.publicKey, 32, "Profile public key")) !== value.profileTree) {
@@ -301,6 +301,34 @@ export class ProfileIdentityStore {
       await rename(temporary, this.path);
     }
     return { ...metadata, keyAvailable: true };
+  }
+
+  /**
+   * Rename 001 (`story migrate`), deleted with it at close-out: rewrite
+   * `profilePath` inside the stored identity record after the data home has
+   * moved. The record keeps its service and slot and is updated in place,
+   * never deleted; `saveRecord` verifies it by reading it back. It takes no
+   * lock and does not prepare the data home, because the migration holds
+   * `migration.lock` and nothing else may be running.
+   */
+  async relocateProfilePath(relocate: (path: string) => string): Promise<
+    { status: "updated" | "unchanged"; credential: string; from: string; to: string } | { status: "absent"; reason: string }
+  > {
+    const metadata = await this.metadata();
+    if (!metadata) return { status: "absent", reason: "this data home has no identity" };
+    const slot = metadata.credential.slice(SERVICE.length + 1);
+    // A `self-…` slot holds only the key seed, which names no path.
+    if (!this.fileCredentials && slot.startsWith("self-")) return { status: "absent", reason: `${metadata.credential} holds only a key seed` };
+    const record = await this.readRecord(slot);
+    if (!record) return { status: "absent", reason: `no identity record is stored at ${this.fileCredentials ? "self.identity.json" : metadata.credential}` };
+    if (record.profileTree !== metadata.profileTree || record.publicKey !== metadata.publicKey) {
+      throw new Error("Stored profile identity does not match its private key");
+    }
+    const credential = this.fileCredentials ? "self.identity.json" : metadata.credential;
+    const to = relocate(record.profilePath);
+    if (to === record.profilePath) return { status: "unchanged", credential, from: to, to };
+    await this.saveRecord({ ...record, profilePath: to }, slot);
+    return { status: "updated", credential, from: record.profilePath, to };
   }
 
   async status(): Promise<ProfileIdentityStatus | null> {

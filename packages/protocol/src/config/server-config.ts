@@ -6,6 +6,11 @@ import { storyDataRoot, overstoryPrivateRoot, prepareStoryDataRoot } from "./pri
 
 const SERVICE = "org.arbor.community-account";
 
+/**
+ * The credential-store name a new account is given. It includes the data home
+ * so two homes on one machine never share a slot; an existing account is
+ * always read through the name stored in its `connection.json`.
+ */
 export function accountCredentialName(configurationTree: string, dataRoot = storyDataRoot()): string {
   return `account-${sha256(`${dataRoot}\0${configurationTree}`).slice(0, 24)}`;
 }
@@ -21,7 +26,7 @@ export interface HostAccountRecord {
   origin: string;
   account: string;
   accountID: string;
-  /** Optional Canopy-specific presentation hint; never account identity. */
+  /** Optional host-specific presentation hint; never account identity. */
   handle?: string;
   profileTree: string;
   deviceID: string;
@@ -165,9 +170,12 @@ export class HostAccountStore {
   async setDeviceKey(seed: string, metadata: Omit<HostAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected" | "deviceKey">): Promise<HostAccountRecord> {
     await prepareStoryDataRoot();
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    // An existing account keeps the slot its record names; only a new account
+    // derives one from the current data home.
+    const existing = await this.safe();
+    const key = (existing && credentialLocation(existing.credential)) || this.keyLocation();
     if (this.usesFileCredentials) await writeFile(this.keyPath, seed, { mode: 0o600 });
-    else await Bun.secrets.set({ ...this.keyLocation(), value: seed });
-    const key = this.keyLocation();
+    else await Bun.secrets.set({ ...key, value: seed });
     return this.writeRecord({
       ...metadata,
       origin: new URL(metadata.origin).origin,
@@ -248,7 +256,15 @@ export class HostAccountStore {
     return (await this.readKeySeed()) !== null;
   }
 
+  /**
+   * An existing account is read through the slot its record names, as
+   * `credential()` reads it, so moving the data home does not change which
+   * credential-store item is looked up. Without a record the slot is the one
+   * a new account would be given under the current home.
+   */
   private async readKeySeed(): Promise<string | null> {
+    const record = await this.safe();
+    if (record) return this.readSecret(record.credential);
     if (this.usesFileCredentials) return readFile(this.keyPath, "utf8").catch(() => null);
     return Bun.secrets.get(this.keyLocation()).catch(() => null);
   }
@@ -299,7 +315,7 @@ export interface HostPlacementRecord {
   origin: string;
   account: string;
   accountID: string;
-  /** Optional Canopy-specific presentation hint; never account identity. */
+  /** Optional host-specific presentation hint; never account identity. */
   handle?: string;
   profileTree: string;
   /** The home host the placement host reads the profile's device keys from. */

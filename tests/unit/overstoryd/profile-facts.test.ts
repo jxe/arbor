@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
-import { profileChanged, readRootProfile, rootIndexHash, storedProfileOf } from "@ovst/overstoryd";
+import { Database } from "bun:sqlite";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  HostDaemon, currentProfileSpelling, memberReservations, parseStoredFacts, profileChanged, profileLocatorTree,
+  readRootProfile, rootIndexHash, storedProfileOf,
+} from "@ovst/overstoryd";
+import { testAccount } from "../../helpers/devices.ts";
 
 const rootProfileFacts = async (root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>) => (await readRootProfile(root, load)).facts;
 
@@ -98,5 +106,68 @@ describe("stored profile rows", () => {
     expect(profileChanged(row, set("/sub/_index.md"))).toBe(false);
     expect(profileChanged(null, set("/_index.md"))).toBe(true);
     expect(profileChanged(null, set("/images/me.png"))).toBe(false);
+  });
+});
+
+// Rename 002: these cover the `arbor://` read alias and go with it.
+describe("member locators written before the rename", () => {
+  const tree = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const old = `arbor://${tree}/`, current = `overstory://${tree}/`;
+
+  test("both spellings name the same profile tree, and anything else names none", () => {
+    expect(profileLocatorTree(old)).toBe(tree);
+    expect(profileLocatorTree(current)).toBe(tree);
+    expect(profileLocatorTree(`arbor://${tree}`)).toBe(tree);
+    expect(profileLocatorTree(`story://${tree}/`)).toBeUndefined();
+    expect(profileLocatorTree(`https://${tree}/`)).toBeUndefined();
+  });
+
+  test("an authored old-spelling member is read, and its facts carry the current spelling", async () => {
+    const source = fixture(`type: group\nmembers:\n  - profile: ${old}\n    handle: bob\n  - profile: ${current}\n    handle: carol`);
+    const { members } = await rootProfileFacts(source.root, source.load);
+    expect(members).toEqual([{ profile: current, handle: "bob" }, { profile: current, handle: "carol" }]);
+    expect(memberReservations(members).get("bob")).toEqual({ profileTree: tree });
+  });
+
+  test("stored facts in the old spelling are read as the current one", () => {
+    const stored = JSON.stringify({ type: "group", members: [{ profile: old, handle: "bob" }, { handle: "dan", inviteDigest: `sha256:${"a".repeat(64)}` }, { profile: "https://other.example/~eve", handle: "eve" }] });
+    expect(parseStoredFacts(stored).members).toEqual([
+      { profile: current, handle: "bob" },
+      { handle: "dan", inviteDigest: `sha256:${"a".repeat(64)}` },
+      { profile: "https://other.example/~eve", handle: "eve" },
+    ]);
+    expect(currentProfileSpelling(current)).toBe(current);
+    expect(currentProfileSpelling("arbor://other.example/~eve")).toBe("arbor://other.example/~eve");
+  });
+
+  test("a host writes overstory:// members, and still recognizes them in a database that stores arbor://", async () => {
+    const root = await mkdtemp(join(tmpdir(), "overstoryd-member-locators-"));
+    try {
+      const first = await HostDaemon.open(root, { handle: "community", name: "Community", accounts: [testAccount("owner", "owner-token", { communityWriter: true })] });
+      const profile = first.accountByHandle("owner")!.id;
+      const community = first.community().id;
+      expect(first.communityMembers()).toContainEqual({ profile: `overstory://${profile}/`, handle: "owner" });
+      await first[Symbol.asyncDispose]();
+
+      const db = new Database(join(root, "overstoryd.sqlite3"));
+      const before = db.query("SELECT facts FROM profile_facts WHERE tree_id = ?").get(community) as { facts: string };
+      expect(before.facts).toContain("overstory://");
+      expect(before.facts).not.toContain("arbor://");
+      db.run("UPDATE profile_facts SET facts = replace(facts, 'overstory://', 'arbor://')");
+      db.close();
+
+      const reopened = await HostDaemon.open(root);
+      try {
+        expect(reopened.communityMembers()).toContainEqual({ profile: `overstory://${profile}/`, handle: "owner" });
+        expect(reopened.groupProfiles().find((group) => group.tree === community)!.facts.members)
+          .toContainEqual({ profile: `overstory://${profile}/`, handle: "owner" });
+        const owner = reopened.accountByHandle("owner")!;
+        expect(reopened.canWrite(owner, community)).toBe(true);
+      } finally {
+        await reopened[Symbol.asyncDispose]();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -28,7 +28,7 @@
 
 An authored `.ts`, `.tsx`, or `.mdx` module inside any tracked Overstory tree gets
 the same source-located typechecking, completion, activation manifest, and
-runtime meaning in `story check`, VS Code, Zed, local Overstory, and overstoryd. Editor
+runtime meaning in `story check`, VS Code, Zed, local Story, and overstoryd. Editor
 integration is an adapter over an editor-independent compiler and language
 service; no normative type information exists only inside a VS Code plugin.
 
@@ -131,7 +131,7 @@ Completion gate:
 - `story check examples/supplies` typechecks the corpus adapted under Apps 006;
 - inferred result and mutation types reach TSX and MDX call sites;
 - VS Code and Zed show the same representative completions and diagnostics;
-- local Overstory and overstoryd activate the identical reviewed manifest; and
+- local Story and overstoryd activate the identical reviewed manifest; and
 - inspection proves public bundles contain no private data, credentials,
   physical store paths, or server implementations.
 

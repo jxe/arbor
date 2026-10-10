@@ -1,0 +1,355 @@
+{
+  "description": "Rename 002: reference-only cases for the spellings from before the Overstory rename, which readers still accept and writers never emit. The portable vectors describe only the new spellings; delete this file with the aliases. `locators`: normalizing `input` yields `normalized` exactly, and resolving `input` against `sourceDirectory` equals resolving `normalized` (null `resolves` false means both are invalid). `profileLocators` and `treeReferences` follow resource-policy.json `locators` and tree-configuration.json `references`. `childrenMarker`: the source's marker is recognized (children generated at it, duplicates diagnosed) and the source serializes back byte for byte. `ignorePolicy` uses the schema of ignore-policy/cases.json.",
+  "locators": [
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2?id=p_123#section",
+      "normalized": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2?id=p_123#section",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "normalized": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://tr_7k3m;arbor-config",
+      "normalized": "overstory://tr_7k3m;overstory-config",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://host.example/~joe/todos;arbor-config",
+      "normalized": "overstory://host.example/~joe/todos;overstory-config",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://library.example/essays/drift",
+      "normalized": "overstory://library.example/essays/drift",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "overstory://tr_7k3m/essays/drift;arbor-key=id:x7f3q2",
+      "normalized": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "../roadmap.md#arbor-key=id:x7f3q2",
+      "normalized": "../roadmap.md#overstory-key=id:x7f3q2",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "../roadmap?view=board#arbor-key=id:x7f3q2",
+      "normalized": "../roadmap?view=board#overstory-key=id:x7f3q2",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "Calendar.md;arbor-key=id:h31mlm#june",
+      "normalized": "Calendar.md;overstory-key=id:h31mlm#june",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "notes;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "normalized": "notes;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "tr_7k3m;arbor-config",
+      "normalized": "tr_7k3m;overstory-config",
+      "resolves": true
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "a;arbor-key=id:x/b.md",
+      "normalized": "a;arbor-key=id:x/b.md",
+      "resolves": true,
+      "note": "only the final segment carries parameters"
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "notes?next=x;arbor-key=id:y#arbor-keyring",
+      "normalized": "notes?next=x;arbor-key=id:y#arbor-keyring",
+      "resolves": true,
+      "note": "queries and other fragments are data"
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "notes;arbor-tag=x",
+      "normalized": "notes;arbor-tag=x",
+      "resolves": true,
+      "note": "an unknown old-prefix parameter is path data, as any other text is"
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "https://example.com/a;arbor-key=id:x#arbor-key=id:x",
+      "normalized": "https://example.com/a;arbor-key=id:x#arbor-key=id:x",
+      "resolves": true,
+      "note": "a URL in another scheme is untouched"
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "#arbor-key=id:x7f3q2",
+      "normalized": "#overstory-key=id:x7f3q2",
+      "resolves": false
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "input": "arbor://tr_7k3m/essays;arbor-key=id:x7f3q2;arbor-tag=x",
+      "normalized": "overstory://tr_7k3m/essays;overstory-key=id:x7f3q2;arbor-tag=x",
+      "resolves": false
+    }
+  ],
+  "rewrites": [
+    {
+      "sourceDirectory": "/projects/atlas",
+      "href": "../roadmap.md#arbor-key=id:x7f3q2",
+      "target": {
+        "path": "/projects/current-roadmap",
+        "body": "sibling"
+      },
+      "expected": "../current-roadmap.md#overstory-key=id:x7f3q2"
+    },
+    {
+      "sourceDirectory": "/projects/atlas",
+      "href": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2",
+      "target": {
+        "path": "/essays/current",
+        "body": "sibling"
+      },
+      "expected": "overstory://tr_7k3m/essays/current;overstory-key=id:x7f3q2"
+    }
+  ],
+  "profileLocators": [
+    {
+      "input": "arbor://club.example/~club",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    },
+    {
+      "input": "arbor://127.0.0.1:4000/~club",
+      "locator": "http://127.0.0.1:4000/~club",
+      "origin": "http://127.0.0.1:4000"
+    },
+    {
+      "input": "arbor://Club.EXAMPLE:443/~club/",
+      "locator": "https://club.example/~club",
+      "origin": "https://club.example"
+    }
+  ],
+  "treeReferences": [
+    {
+      "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-config",
+      "tree": "tr_owozr6aegt5z7x6qyllvzljl5u",
+      "configuration": true
+    },
+    {
+      "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-key=id:x",
+      "invalid": true
+    }
+  ],
+  "childrenMarker": [
+    {
+      "name": "the old marker places generated children",
+      "directory": {
+        "path": "/dir",
+        "body": "index"
+      },
+      "source": "# Directory\n\n<!-- arbor:children -->\n\nTail.\n",
+      "children": [
+        {
+          "name": "z",
+          "path": "/dir/z",
+          "body": "sibling"
+        },
+        {
+          "name": "A",
+          "path": "/dir/A",
+          "body": "sibling"
+        }
+      ],
+      "expectedGeneratedChildren": [
+        "/dir/A",
+        "/dir/z"
+      ],
+      "expectedGeneratedAfterMarker": true,
+      "expectedDiagnosticCodes": []
+    },
+    {
+      "name": "an old and a new marker are two markers",
+      "directory": {
+        "path": "/dir",
+        "body": "index"
+      },
+      "source": "<!-- arbor:children -->\n\nText\n\n<!-- overstory:children -->\n",
+      "children": [
+        {
+          "name": "new",
+          "path": "/dir/new",
+          "body": "sibling"
+        }
+      ],
+      "expectedGeneratedChildren": [],
+      "expectedGeneratedAfterMarker": false,
+      "expectedDiagnosticCodes": [
+        "duplicate-children-marker"
+      ]
+    }
+  ],
+  "ignorePolicy": [
+    {
+      "name": "arborignore is read where there is no overstoryignore",
+      "files": {
+        ".arborignore": "secret/\n"
+      },
+      "path": "/secret/key.pem",
+      "isDirectory": false,
+      "decision": "ignored",
+      "source": "/.arborignore"
+    },
+    {
+      "name": "nested arborignore",
+      "files": {
+        "a/.arborignore": "*.bak\n"
+      },
+      "path": "/a/b.bak",
+      "isDirectory": false,
+      "decision": "ignored",
+      "source": "/a/.arborignore"
+    },
+    {
+      "name": "arborignore overrides gitignore in the same directory",
+      "files": {
+        ".gitignore": "*.md\n",
+        ".arborignore": "!README.md\n"
+      },
+      "path": "/README.md",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "overstoryignore wins over arborignore beside it",
+      "files": {
+        ".arborignore": "*.md\n",
+        ".overstoryignore": "*.log\n"
+      },
+      "path": "/notes.md",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "overstoryignore beside arborignore still applies",
+      "files": {
+        ".arborignore": "*.md\n",
+        ".overstoryignore": "*.log\n"
+      },
+      "path": "/x.log",
+      "isDirectory": false,
+      "decision": "ignored",
+      "source": "/.overstoryignore"
+    },
+    {
+      "name": "an empty overstoryignore still shadows arborignore",
+      "files": {
+        ".arborignore": "*.md\n",
+        ".overstoryignore": ""
+      },
+      "path": "/notes.md",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "the shadowing is per directory",
+      "files": {
+        ".overstoryignore": "*.log\n",
+        "sub/.arborignore": "*.md\n"
+      },
+      "path": "/sub/notes.md",
+      "isDirectory": false,
+      "decision": "ignored",
+      "source": "/sub/.arborignore"
+    },
+    {
+      "name": "arborignore cannot ignore itself",
+      "files": {
+        ".arborignore": ".*\n"
+      },
+      "path": "/.arborignore",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "a shadowed arborignore cannot be ignored either",
+      "files": {
+        ".arborignore": "",
+        ".overstoryignore": ".*\n"
+      },
+      "path": "/.arborignore",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "gitignore cannot ignore arborignore",
+      "files": {
+        ".gitignore": ".*\n"
+      },
+      "path": "/.arborignore",
+      "isDirectory": false,
+      "decision": "included"
+    },
+    {
+      "name": "old write temporary",
+      "files": {},
+      "path": "/notes/.page.md.arbor-write-0b5c",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old transaction temporary",
+      "files": {},
+      "path": "/notes/.page.md.arbor-txn-77",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old temporary cannot be negated",
+      "files": {
+        ".gitignore": "!*\n"
+      },
+      "path": "/.x.arbor-txn-1",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old state directory",
+      "files": {},
+      "path": "/x/.arbor",
+      "isDirectory": true,
+      "decision": "mandatory"
+    },
+    {
+      "name": "content of the old state directory",
+      "files": {
+        ".gitignore": "!*\n"
+      },
+      "path": "/.arbor/state.json",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "a file named like the old state directory is content",
+      "files": {},
+      "path": "/.arbor",
+      "isDirectory": false,
+      "decision": "included"
+    }
+  ]
+}

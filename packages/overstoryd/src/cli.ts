@@ -53,13 +53,30 @@ function hostnameOption(args: string[]): string {
 function parsePort(args: string[]): number {
   const port = Number(option(args, "--port") ?? process.env.PORT ?? 4318);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-    throw new Error("Canopy port must be an integer from 0 through 65535");
+    throw new Error("overstoryd port must be an integer from 0 through 65535");
   }
   return port;
 }
 
-async function hasCommunity(dataRoot: string): Promise<boolean> {
-  return stat(resolve(dataRoot, "overstoryd.sqlite3")).then(() => true).catch(() => false);
+/**
+ * Whether the data root holds a community: its database file is there.
+ *
+ * Rename 001 cutover guard: a data root that still holds the database under
+ * its old name, `canopy.sqlite3`, and none under the new name is refused.
+ * Treating it as empty would bootstrap a second, empty community beside the
+ * real one.
+ */
+export async function hasCommunity(dataRoot: string): Promise<boolean> {
+  const present = (name: string) => stat(resolve(dataRoot, name)).then(() => true).catch(() => false);
+  if (await present("overstoryd.sqlite3")) return true;
+  // Rename 001 cutover guard: `canopy.sqlite3` is the pre-rename file name.
+  if (await present("canopy.sqlite3")) {
+    throw new Error(
+      `${dataRoot} holds canopy.sqlite3 but no overstoryd.sqlite3. The database must be renamed before this build serves it: `
+      + "stop the host, checkpoint the WAL, rename canopy.sqlite3 to overstoryd.sqlite3, and remove any stale canopy.sqlite3-wal and canopy.sqlite3-shm.",
+    );
+  }
+  return false;
 }
 
 /**
@@ -80,12 +97,12 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
         return Response.json({ status: "maintenance" }, { headers: { "cache-control": "no-store" } });
       }
       return Response.json(
-        { error: "internal-error", message: "This Story server is in maintenance; try again later", retryable: true },
+        { error: "internal-error", message: "This Overstory host is in maintenance; try again later", retryable: true },
         { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } },
       );
     },
   });
-  console.log(`Canopy in maintenance mode at http://${hostname}:${server.port}; migrate the data root or unset OVERSTORYD_MAINTENANCE, then restart.`);
+  console.log(`overstoryd in maintenance mode at http://${hostname}:${server.port}; migrate the data root or unset OVERSTORYD_MAINTENANCE, then restart.`);
   return server;
 }
 
@@ -140,8 +157,8 @@ export async function serveCommunity(args: string[]): Promise<void> {
   if (process.env.OVERSTORYD_MAINTENANCE?.trim()) return maintainUntilStopped(requestedPort, hostnameOption(args));
   const onRailway = Boolean(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
   const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
-  const storyDomain = process.env.OVERSTORYD_DOMAIN;
-  const configuredPublicOrigin = option(args, "--url") ?? (storyDomain ? `https://${storyDomain}` : undefined);
+  const hostDomain = process.env.OVERSTORYD_DOMAIN;
+  const configuredPublicOrigin = option(args, "--url") ?? (hostDomain ? `https://${hostDomain}` : undefined);
   if (onRailway && !configuredPublicOrigin && !railwayDomain) {
     throw new Error("Railway needs a public domain before first start. Generate one, set OVERSTORYD_DOMAIN, or pass --url, then redeploy.");
   }
@@ -208,7 +225,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
     if (new URL(publicOrigin).port === "0") {
       throw new Error("A community whose founder account is still unclaimed needs a stable nonzero --port or an explicit --url");
     }
-    console.log(`Founder account ${running.url}/~${unclaimed} is reserved and unclaimed; open it in Canopy and claim it with the founder's profile.`);
+    console.log(`Founder account ${running.url}/~${unclaimed} is reserved and unclaimed; open it in Story and claim it with the founder's profile.`);
   }
   const shutdown = async () => {
     running.server.stop(true);

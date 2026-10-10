@@ -35,7 +35,7 @@ complete recipient experience:
 - the raw fragment remains in browser history;
 - ordinary links, reloads, and protected assets do not reliably retain access;
 - no real-browser test traverses a protected multi-page tree;
-- Canopy cannot open an access-link URL; and
+- Story cannot open an access-link URL; and
 - a write-capable link has no complete recipient editing flow.
 
 Local Overstory also lacks the equivalent out-of-band handoff:
@@ -95,7 +95,7 @@ its `Can edit` choice stays absent until linked editing meets them too.
 8. Normalize and persist visit identity from the fragment-free locator.
    Existing visit records containing a fragment must be ignored or rewritten
    without reproducing the secret in logs or diagnostics.
-9. Register the access-link URL with Canopy and apply the same immediate
+9. Register the access-link URL with Story and apply the same immediate
    fragment separation before opening a remote tree. Keep the secret only in
    the active in-memory visit/session and propagate it to every required Overstory
    read. A cold reopen of a credential-free recent visit must not regain access.
@@ -140,7 +140,7 @@ Add tests proving:
    requests carry only an opaque browser-session identifier.
 5. Revoking or downgrading a link affects the next document, object, asset, and
    update request, including an already-open browser session.
-6. Canopy can open a link-authorized tree without putting the secret in
+6. Story can open a link-authorized tree without putting the secret in
    loopback URLs, recents, diagnostics, or persisted state.
 7. Revisiting the credential-free cached record never grants live access after
    the in-memory credential is gone.
@@ -154,8 +154,8 @@ Run:
 bun test tests/integration/overstoryd/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
 swift test --package-path swift/Packages/OverstoryClient
-xcodebuild -workspace swift/Story.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' build
-xcodebuild -workspace swift/Story.local.xcworkspace -scheme Canopy -destination 'platform=macOS' build
+xcodebuild -workspace swift/Story.local.xcworkspace -scheme Story -destination 'generic/platform=iOS Simulator' build
+xcodebuild -workspace swift/Story.local.xcworkspace -scheme Story -destination 'platform=macOS' build
 git diff --check
 ```
 

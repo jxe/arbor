@@ -1,5 +1,5 @@
 /** A disposable overstoryd-shaped data root built from a Git repository's
- * first-parent history, for storage experiments that must not touch Canopy
+ * first-parent history, for storage experiments that must not touch host
  * data. Each commit becomes one accepted update of one tree: its files and
  * directories as protocol objects (unchanged subtrees keep their hashes), a
  * log entry naming the previous one, an `accepted_updates` row, and a

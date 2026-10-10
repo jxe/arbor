@@ -28,7 +28,7 @@ function snapshot(source: string, extra = "one"): TreeSnapshot {
   return { root, objects: new Map([[root, rootBytes], [indexHash, indexBytes], [extraHash, extraBytes]]) };
 }
 
-describe("StorySync recovery evidence", () => {
+describe("Story Sync recovery evidence", () => {
   test("retains legacy editor records instead of passing through the refactored state adapter", () => {
     const basis = snapshot("base");
     const admissionBasis = Buffer.from(JSON.stringify({
@@ -88,10 +88,10 @@ describe("StorySync recovery evidence", () => {
     expect([...replaced.objects.values()].some((bytes) => new TextDecoder().decode(bytes).includes("disk-only"))).toBe(true);
   });
 
-  test("refuses submission after either the Canopy update or root drifts", () => {
+  test("refuses submission after either the host update or root drifts", () => {
     const root = `sha256:${"1".repeat(64)}`;
     expect(() => assertUnchangedHost({ update: "10", root }, { update: "10", root })).not.toThrow();
-    expect(() => assertUnchangedHost({ update: "10", root }, { update: "11", root })).toThrow("Canopy drifted");
-    expect(() => assertUnchangedHost({ update: "10", root }, { update: "10", root: `sha256:${"2".repeat(64)}` })).toThrow("Canopy drifted");
+    expect(() => assertUnchangedHost({ update: "10", root }, { update: "11", root })).toThrow("The host drifted");
+    expect(() => assertUnchangedHost({ update: "10", root }, { update: "10", root: `sha256:${"2".repeat(64)}` })).toThrow("The host drifted");
   });
 });

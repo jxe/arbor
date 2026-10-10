@@ -27,7 +27,7 @@ export class QueryInputError extends Error {
 
 export class QueryUserRequiredError extends Error {
   constructor() {
-    super("This query requires an Story user");
+    super("This query requires a Story user");
     this.name = "QueryUserRequiredError";
   }
 }

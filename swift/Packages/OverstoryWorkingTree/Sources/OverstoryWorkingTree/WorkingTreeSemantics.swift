@@ -19,7 +19,9 @@ enum WorkingTreeSemantics {
     }
 
     static func validateName(_ value: String) throws {
-        guard !value.isEmpty, value != ".", value != "..", value != ".overstory", value != "_index.md",
+        // Rename 002: `.arbor`, the reserved segment's spelling from before the
+        // Overstory rename, stays refused alongside `.overstory`.
+        guard !value.isEmpty, value != ".", value != "..", value != ".overstory", value != ".arbor", value != "_index.md",
               !value.contains("/"), !value.contains("\\"), !value.contains("\0") else {
             throw WorkingTreeError.invalidName(value)
         }

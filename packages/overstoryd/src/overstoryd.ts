@@ -78,7 +78,7 @@ import { ObjectStore } from "@ovst/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory, isRecoveryPairing } from "./accounts.ts";
 import {
-  HANDLE, handleOfPath, memberReservations, profileChanged, profileLocatorTree,
+  HANDLE, handleOfPath, memberReservations, parseStoredFacts, profileChanged, profileLocatorTree,
   readRootProfile, readStoredProfile, rootIndexHash, storedProfileOf, writeStoredProfile,
   type RootProfileFacts, type RootProfileRead, type StoredProfile,
   type MemberReservation,
@@ -100,7 +100,7 @@ export interface UpdateCaller {
   authentication?: HostAuthentication;
 }
 
-/** Canopy's answer to an update; the route adds the tree's `head` as it writes the response. */
+/** The host's answer to an update; the route adds the tree's `head` as it writes the response. */
 export interface StoredUpdateResponse {
   status: number;
   result: Omit<UpdateResponse, "head"> | UpdateConflictResult;
@@ -436,7 +436,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     await overstoryd.mergeTool.clearStaleJobs();
     if (!overstoryd.boundary("/")) {
-      if (!bootstrap) throw new Error("A new Story server requires community bootstrap configuration");
+      if (!bootstrap) throw new Error("A new Overstory host requires community bootstrap configuration");
       // One transaction, so a failure leaves no community and the next start bootstraps again.
       // Nested transactions below become savepoints; objects stored before a
       // rollback are unreferenced.
@@ -730,7 +730,7 @@ export class HostDaemon implements AsyncDisposable {
     if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
-      throw new Error("Account challenge target must use canonical Canopy URLs");
+      throw new Error("Account challenge target must use canonical host URLs");
     }
     if (this.accountByHandle(reservation.handle) || this.nameHeldByTree(reservation.handle)) throw new AlreadyClaimedError(reservation.handle);
     const issuedAt = Date.now();
@@ -1398,7 +1398,7 @@ export class HostDaemon implements AsyncDisposable {
       if (parent === community) {
         const handle = /^~([^/]+)/.exec(path)?.[1];
         if (handle && (this.communityReservations().has(handle) || this.accountByHandle(handle))) {
-          throw new Error(`~${handle} is reserved for a person on this Canopy`);
+          throw new Error(`~${handle} is reserved for a person on this host`);
         }
       }
       if (held.has(child)) continue;
@@ -1475,7 +1475,7 @@ export class HostDaemon implements AsyncDisposable {
       WHERE json_extract(p.facts, '$.type') = 'group'
       ORDER BY p.tree_id
     `).all() as Array<{ tree_id: string; facts: string }>)
-      .map((row) => ({ tree: row.tree_id, facts: JSON.parse(row.facts) as RootProfileFacts }));
+      .map((row) => ({ tree: row.tree_id, facts: parseStoredFacts(row.facts) }));
   }
 
   /** `tree` is an ID, or a tree the caller already read, which saves reading it again. */
@@ -1500,7 +1500,7 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   /**
-   * Claim a Canopy-allocated account locator for a stable profile TreeID.
+   * Claim a host-allocated account locator for a stable profile TreeID.
    * The claim declares the profile tree with its configuration; the profile's
    * content is activated afterwards by an ordinary null-base update.
    */
@@ -1697,7 +1697,7 @@ export class HostDaemon implements AsyncDisposable {
       ) {
         throw new UpdateProtocolError(
           "unsupported-operation",
-          `Update ${index} (${update.change}) carries a trace or resolutions not yet supported by Canopy`
+          `Update ${index} (${update.change}) carries a trace or resolutions not yet supported by this host`
         );
       }
     }
@@ -2378,7 +2378,7 @@ export class HostDaemon implements AsyncDisposable {
   verifyDatabase(): void {
     const rows = this.db.query("PRAGMA quick_check").all() as Array<Record<string, unknown>>;
     if (rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== "ok") {
-      throw new Error("Canopy SQLite integrity check failed");
+      throw new Error("overstoryd SQLite integrity check failed");
     }
   }
 
@@ -2648,7 +2648,7 @@ export class HostDaemon implements AsyncDisposable {
       !!member.profile && isProfileLocator(member.profile) && this.locatorPins.pinned(group, member.profile) === profileTree);
   }
 
-  /** Current-Canopy allocation policy: the community's member handles reserve /~handle. */
+  /** Current-host allocation policy: the community's member handles reserve /~handle. */
   private communityReservations(): ReadonlyMap<string, MemberReservation> {
     return this.rootProfile(this.community().id).reservations;
   }
@@ -2828,7 +2828,7 @@ export class HostDaemon implements AsyncDisposable {
     const current = this.communityReservations();
     for (const handle of memberReservations(facts.members).keys()) {
       if (!current.has(handle) && this.nameHeldByTree(handle)) {
-        throw new Error(`~${handle} is already the address of a tree on this Canopy`);
+        throw new Error(`~${handle} is already the address of a tree on this host`);
       }
     }
   }

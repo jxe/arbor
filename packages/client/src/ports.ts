@@ -1,7 +1,7 @@
 import type { TreeID, WorkspaceChange, WorkspaceEvent } from "@ovst/protocol";
 
 /**
- * The daemon-owned objects the Canopy client needs, expressed as narrow ports
+ * The daemon-owned objects the Story client needs, expressed as narrow ports
  * so the client stays a library the daemon imports rather than a slice of it.
  */
 

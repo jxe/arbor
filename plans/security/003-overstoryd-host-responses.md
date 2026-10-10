@@ -77,7 +77,7 @@ remains non-cacheable.
 Use a small reviewed extension allowlist for inert image/text types. Unknown or
 active types—including SVG and HTML—must return
 `application/octet-stream`, `content-disposition: attachment`, and `nosniff`.
-Do not import an story-sync-only MIME table into overstoryd.
+Do not import a story-sync-only MIME table into overstoryd.
 
 ### 3. Make the throttle key trustworthy and bounded
 

@@ -181,7 +181,7 @@ export function assertHostSchemaVersion(db: Database): void {
     : null;
   if (stamp !== OVERSTORYD_SCHEMA_VERSION) {
     throw new SchemaMismatchError(
-      `Canopy data root was written by schema version ${stamp ?? "(unstamped)"} but this build requires ${OVERSTORYD_SCHEMA_VERSION}: `
+      `overstoryd data root was written by schema version ${stamp ?? "(unstamped)"} but this build requires ${OVERSTORYD_SCHEMA_VERSION}: `
       + "run the offline migration for this version after backing up retained history",
     );
   }
@@ -208,7 +208,7 @@ export function assertCurrentHostSchema(db: Database): void {
     }
   }
   if (issues.length) {
-    throw new SchemaMismatchError(`Canopy schema requires the one-time migration before startup: ${issues.join(", ")}`);
+    throw new SchemaMismatchError(`overstoryd schema requires the one-time migration before startup: ${issues.join(", ")}`);
   }
 }
 
@@ -243,10 +243,10 @@ export function assertHostData(db: Database): void {
   if (missingConfigurations.count) issues.push("trees without a tree configuration");
   if (unindexed.count) issues.push("tree configurations without an administrator");
   if (db.query("PRAGMA foreign_key_check").all().length) issues.push("foreign-key violations");
-  if (issues.length) throw new Error(`Canopy data integrity check failed: ${issues.join(", ")}`);
+  if (issues.length) throw new Error(`overstoryd data integrity check failed: ${issues.join(", ")}`);
 }
 
-/** Open (creating and stamping if new, otherwise asserting) the Canopy SQLite database at `path`. */
+/** Open (creating and stamping if new, otherwise asserting) the overstoryd SQLite database at `path`. */
 export function openHostDatabase(path: string): Database {
   const databaseExists = existsSync(path);
   const db = new Database(path, { create: true });

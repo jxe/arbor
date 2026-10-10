@@ -101,7 +101,7 @@ struct WorkingTreeRecencyTests {
         }
     }
 
-    @Test("Canopy dates are authoritative for the accepted state, and otherwise fill only undated nodes")
+    @Test("Host dates are authoritative for the accepted state, and otherwise fill only undated nodes")
     func applyEntryDates() async throws {
         let state = WorkingTreeState(tree: tree.rawValue, nodes: [
             WorkingTreeNode(path: "/", kind: .directory, source: "# Home\n"),
@@ -122,7 +122,7 @@ struct WorkingTreeRecencyTests {
         #expect(try await workingTree.currentSnapshot().root == (try snapshot(state)).root)
     }
 
-    @Test("An accepted replacement dates what it changes with Canopy's time and keeps the rest")
+    @Test("An accepted replacement dates what it changes with the host's time and keeps the rest")
     func acceptedTime() async throws {
         let first = WorkingTreeState(tree: tree.rawValue, nodes: [
             WorkingTreeNode(path: "/", kind: .directory, source: "# Home\n"),

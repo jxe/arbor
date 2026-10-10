@@ -68,7 +68,7 @@ export interface FolderSyncHost {
   /** The folder's root on disk. */
   readonly root: string;
   excludedMounts(): readonly string[];
-  /** Verified bytes by hash: the folder's index, then Canopy. */
+  /** Verified bytes by hash: the folder's index, then the host. */
   objectBytes(hash: ObjectHash): Promise<Uint8Array | undefined>;
   /** Accepted bytes were written to the folder. */
   materialized(): void;
@@ -303,7 +303,7 @@ export class FolderSync implements AcceptedTree {
     this.host.setDeclined(declined ? { paths: declined.paths, since: declined.since, ...(declined.detail === undefined ? {} : { detail: declined.detail }) } : undefined);
   }
 
-  /** Objects by hash: those given, the scanned folder's, then the folder's index and Canopy. */
+  /** Objects by hash: those given, the scanned folder's, then the folder's index and the host. */
   private loader(lazy?: LazyTreeSnapshot, first?: (hash: ObjectHash) => Promise<Uint8Array | undefined>): LoadObject {
     return async (hash) => {
       const bytes = await first?.(hash) ?? await lazy?.objects.get(hash)?.bytes() ?? await this.host.objectBytes(hash);
@@ -315,7 +315,7 @@ export class FolderSync implements AcceptedTree {
   /**
    * `root` as the tracked set. Its directories come from the scan that
    * produced it when still at hand, otherwise from the folder's index, its
-   * pending changes or Canopy, read so that no directory is rebuilt from disk
+   * pending changes or the host, read so that no directory is rebuilt from disk
    * through another tracked lookup.
    */
   private tracking(root: string): TrackedRoot {

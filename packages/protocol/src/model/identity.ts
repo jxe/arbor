@@ -18,7 +18,7 @@ export function encodeBase32(bytes: Uint8Array): string {
   return result;
 }
 
-/** Generate a 128-bit lowercase base32 Story identity with the supplied stable prefix. */
+/** Generate a 128-bit lowercase base32 Overstory identity with the supplied stable prefix. */
 export function generateOverstoryID(prefix: "tr" | "dv" | "ac" | "pa" | "pr" | "pp" | "ax" | "up" | "ob"): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return `${prefix}_${encodeBase32(bytes)}`;

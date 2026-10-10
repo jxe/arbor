@@ -56,7 +56,7 @@ const protocolGate = [
   /^swift\/Packages\/(Overstory|OverstoryClient|OverstoryObjectStore|OverstoryWorkingTree|StoryKit)\//,
   /^swift\/StoryApp\/StorySync\//, /^swift\/StoryAppTests\/StorySync/,
 ];
-const overstorydEditor = /^swift\/(Packages\/StoryEditor\/|scripts\/test-story-editor-local\.sh$)/;
+const storyEditor = /^swift\/(Packages\/StoryEditor\/|scripts\/test-story-editor-local\.sh$)/;
 const swiftDocumentation = /^swift\/.*\.md$/;
 const documentation = (path: string) => path.endsWith(".md") && !path.startsWith("tests/fixtures/") || /^(plans|status)\b/.test(path);
 const sourceExtensions = new Set([".ts", ".tsx"]);
@@ -146,7 +146,7 @@ for (const path of changed) {
     continue;
   }
   if (protocolGate.some(pattern => pattern.test(path))) protocol = true;
-  else if (overstorydEditor.test(path)) editorSuite = appSuite = true;
+  else if (storyEditor.test(path)) editorSuite = appSuite = true;
   else if (path.startsWith("swift/") && !swiftDocumentation.test(path) && !path.startsWith("swift/scripts/")) appSuite = true;
   if (path === "swift/scripts/test-story-app.sh") appSuite = true;
   const migration = /^packages\/overstoryd\/migrations\/([^/]+)\//.exec(path);

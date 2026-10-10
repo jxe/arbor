@@ -18,7 +18,8 @@ import type {
   ResolvedStorySource,
   StoreSchema,
 } from "./schema.ts";
-import { introspectStoreSchema } from "./schema.ts";
+// Rename 002: `isProfileRelationSource` also accepts the old "arbor-profile" spelling.
+import { introspectStoreSchema, isProfileRelationSource } from "./schema.ts";
 import {
   compareQueryValues,
   containsRequiredUser,
@@ -599,9 +600,9 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   private async rootRows(plan: QueryPlan, context: ExecutionContext): Promise<Record<string, unknown>[]> {
     const relationMetadata = this.schema.relations[plan.relation]!;
     const portable = isPortableNodePlan(plan);
-    if (relationMetadata.source === "overstory-profile") {
+    if (isProfileRelationSource(relationMetadata.source)) {
       const id = profileIDFromPredicate(plan.where, context);
-      if (!id) throw new QueryCompileError("A root arbor_profiles query must constrain id exactly");
+      if (!id) throw new QueryCompileError("A root profile-relation query must constrain id exactly");
       const fields = requiredFields(plan, plan.relation, this.schema);
       let rows = (await resolveProfiles(this.profiles, [id], fields, context)).filter((row) => evaluatePredicate(plan.where, row, context));
       rows = sortRows(rows, plan.relation, plan, this.schema, context);
@@ -668,11 +669,11 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   ): Promise<Record<string, unknown>[][]> {
     if (parents.length === 0) return [];
     const target = this.schema.relations[metadata.target]!;
-    const grouped = target.source === "overstory-profile"
+    const grouped = isProfileRelationSource(target.source)
       ? await this.profileRelationshipRows(parents, metadata, selected.plan, context)
       : this.sqliteRelationshipRows(parents, metadata, selected.plan, context);
     return grouped.map((rows) => {
-      const ordered = target.source === "overstory-profile"
+      const ordered = isProfileRelationSource(target.source)
         ? sortRows(rows, metadata.target, selected.plan, this.schema, context, metadata)
         : rows;
       if (metadata.cardinality === "many") assertStableRows(ordered, this.schema, metadata.target, selected.plan, metadata);

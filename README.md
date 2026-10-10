@@ -4,7 +4,7 @@ Overstory turns ordinary folders into a shared, browsable space for people and
 agents. Files stay files: readable with `cat`, searchable with `grep`, and
 editable by any existing tool. A folder can gain a stable identity, history,
 synchronization, and permissions without moving into a walled service, and
-the Canopy browsers give the same material a human interface.
+the Story apps give the same material a human interface.
 
 The longer-term idea is that documents in this space can also become live
 applications: their data, interface, and permitted operations travel
@@ -35,7 +35,7 @@ as `@ovst/<name>`; Swift packages live under `swift/Packages/`.
   folders on a Mac synchronized with their hosts and serves them to local
   clients over loopback. `story-sync`, `cli` (whose `daemon-client.ts` is the
   TypeScript client); the Mac app's own client in `swift/StoryApp/StorySync`.
-- **Canopy, the browsers**: the human interface. The Mac and iOS app edits
+- **Story, the apps**: the human interface. The Mac and iOS app edits
   working trees directly against a host; on the Mac it also uses the daemon
   for the placed folder. The browser editor is being rebuilt to talk to a
   host the same way. Swift `StoryKit`, `StoryEditor`, the app target;
@@ -61,7 +61,7 @@ flowchart TB
     AS["story-sync"]
     CLI["cli (story)<br/>daemon client"]
   end
-  subgraph overstoryd["Canopy, the browsers"]
+  subgraph apps["Story, the apps"]
     direction LR
     APP["Mac and iOS app<br/><i>StoryKit · StoryEditor · Mac daemon client</i>"]
     WEB["story-web"]
@@ -77,12 +77,12 @@ flowchart TB
   CLI --> AS
   host --> proto
   story --> proto
-  overstoryd --> proto
+  apps --> proto
 ```
 
 ## Getting started
 
-Today the only editor is the Canopy app for macOS and iOS, built from
+Today the only editor is the Story app for macOS and iOS, built from
 `swift/`; the browser editor is being rebuilt. So the path from a checkout
 to a synchronized folder runs through the app once, to claim an account.
 The setup below is for macOS.
@@ -123,8 +123,8 @@ your own.
   domain, persistent volumes, backups, and upgrades, use the
   [deployment guide](packages/overstoryd/deploy/README.md).
 
-**3. Claim it from Canopy.** Build the app (`xcodegen generate --spec
-swift/project.yml --project swift`, then the `Canopy` scheme; see
+**3. Claim it from Story.** Build the app (`xcodegen generate --spec
+swift/project.yml --project swift`, then the `Story` scheme; see
 [swift/README.md](swift/README.md)), open the reserved account URL in it, and
 choose **Claim profile**. The app proves your profile to the host and
 installs the account configuration under `~/.story`.
@@ -148,8 +148,8 @@ implemented yet.
 
 | State | Today |
 |---|---|
-| **Implemented** | Tree identity and synchronization in both languages, overstoryd with the merge sidecar and resource policy, the Canopy app as a direct working-tree editor with recovery and conflict review, profile and account claiming, multi-account configuration and pairing, cloud sessions, the SQLite-backed query and mutation core |
-| **In progress** | The browser Canopy, executable-document compilation and presentation, richer editor capture and review, lazy history and storage bounds |
+| **Implemented** | Tree identity and synchronization in both languages, overstoryd with the merge sidecar and resource policy, the Story app as a direct working-tree editor with recovery and conflict review, profile and account claiming, multi-account configuration and pairing, cloud sessions, the SQLite-backed query and mutation core |
+| **In progress** | Story for the web, executable-document compilation and presentation, richer editor capture and review, lazy history and storage bounds |
 | **Specified, not built** | Hosted agents, portable static and live deployment, a complete Postgres child provider |
 
 [status.md](status.md) is the authority, row by row. The [specification](docs/overstory-spec/README.md)
@@ -162,7 +162,7 @@ implementation yet.
 |---|---|
 | [`status.md`](status.md) | What the reference implementation does today |
 | [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Story tools, browser editor. The host's [deployment guide](packages/overstoryd/deploy/README.md) and [migrations](packages/overstoryd/migrations/README.md) live with it |
-| [`swift/`](swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
+| [`swift/`](swift/README.md) | The Swift packages and the Story app for macOS and iOS |
 | [`docs/`](docs/README.md) | Getting started, the Overstory specification and conformance fixtures, implementing editors, implementing sync services, and architecture by subcomponent |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |

@@ -1,7 +1,7 @@
 # swift
 
 The Swift side of Overstory: the protocol and client packages that mirror
-the TypeScript workspace, and the Canopy app for macOS and iOS.
+the TypeScript workspace, and the Story app for macOS and iOS.
 
 | Package | Purpose | TypeScript twin | Depends on |
 |---|---|---|---|
@@ -18,8 +18,10 @@ launchd plist, entitlements) and `StoryAppTests/` its test bundle.
 client, credential provider and object store, the process supervisor, and
 their models), compiled only for macOS; its twin is the CLI's
 `packages/cli/src/daemon-client.ts`. The packages above are platform-neutral. The app
-is named Canopy; its bundle identifier stays `org.nxhx.Arbor`, as do the
-launchd label and the support directory, so installed data is found.
+is named Story. Its bundle identifier stays `org.nxhx.Arbor` for now, as do
+the keychain service names, so installed data and pairing are found; the
+launchd label is `org.nxhx.story.sync` and the support directory is
+`~/Library/Application Support/Story`.
 
 ## The Xcode project is generated
 
@@ -49,13 +51,22 @@ and runs `StoryAppTests` through xcodebuild.
 
 ## Naming
 
-Package names before 2026-09-20: `StoryWire` (now `Overstory`),
-`StoryObjectStore` (`OverstoryObjectStore`), `StoryClient`
-(`OverstoryClient`), `StoryWorkingTree` (`OverstoryWorkingTree`), `StoryKit`
-(`StoryKit`), `StoryQuagmire` (`StoryEditor`). Type names followed on
-2026-09-24: `Wire*` and `StoryWire*` protocol types became `Protocol*`
-(`StoryWireClient` is `ProtocolClient`, `WireModels.swift` is
+Package names before 2026-09-20: `ArborWire` (now `Overstory`),
+`ArborObjectStore` (`OverstoryObjectStore`), `CanopyClient`
+(`OverstoryClient`), `ArborWorkingTree` (`OverstoryWorkingTree`), `ArborKit`
+(`StoryKit`), `ArborQuagmire` (`StoryEditor`). Type names followed on
+2026-09-24: `Wire*` and `ArborWire*` protocol types became `Protocol*`
+(`ArborWireClient` is `ProtocolClient`, `WireModels.swift` is
 `ProtocolModels.swift`), host-meaning `Canopy*` types became `Host*`
-(`HostObjectStore`, `HostWatchRunner`), and the app's and editor's `Story*`
-types and files became `Canopy*`. `Story*` names that remain belong to the
-local tools: Story Sync, `overstory://` locators, and the `.overstory` data home.
+(`HostObjectStore`, `HostWatchRunner`), and the app's and editor's `Arbor*`
+types and files became `Canopy*`.
+
+Until 2026-10-10 the app, its Xcode project and its scheme were named
+Canopy, and three packages carried that name: `CanopyAppKit` (now
+`StoryKit`), `CanopyEditor` (`StoryEditor`) and `CanopyWorkingTree`
+(`OverstoryWorkingTree`). `Canopy*` types became `Story*`, account types
+that describe an account on a host became `HostAccount*`, and
+protocol-meaning `Arbor*` names became `Overstory*` (`OverstoryLocator`).
+`Story*` names belong to the device product: the app, the `story` command and
+Story Sync. `Overstory*` names belong to the protocol and its generic client
+machinery.

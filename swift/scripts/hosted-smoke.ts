@@ -2,7 +2,7 @@
 /**
  * Hosted smoke harness for the Mac app's working-tree client.
  *
- * Starts a local Canopy, claims an account through a throwaway Story Sync
+ * Starts a local host, claims an account through a throwaway Story Sync
  * control daemon's `/v1/bootstrap/accounts` into the test data home the Story
  * scheme uses (`STORY_HOME=/tmp/StoryNativeAppTests`), places a
  * disposable folder as a tree, then runs `StoryAppTests` with
@@ -10,7 +10,7 @@
  * bundled control-mode helper on the test port (45190) against that data
  * home, opens the tree through `/v1/bootstrap`, edits its own working tree,
  * and the harness's test waits for the edit to reach the folder through
- * Canopy and the daemon.
+ * the host and the daemon.
  *
  *   bun swift/scripts/hosted-smoke.ts [extra xcodebuild arguments]
  *
@@ -112,7 +112,7 @@ try {
     : ["-project", "Story.xcodeproj"];
   await run(
     [
-      "xcodebuild", ...container, "-scheme", "Canopy",
+      "xcodebuild", ...container, "-scheme", "Story",
       "-destination", "platform=macOS", "test",
       "-only-testing:StoryAppTests",
       ...process.argv.slice(2),

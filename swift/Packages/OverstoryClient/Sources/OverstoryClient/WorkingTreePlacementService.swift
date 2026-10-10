@@ -4,7 +4,7 @@ import OverstoryWorkingTree
 import Overstory
 import Foundation
 
-/// Place a tree from Canopy: install its current complete snapshot as the
+/// Place a tree from a host: install its current complete snapshot as the
 /// accepted base of a fresh working tree.
 public enum WorkingTreePlacementService {
     public static func place(

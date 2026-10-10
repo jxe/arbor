@@ -2,7 +2,7 @@
   "name": "overstory",
   "version": "0.1.0",
   "private": true,
-  "description": "Overstory: a shared tree protocol, its reference host overstoryd, the Story local tools, and the Canopy browsers.",
+  "description": "Overstory: a shared tree protocol, its reference host overstoryd, and Story, the device tools and apps.",
   "type": "module",
   "packageManager": "bun@1.4.2",
   "workspaces": [
@@ -15,8 +15,7 @@
   "bin": {
     "story": "./packages/cli/src/index.ts",
     "story-sync": "./packages/story-sync/src/cli.ts",
-    "overstoryd": "./packages/overstoryd/src/cli.ts",
-    "overstoryd-merge": "./packages/overstoryd-merge/src/cli.ts"
+    "overstoryd": "./packages/overstoryd/src/cli.ts"
   },
   "scripts": {
     "story": "bun packages/cli/src/index.ts",

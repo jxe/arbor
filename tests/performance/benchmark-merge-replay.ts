@@ -1,5 +1,5 @@
 /** Disposable, repeatable sidecar workloads the edit benchmark does not reach;
- * never opens Canopy data. Log entries are written in memory as overstoryd writes
+ * never opens host data. Log entries are written in memory as overstoryd writes
  * them, and an in-process sidecar answers.
  *
  * - `checkpoint`: a snapshot conflicting with the head in K files, answered

@@ -4,6 +4,23 @@ import Foundation
 /// The segment parameter that addresses a tree's configuration: `tr_x;overstory-config`.
 public let treeConfigurationParameter = "overstory-config"
 
+/// Split a trailing `;overstory-config` from a tree reference or locator path.
+/// Rename 002: `;arbor-config` is read as `;overstory-config`. Writers build
+/// the reference from `treeConfigurationParameter`, the new spelling.
+public func splittingTreeConfigurationParameter(_ value: String) -> (reference: String, configuration: Bool) {
+    for suffix in [";\(treeConfigurationParameter)", ";arbor-config"] where value.hasSuffix(suffix) {
+        return (String(value.dropLast(suffix.count)), true)
+    }
+    return (value, false)
+}
+
+/// A tree reference as the host routes read it: `tr_x` or `tr_x;overstory-config`.
+/// Nil when what remains is not a TreeID.
+public func parseTreeReference(_ value: String) -> (tree: String, configuration: Bool)? {
+    let (tree, configuration) = splittingTreeConfigurationParameter(value)
+    return validResourceTree(tree) ? (tree, configuration) : nil
+}
+
 /// The TreeID of a tree's configuration: `tr_` and the unpadded lowercase
 /// base32 of `SHA-256("arbor-tree-config-v1\0" || TreeID)`. Anyone can derive
 /// it, so there is no pointer to keep consistent.

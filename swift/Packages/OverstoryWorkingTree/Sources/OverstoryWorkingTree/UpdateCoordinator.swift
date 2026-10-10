@@ -826,7 +826,7 @@ public actor UpdateCoordinator {
         case let .offline(.authentication(reason), _, _, _):
             value = .init(state: reason == "device-revoked" ? .revoked : .authenticationFailure, detail: failure ?? reason)
         case let .held(reason, detail, _, _):
-            let lead = reason == .unsupported ? "This change needs a newer Canopy" : "Canopy refused this change; it is kept on this device"
+            let lead = reason == .unsupported ? "This change needs a newer Story" : "The host refused this change; it is kept on this device"
             value = .init(state: .conflict, detail: [lead, detail].compactMap { $0 }.joined(separator: ": "))
         case let .terminal(reason): value = .init(state: .offline, detail: "Synchronization stopped: " + reason)
         }

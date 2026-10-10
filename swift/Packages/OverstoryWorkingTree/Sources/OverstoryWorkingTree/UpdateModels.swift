@@ -27,15 +27,15 @@ public enum UpdateError: Error, Equatable, Sendable {
 extension UpdateError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .awaitingHostReconciliation: "Editing can continue. Creating, moving and importing items will resume after Canopy reconciles pending changes."
+        case .awaitingHostReconciliation: "Editing can continue. Creating, moving and importing items will resume after the host reconciles pending changes."
         case .replicaIsNotPlaced: "This replica has no accepted synchronization base."
-        case .returnedSnapshotMissing: "Canopy did not return the snapshot needed to finish synchronization."
-        case .returnedSnapshotMismatch: "Canopy returned content that does not match its advertised root."
-        case .returnedRequestDigestMismatch: "Canopy answered a different synchronization request."
+        case .returnedSnapshotMissing: "The host did not return the snapshot needed to finish synchronization."
+        case .returnedSnapshotMismatch: "The host returned content that does not match its advertised root."
+        case .returnedRequestDigestMismatch: "The host answered a different synchronization request."
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
         case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
-        case let .earlierPendingWork(file): "\(file) holds unpublished work from an earlier version of Canopy. Open this tree with that version to finish publishing it, then update."
+        case let .earlierPendingWork(file): "\(file) holds unpublished work from an earlier version of Story. Open this tree with that version to finish publishing it, then update."
         }
     }
 }

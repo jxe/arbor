@@ -332,7 +332,7 @@ public actor WorkingTree {
         )
     }
 
-    /// Dates from Canopy's entry metadata, keyed by entry path. They describe
+    /// Dates from the host's entry metadata, keyed by entry path. They describe
     /// `update`: when that is this tree's accepted, materialized state they
     /// are authoritative; otherwise they only date nodes that have no date.
     /// Content and hashes are untouched.
@@ -936,7 +936,7 @@ public actor WorkingTree {
             let candidate = next.nodes[index]
             let old = candidate.pageID.flatMap { previousByPageID[$0] }
                 ?? previousByPath[candidate.path]
-            // A date the change itself carries (Canopy's accepted time) stands.
+            // A date the change itself carries (the host's accepted time) stands.
             // Local mutations start with a copy of the old node, including its
             // date. Only incoming replacements carry an authoritative new date.
             let stamp = incoming ? (candidate.modifiedAt ?? changedAt) : changedAt

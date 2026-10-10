@@ -67,10 +67,10 @@ function value(source: string, key: string): string | undefined {
 export function parseHostDeploymentConfig(source: string): HostDeploymentConfig {
   const result = Object.fromEntries(CONFIG_KEYS.map((key) => [key, value(source, key)])) as Partial<HostDeploymentConfig>;
   const missing = CONFIG_KEYS.filter((key) => !result[key]);
-  if (missing.length) throw new Error(`Canopy deployment config is missing: ${missing.join(", ")}`);
+  if (missing.length) throw new Error(`overstoryd deployment config is missing: ${missing.join(", ")}`);
   for (const line of source.split(/\r?\n/)) {
     const key = /^\s*([A-Z0-9_]+)=/.exec(line)?.[1];
-    if (key && !CONFIG_KEYS.includes(key as ConfigKey)) throw new Error(`Unsupported Canopy deployment setting: ${key}`);
+    if (key && !CONFIG_KEYS.includes(key as ConfigKey)) throw new Error(`Unsupported overstoryd deployment setting: ${key}`);
   }
   if (!result.OVERSTORYD_RAILWAY_SERVICE!.startsWith(MANAGED_PREFIX) || result.OVERSTORYD_RAILWAY_SERVICE!.length > 32) {
     throw new Error(`Managed Railway service names must start with ${MANAGED_PREFIX} and be at most 32 characters`);
@@ -80,7 +80,7 @@ export function parseHostDeploymentConfig(source: string): HostDeploymentConfig 
   }
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(result.OVERSTORYD_COMMUNITY_HANDLE!)
     || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(result.OVERSTORYD_FIRST_WRITER_HANDLE!)) {
-    throw new Error("Canopy handles must be lowercase letters, digits, or hyphens");
+    throw new Error("Handles must be lowercase letters, digits, or hyphens");
   }
   if (!/^tr_[a-z2-7]{52}$/.test(result.OVERSTORYD_FIRST_WRITER_PROFILE!)) {
     throw new Error("OVERSTORYD_FIRST_WRITER_PROFILE must be a self-certifying person Profile TreeID");
@@ -117,7 +117,7 @@ async function configureRuntime(environment: RailwayEnvironment, instance: Railw
     serviceId: instance.serviceId,
     environmentId: environment.id,
     input: {
-      dockerfilePath: "/deploy/Dockerfile.overstoryd",
+      dockerfilePath: "packages/overstoryd/deploy/Dockerfile.overstoryd",
       startCommand: "bun run overstoryd",
       healthcheckPath: "/",
       healthcheckTimeout: 10,
@@ -306,7 +306,7 @@ async function show(configPath?: string): Promise<void> {
   const desired = configPath ? await config(configPath) : undefined;
   const instances = desired ? [service(environment, desired.OVERSTORYD_RAILWAY_SERVICE)].filter(Boolean) as RailwayServiceInstance[] : managed(environment);
   if (!instances.length) {
-    console.log(`No ${desired ? desired.OVERSTORYD_RAILWAY_SERVICE : "managed Canopy"} service in ${project.name}/production.`);
+    console.log(`No ${desired ? desired.OVERSTORYD_RAILWAY_SERVICE : "managed overstoryd"} service in ${project.name}/production.`);
     return;
   }
   for (const instance of instances) {

@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
@@ -71,5 +71,58 @@ describe("an installation's device key", () => {
       credential: "file:credential", tokenDigest: sha256("arb_before_device_keys"), connected: true,
     }));
     expect(await new HostAccountStore(configurationTree).get()).toBeNull();
+  });
+  // Rename 001 moves the data home; the key must be found where the record says it is.
+  test("the device key is still found after the data home moves (file store)", async () => {
+    const { profileTree, device: deviceID, seed } = testDevice("device-key-store-moved-file");
+    const configurationTree = treeConfigurationID(profileTree);
+    const before = join(sandbox, "moved-file-before"), after = join(sandbox, "moved-file-after");
+    const home = process.env.STORY_HOME;
+    try {
+      process.env.STORY_HOME = before;
+      await new HostAccountStore(configurationTree).setDeviceKey(seed, { origin: host.url, account: `${host.url}/~owner`, accountID: profileTree, profileTree, deviceID });
+      expect(await new HostAccountStore(configurationTree).hasDeviceKey()).toBe(true);
+      await rename(before, after);
+      process.env.STORY_HOME = after;
+      const moved = new HostAccountStore(configurationTree);
+      expect(await moved.hasDeviceKey()).toBe(true);
+      expect(await moved.deviceKeySeed()).toEqual({ deviceID, seed });
+      process.env.STORY_HOME = before;
+      expect(await new HostAccountStore(configurationTree).hasDeviceKey()).toBe(false);
+    } finally {
+      process.env.STORY_HOME = home;
+    }
+  });
+
+  test("the device key is looked up by the name its record stores, not one recomputed from the home path", async () => {
+    const { profileTree, device: deviceID, seed } = testDevice("device-key-store-moved-keychain");
+    const configurationTree = treeConfigurationID(profileTree);
+    const before = join(sandbox, "moved-keychain-before"), after = join(sandbox, "moved-keychain-after");
+    const home = process.env.STORY_HOME;
+    const items = new Map<string, string>();
+    const get = spyOn(Bun.secrets, "get").mockImplementation(async ({ service, name }) => items.get(`${service}/${name}`) ?? null);
+    const set = spyOn(Bun.secrets, "set").mockImplementation(async ({ service, name, value }) => { items.set(`${service}/${name}`, String(value)); });
+    try {
+      delete process.env.STORY_CREDENTIAL_STORE;
+      process.env.STORY_HOME = before;
+      const metadata = { origin: host.url, account: `${host.url}/~owner`, accountID: profileTree, profileTree, deviceID };
+      const record = await new HostAccountStore(configurationTree).setDeviceKey(seed, metadata);
+      expect(record.credential).toStartWith("org.arbor.community-account/account-");
+      expect([...items.keys()]).toEqual([record.credential]);
+
+      await rename(before, after);
+      process.env.STORY_HOME = after;
+      const moved = new HostAccountStore(configurationTree);
+      expect(await moved.hasDeviceKey()).toBe(true);
+      expect(await moved.deviceKeySeed()).toEqual({ deviceID, seed });
+      // Re-keying an existing account reuses its slot instead of leaving the old item behind.
+      expect((await moved.setDeviceKey(seed, metadata)).credential).toBe(record.credential);
+      expect([...items.keys()]).toEqual([record.credential]);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+      process.env.STORY_CREDENTIAL_STORE = "file";
+      process.env.STORY_HOME = home;
+    }
   });
 });

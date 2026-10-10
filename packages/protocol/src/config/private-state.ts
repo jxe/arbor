@@ -80,7 +80,7 @@ export async function prepareStoryDataRoot(): Promise<Diagnostic[]> {
 /**
  * The private-state version this build writes. It changes whenever the wire
  * format or the daemon's rebuildable state changes shape, and is the client
- * half of the schema stamp Canopy asserts at startup.
+ * half of the schema stamp the host asserts at startup.
  */
 export const STORY_SYNC_STATE_VERSION = "6";
 

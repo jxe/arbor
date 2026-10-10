@@ -141,7 +141,7 @@ export const toggleListReaction = mutation(
   suppliesData,
   z.object({ listId: z.string().uuid() }),
   async ({ user, tx }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
     if (!value || value.visibility !== "public") {
       throw publicError("not-found", "Only public lists can be liked")
@@ -162,7 +162,7 @@ export const setListSharing = mutation(
     allowArborUserEdits: booleanInput,
   }),
   async ({ user, tx, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
     if (!value || value.owner_profile !== user.profile) {
       throw publicError("permission-denied", "Only the owner can change sharing")
@@ -184,7 +184,7 @@ export const createPractice = mutation(
     addToList: z.string().uuid().optional(),
   }),
   async ({ user, tx, id, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const practiceId = id("practice")
     await tx.insert(practices, {
       id: practiceId,
@@ -211,7 +211,7 @@ export const setListKind = mutation(
   suppliesData,
   z.object({ listId: z.string().uuid(), kind: z.enum(["standard", "tagged"]) }),
   async ({ user, tx, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
     if (!value || value.owner_profile !== user.profile) {
       throw publicError("permission-denied", "Only the owner can change the list kind")
@@ -295,7 +295,7 @@ export const duplicateList = mutation(
   suppliesData,
   z.object({ listId: z.string().uuid() }),
   async ({ user, tx, id, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Story user")
+    if (!user) throw publicError("user-required", "This operation requires a Story user")
     const newListId = id("list")
     const original = await tx.one(lists, { id: input.listId })
     if (!original || (original.visibility === "private" && original.owner_profile !== user.profile)) {

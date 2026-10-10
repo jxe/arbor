@@ -5,6 +5,12 @@ import { decodeStableKey, encodeStableKey } from "./node-key.ts";
 export interface ResolvedLocatorState {
   /** `;overstory-config`: the locator names the configuration of the tree whose root it names. */
   configuration?: true;
+  /**
+   * `;overstory-invite=<code>`: the invitation code a join link carries on an
+   * account locator. A secret for the claim, never part of what the locator
+   * names: builders of canonical and identity forms leave it out.
+   */
+  invite?: string;
   stableKey: string | null;
   revision: string | null;
   applicationQuery: string | null;
@@ -25,11 +31,56 @@ export type ResolvedLink =
   | null;
 
 const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/i;
-const PARAMETER_MARKER = ";story-";
+const PARAMETER_MARKER = ";overstory-";
 const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const TREE_ID_AUTHORITY = /^tr_[a-z2-7]+$/;
 const MARKDOWN_KEY_PREFIX = "overstory-key=";
 const CONFIGURATION_PARAMETER = "overstory-config";
+const INVITE_PARAMETER = /^overstory-invite=([A-Za-z0-9._~-]+)$/;
+const SCHEME = "overstory://";
+
+// Rename 002: the spellings from before the Overstory rename, read wherever a
+// locator is parsed and never written. Remove with `normalizeLegacyLocator`.
+const LEGACY_SCHEME = "arbor://";
+const LEGACY_PARAMETER = /;arbor-(?=key=|rev=|config$)/g;
+const LEGACY_KEY_FRAGMENT = "#arbor-key=";
+
+/**
+ * Rename 002: respell a locator written before the Overstory rename. `arbor://`
+ * becomes `overstory://`; on the final path segment `;arbor-key=`, `;arbor-rev=`
+ * and a trailing `;arbor-config` become their `;overstory-` forms; a fragment
+ * beginning `arbor-key=` becomes `overstory-key=`. It accepts an absolute
+ * locator, a relative or tree-rooted href, or a bare `tr_x;arbor-config` tree
+ * reference, and returns anything else (a URL in another scheme included)
+ * unchanged. Queries and other fragments are never touched. Every parser in
+ * this package applies it first, so parsed results and whatever is built from
+ * them carry only the new spelling; partial parsers elsewhere do the same.
+ */
+export function normalizeLegacyLocator(text: string): string {
+  let scheme = "";
+  let rest = text;
+  if (text.startsWith(LEGACY_SCHEME)) {
+    scheme = SCHEME;
+    rest = text.slice(LEGACY_SCHEME.length);
+  } else if (text.startsWith(SCHEME)) {
+    scheme = SCHEME;
+    rest = text.slice(SCHEME.length);
+  } else if (SCHEME_PATTERN.test(text)) {
+    return text;
+  }
+  const fragmentStart = rest.indexOf("#");
+  const beforeFragment = fragmentStart === -1 ? rest : rest.slice(0, fragmentStart);
+  const fragment = fragmentStart === -1 ? "" : rest.slice(fragmentStart);
+  const queryStart = beforeFragment.indexOf("?");
+  const path = queryStart === -1 ? beforeFragment : beforeFragment.slice(0, queryStart);
+  const query = queryStart === -1 ? "" : beforeFragment.slice(queryStart);
+  const segmentStart = path.lastIndexOf("/") + 1;
+  const segment = path.slice(segmentStart).replace(LEGACY_PARAMETER, PARAMETER_MARKER);
+  const respelledFragment = fragment.startsWith(LEGACY_KEY_FRAGMENT)
+    ? `#${MARKDOWN_KEY_PREFIX}${fragment.slice(LEGACY_KEY_FRAGMENT.length)}`
+    : fragment;
+  return `${scheme}${path.slice(0, segmentStart)}${segment}${query}${respelledFragment}`;
+}
 
 function splitOnce(value: string, separator: string): [string, string | null] {
   const index = value.indexOf(separator);
@@ -41,12 +92,13 @@ function splitOnce(value: string, separator: string): [string, string | null] {
 /**
  * Split the final raw segment's `;overstory-key=…;overstory-rev=…` parameter block from the path.
  * Parameters appear in that order at most once each; anything else after the first
- * `;story-` marker is invalid rather than path data. `;overstory-config` takes no value
- * and stands alone.
+ * `;overstory-` marker is invalid rather than path data. `;overstory-config` takes no value
+ * and stands alone; so does `;overstory-invite=<code>`.
  */
 function segmentParameters(rawPathWithParameters: string): {
   rawPath: string;
   configuration?: true;
+  invite?: string;
   stableKey: string | null;
   revision: string | null;
 } | null {
@@ -56,6 +108,8 @@ function segmentParameters(rawPathWithParameters: string): {
   if (rawPathWithParameters.slice(marker + 1) === CONFIGURATION_PARAMETER) {
     return { rawPath: rawPathWithParameters.slice(0, marker), configuration: true, stableKey: null, revision: null };
   }
+  const invite = rawPathWithParameters.slice(marker + 1).match(INVITE_PARAMETER)?.[1];
+  if (invite) return { rawPath: rawPathWithParameters.slice(0, marker), invite, stableKey: null, revision: null };
   let stableKey: string | null = null;
   let revision: string | null = null;
   let stage = 0;
@@ -83,9 +137,10 @@ function locatorState(destination: string, fragment: string | null): {
   const [rawPathWithParameters, applicationQuery] = splitOnce(destination, "?");
   const parameters = segmentParameters(rawPathWithParameters);
   if (!parameters) return null;
-  const { rawPath, stableKey: pathStableKey, revision, configuration } = parameters;
+  const { rawPath, stableKey: pathStableKey, revision, configuration, invite } = parameters;
   // A configuration is addressed as a whole: no key, fragment or query goes with it.
-  if (configuration && (fragment !== null || applicationQuery !== null)) return null;
+  // Nor with an invitation, which names an account and nothing inside it.
+  if ((configuration || invite) && (fragment !== null || applicationQuery !== null)) return null;
 
   const markdownKeyToken = fragment?.startsWith(MARKDOWN_KEY_PREFIX)
     ? fragment.slice(MARKDOWN_KEY_PREFIX.length)
@@ -98,6 +153,7 @@ function locatorState(destination: string, fragment: string | null): {
     rawPath,
     state: {
       ...(configuration ? { configuration } : {}),
+      ...(invite ? { invite } : {}),
       stableKey: pathStableKey ?? markdownStableKey,
       revision,
       applicationQuery,
@@ -155,7 +211,7 @@ function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string): 
 }
 
 function parseOverstoryURL(href: string): ResolvedLink {
-  const withoutScheme = href.slice("overstory://".length);
+  const withoutScheme = href.slice(SCHEME.length);
   const [destination, fragment] = splitOnce(withoutScheme, "#");
   const parsed = locatorState(destination, fragment);
   if (!parsed) return null;
@@ -171,6 +227,8 @@ function parseOverstoryURL(href: string): ResolvedLink {
   if (path === null) return null;
   // `overstory://<TreeID>;overstory-config` names the tree's root; any other path is invalid.
   if (parsed.state.configuration && "treeID" in authority && path !== "/") return null;
+  // An invitation is claimed at a host, so only a locator with a DNS authority carries one.
+  if (parsed.state.invite && "treeID" in authority) return null;
   return { kind: "overstory", authority, path, ...parsed.state };
 }
 
@@ -181,7 +239,8 @@ function parseOverstoryURL(href: string): ResolvedLink {
  * it. `x.md`, `x/_index.md`, `x/` and `x` all name the node `x`.
  */
 export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): ResolvedLink {
-  const raw = href.trim();
+  // Rename 002: old spellings are read as the new ones.
+  const raw = normalizeLegacyLocator(href.trim());
   if (!raw) return null;
 
   if (raw.startsWith("#")) {
@@ -191,7 +250,7 @@ export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): R
   }
 
   const scheme = raw.match(SCHEME_PATTERN)?.[1]?.toLowerCase();
-  if (scheme === "story") return raw.startsWith("overstory://") ? parseOverstoryURL(raw) : null;
+  if (scheme === "overstory") return raw.startsWith(SCHEME) ? parseOverstoryURL(raw) : null;
   if (scheme === "system") return { kind: "system", raw };
   if (scheme === "local") return { kind: "overlay", raw };
   if (scheme) return { kind: "external", href: raw };
@@ -199,6 +258,8 @@ export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): R
   const [destination, fragment] = splitOnce(raw, "#");
   const parsed = locatorState(destination, fragment);
   if (!parsed) return null;
+  // An invitation goes only on an `overstory://` account locator.
+  if (parsed.state.invite) return null;
   const path = resolveTreePath(sourceDirectory, parsed.rawPath);
   if (path === null) return null;
   return { kind: "local", path, ...parsed.state };
@@ -301,6 +362,22 @@ export function buildOverstoryLocator(
   stableKey?: string | null,
 ): string {
   return `overstory://${tree}${buildNetworkLocator(canonicalNodePath(path), { stableKey })}`;
+}
+
+/**
+ * The join link for an account: its `overstory://` locator carrying the
+ * invitation code as `;overstory-invite=<code>` (accounts §1.2). `account` is
+ * the account's locator or URL at its host, without parameters, query or
+ * fragment. The code is a secret: the result is for handing to the invited
+ * person, never for comparing or pinning identities.
+ */
+export function buildInviteLocator(account: string, code: string): string {
+  const match = account.match(/^(?:overstory|https?):\/\/([^/?#;]+)(\/[^?#;]*)?$/);
+  if (!match || match[1]!.startsWith("tr_")) throw new TypeError(`Not an account locator: ${account}`);
+  const locator = `${SCHEME}${match[1]}${(match[2] ?? "").replace(/\/+$/, "") || "/"};overstory-invite=${code}`;
+  const resolved = resolveLogicalURL("/", locator);
+  if (resolved?.kind !== "overstory" || resolved.invite !== code) throw new TypeError("Invalid invitation code or account locator");
+  return locator;
 }
 
 /**

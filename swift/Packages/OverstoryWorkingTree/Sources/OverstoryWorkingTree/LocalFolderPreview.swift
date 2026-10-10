@@ -3,7 +3,7 @@ import Overstory
 import Foundation
 
 /// A read-only working tree built from a placed folder on disk, for showing a
-/// tree before its accepted Canopy state has been confirmed.
+/// tree before its accepted host state has been confirmed.
 ///
 /// The folder's client keeps it at the accepted state in the normal case, so
 /// the preview's Markdown matches what the confirmed tree will show. It follows
@@ -41,7 +41,8 @@ public enum LocalFolderPreview {
             let entries = try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)
                 .filter { url in
                     let name = url.lastPathComponent
-                    return !name.hasPrefix(".") && !name.contains(".overstory-txn-") && !name.contains(".overstory-write-")
+                    // Rename 002: the temporary names include the spellings from before the Overstory rename.
+                    return !name.hasPrefix(".") && !IgnorePolicy.isTransactionTemporaryName(name)
                 }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
             var directories: [URL] = []

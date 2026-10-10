@@ -26,8 +26,15 @@ export interface DirectoryPlacementResult {
   diagnostics: Diagnostic[];
 }
 
+// Rename 002: the marker as documents written before the Overstory rename
+// spell it. It is read as the marker and left as authored: nothing here
+// writes a marker, and the raw block round-trips byte for byte.
+const LEGACY_CHILDREN_MARKER = "<!-- arbor:children -->";
+
 function isChildrenMarker(block: OverstoryBlock): boolean {
-  return block.type === "rawMarkdown" && String(block.content ?? block.source ?? "").trim() === CHILDREN_MARKER;
+  if (block.type !== "rawMarkdown") return false;
+  const text = String(block.content ?? block.source ?? "").trim();
+  return text === CHILDREN_MARKER || text === LEGACY_CHILDREN_MARKER;
 }
 
 export function directoryPlacementDiagnostics(

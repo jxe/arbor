@@ -36,7 +36,7 @@
     "expected": "[X](x/_index.md)"
   },
   {
-    "name": "a same-tree story row becomes relative; a cross-tree row stays",
+    "name": "a same-tree overstory:// row becomes relative; a cross-tree row stays",
     "source": "[Life](overstory://tr_same/Life;overstory-key=id:m98whi)\n[Other](overstory://tr_other/x;overstory-key=id:q)",
     "resolveFrom": "/",
     "writeFrom": "/",

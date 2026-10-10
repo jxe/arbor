@@ -70,7 +70,7 @@ export class ProtocolUnsupportedOperation extends Error {
 
 export interface RemoteAccountDescriptor {
   id: string;
-  /** Optional Canopy-specific presentation hint; never account identity. */
+  /** Optional host-specific presentation hint; never account identity. */
   handle?: string;
   profileTree: string | null;
   profileURL: string | null;
@@ -293,7 +293,7 @@ export class ProtocolClient {
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new ProtocolTransportError(`Could not reach Story server at ${this.origin}`, error);
+      throw new ProtocolTransportError(`Could not reach the Overstory host at ${this.origin}`, error);
     }
   }
 
@@ -537,9 +537,11 @@ export class ProtocolClient {
   async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     const encoding = options.encoding ?? this.encoding;
     // A `tr_x;overstory-config` reference is answered under the configuration's TreeID.
-    const reference = /^tr_[a-z2-7]+;overstory-config$/.test(tree) ? parseTreeReference(tree) : null;
+    // Rename 002: a caller's `tr_x;arbor-config` is read too; the request names the new spelling.
+    const reference = /^tr_[a-z2-7]+;(?:overstory|arbor)-config$/.test(tree) ? parseTreeReference(tree) : null;
     const expected = updateRequestDigests(reference ? treeConfigurationID(reference.tree) : tree, request);
-    const response = await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/updates`, {
+    const target = reference ? `${reference.tree};${CONFIGURATION_PARAMETER}` : tree;
+    const response = await this.request(`/.overstory/trees/${encodeURIComponent(target)}/updates`, {
       method: "POST",
       headers: { ...this.headers(), "content-type": WIRE_CONTENT_TYPE[encoding], accept: WIRE_CONTENT_TYPE[encoding] },
       body: encodeWireBody(encodeUpdateRequestJSON(request, encoding), encoding) as Uint8Array<ArrayBuffer>,
@@ -625,18 +627,18 @@ export class ProtocolClient {
     for await (const frame of parseSSEStream(body)) {
       if (!frame.data) continue;
       if (frame.event === "tree.update") {
-        if (!frame.id) throw new Error("Malformed Story watch event: no cursor");
+        if (!frame.id) throw new Error("Malformed Overstory watch event: no cursor");
         let change: AcceptedWatchChange<NonNullable<RemoteTreeDescriptor["canonical"]>>;
         try { change = decodeAcceptedWatchChange(JSON.parse(frame.data), tree); }
-        catch (error) { throw new Error(`Malformed Story watch event: ${error instanceof Error ? error.message : String(error)}`); }
+        catch (error) { throw new Error(`Malformed Overstory watch event: ${error instanceof Error ? error.message : String(error)}`); }
         yield { kind: "tree.update", cursor: frame.id, tree, access: change.access, canonical: change.canonical, transition: change.transition };
       } else if (frame.event === "resync-required") {
         const reason = (JSON.parse(frame.data) as { reason?: unknown } | null)?.reason;
-        if (typeof reason !== "string") throw new Error("Malformed Story watch event: resync without a reason");
+        if (typeof reason !== "string") throw new Error("Malformed Overstory watch event: resync without a reason");
         yield { kind: "resync-required", tree, reason };
         return;
       } else {
-        throw new Error("Malformed Story watch event: unsupported kind");
+        throw new Error("Malformed Overstory watch event: unsupported kind");
       }
     }
   }

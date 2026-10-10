@@ -8,7 +8,7 @@ import QuagmireExtras
 import Testing
 
 /// Uses Quagmire's ledger, the real document session and publication coordinator,
-/// and a disposable Canopy supplied by the protocol harness. No admission mocks.
+/// and a disposable host supplied by the protocol harness. No admission mocks.
 @MainActor
 @Suite("Live editor admission", .serialized)
 struct LiveEditorAdmissionTests {
@@ -204,7 +204,7 @@ struct LiveEditorAdmissionTests {
         #expect(try await coordinator.presentation().state == .current)
         #expect(try await session.snapshot().source == continued)
 
-        // Resolve through Canopy's inspection contract, not a local conflict draft.
+        // Resolve through the host's inspection contract, not a local conflict draft.
         let current = try await client.descriptor(tree: treeID)
         let page = try await client.conflicts(tree: treeID, state: current.tree.update, root: current.tree.root)
         guard case let .array(decisions) = page.fields["decisions"], decisions.count == 1,
@@ -232,7 +232,7 @@ struct LiveEditorAdmissionTests {
 }
 
 extension LiveEditorAdmissionTests {
-    @Test("Explicit editor copy survives draft loss, client restart and Canopy publication",arguments:[false,true])
+    @Test("Explicit editor copy survives draft loss, client restart and host publication",arguments:[false,true])
     func sourceCopyPublication(recoverDraft: Bool) async throws {
         let env = ProcessInfo.processInfo.environment
         guard let address = env["STORY_SOURCE_TEST_URL"], let url = URL(string:address),
@@ -330,7 +330,7 @@ extension LiveEditorAdmissionTests {
         manager.undo()
         await binding.flush()
         #expect(binding.lastError == nil)
-        // The editor's local candidate is the plain undo; Canopy merges the peer's
+        // The editor's local candidate is the plain undo; the host merges the peer's
         // independent append, visible once the accepted projection installs.
         _ = try await coordinator.syncOnce()
         #expect(try await session.snapshot().source == original + suffix)
@@ -394,7 +394,7 @@ extension LiveEditorAdmissionTests {
         #expect(frames.first?.operations.allSatisfy { $0.kind == "editSource" && $0.fields["lineage"] == nil } == true)
         #expect(frames.last?.operations.first?.kind == "moveSource", Comment(rawValue: "\(frames.last?.operations.map(\.kind) ?? [])"))
         #expect(frames.first?.before == record.graph.root && frames.last?.after == record.candidate.root)
-        // Canopy validates the chain frame by frame and accepts it.
+        // The host validates the chain frame by frame and accepts it.
         let accepted = try await coordinator.syncOnce()
         #expect(accepted.state == .current, Comment(rawValue: String(describing: accepted)))
         #expect(try await session.snapshot().source == expected)

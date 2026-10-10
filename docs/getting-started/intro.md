@@ -314,7 +314,7 @@ at how much glue that could remove:
 
 There is also a planned adoption bridge. A future portable-deployment tool can
 publish the same tree as an ordinary website and as an Overstory tree, crosslinked
-with a tag or header such as `<link rel="story" …>` or `Overstory-Tree:`. An
+with a tag or header such as `<link rel="overstory" …>` or `Overstory-Tree:`. An
 Overstory-aware browser could discover the live, editable version while every
 legacy browser sees HTML. Static baking and additional live deployment
 adapters are specified direction, not current commands.

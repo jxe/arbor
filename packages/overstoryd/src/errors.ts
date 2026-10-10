@@ -58,7 +58,7 @@ export class HomeHostUnavailableError extends Error {
 export class AlreadyClaimedError extends Error {
   override readonly name = "AlreadyClaimedError";
   constructor(readonly handle: string | null) {
-    super(handle ? `Profile ~${handle} is already claimed` : "This profile is already claimed or hosted on this Canopy");
+    super(handle ? `Profile ~${handle} is already claimed` : "This profile is already claimed or hosted on this host");
   }
 }
 

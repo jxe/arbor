@@ -103,7 +103,7 @@ describe("story mv", () => {
     expect(canonicalMove).toContain(`Moved ${tree}`);
     expect(running.overstoryd.get(tree)!.canonicalPath).toBe("/~joe/tasks");
     expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toContain(`tasks: ${tree}`);
-    // Another Canopy is not a destination: a profile has one home host.
+    // Another host is not a destination: a profile has one home host.
     await expect(story(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("stays on the host that holds it");
     expect(running.overstoryd.get(tree)!.ref).toBe(beforeRoot);
     expect((await loadLocalPlacements()).placements).toContainEqual({

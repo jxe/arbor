@@ -74,7 +74,7 @@ syntax, and would become merges or merges with a note.
   permit all three and require only the first two constraints for an automatic
   outcome. How eagerly a tool merges is its own choice.
 - **Count what reaches review.** Accepted history records each decision's rule
-  and policy reason. Add a overstoryd report (counts only, no content) of
+  and policy reason. Add an overstoryd report (counts only, no content) of
   unresolved decisions by format, rule and reason, over a tree or the whole host.
   Run it on the live host with Joe's go-ahead, and rank the candidates by what
   users actually hit.
@@ -128,7 +128,7 @@ merge with a note) or **review**.
    `## Installing`; I add `[see setup](#setup)` elsewhere. **Note**, with the
    rewritten link as a one-click fix. Heading text is in Markdown's automatic
    subset, so this probably merges silently today; check that first. Related:
-   Canopy heals page links after a rename or move
+   Story heals page links after a rename or move
    (`StoryEditorWorkspace.healLinks`).
 6. **Richer lists.** Moves and insertions in ordered lists, nested items (moved
    with their children, or re-indented under a new parent, which Native now

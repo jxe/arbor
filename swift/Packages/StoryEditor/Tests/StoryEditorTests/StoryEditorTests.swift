@@ -454,7 +454,7 @@ struct StoryEditorTests {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = RecordingAdmissionSession(snapshot: .init(
             reference: reference,
-            source: "# Welcome\n\nNative Canopy is ready.\n",
+            source: "# Welcome\n\nNative Story is ready.\n",
             contentRevision: "r1"
         ))
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
@@ -517,7 +517,7 @@ struct StoryEditorTests {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = RecordingAdmissionSession(snapshot: .init(
             reference: reference,
-            source: "# Welcome\n\nNative Canopy is ready.\n",
+            source: "# Welcome\n\nNative Story is ready.\n",
             contentRevision: "r1"
         ))
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
@@ -2222,6 +2222,65 @@ struct MarkdownLinkWritingTests {
                 resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: $0.reference.rawValue)?.path
             }
             #expect(generated.sorted() == item.expectedGeneratedChildren.sorted(), comment)
+            #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
+        }
+    }
+
+    // Rename 002: `tests/fixtures/legacy-names/aliases.json` holds the old-spelling cases the
+    // TypeScript reader also runs. Delete with the aliases.
+    private struct LegacyMarkerFixture: Decodable {
+        struct Case: Decodable {
+            var name: String
+            var directory: DirectoryFixture.Case.Placement
+            var source: String
+            var children: [DirectoryFixture.Case.Child]
+            var expectedGeneratedChildren: [String]
+            var expectedGeneratedAfterMarker: Bool
+            var expectedDiagnosticCodes: [String]
+        }
+        var childrenMarker: [Case]
+    }
+
+    private static func legacyAliases() throws -> Data {
+        let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
+        return try Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))
+    }
+
+    @Test("The old children marker is read as the marker and kept as written")
+    func legacyChildrenMarkerVectors() throws {
+        let fixture = try JSONDecoder().decode(LegacyMarkerFixture.self, from: Self.legacyAliases())
+        #expect(!fixture.childrenMarker.isEmpty)
+        for item in fixture.childrenMarker {
+            let directory = Self.node(item.directory.path, body: item.directory.body)
+            let children = item.children.map { Self.node($0.path, body: $0.body, stableKey: $0.stableKey, title: $0.name) }
+            let opened = StoryMarkdownCodec.open(source: item.source, revision: "r1", identitySeed: item.name)
+            let projected = StoryMarkdownCodec.placeDirectoryChildren(
+                children,
+                in: opened.blocks,
+                directory: directory.reference,
+                sourceDirectory: directory.sourceDirectory
+            )
+            let comment = Comment(rawValue: item.name)
+            // Document order: each marker (shown as "Children") and each generated row.
+            func order(_ blocks: [Block]) -> [String] {
+                blocks.flatMap { block -> [String] in
+                    var own: [String] = []
+                    if case let .unsupported(_, display) = block.kind, display == "Children" { own = ["marker"] }
+                    if StoryMarkdownCodec.isProjectedChild(block), case let .documentLink(_, reference) = block.kind {
+                        own = [resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: reference.rawValue)?.path ?? reference.rawValue]
+                    }
+                    return own + order(block.children)
+                }
+            }
+            let sequence = order(projected)
+            let markers = sequence.filter { $0 == "marker" }.count
+            // Two markers are the duplicate the TypeScript reader diagnoses; nothing is generated.
+            #expect((markers > 1) == item.expectedDiagnosticCodes.contains("duplicate-children-marker"), comment)
+            #expect(sequence.filter { $0 != "marker" } == item.expectedGeneratedChildren, comment)
+            if item.expectedGeneratedAfterMarker {
+                #expect(Array(sequence.prefix(1 + item.expectedGeneratedChildren.count)) == ["marker"] + item.expectedGeneratedChildren, comment)
+            }
             #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
         }
     }

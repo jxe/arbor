@@ -28,6 +28,6 @@ struct DirectoryTests {
         #expect(merged.count == 1)
         #expect(merged[0].title == "José Story")
         #expect(merged[0].entry.sources == ["access", "community"])
-        #expect(merged[0].initials == "JA")
+        #expect(merged[0].initials == "JS")
     }
 }

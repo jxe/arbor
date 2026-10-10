@@ -418,7 +418,7 @@ describe("profile invariants derived from root frontmatter", () => {
 });
 
 describe("self-certifying profile account proof", () => {
-  test("joins a Canopy without copying or locating the profile tree", async () => {
+  test("joins a host without copying or locating the profile tree", async () => {
     const targetRoot = join(sandbox, "proof-target");
     const identity = testProfileIdentity();
     const target = await serveHost({

@@ -36,7 +36,7 @@ src/
 
 Create a local Xcode workspace named `swift/Story.local.xcworkspace`, add
 `swift/Story.xcodeproj` and the sibling Quagmire package to it, and build the
-`Canopy` scheme from that workspace. The workspace is ignored by Git. Xcode
+`Story` scheme from that workspace. The workspace is ignored by Git. Xcode
 treats the local package as an override for the remote dependency with the same
 identity, so Overstory uses the Quagmire working tree while its published project
 continues to point at the stable tag.
@@ -124,10 +124,24 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## Vocabulary
 
-Overstory is the system and its protocol. overstoryd is the reference host.
-Canopy is the browser family (`swift/`, `packages/story-web/`).
-Story names the local tools only: the `story` command, Story Sync, the
-`overstory://` scheme, the `.overstory` data home, and `STORY_*` variables.
+Overstory is the system and its protocol, and names everything the
+specification owns: `overstory://` locators, `overstory-*` headers and
+parameters, the `/.overstory/` routes, and the reserved `.overstory` path
+segment. overstoryd is the reference host, configured through `OVERSTORYD_*`
+variables. Story is what runs on a person's devices: the Story app for macOS
+and iOS (`swift/`), Story for the web (`packages/story-web/`), the `story`
+command, and the `story-sync` daemon, called Story Sync in prose. Story keeps
+its state in the data home `~/.story`, or the directory named by `STORY_HOME`,
+and reads `STORY_*` variables. The npm scope is `@ovst`.
+
+Capitalized "Story" always means the app or the product; a page or a tree is
+never called a story. A server is a host or an Overstory host.
+
+The checkout directory is still `arbor` and the GitHub repository is still
+`jxe/arbor`. The app's bundle identifier (`org.nxhx.Arbor`) and the keychain
+service names also keep their old spellings for now;
+[Rename 001](plans/rename/001-overstory-names.md#old-names-after-the-cutover)
+lists every old name that remains and why.
 
 ## Repository map
 
@@ -159,14 +173,14 @@ runs for the wire models, the portable vectors, the reference fixtures, the
 Swift packages it tests, and the Mac app's daemon client. A StoryEditor
 change runs that package's full suite; any other app change runs the
 `StoryAppTests` bundle through `swift/scripts/test-story-app.sh`. Quit a
-running debug Canopy first, or the bundle cannot launch. A
+running debug Story first, or the bundle cannot launch. A
 changed data file selects the tests that name it. Root configuration, the
 test preload, and any file no test names run the whole product suite.
 `--list` prints the plan without running it. The closure follows imports and
 literal `.ts` paths that tests spawn, not paths computed at runtime, so it is
 a focused development check, not a substitute for release verification.
 
-Also run `bun run test:protocol` when an Story Sync or overstoryd HTTP route or
+Also run `bun run test:protocol` when a Story Sync or overstoryd HTTP route or
 response shape changes: its live scenarios drive those servers from the Swift
 clients, which the import graph cannot see.
 
@@ -210,7 +224,7 @@ The Postgres test creates and drops a uniquely named `story_test_*` schema. It d
 
 ## Disposable browser smoke test
 
-Use fresh directories rather than the checked-in fixture or your real Overstory data home:
+Use fresh directories rather than the checked-in fixture or your real Story data home:
 
 ```sh
 test_root="$(mktemp -d)"

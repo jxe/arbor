@@ -1,4 +1,4 @@
-// One-archive backup of a Canopy data root: an application-consistent SQLite
+// One-archive backup of an overstoryd data root: an application-consistent SQLite
 // copy via VACUUM INTO plus a tar of objects/. Run inside the container or
 // against a local data root.
 //   bun run packages/overstoryd/migrations/tools/backup-overstoryd.ts <data-root> <archive.tar>

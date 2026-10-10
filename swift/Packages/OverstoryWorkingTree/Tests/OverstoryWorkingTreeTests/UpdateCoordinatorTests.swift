@@ -13,7 +13,7 @@ private actor ClosureTransport: UpdateTransport {
     private(set) var currentUpdate: String
     private(set) var currentObservedThrough: String
     let submitter: Submit
-    /// Serve an accepted candidate as the current tree afterwards, the way Canopy does.
+    /// Serve an accepted candidate as the current tree afterwards, the way the host does.
     let advancesCurrentOnAccept: Bool
     private(set) var requests: [PreparedProtocolUpdate] = []
     private(set) var descriptorRequests = 0
@@ -809,7 +809,7 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("A clean replica pulls current Canopy state when transport returns")
+    @Test("A clean replica pulls current host state when transport returns")
     func cleanReconnectPull() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_cleanreconnect"
@@ -1098,7 +1098,7 @@ struct UpdateCoordinatorTests {
             try await admitAppend(session, "Local\n")
             _ = try await coordinator.syncOnce()
             #expect(await coordinator.syncState.kind == "held")
-            #expect(try await coordinator.presentation().detail?.contains("newer Canopy") == true)
+            #expect(try await coordinator.presentation().detail?.contains("newer Story") == true)
             #expect(try UpdateControlFiles(root: root).load().held?.reason == .unsupported)
         }
     }
@@ -1248,7 +1248,7 @@ struct UpdateCoordinatorPhase3Tests {
             await stopped.close()
             await first.close()
 
-            // Relaunch: the tree is re-seeded from Canopy's current state.
+            // Relaunch: the tree is re-seeded from the host's current state.
             let second = try await placeInMemory(tree: tree, transport: transport)
             #expect(try await second.heads().materializedRoot == initial.root)
             let resumed = try UpdateCoordinator(workingTree: second, transport: transport, stateRoot: root)
@@ -1347,7 +1347,7 @@ struct UpdateCoordinatorPhase3Tests {
             update: "up_initial",
             mode: .sparseFiles
         ))
-        // The remote side replaced the photo; Canopy expresses it as a delta against the retained base.
+        // The remote side replaced the photo; the host expresses it as a delta against the retained base.
         let photo2 = try ProtocolObjectCodec.object(.file(Data(repeating: 0x02, count: 2_048)))
         let delta = try ProtocolObjectDelta(base: photo.hash, result: photo2.hash, instructions: [.insert(photo2.bytes)]).validated()
         let merged = MergedRootBox()
@@ -1749,7 +1749,7 @@ private actor SourceModeTransport: UpdateTransport {
         var results: [ProtocolUpdateElementResult] = []
         for (index, element) in request.updates.enumerated() {
             #expect(element.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
-            // Like Canopy's immutable store, retain earlier authored candidates
+            // Like the host's immutable store, retain earlier authored candidates
             // even when their accepted projection selected the peer's bytes.
             candidate = try snapshots[element.candidate] ?? completeCandidate(element, retained: candidate)
             snapshots[candidate.root] = candidate

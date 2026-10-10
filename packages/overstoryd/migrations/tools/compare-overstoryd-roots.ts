@@ -1,4 +1,4 @@
-// Compare a Canopy data root before and after the offline migration: every
+// Compare an overstoryd data root before and after the offline migration: every
 // tree's current root must decode to the same materialized files, except that
 // an account-configuration tree's trees.yaml loses its kind lines, and
 // migration 022 removes every account-configuration tree (the configurations

@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -159,13 +159,13 @@ export class StorySyncDaemon implements AsyncDisposable {
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
-  /** Verified object bytes for a tree from the index, its pending changes, or Canopy. */
+  /** Verified object bytes for a tree from the index, its pending changes, or the host. */
   objectBytes(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
     return this.objectCache.bytes(tree, hash, origin);
   }
 
   /**
-   * Bootstrap the daemon's recorded accepted Canopy root. The folder's own
+   * Bootstrap the daemon's recorded accepted host root. The folder's own
    * changes and held work belong only to the folder's client and never gate
    * or seed another client.
    */
@@ -213,7 +213,7 @@ export class StorySyncDaemon implements AsyncDisposable {
   }
 
   /**
-   * The multiplexer: every Canopy pass-through picks the claimed account
+   * The multiplexer: every host pass-through picks the claimed account
    * whose address contains the target and forwards with that credential.
    */
   private async accountClient(placement: SharedTreePlacement): Promise<ProtocolClient> {
@@ -264,24 +264,27 @@ export class StorySyncDaemon implements AsyncDisposable {
     return { snapshot: descriptors, observedThrough: this.events.currentCursor() };
   }
 
-  async resolveLocator(locator: string): Promise<LocatorResolution> {
-    if (!/^(?:https?|story):\/\//.test(locator)) {
+  async resolveLocator(input: string): Promise<LocatorResolution> {
+    // Rename 002: `arbor://` and `;arbor-config` are the old spellings, read as the new ones.
+    const locator = input.startsWith("arbor://") ? normalizeLegacyLocator(input) : input;
+    if (!/^(?:https?|overstory):\/\//.test(locator)) {
       const absolute = resolveUserPath(locator);
       const scope = await this.files.resolveScope(absolute);
       if (!scope) throw new ProtocolError("not-found", `Path is not inside a placed tree: ${absolute}`, 404, { path: absolute });
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
       return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
     }
-    if (/;overstory-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
+    if (/;(?:overstory|arbor)-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
     const parsed = new URL(locator);
-    if (parsed.protocol === "story:" && parsed.hostname === "tree") {
+    const overstoryScheme = parsed.protocol === "overstory:";
+    if (overstoryScheme && parsed.hostname === "tree") {
       const [tree, ...segments] = parsed.pathname.split("/").filter(Boolean);
       if (!tree) throw new ProtocolError("invalid-request", "Raw tree locator requires a TreeID", 400);
       const descriptor = (await this.trees.descriptors()).find((candidate) => candidate.id === tree);
       if (!descriptor) throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
       return { ref: { tree, path: canonicalNodePath(`/${segments.map(decodeURIComponent).join("/")}`), stableKey: null }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
     }
-    const origin = parsed.protocol === "story:"
+    const origin = overstoryScheme
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
       : parsed.origin;
     const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;

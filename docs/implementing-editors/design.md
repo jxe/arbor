@@ -1,6 +1,6 @@
 # Overstory client reference design
 
-Story for the web and Canopy are the reference human clients, not normative UIs. Portable content, locator, and protocol requirements live in the [Overstory specification](../overstory-spec/README.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
+Story for the web and the Story app are the reference human clients, not normative UIs. Portable content, locator, and protocol requirements live in the [Overstory specification](../overstory-spec/README.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
 
 This document records the intended Story for the web/native product design so those choices do not leak into protocol contracts. It is not an implementation-status page: [status.md](../../status.md) records what currently works, including differences between the web and native clients.
 
@@ -14,7 +14,7 @@ Overstory clients use one locator-driven browser for ordinary local files, place
 - durable remote visits, with stale/offline state;
 - merged search, backlinks, Trash, recovery, and diagnostics with visible provenance.
 
-The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Overstory content, not embedded public HTML. Pages opened through an story-sync historical-root locator show a persistent read-only revision state. This does not imply a host accepted-history browser: overstoryd exposes neither its accepted-update log nor non-current objects.
+The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Overstory content, not embedded public HTML. Pages opened through a story-sync historical-root locator show a persistent read-only revision state. This does not imply a host accepted-history browser: overstoryd exposes neither its accepted-update log nor non-current objects.
 
 Navigation retains back/forward history, breadcrumbs, mounted-boundary provenance, and familiar sidebar/drawer behavior. Native editor links push the current tab’s history, including links into another tree. Back, Forward, and native back gestures reopen the destination tree before resolving the exact page; switching providers for these actions preserves the tab and its trail. macOS renders the current browser-history entry directly in its split view; it does not mirror that history into a second `NavigationStack`. iOS retains its native navigation stack and back gestures. Web may use a responsive overlay drawer.
 
@@ -35,7 +35,7 @@ Web currently uses BlockNote as the interactive layer. This is a reference choic
 
 The leading emoji grapheme of the first H1 is Overstory's document icon. Setting or clearing it edits that H1; setting an icon on a document without an H1 prepends a heading using the display name. `Assets` is Overstory's conventional destination for imported binary assets. These are client conventions rather than portable authored-format requirements.
 
-Canopy makes every Markdown heading except the leading page-title H1 a
+The Story app makes every Markdown heading except the leading page-title H1 a
 collapsible section. Sections start expanded when a page opens, and folding is
 session-local view state: it does not edit Markdown, create authored undo, or
 persist across reopening the page. A disclosure control beside each eligible
@@ -105,9 +105,9 @@ Community and group profiles remain authored trees rather than a separate accoun
 
 On the community profile, **Add a person** can instead generate a random
 one-time code and write a pending `handle` plus `inviteDigest` entry. The sheet
-shows a `overstoryd://join?account=…&code=…` link containing the account URL and
-code once, for the
-administrator to share after the invitation syncs. Opening that link on a Mac enters Canopy onboarding:
+shows the join link once, the account's locator carrying the code
+(`overstory://<host>/~<handle>;overstory-invite=<code>`), for the
+administrator to share after the invitation syncs. Opening that link on a Mac enters Story onboarding:
 it uses an available local identity or prompts the recipient to create one,
 then claims the account. The code does not enter the authored profile in plain
 text. After claim, the host replaces the pending entry with the Profile TreeID.
@@ -120,25 +120,25 @@ native cache is derived state in `Directory.json`, with avatar bytes under
 `Avatars/`; either may be deleted and rebuilt. Share autocomplete uses this
 cache but still accepts a raw handle, profile URL, or Profile TreeID.
 
-People lists **On this Canopy**, headed by the Canopy's own membership
+People lists **On this host**, headed by the host's own membership
 profile (the group at its root, shown as "Everyone on <host>") and followed by
 its members; **Groups** with their visible member counts; and **Others**. Membership is edited where it is
-authored: a group's **Edit Members…** (including the Canopy's own member
+authored: a group's **Edit Members…** (including the host's own member
 list) and a person's **Add to Group ▸** open that profile's home page with its
 Members sheet presented (and the person ready to add), so every membership
-change is an ordinary page edit. Both appear only for groups the Canopy's tree
+change is an ordinary page edit. Both appear only for groups the host's tree
 list marks writable for this account. **New Group…** always closes the Groups
 list.
 
 **New Group…** creates a group profile tree under an account this Mac
-administers, at one of Canopy's conventional addresses: **In my groups
+administers, at one of the host's conventional addresses: **In my groups
 folder** (`/~handle/groups/<slug>`) or,
-for the Canopy's administrators, **On the Canopy** (`/~<slug>`, when no person
-holds that name). The Canopy decides which addresses it accepts
+for the host's administrators, **On the host** (`/~<slug>`, when no person
+holds that name). The host decides which addresses it accepts
 ([overstoryd's policy](../architecture/overstoryd/README.md#accounts-and-canonical-paths)).
 The tree is placed at `groups/<slug>` in the Story data home,
 with a name, optional description, and first members. Its one access rule is
-read for the community `/` profile, so everyone on the Canopy can see the
+read for the community `/` profile, so everyone on the host can see the
 group and its roster while it stays private to the web. Share offers the same
 sheet as **New Group “…”** when the picker matches no one, and as **Make these
 people a group…** once two or more people are listed individually; the new
@@ -165,7 +165,7 @@ Overstory clients must not place raw secrets in loopback URLs, browser history, 
 
 A placed tree exposes understandable idle, syncing, offline, conflict, and error states without exposing overstoryd internals. Each working-tree client durably owns its own accepted base, ordered candidate roots, and the objects its requests carry; on the Mac the folder's daemon owns the same for the folder, and Sync Status shows the app's own row beside the daemon's per-folder state. A retry preserves the same semantic prefix even if its object/delta packaging changes; clients do not invent or display a server mutation/idempotency key. Current, accepted, and merged results become visible only after story-sync has rehashed, validated, and durably materialized the returned graph.
 
-An unsafe merge remains client state. Canopy reconstructs and hash-validates the failed element's base, current, mine, and server-draft graphs, caches them with the durable conflict, and shows their actual per-path content rather than root hashes. Each reported path offers Current, Mine, Both when the server draft has a distinct combined value, and Edit for textual content; the ordinary document-conflict surface uses the same comparison and choice controls. Resolution assembles a new candidate from the server draft plus the explicit path choices, rechecks the current accepted identity, and only then records it as new pending intent. A conflict with an unattempted suffix remains retained until ordered suffix replay is implemented; Overstory does not collapse that suffix into the failed element. There is no server conflict record, accepted-history page, historical-object fetch, or authored conflict-copy file.
+An unsafe merge remains client state. Story reconstructs and hash-validates the failed element's base, current, mine, and server-draft graphs, caches them with the durable conflict, and shows their actual per-path content rather than root hashes. Each reported path offers Current, Mine, Both when the server draft has a distinct combined value, and Edit for textual content; the ordinary document-conflict surface uses the same comparison and choice controls. Resolution assembles a new candidate from the server draft plus the explicit path choices, rechecks the current accepted identity, and only then records it as new pending intent. A conflict with an unattempted suffix remains retained until ordered suffix replay is implemented; Overstory does not collapse that suffix into the failed element. There is no server conflict record, accepted-history page, historical-object fetch, or authored conflict-copy file.
 
 A clean replica reacts to a ref watch event by reading one coherent current
 snapshot. It submits an update only when it has a local candidate to reconcile.
@@ -195,13 +195,13 @@ File menus provide ordinary rename, move, copy, Trash, restore, and asset import
 
 ## Agents
 
-Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../overstory-spec/07-executable-documents.md#13-agents); Overstory's panels, streaming presentation, and approval controls are reference design.
+Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../overstory-spec/07-executable-documents.md#13-agents); Story's panels, streaming presentation, and approval controls are reference design.
 
 ## First launch and identity
 
-On macOS, Canopy starts its bundled StorySync and inspects the local identity,
+On macOS, Story starts its bundled Story Sync and inspects the local identity,
 accounts, and pending claim. New users create an identity or recover its backup.
-The app and CLI use StorySync's same identity store; the Mac app reads no
+The app and CLI use Story Sync's same identity store; the Mac app reads no
 identity of its own. Credential errors never cause replacement identity creation. Identity setup uses
 an OS-released cross-process lock. The verified credential-store recovery record
 is saved before the profile folder is bound or public metadata is published, so
@@ -227,6 +227,6 @@ device, or paste that same pairing payload when scanning is unavailable. Identit
 creation and recovery are not offered. Existing paired accounts and replicas retain
 their independent device authorization and offline restoration.
 
-The Mac app already bundles Bun, StorySync, and its native watcher. Shell tools
+The Mac app already bundles Bun, Story Sync, and its native watcher. Shell tools
 are build dependencies, not user installation prerequisites. Background service
 registration remains subject to macOS Login Items approval.

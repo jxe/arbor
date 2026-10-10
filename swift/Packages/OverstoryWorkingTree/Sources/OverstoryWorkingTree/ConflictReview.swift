@@ -249,7 +249,7 @@ public enum ConflictReviewError: LocalizedError {
         switch self {
         case .unavailable: "Conflict review is unavailable for this tree."
         case .changed: "This choice has changed. Your draft is retained. Refresh and review the alternatives before applying."
-        case .unsupported: "This choice can be inspected, but this version of Canopy cannot safely resolve its scope yet."
+        case .unsupported: "This choice can be inspected, but this version of Story cannot safely resolve its scope yet."
         case .publicationPending: "Local changes are still publishing. Your draft is retained; apply after publication finishes."
         }
     }

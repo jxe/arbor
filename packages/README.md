@@ -15,9 +15,9 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
-| Story local tools | [`story-sync`](story-sync/README.md) | The Story Sync daemon and the `story-sync` command |
+| Story Sync and CLI | [`story-sync`](story-sync/README.md) | The Story Sync daemon and the `story-sync` command |
 | | [`cli`](cli/README.md) | The `story` command, including its REST and SSE client for the daemon (`src/daemon-client.ts`) |
-| Canopy browsers | [`story-web`](story-web/README.md) | The browser editor (currently out of the build) |
+| Story apps | [`story-web`](story-web/README.md) | The browser editor (currently out of the build) |
 
 Layering rules, checked by reading each `package.json`:
 

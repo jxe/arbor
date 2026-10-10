@@ -335,7 +335,7 @@ struct StoryAppTests {
             retrySave: {}, syncNow: {},
             reconnectStorySync: {}, showStorySyncLogs: {}
         )
-        #expect(status.overallStatusTitle == "Canopy is up to date")
+        #expect(status.overallStatusTitle == "Story is up to date")
     }
 
     @Test("Profile toolbar never reports fully synced over pending or failed local retention")
@@ -705,7 +705,7 @@ struct StoryAppTests {
         #expect(try await store.loadAll().isEmpty)
     }
 
-    @Test("Remote locators resolve to a Canopy origin and a canonical path")
+    @Test("Remote locators resolve to a host origin and a canonical path")
     func remoteLocatorParsing() throws {
         let story = try #require(OverstoryRemoteLocator("overstory://community.example/~joe/notes"))
         #expect(story.origin.absoluteString == "https://community.example")
@@ -725,6 +725,64 @@ struct StoryAppTests {
         #expect(!literal.configuration && literal.path == "/~joe/todos;overstory-config")
         #expect(OverstoryRemoteLocator("file:///Users/joe") == nil)
         #expect(OverstoryRemoteLocator("~joe") == nil)
+    }
+
+    // Rename 002: remove with the `arbor://` alias.
+    @Test("Remote locators read arbor:// and ;arbor-config as their Overstory spellings")
+    func remoteLocatorLegacySpellings() throws {
+        let legacy = try #require(OverstoryRemoteLocator("arbor://community.example/~joe/notes"))
+        #expect(legacy == OverstoryRemoteLocator("overstory://community.example/~joe/notes"))
+        let configuration = try #require(OverstoryRemoteLocator("arbor://community.example/~joe/todos;arbor-config"))
+        #expect(configuration.configuration && configuration.path == "/~joe/todos")
+        #expect(configuration == OverstoryRemoteLocator("overstory://community.example/~joe/todos;overstory-config"))
+        // The app's own name is not a locator scheme.
+        #expect(OverstoryRemoteLocator("story://community.example/~joe") == nil)
+    }
+
+    // Rename 002: remove with the `arbor://` alias.
+    @Test("A member authored as arbor:// is the same member as its overstory:// spelling")
+    func legacyMemberLocators() throws {
+        let source = "---\ntype: group\nmembers:\n  - profile: \"arbor://tr_alice/\"\n    handle: \"alice\"\n  - arbor://tr_bob\n---\n\n# Garden\n"
+        let profile = try #require(StoryProfileDocument.parse(source))
+        #expect(profile.members.map(\.treeID) == ["tr_alice", "tr_bob"])
+        #expect(profile.hasMember("overstory://tr_alice/"))
+        #expect(profile.hasMember("overstory://tr_bob/"))
+        #expect(!profile.hasMember("overstory://tr_carol/"))
+        #expect(profile.memberHandle(for: "overstory://tr_alice/") == "alice")
+        #expect(throws: (any Error).self) {
+            try StoryProfileDocument.addingMember(profileTree: "tr_alice", handle: nil, to: source)
+        }
+        // Writers emit only the new spelling and leave authored entries as written.
+        let added = try StoryProfileDocument.addingMember(profileTree: "tr_carol", handle: nil, to: source)
+        #expect(added.contains("  - profile: \"overstory://tr_carol/\"\n"))
+        #expect(added.contains("  - profile: \"arbor://tr_alice/\"\n"))
+        let removed = try StoryProfileDocument.removingMember(profile: "overstory://tr_alice/", from: source)
+        #expect(!removed.contains("tr_alice") && removed.contains("arbor://tr_bob"))
+        // A profile at a host is one member under its overstory:// and https:// spellings.
+        #expect(StoryProfileDocument.memberKey("arbor://Garden.example/~carol/") == "https://garden.example/~carol")
+        #expect(StoryProfileDocument.memberKey("overstory://garden.example/~carol") == "https://garden.example/~carol")
+    }
+
+    @Test("An overstory:// URL carrying an invitation starts a claim; any other names a locator to open")
+    func incomingLocators() throws {
+        let link = try #require(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example/", handle: " ~alice ", code: "aB3_-x"))
+        #expect(link == "overstory://arb.example/~alice;overstory-invite=aB3_-x")
+        #expect(StoryIncomingLocator(try #require(URL(string: link))) == .join(account: "https://arb.example/~alice", code: "aB3_-x"))
+        // A loopback host is claimed over plain HTTP at its port.
+        let loopback = try #require(StoryIncomingLocator.joinLink(hostOrigin: "http://127.0.0.1:4400", handle: "joe", code: "c0de"))
+        #expect(loopback == "overstory://127.0.0.1:4400/~joe;overstory-invite=c0de")
+        #expect(StoryIncomingLocator(try #require(URL(string: loopback))) == .join(account: "http://127.0.0.1:4400/~joe", code: "c0de"))
+        #expect(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example", handle: "alice", code: "not a code") == nil)
+        #expect(StoryIncomingLocator.joinLink(hostOrigin: "https://arb.example", handle: "~", code: "c0de") == nil)
+
+        // Without the parameter the locator is opened as Open Location opens it.
+        let page = try #require(URL(string: "overstory://arb.example/~alice/notes?view=1#top"))
+        #expect(StoryIncomingLocator(page) == .open(locator: "overstory://arb.example/~alice/notes"))
+        #expect(OverstoryRemoteLocator("overstory://arb.example/~alice/notes")?.path == "/~alice/notes")
+        // Only the registered scheme, and only a locator at a host.
+        #expect(StoryIncomingLocator(try #require(URL(string: "https://arb.example/~alice;overstory-invite=c0de"))) == nil)
+        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/notes"))) == nil)
+        #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/;overstory-invite=c0de"))) == nil)
     }
 
     @Test("A visit sparsifies a complete snapshot to directories and Markdown")
@@ -1496,12 +1554,12 @@ struct StoryAppTests {
         await model.search("")
         let sidebarIdentities = model.searchResults.map(\.id)
 
-        let matches = await model.fullTextSearch("Native Canopy is ready")
+        let matches = await model.fullTextSearch("Native Story is ready")
 
         #expect(matches.contains { $0.reference.path == "/welcome" })
         #expect(model.searchResults.map(\.id) == sidebarIdentities)
 
-        await model.search("Native Canopy is ready")
+        await model.search("Native Story is ready")
         #expect(!model.searchResults.contains { $0.reference.path == "/welcome" })
     }
 
@@ -1731,12 +1789,12 @@ struct StoryAppTests {
     }
 
 #if os(macOS)
-    /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local Canopy,
+    /// Hosted smoke: `swift/scripts/hosted-smoke.ts` starts a local host,
     /// claims an account into the test data home, places a disposable folder,
     /// and runs this suite with `STORY_TEST_TREE` naming that tree. The signed
     /// app supervises its bundled control-mode helper on the test port, opens
     /// the tree through `/v1/bootstrap`, edits its own working tree, and the
-    /// edit reaches the folder through Canopy and the daemon.
+    /// edit reaches the folder through the host and the daemon.
     @Test("The signed app opens a placed tree through its bundled control daemon and edits it")
     func hostedPlacedTreeSmoke() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -1745,7 +1803,7 @@ struct StoryAppTests {
         let workspace = StoryWorkspaceState()
         try await workspace.openPlacedTree(tree)
         #expect(workspace.openPlacedTreeID == tree)
-        // A Canopy working tree keeps history on Canopy, not device-locally.
+        // A host-backed working tree keeps history on the host, not device-locally.
         #expect(workspace.capabilities == .init(structuralActions: true, assets: true, localHistory: false))
         let created = try #require(try await workspace.provider.perform(.createMarkdown(
             parent: workspace.home,
@@ -1765,7 +1823,7 @@ struct StoryAppTests {
                 try await Task.sleep(for: .milliseconds(200))
             }
         }
-        #expect(landed, "the app's edit did not reach \(file.path) through Canopy and the daemon")
+        #expect(landed, "the app's edit did not reach \(file.path) through the host and the daemon")
         await workspace.shutdown()
     }
 #endif

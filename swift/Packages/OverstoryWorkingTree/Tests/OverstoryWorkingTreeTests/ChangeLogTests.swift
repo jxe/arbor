@@ -72,7 +72,7 @@ struct ChangeLogTests {
         return try JSONDecoder().decode(ProtocolCandidateUpdate.self, from: JSONEncoder().encode(element)).trace
     }
 
-    @Test("Shared trace vectors: one frame per generation, and compaction agrees with the TypeScript queue and Canopy")
+    @Test("Shared trace vectors: one frame per generation, and compaction agrees with the TypeScript queue and the host")
     func sharedTraces() async throws {
         let f = try fixture()
         #expect(!f.traces.isEmpty)

@@ -338,7 +338,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// from changed nothing and yields no frame. Frames with lineage, copies or
     /// operation material are kept as they are, so a claim always stays in the
     /// frame whose basis it was captured against (docs/overstory-spec/09). The same rule runs
-    /// in `@story/host-client` and in Canopy's `composeFrames`.
+    /// in `@ovst/working-tree` and in the host's `composeFrames`.
     public static func compactTrace(_ frames: [ProtocolTraceFrame]) -> [ProtocolTraceFrame] {
         var result: [ProtocolTraceFrame] = []
         var index = 0
@@ -807,7 +807,7 @@ public actor ChangeLog {
         var current = change, updates: [ProtocolCandidateUpdate] = []
         while let record = byChange[current] {
             var update = record.update
-            // Durable receipts prove these objects already reached Canopy.
+            // Durable receipts prove these objects already reached the host.
             // Keep the authored chain and its digests; only omit transport aids.
             if accepted.contains(record.change) {
                 update.objects = []

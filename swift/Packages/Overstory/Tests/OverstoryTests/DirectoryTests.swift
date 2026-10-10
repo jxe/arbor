@@ -7,7 +7,7 @@ struct ProfileDirectoryProtocolTests {
     @Test("Shared directory fixture decodes description as summary")
     func fixture() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appending(path: "../../../../../tests/fixtures/host/directory.json").standardizedFileURL
+            .appending(path: "../../../../../tests/fixtures/overstoryd/directory.json").standardizedFileURL
         let value = try JSONDecoder().decode(
             ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]>.self,
             from: Data(contentsOf: url)

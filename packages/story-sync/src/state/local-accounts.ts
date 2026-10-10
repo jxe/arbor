@@ -4,7 +4,7 @@ import { loadProfileConfigurations, HostAccountStore } from "@ovst/protocol";
 export type { LocalAccountSummary } from "@ovst/protocol";
 
 /**
- * The claimed Canopy accounts of the current data home, projected from
+ * The claimed host accounts of the current data home, projected from
  * durable configuration only. Story Sync serves this through
  * `GET /v1/accounts`; a same-machine caller such as the CLI may read it
  * directly because it touches nothing the daemon owns in memory or watches.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Conflict lab: a disposable local Canopy and tree for exercising the Mac
+ * Conflict lab: a disposable local host and tree for exercising the Mac
  * app's accepted-choice review against real overstoryd merges.
  *
  *   bun swift/scripts/conflict-lab.ts up            start overstoryd, claim, place and seed
@@ -296,12 +296,12 @@ async function app(build: boolean) {
   const state = await loadState();
   const derived = join(lab, "DerivedData");
   const workspace = existsSync(join(repository, "swift/Story.local.xcworkspace")) ? ["-workspace", "Story.local.xcworkspace"] : ["-project", "Story.xcodeproj"];
-  const binary = join(derived, "Build/Products/Debug/Story.app/Contents/MacOS/Canopy");
+  const binary = join(derived, "Build/Products/Debug/Story.app/Contents/MacOS/Story");
   if (build || !existsSync(binary)) {
-    await run(["xcodebuild", ...workspace, "-scheme", "Canopy", "-configuration", "Debug", "-destination", "platform=macOS",
+    await run(["xcodebuild", ...workspace, "-scheme", "Story", "-configuration", "Debug", "-destination", "platform=macOS",
       "-derivedDataPath", derived, "build", "-quiet",
       // Its own identity, so nothing that addresses the app by bundle
-      // (automation, Launch Services) can reach the user's installed Canopy.
+      // (automation, Launch Services) can reach the user's installed Story.
       "PRODUCT_BUNDLE_IDENTIFIER=org.nxhx.Arbor.lab"], {}, join(repository, "swift"));
   }
   if (alive(state.appPid)) process.kill(state.appPid!);

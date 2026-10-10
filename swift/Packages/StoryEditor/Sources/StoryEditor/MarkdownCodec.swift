@@ -40,6 +40,13 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 
 public enum StoryMarkdownCodec {
     private static let childrenMarker = "<!-- overstory:children -->"
+    // Rename 002: the marker as documents from before the Overstory rename spell
+    // it. Both are read as the children marker; an authored marker is kept as
+    // written, and nothing writes the old spelling.
+    private static let legacyChildrenMarker = "<!-- arbor:children -->"
+    private static func isChildrenMarkerText(_ text: String) -> Bool {
+        text == childrenMarker || text == legacyChildrenMarker
+    }
     static let projectedChildMetadataKey = "story.projected-child"
 
     private struct ParsedBlock {
@@ -851,7 +858,7 @@ public enum StoryMarkdownCodec {
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {
             return .unsupported(
                 payload: lines.map(\.raw).joined(),
-                display: trimmed == childrenMarker ? "Children" : "Raw Markdown",
+                display: isChildrenMarkerText(trimmed) ? "Children" : "Raw Markdown",
                 id: id
             )
         }
@@ -1113,7 +1120,7 @@ public enum StoryMarkdownCodec {
 
     private static func isChildrenMarker(_ block: Block) -> Bool {
         guard case let .unsupported(payload, _) = block.kind else { return false }
-        return payload.trimmingCharacters(in: .whitespacesAndNewlines) == childrenMarker
+        return isChildrenMarkerText(payload.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {

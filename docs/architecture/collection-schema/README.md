@@ -77,7 +77,7 @@ vector is otherwise-valid CDDL; it does parse the control-operator, `/=`, `//`,
 
 | Consumer | Uses |
 |---|---|
-| overstoryd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
+| overstoryd acceptance (`Overstoryd.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
 | overstoryd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile` |
 | `tree-merge` (`collection-file-rows-v1`) | decode and encode |
 | Story Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, collection descriptors |

@@ -286,10 +286,10 @@ struct WorkingTreeProviderTests {
             })
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
 
-            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+            await #expect(throws: WorkspaceProviderError.invalidAction("Host history is not available yet")) {
                 _ = try await session.history()
             }
-            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+            await #expect(throws: WorkspaceProviderError.invalidAction("Host history is not available yet")) {
                 _ = try await session.recover(revision: "local-0")
             }
 

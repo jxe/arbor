@@ -1,6 +1,6 @@
 # @ovst/story-web
 
-Canopy for the browser: the web editor built with React, BlockNote, and Vite.
+Story for the web: the browser editor built with React, BlockNote, and Vite.
 It is out of the build and typecheck until [Web 025](../../plans/story-web/025-story-web.md)
 rebuilds it as a working-tree client over the same update and admission
 machines as the Mac app; `bun run build:web` fails today for that reason.

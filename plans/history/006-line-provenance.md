@@ -5,7 +5,7 @@
 Historical identifier: **Smaller project 006**. Rewritten 2026-09-24 for the current
 host: migration 016 squashed each tree's accepted history to its head, overstoryd 016
 made each accepted update an immutable log entry, and every editor is a direct
-Canopy client. The earlier version (walk accepted roots backward, Story Sync proxy
+host client. The earlier version (walk accepted roots backward, Story Sync proxy
 route, full actor backfill) is in git history.
 
 ## Status

@@ -166,7 +166,7 @@ public struct ProtocolAccountDescriptor: Codable, Sendable, Equatable {
     }
 
     public var id: String
-    /// Optional Canopy-specific presentation hint; never account identity.
+    /// Optional host-specific presentation hint; never account identity.
     public var handle: String?
     public var profileTree: String?
     public var profileURL: String?
@@ -1046,7 +1046,7 @@ public struct ProtocolPlacementRoot: Codable, Sendable, Equatable {
 /// no `configuration`: the profile's configuration lives only at `homeHost`.
 public struct ProtocolPlacementAccountDescriptor: Codable, Sendable, Equatable {
     public var id: String
-    /// Optional Canopy-specific presentation hint; never account identity.
+    /// Optional host-specific presentation hint; never account identity.
     public var handle: String?
     public var profileTree: String?
     public var profileURL: String?

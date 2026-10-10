@@ -160,7 +160,7 @@ describe("REST v1 protocol fixtures", () => {
           headers: { "content-type": "text/event-stream; charset=utf-8" },
         })) as unknown as typeof fetch;
         const client = new ProtocolClient("https://community.example");
-        await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Story watch event");
+        await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Overstory watch event");
       }
     } finally {
       globalThis.fetch = originalFetch;
@@ -298,7 +298,7 @@ describe("REST v1 protocol fixtures", () => {
 
 describe("canonical descriptor helpers", () => {
   // The exact strings the retired `canonical.locator` / `canonical.httpURL`
-  // fields carried when Canopy's `descriptor()` produced them.
+  // fields carried when overstoryd's `descriptor()` produced them.
   function overstorydDescriptorStrings(origin: string, canonicalPath: string, id: string) {
     const encodedPath = canonicalPath === "/"
       ? ""
@@ -311,7 +311,7 @@ describe("canonical descriptor helpers", () => {
     };
   }
 
-  test("derive exactly the strings the Canopy descriptor producer emitted", () => {
+  test("derive exactly the strings the overstoryd descriptor producer emitted", () => {
     const cases = [
       ["https://community.example", "/", "tr_root"],
       ["https://community.example", "/~joe", "tr_a"],

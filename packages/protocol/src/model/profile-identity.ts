@@ -47,7 +47,7 @@ export function validateAccountChallenge(value: unknown): AccountChallenge {
   return challenge as AccountChallenge;
 }
 
-/** Exact bytes signed by a person profile key when claiming a Canopy account. */
+/** Exact bytes signed by a person profile key when claiming a host account. */
 export function accountChallengeBytes(challenge: AccountChallenge): Uint8Array {
   return encodeCanonicalCBOR(validateAccountChallenge(challenge));
 }

@@ -29,11 +29,11 @@
 The behavior-preserving updated Supplies tree runs over its private SQLite data tree:
 
 1. in local `story open`;
-2. in signed macOS Overstory through the same story-sync runtime; and
+2. in the signed Mac Story app through the same story-sync runtime; and
 3. at its ordinary canonical HTTP locations after a host explicitly
    activates the shared tree.
 
-The overstoryd supplies Overstory users, so Supplies has no login system or application
+The host supplies Overstory users, so Supplies has no login system or application
 `User` table. Queries stream authorized result states after related database or
 profile changes. The browser never receives raw SQLite, credentials, server
 handle implementations, or unrelated private rows.
@@ -139,7 +139,7 @@ two clients converge live and every source/runtime error stays diagnosable.
 
 1. Decode executable-document fixtures in the Mac app's daemon client (`swift/StoryApp/StorySync`) and add the matching
    `WorkspaceSurface` case without erasing source-only or unavailable states.
-2. In signed macOS Overstory, present the local story-sync execution URL in a
+2. In the signed Mac Story app, present the local story-sync execution URL in a
    constrained `WKWebView` while the native tab retains location, TreeID,
    provenance, navigation, and source controls.
 3. Route same-tree navigation through the native tab model, use normal external
@@ -152,7 +152,7 @@ two clients converge live and every source/runtime error stays diagnosable.
 6. After overstoryd HTTP works, iOS may present that hosted surface under the same
    constraints. A fully offline iOS React/SQLite runtime is separate work.
 
-Gate: signed macOS Overstory runs local Supplies and observes browser mutations
+Gate: the signed Mac Story app runs local Supplies and observes browser mutations
 without losing native tab identity or exact source access.
 
 ## Remaining milestone 4 — fixtures, real data, and cutover
@@ -181,7 +181,7 @@ matching content/access/order, recoverable backups, and a tested rollback.
 
 ## Completion gate
 
-The behavior-preserving updated source passes local web, signed macOS Overstory, and
+The behavior-preserving updated source passes local web, the signed Mac Story app, and
 canonical overstoryd presentation. Related database and profile changes reach two
 clients without refresh; unrelated precise changes avoid reruns; reconnects
 cannot leave stale results; retries cannot duplicate mutations; private rows
@@ -191,7 +191,7 @@ cutover has passed side-by-side staging and rollback.
 
 ## Then: deploy to a third-party host
 
-Once the site runs on local Overstory and overstoryd, deploy the same compiled
+Once the site runs locally and on overstoryd, deploy the same compiled
 application to a platform such as Vercel. Design it against that host's real
 requirements, not in advance.
 
@@ -203,7 +203,7 @@ requirements, not in advance.
 - Either form keeps each document's assets, initial results, live handlers,
   capabilities and schema requirements together rather than flattening the
   application into unrelated pages.
-- Deployed pages advertise their Overstory source through `<link rel="story">`
+- Deployed pages advertise their Overstory source through `<link rel="overstory">`
   and `Overstory-Tree`.
 
 ## Deliberate cuts

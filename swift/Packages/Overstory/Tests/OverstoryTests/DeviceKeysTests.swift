@@ -72,7 +72,7 @@ struct DeviceKeysTests {
             challenge.origin = origin
             #expect(throws: Never.self, "\(origin)") { try challenge.validated() }
         }
-        for origin in ["https://host.example:443", "http://localhost:80", "HTTPS://host.example", "https://Canopy.example", "https://host.example/"] {
+        for origin in ["https://host.example:443", "http://localhost:80", "HTTPS://host.example", "https://Host.example", "https://host.example/"] {
             challenge.origin = origin
             #expect(throws: (any Error).self, "\(origin)") { try challenge.validated() }
         }

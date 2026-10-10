@@ -26,7 +26,7 @@ import {
 export interface ProfileConfigurationSnapshot {
   configurationTree: TreeID;
   path: string;
-  /** The Canopy origin of the account's connection. */
+  /** The host origin of the account's connection. */
   host?: string;
   /** The person profile whose configuration this is. */
   profile?: TreeID;

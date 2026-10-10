@@ -176,7 +176,7 @@ const fixtures = JSON.parse(
   await readFile(join(import.meta.dir, "../../fixtures/overstoryd/merge.json"), "utf8"),
 ) as MergeFixtures;
 
-describe("reference Canopy merge fixtures", () => {
+describe("reference host merge fixtures", () => {
   test("disjoint stable-row changes merge semantically", async () => {
     const [base, candidate, remote] = await Promise.all([
       jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "B" }]),

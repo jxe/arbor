@@ -35,7 +35,7 @@ struct StorySyncPlacementUnavailable: Error, LocalizedError, Equatable, Sendable
     }
 }
 
-/// One claimed Canopy account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@story/core`).
+/// One claimed host account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@ovst/protocol`).
 struct LocalHostAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
     var configurationTree: String
     var host: String?
@@ -200,7 +200,7 @@ actor StorySyncRESTClient {
 
     // MARK: Loopback services for a same-installation working-tree client
 
-    /// `GET /v1/bootstrap?tree=`: the daemon's accepted Canopy base and sparse spine.
+    /// `GET /v1/bootstrap?tree=`: the daemon's accepted host base and sparse spine.
     /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
     /// daemon-local pending and conflict state never enters another client's bootstrap.
     func bootstrap(tree: String) async throws -> TreeBootstrap {
@@ -226,7 +226,7 @@ actor StorySyncRESTClient {
         )
     }
 
-    /// `GET /v1/credential`: the Canopy account credential the daemon holds for
+    /// `GET /v1/credential`: the host account credential the daemon holds for
     /// `configurationTree` (or the only connected account when omitted). With
     /// `origin`, the session is for that host: the account's home host, or one
     /// of its placement hosts (accounts §1.3), which the same device key opens.

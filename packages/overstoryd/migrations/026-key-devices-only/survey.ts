@@ -50,7 +50,7 @@ export interface CheckResult {
 }
 
 export interface SurveyOptions {
-  /** The home directory whose `.overstory` and `Library/Application Support/Story` are surveyed. */
+  /** The home directory whose `.story` and `Library/Application Support/Story` are surveyed. */
   home: string;
   /** A copy of the iPhone app's data container (`xcrun devicectl … copy from`). */
   iphone?: string;
@@ -64,7 +64,7 @@ export interface SurveyOptions {
 
 const TREE_ID = /^tr_[a-z2-7]+$/;
 const IDENTITY_SERVICE = "org.arbor.person-profile";
-/** The Mac app's own identity record, which Canopy for Mac no longer reads. */
+/** The Mac app's own identity record, which Story for Mac no longer reads. */
 const NATIVE_IDENTITY_SERVICE = "org.nxhx.Arbor.profile";
 /** Where the Mac app keeps a pending account claim (`pending-account:<digest>`). */
 const NATIVE_DEVICE_SERVICE = "org.nxhx.Arbor.device";
@@ -271,7 +271,7 @@ async function keychainIdentity(dataHome: string, options: SurveyOptions): Promi
   const items = keychainItems(dump.stdout);
   const others = items.filter((item) => item.service === IDENTITY_SERVICE && item.account !== indexed).map((item) => item.account);
   const native = items.some((item) => item.service === NATIVE_IDENTITY_SERVICE);
-  const note = native ? `; Canopy's own ${NATIVE_IDENTITY_SERVICE} record is also present and no longer read` : "";
+  const note = native ? `; Story's own ${NATIVE_IDENTITY_SERVICE} record is also present and no longer read` : "";
   return result(!others.length, name, attribution, `${credential} for ${String(metadata.profileTree)}${note}`,
     `other ${IDENTITY_SERVICE} records: ${list(others)}${note}`);
 }
@@ -399,7 +399,7 @@ async function liveChecks(path: string | undefined): Promise<CheckResult[]> {
 // MARK: The survey
 
 export async function survey(options: SurveyOptions): Promise<CheckResult[]> {
-  const dataHome = join(options.home, ".overstory");
+  const dataHome = join(options.home, ".story");
   const results: CheckResult[] = [];
   if (!await isDirectory(dataHome)) {
     results.push({ status: "FAIL", name: "data home", details: `${dataHome} does not exist; pass --home` });

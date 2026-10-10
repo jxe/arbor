@@ -1,6 +1,6 @@
-# Canopy local state
+# Story local state
 
-What the Canopy app keeps on disk on macOS and iOS: working trees, their change
+What the Story app keeps on disk on macOS and iOS: working trees, their change
 logs and update control, and diagnostic streams. The daemon's
 data home is in [the Story data home](../story-sync/data-home.md).
 

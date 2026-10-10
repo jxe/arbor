@@ -1142,7 +1142,7 @@ struct StorySyncStatusView: View {
     let storySyncProcessKind: StorySyncProcessKind?
     let retrySave: () -> Void
     let syncNow: () -> Void
-    /// Discard the change Canopy refused, and every change made on top of it.
+    /// Discard the change the host refused, and every change made on top of it.
     var discardHeldChanges: () -> Void = {}
     let reconnectStorySync: () -> Void
     let showStorySyncLogs: () -> Void
@@ -1188,7 +1188,7 @@ struct StorySyncStatusView: View {
                     Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
                 } else if sync.state == .conflict {
                     Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
-                        .confirmationDialog("Discard the changes Canopy refused?", isPresented: $confirmingDiscard) {
+                        .confirmationDialog("Discard the changes the host refused?", isPresented: $confirmingDiscard) {
                             Button("Discard Changes", role: .destructive, action: discardHeldChanges)
                         } message: {
                             Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
@@ -1201,8 +1201,8 @@ struct StorySyncStatusView: View {
                     .help("Timings for updates, watch frames, and reads")
 #if os(macOS)
                 Menu {
-                    Button("Reconnect to story-sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
-                    Button("View story-sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
+                    Button("Reconnect to Story Sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
+                    Button("View Story Sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -1224,7 +1224,7 @@ struct StorySyncStatusView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(provider)
                 if diagnostic?.synchronizationOverride != nil {
-                    Text("Last reported: \(sync.state.label). Canopy cannot verify that state while the provider connection is unavailable.")
+                    Text("Last reported: \(sync.state.label). Story cannot verify that state while the provider connection is unavailable.")
                 } else if let detail = sync.detail {
                     Text(detail)
                 }
@@ -1274,7 +1274,7 @@ struct StorySyncStatusView: View {
         if diagnostic != nil { return "A document needs attention" }
         if sync.state != .current { return diagnostic?.synchronizationOverride ?? sync.state.label }
         if binding?.isSaving == true { return "Retaining edit locally" }
-        return "Canopy is up to date"
+        return "Story is up to date"
     }
 
     private func overallStatusDetail(_ diagnostic: StorySaveDiagnostic?) -> String {
@@ -1292,7 +1292,7 @@ struct StorySyncStatusView: View {
         case .downloading: "Remote changes are being downloaded."
         case .current: "This client's working tree is current."
         case .autoMerged: "Recent changes were merged automatically."
-        case .conflict: "Canopy refused a change. It is kept on this device and nothing after it is sent until it is discarded."
+        case .conflict: "The host refused a change. It is kept on this device and nothing after it is sent until it is discarded."
         case .authenticationFailure: "Reconnect the account to resume synchronization."
         case .revoked: "This device no longer has access."
         }
@@ -1391,7 +1391,7 @@ struct StorySourceInspector: View {
 struct StoryHistoryView: View {
     static let title = "History"
     static let unavailableTitle = "No history yet"
-    static let unavailableExplanation = "Canopy does not serve page history yet. Edits wait in this device's change log until Canopy accepts them."
+    static let unavailableExplanation = "The host does not serve page history yet. Edits wait in this device's change log until the host accepts them."
 
     let entries: [WorkspaceHistoryEntry]
     let recover: (String) -> Void
