@@ -82,6 +82,23 @@ unchanged.
   kinds compared byte for byte, the hash recomputed from the served script).
   Neither scripted page has been opened in a browser under its policy; an
   attempt through the in-app browser could not reach the local host.
+- **A claim finds its invitation by parsing, not by line layout.**
+  `prepareInvitationClaim` located the pending `handle` + `inviteDigest`
+  member by regular expressions over two exact line layouts, so a reformatted
+  member list broke outstanding invitations. `claimInvitationEntry`
+  (`packages/overstoryd/src/invitation-claim.ts`) parses the frontmatter with
+  `yaml`'s `parseDocument`, takes the one `members` item whose map has exactly
+  those two keys with those values, and replaces only that node's source
+  range (first key to last value, or a flow map's braces) with the claimed
+  `profile` + `handle`; every other byte, comments and line endings included,
+  is unchanged, and the result is read back before it is accepted. No match,
+  or more than one, is refused as before. `structuredMembers` reads the same
+  layouts, since it reads the same parsed frontmatter. Tested in
+  `tests/unit/overstoryd/invitation-claim.test.ts` (block style in either key
+  order, a dash on its own line, flow maps, quoted and plain values, CRLF,
+  comments, a duplicate) and end to end in
+  `tests/integration/overstoryd/community-hosting.test.ts` (a flow-style
+  entry, a CRLF document, a duplicate refused).
 
 ## Chained candidate deltas — 2026-10-06
 
