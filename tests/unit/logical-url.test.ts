@@ -53,17 +53,22 @@ describe("logical URL resolution", () => {
 
   test("builds an invitation link that parses back, and keeps the code out of identity forms", () => {
     const code = "Qk3x_9-aZ0bY7cW6dV5eU4";
-    const link = "overstory://community.example/~alice;overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4";
+    const link = "https://community.example/~alice#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4";
     for (const account of ["https://community.example/~alice", "overstory://community.example/~alice", "https://community.example/~alice/"]) {
       expect(buildInviteLocator(account, code), account).toBe(link);
     }
-    expect(buildInviteLocator("http://127.0.0.1:4000/~alice", code)).toBe(`overstory://127.0.0.1:4000/~alice;overstory-invite=${code}`);
+    // A loopback host is reached over plain HTTP, under either spelling of its account.
+    expect(buildInviteLocator("http://127.0.0.1:4000/~alice", code)).toBe(`http://127.0.0.1:4000/~alice#overstory-invite=${code}`);
+    expect(buildInviteLocator("overstory://localhost:4000/~alice", code)).toBe(`http://localhost:4000/~alice#overstory-invite=${code}`);
+    // The same string under `overstory://` is the same link.
+    expect(resolveLogicalURL("/", link.replace("https://", "overstory://"))).toEqual(resolveLogicalURL("/", link));
     const resolved = resolveLogicalURL("/", link);
     if (resolved?.kind !== "overstory" || !("dns" in resolved.authority)) throw new Error("expected an account locator");
     expect(resolved).toMatchObject({ path: "/~alice", invite: code, stableKey: null, revision: null });
     // What names the account carries no code.
     expect(buildOverstoryLocator(resolved.authority.dns, resolved.path)).toBe("overstory://community.example/~alice");
     expect(parseProfileLocator(link)).toEqual(parseProfileLocator("overstory://community.example/~alice"));
+    expect(parseProfileLocator(link.replace("https://", "overstory://"))).toEqual(parseProfileLocator(link));
     expect(resolveNodeTarget("/", link)).toBeNull();
     for (const [account, bad] of [
       ["overstory://tr_7k3m/", code],
@@ -73,6 +78,8 @@ describe("logical URL resolution", () => {
       ["https://community.example/~alice?x=1", code],
       ["https://community.example/~alice;overstory-config", code],
       ["/~alice", code],
+      ["http://community.example/~alice", code],
+      ["https://user@community.example/~alice", code],
     ] as const) {
       expect(() => buildInviteLocator(account, bad), `${account} ${bad}`).toThrow();
     }

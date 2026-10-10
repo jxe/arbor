@@ -54,6 +54,18 @@ unchanged.
   recomputed from the served page; a forged header with zero hops; the proxy's
   entry with one hop) and `tests/unit/overstoryd/response-policy.test.ts`. The
   pages were not loaded in a browser under the policy.
+- **Invitation links carry the code as a fragment.** The link is
+  `https://host/~handle#overstory-invite=<code>`, and the same string under
+  `overstory://`; `buildInviteLocator` and the Swift `joinLink` emit the web
+  spelling (`http://` for a loopback host). Both parsers resolve either
+  spelling to the account locator with `invite`, and
+  `StoryIncomingLocator.pastedJoinLink` reads a pasted link in either. The
+  `;overstory-invite=` segment parameter is removed with no alias, so links
+  issued before this must be reissued. Spec: locators §1, §2.2 and §3,
+  accounts §1.2; vectors `url-resolution.json` and `resource-policy.json`,
+  which TypeScript (`tests/unit/logical-url.test.ts`,
+  `tests/unit/resource-policy.test.ts`) and Swift (`LogicalURLTests`,
+  `ResourcePolicyTests`) both pass.
 
 ## Chained candidate deltas — 2026-10-06
 
@@ -332,7 +344,7 @@ measurements before broadening the implementation.
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `story me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/overstoryd/deploy/README.md) |
-| Pending community invitations: Add Person can reserve a handle with a code digest and share a join link (the account's locator with `;overstory-invite=<code>`); the recipient uses an existing or newly created identity, and the signed claim replaces the pending entry with its Profile TreeID | implemented locally, not installed or deployed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key), [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
+| Pending community invitations: Add Person can reserve a handle with a code digest and share a join link (the account's web address with the fragment `#overstory-invite=<code>`, read under `https://` and `overstory://` alike; the earlier segment parameter is gone); the recipient uses an existing or newly created identity, and the signed claim replaces the pending entry with its Profile TreeID | implemented locally, not installed or deployed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key), [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/story-sync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Story Sync, explicit finish, bundle revocation, `story status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live host) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |

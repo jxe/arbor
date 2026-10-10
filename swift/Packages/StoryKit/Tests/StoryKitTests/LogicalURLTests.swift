@@ -387,7 +387,7 @@ final class LogicalURLTests: XCTestCase {
         XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc"), "overstory://tr_abc/")
         XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc/"), "overstory://tr_abc/")
         XCTAssertEqual(canonicalOverstoryLocator("arbor://Garden.example/~carol/"), "overstory://garden.example/~carol")
-        XCTAssertEqual(canonicalOverstoryLocator("overstory://garden.example/~carol;overstory-invite=abc123"), "overstory://garden.example/~carol")
+        XCTAssertEqual(canonicalOverstoryLocator("overstory://garden.example/~carol#overstory-invite=abc123"), "overstory://garden.example/~carol")
         XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc/notes;arbor-key=id:x7f3q2"), "overstory://tr_abc/notes;overstory-key=id:x7f3q2")
         XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc;arbor-config"), "overstory://tr_abc/;overstory-config")
         XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc/;overstory-config"), "overstory://tr_abc/;overstory-config")
@@ -397,13 +397,20 @@ final class LogicalURLTests: XCTestCase {
 
     func testJoinLinksCarryTheInvitationOnAnAccountLocator() throws {
         let link = try XCTUnwrap(buildInviteLocator(account: "https://arb.nxhx.org/~alice", code: "Ab3-_.~9"))
-        XCTAssertEqual(link, "overstory://arb.nxhx.org/~alice;overstory-invite=Ab3-_.~9")
-        XCTAssertEqual(buildInviteLocator(account: "overstory://arb.nxhx.org/~alice/", code: "c0de"), "overstory://arb.nxhx.org/~alice;overstory-invite=c0de")
-        XCTAssertEqual(buildInviteLocator(account: "http://localhost:4317", code: "c0de"), "overstory://localhost:4317/;overstory-invite=c0de")
+        XCTAssertEqual(link, "https://arb.nxhx.org/~alice#overstory-invite=Ab3-_.~9")
+        XCTAssertEqual(buildInviteLocator(account: "overstory://arb.nxhx.org/~alice/", code: "c0de"), "https://arb.nxhx.org/~alice#overstory-invite=c0de")
+        // A loopback host is reached over plain HTTP, under either spelling of its account.
+        XCTAssertEqual(buildInviteLocator(account: "http://localhost:4317", code: "c0de"), "http://localhost:4317/#overstory-invite=c0de")
+        XCTAssertEqual(buildInviteLocator(account: "overstory://127.0.0.1:4317/~joe", code: "c0de"), "http://127.0.0.1:4317/~joe#overstory-invite=c0de")
 
         guard case let .overstory(.dns(host), path, locator)? = resolveLogicalURL(sourceDirectory: "/", href: link) else {
             return XCTFail("join link did not resolve")
         }
+        // The same string under `overstory://` is the same link.
+        XCTAssertEqual(
+            resolveLogicalURL(sourceDirectory: "/", href: link.replacingOccurrences(of: "https://", with: "overstory://")),
+            resolveLogicalURL(sourceDirectory: "/", href: link)
+        )
         XCTAssertEqual(host, "arb.nxhx.org")
         XCTAssertEqual(path, "/~alice")
         XCTAssertEqual(locator.invite, "Ab3-_.~9")
@@ -417,17 +424,27 @@ final class LogicalURLTests: XCTestCase {
 
         // The code is one unreserved token and stands alone, on a host locator only.
         for invalid in [
-            "overstory://arb.nxhx.org/~alice;overstory-invite=",
-            "overstory://arb.nxhx.org/~alice;overstory-invite=a b",
-            "overstory://arb.nxhx.org/~alice;overstory-invite=a%20b",
-            "overstory://arb.nxhx.org/~alice;overstory-invite=abc;overstory-key=id:x",
-            "overstory://arb.nxhx.org/~alice;overstory-key=id:x;overstory-invite=abc",
-            "overstory://arb.nxhx.org/~alice;overstory-invite=abc?x=1",
-            "overstory://arb.nxhx.org/~alice;overstory-invite=abc#top",
-            "overstory://tr_abc/;overstory-invite=abc",
-            "~alice;overstory-invite=abc",
+            "overstory://arb.nxhx.org/~alice#overstory-invite=",
+            "overstory://arb.nxhx.org/~alice#overstory-invite=a b",
+            "overstory://arb.nxhx.org/~alice#overstory-invite=a%20b",
+            "overstory://arb.nxhx.org/~alice;overstory-key=id:x#overstory-invite=abc",
+            "overstory://arb.nxhx.org/~alice;overstory-config#overstory-invite=abc",
+            "overstory://arb.nxhx.org/~alice?x=1#overstory-invite=abc",
+            "overstory://tr_abc/#overstory-invite=abc",
+            "~alice#overstory-invite=abc",
+            // The segment parameter is gone, with no alias.
+            "overstory://arb.nxhx.org/~alice;overstory-invite=abc",
         ] {
             XCTAssertNil(resolveLogicalURL(sourceDirectory: "/", href: invalid), invalid)
+        }
+        // A web URL is an invitation only when it is a whole, valid one; otherwise it is a web link.
+        for web in [
+            "https://arb.nxhx.org/~alice#overstory-invite=",
+            "https://arb.nxhx.org/~alice?x=1#overstory-invite=abc",
+            "http://arb.nxhx.org/~alice#overstory-invite=abc",
+            "https://arb.nxhx.org/~alice#top",
+        ] {
+            XCTAssertEqual(resolveLogicalURL(sourceDirectory: "/", href: web), .external(href: web), web)
         }
         // Rename 002 reads old spellings of parameters that existed; the invitation never had one.
         guard case let .overstory(_, oldPath, oldState)? = resolveLogicalURL(sourceDirectory: "/", href: "arbor://arb.nxhx.org/~alice;arbor-invite=abc") else {
@@ -439,5 +456,6 @@ final class LogicalURLTests: XCTestCase {
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice?x=1", code: "abc"))
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice", code: "a/b"))
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice", code: ""))
+        XCTAssertNil(buildInviteLocator(account: "http://arb.nxhx.org/~alice", code: "abc"))
     }
 }

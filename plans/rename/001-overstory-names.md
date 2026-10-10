@@ -57,7 +57,7 @@ In prose and UI copy, capitalized "Story" always means the app or the product; a
 | Resolved-link discriminant `kind: "arbor"` | `kind: "overstory"` |
 | App relation source `"arbor-profile"` | `"overstory-profile"` |
 | Account field `canopy` (daemon control API, profile configuration snapshot) | `host` |
-| (new) | `;overstory-invite=<code>` on an account locator. See [Join links](#join-links). |
+| (new) | `#overstory-invite=<code>` on an account locator. See [Join links](#join-links). |
 
 The daemon serves only `/v1/*` and has no `/.overstory/` routes.
 
@@ -143,13 +143,14 @@ Everything else: routes, `/.well-known/arbor`, headers, env vars, `~/.arbor`, th
 
 ## Join links
 
-The Add Person sheet used to show `canopy://join?account=<account URL>&code=<code>`. An `overstory://join?…` link would not parse, because 03-locators treats the authority as either a `tr_` TreeID or a DNS name. The join link is the account's own locator with the code as a locator parameter, as `;overstory-key=` already carries a secret:
+The Add Person sheet used to show `canopy://join?account=<account URL>&code=<code>`. An `overstory://join?…` link would not parse, because 03-locators treats the authority as either a `tr_` TreeID or a DNS name. The join link is the account's own locator with the code as a fragment, as `#overstory-access=` and `#overstory-key=` already are. Its web spelling is the one shared; the `overstory://` spelling is the same string apart from the scheme (a segment-parameter form shipped first and was replaced on 2026-10-10, with no alias):
 
 ```text
-overstory://arb.nxhx.org/~alice;overstory-invite=<code>
+https://arb.nxhx.org/~alice#overstory-invite=<code>
+overstory://arb.nxhx.org/~alice#overstory-invite=<code>
 ```
 
-Story registers the `overstory` scheme. When the locator it opens carries `overstory-invite`, Story starts onboarding and the claim. Without the parameter, Story opens the locator as usual. The parameter is specified in 03-locators and 04-accounts-and-devices §1.2.
+Story registers the `overstory` scheme. When the locator it opens carries the `overstory-invite` fragment, Story starts onboarding and the claim. Without it, Story opens the locator as usual. The link is specified in 03-locators §2.2 and 04-accounts-and-devices §1.2.
 
 ## Steps
 

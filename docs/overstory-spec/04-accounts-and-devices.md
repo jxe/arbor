@@ -145,12 +145,18 @@ placement account instead, with no claim (§1.3).
 The person may send that public TreeID by any ordinary channel. An invited
 person instead receives the code and creates their profile identity locally.
 The administrator hands the code over as an **invitation link**: the reserved
-account's locator carrying the code as the segment parameter
-`overstory-invite` ([locators §2.2](03-locators.md#22-invitation-links)):
+account's web address carrying the code as the fragment `overstory-invite`
+([locators §2.2](03-locators.md#22-invitation-links)), which a client also
+reads under the `overstory://` scheme:
 
 ```text
-overstory://community.example/~alice;overstory-invite=<code>
+https://community.example/~alice#overstory-invite=<code>
 ```
+
+A browser that opens the link reaches the host's page for a reserved address.
+That page is the same for every reserved, unclaimed address, whether it is
+held for one profile or for an invitation, and the code, being a fragment, is
+not sent to the host.
 
 A client that opens one creates or selects the local profile identity, then
 requests a challenge from the host the locator's authority names, with the

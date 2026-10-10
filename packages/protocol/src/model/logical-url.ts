@@ -6,9 +6,10 @@ export interface ResolvedLocatorState {
   /** `;overstory-config`: the locator names the configuration of the tree whose root it names. */
   configuration?: true;
   /**
-   * `;overstory-invite=<code>`: the invitation code a join link carries on an
-   * account locator. A secret for the claim, never part of what the locator
-   * names: builders of canonical and identity forms leave it out.
+   * `#overstory-invite=<code>`: the invitation code a join link carries as the
+   * fragment of an account locator, so it never reaches a server in a URL. A
+   * secret for the claim, never part of what the locator names: builders of
+   * canonical and identity forms leave it out.
    */
   invite?: string;
   stableKey: string | null;
@@ -36,7 +37,10 @@ const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const TREE_ID_AUTHORITY = /^tr_[a-z2-7]+$/;
 const MARKDOWN_KEY_PREFIX = "overstory-key=";
 const CONFIGURATION_PARAMETER = "overstory-config";
-const INVITE_PARAMETER = /^overstory-invite=([A-Za-z0-9._~-]+)$/;
+const INVITE_FRAGMENT_PREFIX = "overstory-invite=";
+const INVITE_CODE = /^[A-Za-z0-9._~-]+$/;
+/** An `https://` account locator, or `http://` at a loopback host, carrying an invitation fragment. */
+const HTTP_INVITE_LOCATOR = /^(?:https:\/\/|http:\/\/(?=(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[\/#]|$)))([^\/?#;@]+(?:\/[^?#]*)?#overstory-invite=[A-Za-z0-9._~-]+)$/i;
 const SCHEME = "overstory://";
 
 // Rename 002: the spellings from before the Overstory rename, read wherever a
@@ -93,12 +97,11 @@ function splitOnce(value: string, separator: string): [string, string | null] {
  * Split the final raw segment's `;overstory-key=…;overstory-rev=…` parameter block from the path.
  * Parameters appear in that order at most once each; anything else after the first
  * `;overstory-` marker is invalid rather than path data. `;overstory-config` takes no value
- * and stands alone; so does `;overstory-invite=<code>`.
+ * and stands alone.
  */
 function segmentParameters(rawPathWithParameters: string): {
   rawPath: string;
   configuration?: true;
-  invite?: string;
   stableKey: string | null;
   revision: string | null;
 } | null {
@@ -108,8 +111,6 @@ function segmentParameters(rawPathWithParameters: string): {
   if (rawPathWithParameters.slice(marker + 1) === CONFIGURATION_PARAMETER) {
     return { rawPath: rawPathWithParameters.slice(0, marker), configuration: true, stableKey: null, revision: null };
   }
-  const invite = rawPathWithParameters.slice(marker + 1).match(INVITE_PARAMETER)?.[1];
-  if (invite) return { rawPath: rawPathWithParameters.slice(0, marker), invite, stableKey: null, revision: null };
   let stableKey: string | null = null;
   let revision: string | null = null;
   let stage = 0;
@@ -137,10 +138,16 @@ function locatorState(destination: string, fragment: string | null): {
   const [rawPathWithParameters, applicationQuery] = splitOnce(destination, "?");
   const parameters = segmentParameters(rawPathWithParameters);
   if (!parameters) return null;
-  const { rawPath, stableKey: pathStableKey, revision, configuration, invite } = parameters;
+  const { rawPath, stableKey: pathStableKey, revision, configuration } = parameters;
   // A configuration is addressed as a whole: no key, fragment or query goes with it.
-  // Nor with an invitation, which names an account and nothing inside it.
-  if ((configuration || invite) && (fragment !== null || applicationQuery !== null)) return null;
+  if (configuration && (fragment !== null || applicationQuery !== null)) return null;
+  // An invitation is the whole fragment and stands alone: it names an account
+  // and nothing inside it, so no parameter or query goes with it.
+  if (fragment?.startsWith(INVITE_FRAGMENT_PREFIX)) {
+    const invite = fragment.slice(INVITE_FRAGMENT_PREFIX.length);
+    if (!INVITE_CODE.test(invite) || configuration || pathStableKey || revision || applicationQuery !== null) return null;
+    return { rawPath, state: { invite, stableKey: null, revision: null, applicationQuery: null, contentFragment: null } };
+  }
 
   const markdownKeyToken = fragment?.startsWith(MARKDOWN_KEY_PREFIX)
     ? fragment.slice(MARKDOWN_KEY_PREFIX.length)
@@ -153,7 +160,6 @@ function locatorState(destination: string, fragment: string | null): {
     rawPath,
     state: {
       ...(configuration ? { configuration } : {}),
-      ...(invite ? { invite } : {}),
       stableKey: pathStableKey ?? markdownStableKey,
       revision,
       applicationQuery,
@@ -253,12 +259,18 @@ export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): R
   if (scheme === "overstory") return raw.startsWith(SCHEME) ? parseOverstoryURL(raw) : null;
   if (scheme === "system") return { kind: "system", raw };
   if (scheme === "local") return { kind: "overlay", raw };
+  if (scheme === "https" || scheme === "http") {
+    // A join link is shared in its web spelling: the same locator apart from the scheme.
+    const invitation = raw.match(HTTP_INVITE_LOCATOR);
+    const account = invitation ? parseOverstoryURL(`${SCHEME}${invitation[1]}`) : null;
+    if (account?.kind === "overstory" && account.invite) return account;
+  }
   if (scheme) return { kind: "external", href: raw };
 
   const [destination, fragment] = splitOnce(raw, "#");
   const parsed = locatorState(destination, fragment);
   if (!parsed) return null;
-  // An invitation goes only on an `overstory://` account locator.
+  // An invitation goes only on an account locator at a host.
   if (parsed.state.invite) return null;
   const path = resolveTreePath(sourceDirectory, parsed.rawPath);
   if (path === null) return null;
@@ -365,16 +377,20 @@ export function buildOverstoryLocator(
 }
 
 /**
- * The join link for an account: its `overstory://` locator carrying the
- * invitation code as `;overstory-invite=<code>` (accounts §1.2). `account` is
- * the account's locator or URL at its host, without parameters, query or
- * fragment. The code is a secret: the result is for handing to the invited
- * person, never for comparing or pinning identities.
+ * The join link for an account: its web URL carrying the invitation code as
+ * the fragment `#overstory-invite=<code>` (accounts §1.2), the form that is
+ * shared. It is `https://`, or `http://` for a loopback host; the same string
+ * under `overstory://` is the same link. `account` is the account's locator
+ * or URL at its host, without parameters, query or fragment. The code is a
+ * secret: the result is for handing to the invited person, never for
+ * comparing or pinning identities.
  */
 export function buildInviteLocator(account: string, code: string): string {
-  const match = account.match(/^(?:overstory|https?):\/\/([^/?#;]+)(\/[^?#;]*)?$/);
-  if (!match || match[1]!.startsWith("tr_")) throw new TypeError(`Not an account locator: ${account}`);
-  const locator = `${SCHEME}${match[1]}${(match[2] ?? "").replace(/\/+$/, "") || "/"};overstory-invite=${code}`;
+  const match = account.match(/^(overstory|https?):\/\/([^/?#;@]+)(\/[^?#;]*)?$/);
+  if (!match || match[2]!.startsWith("tr_")) throw new TypeError(`Not an account locator: ${account}`);
+  const loopback = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(match[2]!);
+  const scheme = match[1] === "overstory" ? (loopback ? "http" : "https") : match[1];
+  const locator = `${scheme}://${match[2]}${(match[3] ?? "").replace(/\/+$/, "") || "/"}#${INVITE_FRAGMENT_PREFIX}${code}`;
   const resolved = resolveLogicalURL("/", locator);
   if (resolved?.kind !== "overstory" || resolved.invite !== code) throw new TypeError("Invalid invitation code or account locator");
   return locator;
